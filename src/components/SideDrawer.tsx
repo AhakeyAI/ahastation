@@ -254,6 +254,14 @@ export const SideDrawer = memo(function SideDrawer({
     );
   }, [activeBackendIds, backends, mentionFilter]);
 
+  // Participants tab shows configured agents only (loggedIn via OAuth or a
+  // saved API key — same auth-state split as BackendSettings). Unconfigured
+  // ones are reachable through the ＋新增 → settings flow instead.
+  const configuredBackends = useMemo(
+    () => backends.filter((b) => b.loggedIn || b.hasApiKey),
+    [backends],
+  );
+
   const handleSlashSelect = useCallback((skill: SkillInfo) => {
     const before = text.slice(0, slashStartRef.current);
     const after = text.slice(slashStartRef.current + 1 + slashFilter.length);
@@ -532,19 +540,22 @@ export const SideDrawer = memo(function SideDrawer({
       {tab === 'participants' && (
         <div className="drawer-participants">
           <div className="drawer-participants-header">
-            <span className="drawer-participants-title">Configured CLI Backends</span>
-            <span className="drawer-participants-count">{backends.length} available</span>
+            <span className="drawer-participants-title">已配置的智能体</span>
+            <span className="drawer-participants-count">{configuredBackends.length} 个</span>
+            <button
+              className="drawer-participant-add"
+              onClick={() => void window.vibeMeet.settingsWindow.open({ focus: 'backends-unconfigured' })}
+              title="打开设置，配置新的智能体"
+            >
+              ＋ 新增
+            </button>
           </div>
           <div className="drawer-participants-list">
-            {backends.length === 0 && (
-              <div className="drawer-empty">暂无已配置的 CLI 后端。请在设置中添加。</div>
+            {configuredBackends.length === 0 && (
+              <div className="drawer-empty">暂无已配置的智能体。点击「新增」去设置中配置。</div>
             )}
-            {backends.map((b) => {
+            {configuredBackends.map((b) => {
               const isActive = activeBackendIds.has(b.id);
-              // A backend is "configured" if:
-              // - It's the default (bundled, no extra setup needed), OR
-              // - It has an auth entry with valid credentials (apiKey or oauth)
-              const isConfigured = b.loggedIn;
               return (
                 <div key={b.id} className={`drawer-participant-row ${isActive ? 'active' : ''}`}>
                   <div className="drawer-participant-info">
@@ -552,7 +563,7 @@ export const SideDrawer = memo(function SideDrawer({
                     <span className="drawer-participant-status">
                       {b.available ? '✓ 已安装' : '✗ 未安装'}
                       {' · '}
-                      {isConfigured ? '✓ 已配置' : '✗ 未配置'}
+                      {'✓ 已配置'}
                     </span>
                   </div>
                   {isActive ? (
@@ -561,27 +572,16 @@ export const SideDrawer = memo(function SideDrawer({
                     <button
                       className="drawer-participant-invite"
                       onClick={() => onAddHost?.(b.id)}
-                      disabled={!b.available || !isConfigured || disabled}
+                      disabled={!b.available || disabled}
                       title={
                         !b.available
                           ? 'CLI 未安装，无法邀请'
-                          : !isConfigured
-                            ? '未配置 API Key，请先去设置'
-                            : disabled
-                              ? '会议未开始'
-                              : `邀请 ${b.displayName}`
+                          : disabled
+                            ? '会议未开始'
+                            : `邀请 ${b.displayName}`
                       }
                     >
                       邀请
-                    </button>
-                  )}
-                  {!isConfigured && (
-                    <button
-                      className="drawer-participant-configure"
-                      onClick={() => void window.vibeMeet.settingsWindow.open()}
-                      title="去设置中配置"
-                    >
-                      去配置
                     </button>
                   )}
                 </div>

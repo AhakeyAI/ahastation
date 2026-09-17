@@ -169,8 +169,10 @@ export function registerSettingsIpc(): void {
     await updateSettings(next);
     // ASR availability is probed once at renderer mount; when credentials
     // change mid-session, notify every window so hooks re-probe instead of
-    // requiring an app restart for the mic to unlock.
-    if (next.xfyunAsr) {
+    // requiring an app restart for the mic to unlock. A "don't show again"
+    // write likewise needs to reach every already-open window so their
+    // useVoicePreferences re-fetches and the voice guide stops nagging.
+    if (next.xfyunAsr || next.voiceGuidanceDismissed !== undefined) {
       for (const wc of webContents.getAllWebContents()) {
         wc.send('settings:voice-pref-changed');
       }

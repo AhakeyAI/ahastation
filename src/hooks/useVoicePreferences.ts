@@ -11,6 +11,11 @@ export function useVoicePreferences() {
   const [selectedVoiceName, setSelectedVoiceNameState] = useState<string | null>(null);
   const [guidanceDismissed, setGuidanceDismissed] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  // getVoicePref() is async; until it resolves guidanceDismissed holds its
+  // initial `false`, which the auto-open effect below would happily act on.
+  // Gate the effect on prefLoaded so a persisted "don't show again" can't
+  // be raced past on every window mount.
+  const [prefLoaded, setPrefLoaded] = useState(false);
   const [guidanceClosedThisSession, setGuidanceClosedThisSession] = useState(false);
   const [filterMode, setFilterModeState] = useState<SpeechFilterMode>('strict');
   const [voicePolishEnabled, setVoicePolishEnabled] = useState(false);
@@ -43,8 +48,21 @@ export function useVoicePreferences() {
       xfyunAsrRef.current = pref.xfyunAsr;
       setSelectedVoiceName(pref.selectedVoiceName);
       setSpeechFilterMode(pref.speechFilterMode);
+      setPrefLoaded(true);
     }).catch(() => {});
     return () => { cancelled = true; };
+  }, []);
+
+  // "Don't show again" clicked in another window: the main process
+  // broadcasts settings:voice-pref-changed — re-fetch so this window stops
+  // nagging without waiting for a remount.
+  useEffect(() => {
+    const unsubscribe = window.vibeMeet.onVoicePrefChanged?.(() => {
+      window.vibeMeet.getVoicePref().then((pref) => {
+        setGuidanceDismissed(pref.guidanceDismissed);
+      }).catch(() => {});
+    });
+    return () => { unsubscribe?.(); };
   }, []);
 
   useEffect(() => {
@@ -53,17 +71,17 @@ export function useVoicePreferences() {
   }, [voicesReady]);
 
   useEffect(() => {
-    if (!isMac || !voicesReady) return;
+    if (!isMac || !voicesReady || !prefLoaded) return;
     const chineseAny = listChineseVoices(voices).length > 0;
     const hasPremium = hasPremiumChineseVoice(voices);
-    if (hasPremium) {
+    if (hasPremium || guidanceDismissed) {
       setGuideOpen(false);
       return;
     }
-    if (!guidanceDismissed && !guidanceClosedThisSession && chineseAny) {
+    if (!guidanceClosedThisSession && chineseAny) {
       setGuideOpen(true);
     }
-  }, [isMac, voicesReady, voices, guidanceDismissed, guidanceClosedThisSession]);
+  }, [isMac, voicesReady, voices, guidanceDismissed, guidanceClosedThisSession, prefLoaded]);
 
   const handleVoiceChange = useCallback((name: string | null) => {
     setSelectedVoiceNameState(name);

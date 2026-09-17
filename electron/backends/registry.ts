@@ -16,6 +16,7 @@ import { QoderBackend } from './qoder-adapter.js';
 import { CustomBackend, type CustomBackendOptions } from './custom-adapter.js';
 import { OpenCodeBackend } from './opencode-adapter.js';
 import { PocketVibeBackend } from './pocket-vibe-adapter.js';
+import { listCustomBackends, type CustomBackendEntry } from '../store.js';
 import type { ConfirmDestructive } from '../claude-session.js';
 import type {
   BackendEffectiveProfile,
@@ -177,24 +178,20 @@ export function getBackendRegistry(confirmDestructive?: ConfirmDestructive): Bac
   return instance;
 }
 
-/** Register custom backends from settings. Called after settings are loaded. */
-export function registerCustomBackends(): void {
+/** Register custom backends from settings. Called after settings are loaded.
+ *
+ *  store.js is imported statically — it has no dependency back on this
+ *  module, so there is no import cycle. The previous lazy require() threw
+ *  ReferenceError in the ESM main process ("type": "module"), and the
+ *  catch swallowed it — custom backends silently never registered.
+ *  `listEntries` is injectable so tests can drive registration without a
+ *  settings.json on disk. */
+export function registerCustomBackends(
+  listEntries: () => CustomBackendEntry[] = listCustomBackends,
+): void {
   const registry = getBackendRegistry();
-  // Lazy import to avoid circular dependency at module load time.
-  // settings-loader will call this after settings are available.
-  let listCustomBackends: () => import('../store.js').CustomBackendEntry[];
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const store = require('../store.js');
-    listCustomBackends = store.listCustomBackends;
-  } catch {
-    // Settings module not yet available — custom backends will be registered later
-    return;
-  }
-
-  try {
-    const customBackends = listCustomBackends();
-    for (const entry of customBackends) {
+    for (const entry of listEntries()) {
       registry.registerCustom({
         id: entry.id,
         displayName: entry.displayName,

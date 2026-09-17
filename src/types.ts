@@ -1379,8 +1379,11 @@ export interface VibeMeetApi {
   };
   skills: SkillsApi;
   settingsWindow: {
-    open: () => Promise<{ ok: boolean }>;
+    /** `focus` names a settings section to bring into view (e.g.
+     *  'backends-unconfigured' from the Participants sidebar's ＋ 新增). */
+    open: (opts?: { focus?: string }) => Promise<{ ok: boolean }>;
     close: () => Promise<{ ok: boolean }>;
+    onFocusSection: (cb: (payload: { section: string }) => void) => () => void;
   };
   openCodeEditor: {
     open: (payload: { backendId: string; hostId: string; sessionId: string; cwd: string; title?: string }) => Promise<{ ok: boolean; error?: string }>;
