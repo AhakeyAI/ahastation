@@ -2876,6 +2876,36 @@ html.popout-view #root {
   font-style: italic; padding: 4px 0;
 }
 
+/* Talker "thinking" indicator — transient bubble shown while the host
+ * backend processes a turn. Cleared by the first reply text / turn end. */
+.msg-thinking .thinking-body {
+  display: inline-flex; align-items: center; align-self: flex-start; gap: 8px;
+  padding: 9px 14px;
+  background: var(--bg-elevated); color: var(--text-muted);
+  animation: thinking-fade-in 180ms ease-out;
+}
+.thinking-dots { display: inline-flex; gap: 4px; }
+.thinking-dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); opacity: 0.35;
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+.thinking-text { font-size: 12px; letter-spacing: 0.02em; }
+@keyframes thinking-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes thinking-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-thinking .thinking-body, .thinking-dots i { animation: none; }
+  .thinking-dots i { opacity: 0.7; }
+}
+
 .drawer-composer {
   border-top: 1px solid var(--border-soft);
   padding: 10px;

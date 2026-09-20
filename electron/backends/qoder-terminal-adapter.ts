@@ -71,6 +71,16 @@ export const QODER_TERMINAL_PROFILE: TerminalCliProfile = {
   // No registerTurnHook: Qoder has no hooks; the confirm bar is the signal.
   startupMessage: '终端 Qoder 已启动，任务提示词将自动注入 TUI。每轮结束后请在上方确认条人工确认。',
   missingBinaryMessage: '未找到 qodercli，可执行文件不在 PATH 上，也没有 QoderWork.app 内置版本。',
+  // qodercli (observed on 1.0.47) draws a full-screen login gate when the
+  // stored credential is gone: logo line "Not Login Please Auth" plus body
+  // "Sign in to get started" / "1. Sign in to continue". The task prompt
+  // paste lands on that menu and is silently swallowed — the worker then
+  // idles forever with zero network activity. Fail fast instead.
+  authWall: {
+    pattern: /not\s+login\s+please\s+auth|sign\s+in\s+to\s+get\s+started/i,
+    message:
+      'qodercli 未登录：终端停在 Sign in 登录页，任务提示词无法送达。请先在系统终端运行 qodercli 并完成登录，然后重试该任务。',
+  },
 };
 
 export class QoderTerminalBackend extends TerminalCliBackend {

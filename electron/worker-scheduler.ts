@@ -4464,6 +4464,9 @@ export class WorkerScheduler {
           title: handle.title,
           deps: handle.deps,
           specialty: handle.specialty,
+          // The renderer's stage terminal keys on this to attach the worker's
+          // pty (RealTerminal) instead of the command-log replay panel.
+          backendId: handle.backendId,
         },
       });
       this.emitPlanUpdate();

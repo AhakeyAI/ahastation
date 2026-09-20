@@ -527,10 +527,12 @@ export function App() {
   }, [autoApproveScope, pendingPermission, resolvePermission]);
 
   const leave = useCallback(async () => {
-    cancelSpeech();
+    // These pre-steps must never throw — a failure here used to skip closeTab
+    // entirely, leaving the session alive main-side with no way back in.
+    try { cancelSpeech(); } catch { /* teardown continues */ }
     speakingRef.current = false;
     setAiSpeaking(false);
-    stopShare();
+    try { stopShare(); } catch { /* teardown continues */ }
     const id = meetingStore.getActiveId();
     if (id) await meetingStore.closeTab(id);
     // Zero-session board entry (boardOnly with no tabs) has nothing to close,

@@ -45,6 +45,7 @@ export type SessionEvent =
   | { kind: 'permission-request'; id: string; toolName: string; input: Record<string, unknown>; toolUseID: string }
   | { kind: 'auth-required'; error: string }
   | { kind: 'error'; error: string }
+  | { kind: 'turn-status'; status: 'started' | 'completed' }
   | { kind: 'ended' };
 
 /** Priority for input messages handed to the talker.

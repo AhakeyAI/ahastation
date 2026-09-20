@@ -13,6 +13,7 @@ import type {
   PendingPermission,
   RecentCwdMeta,
   RendererEvent,
+  SessionMeta,
   StagedAttachment,
   TranscriptEntry,
   DeliveryView,
@@ -46,6 +47,12 @@ import { isAffirmativeDeliveryFeedback } from './delivery-feedback';
 
 const MAX_TRANSCRIPT = 500;
 const MAX_ACTIVITY = 500;
+
+/** Upper bound for waiting on main-side session teardown. Recap and worker
+ *  reaping can stall; Leave must reach local teardown regardless. If the
+ *  session outlives the timeout main-side, the next open adopts it via
+ *  adoptLiveSession(). */
+const CLOSE_IPC_TIMEOUT_MS = 10_000;
 
 // Proactive announcements (progress / blocker) are spoken via short system
 // lines so the user is never left waiting in silence when a worker stalls,
@@ -140,6 +147,11 @@ export interface WorkerState {
   currentTool: string | null;
   currentToolInput: string | null;
   lastText: string;
+  /** True while the host backend is processing a turn — drives the chat
+   *  "thinking" indicator. Set optimistically on send, confirmed by
+   *  turn/started, cleared by the first reply text, turn/completed, or an
+   *  error/end. */
+  responding: boolean;
   endedAt: number | null;
   summary: string;
   specialty: WorkerSpecialty;
@@ -387,6 +399,7 @@ function createTalkerState(): WorkerState {
     currentTool: null,
     currentToolInput: null,
     lastText: '',
+    responding: false,
     endedAt: null,
     summary: '',
     specialty: 'general',
@@ -1115,6 +1128,46 @@ class MeetingStore {
     return null;
   }
 
+  /** Main still hosts a live session for this cwd but this renderer has no
+   *  slot for it — happens when the window was reloaded (or an earlier close
+   *  never completed) while the meeting kept running main-side. Adopt the
+   *  existing session instead of letting setActive() no-op on a missing slot:
+   *  rebuild a local slot from registry metadata so the user actually
+   *  re-enters the live meeting. New events populate the slot as they arrive;
+   *  the talker transcript is restored from disk. */
+  private async adoptLiveSession(sessionId: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    if (this.slots.has(sessionId)) {
+      await this.setActive(sessionId);
+      return { ok: true, sessionId };
+    }
+    let meta: SessionMeta | undefined;
+    try {
+      const list = await window.vibeMeet.sessions.list();
+      meta = list.sessions.find((s) => s.id === sessionId);
+    } catch (err) {
+      console.warn('[meeting-store] sessions.list (adopt) failed', { sessionId, err });
+    }
+    if (!meta) {
+      // Main dropped it between the duplicate reply and our list — tell the
+      // caller to surface a retryable failure instead of dying silently.
+      return { ok: false, error: 'Meeting is no longer running; please try again' };
+    }
+    const slot = emptySlot(meta.id, meta.cwd, this.defaultBackendId ?? 'claude-code');
+    slot.openedAt = meta.openedAt;
+    slot.status = 'ready';
+    slot.state = { ...slot.state, running: true };
+    this.slots.set(slot.id, slot);
+    this.activeId = slot.id;
+    this.recentCwds = [
+      { path: meta.cwd, lastOpenedAt: Date.now() },
+      ...this.recentCwds.filter((r) => r.path !== meta.cwd),
+    ].slice(0, 10);
+    this.notifyTabsOnly();
+    this.notify(slot.id);
+    void this.loadHistoryForSlot(slot);
+    return { ok: true, sessionId: slot.id };
+  }
+
   async openSession(
     cwd: string,
     greeting?: string,
@@ -1150,8 +1203,11 @@ class MeetingStore {
     );
     if (!res.ok) {
       if (res.error === 'duplicate' && 'sessionId' in res && res.sessionId) {
-        await this.setActive(res.sessionId);
-        return { ok: true, sessionId: res.sessionId };
+        // Already open main-side — focus our local slot if we have one, or
+        // adopt the live session when we don't (post-reload / unwedged
+        // leave). A bare setActive() no-ops on a missing slot and the click
+        // dies with zero feedback.
+        return this.adoptLiveSession(res.sessionId);
       }
       return { ok: false, error: res.error };
     }
@@ -1183,11 +1239,13 @@ class MeetingStore {
     if (!res.ok) {
       if (res.error === 'duplicate' && 'sessionId' in res && res.sessionId) {
         // Race: another tab already opened it. Drop our placeholder and focus
-        // the winner.
+        // the winner — adopting it first when this renderer has no slot for
+        // it, otherwise activeId would point at a slot-less id and strand the
+        // user back on the Lobby.
         this.slots.delete(placeholderSlotId);
-        this.activeId = res.sessionId;
-        this.notifyTabsOnly();
-        return { ok: true, sessionId: res.sessionId };
+        const adopted = await this.adoptLiveSession(res.sessionId);
+        if (!adopted.ok) this.notifyTabsOnly();
+        return adopted;
       }
       return { ok: false, error: res.error };
     }
@@ -1258,8 +1316,22 @@ class MeetingStore {
     const slot = this.slots.get(id);
     if (!slot) return;
     if (!slot.placeholder) {
-      try { await window.vibeMeet.sessions.close(id); } catch (err) {
+      // Bound the wait: if main-side teardown stalls, an unbounded await here
+      // wedges the meeting view (the user can only escape by reloading the
+      // window, which then strands the live session). Proceed with local
+      // teardown on timeout — the session is adoptable on the next open.
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        await Promise.race([
+          window.vibeMeet.sessions.close(id),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('sessions.close timed out')), CLOSE_IPC_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (err) {
         console.warn('[meeting-store] sessions.close (closeTab) failed', { id, err });
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
     this.slots.delete(id);
@@ -1308,6 +1380,32 @@ class MeetingStore {
 
   private handleEventForSlot(slot: SlotInternal, e: RendererEvent) {
     const source: AgentSource = e.source ?? 'talker';
+    if (e.kind === 'turn-status') {
+      const responding = e.status === 'started';
+      this.updateWorker(slot, source, (w) => (w.responding === responding ? w : { ...w, responding }), e.hostId);
+      return;
+    }
+    if (e.kind === 'host-added') {
+      // Upsert the host group so the Participants gallery can render its tile.
+      // Live invites already seed it optimistically in addHostGroup(); on
+      // meeting recovery this event is the only signal that rebuilds tiles.
+      const hostId = e.hostId ?? 'default';
+      this.mutateSlot(slot.id, (s) => {
+        const existing = s.hostGroups.get(hostId);
+        if (existing?.backendId === e.backendId) return s;
+        const hostGroups = new Map(s.hostGroups);
+        hostGroups.set(hostId, {
+          id: hostId,
+          backendId: e.backendId,
+          iconId: iconIdForBackend(e.backendId),
+          hostWorkerId: `host-${hostId}`,
+          workerIds: existing?.workerIds ?? [],
+          collapsed: existing?.collapsed ?? true,
+        });
+        return { ...s, hostGroups };
+      });
+      return;
+    }
     if (e.kind === 'session-ready') {
       slot.status = 'ready';
       // For non-default hosts, create a talker WorkerState so the participant
@@ -1400,6 +1498,7 @@ class MeetingStore {
               ...existing,
               title: e.title,
               deps: e.deps,
+              backendId: e.backendId ?? existing.backendId,
               status: 'running',
               specialty: e.specialty,
               startedAt: now,
@@ -1423,6 +1522,7 @@ class MeetingStore {
               role: 'worker',
               status: 'running',
               deps: e.deps,
+              backendId: e.backendId,
               transcript: [],
               activity: [],
               pendingPermission: null,
@@ -1431,6 +1531,7 @@ class MeetingStore {
               currentTool: null,
               currentToolInput: null,
               lastText: '',
+              responding: false,
               endedAt: null,
               summary: '',
               specialty: e.specialty,
@@ -1673,6 +1774,7 @@ class MeetingStore {
       this.updateWorker(slot, source, (w) => ({
         ...w,
         status: 'idle',
+        responding: false,
         endedAt: Date.now(),
         activity: appendCapped(
           w.activity,
@@ -1687,6 +1789,7 @@ class MeetingStore {
     if (e.kind === 'error') {
       this.updateWorker(slot, source, (w) => ({
         ...w,
+        responding: false,
         activity: appendCapped(
           w.activity,
           [{ id: uid(), kind: 'error', title: 'Error', detail: e.error, ts: Date.now(), source }],
@@ -1702,6 +1805,7 @@ class MeetingStore {
       this.updateWorker(slot, source, (w) => ({
         ...w,
         status: w.status === 'idle' || w.role === 'talker' ? 'idle' : (w.status === 'running' ? 'done' : w.status),
+        responding: false,
         endedAt: Date.now(),
         activity: appendCapped(
           w.activity,
@@ -1930,6 +2034,7 @@ class MeetingStore {
       currentTool: null,
       currentToolInput: null,
       lastText: '',
+      responding: false,
       endedAt: null,
       summary: '',
       specialty: 'general',
@@ -2103,6 +2208,7 @@ class MeetingStore {
                 MAX_TRANSCRIPT,
               ),
               lastText: text,
+              responding: false,
             };
           } else {
             next = {
@@ -2169,6 +2275,11 @@ class MeetingStore {
         }
         return next;
       }, hostId);
+      // A reply from any expert host also clears the default talker's
+      // optimistic "waiting" flag — the user got an answer either way.
+      if (talkerEntry && hostId && hostId !== 'default') {
+        this.updateWorker(slot, 'talker', (w) => (w.responding ? { ...w, responding: false } : w));
+      }
       if (talkerEntry) this.persistTalkerEntry(slot, talkerEntry);
       if (shouldSpeak) this.speakCallback?.supersede(text);
       if (source === 'talker' && text.trim().length > 0) this.bumpUnread(slot);
@@ -2233,7 +2344,12 @@ class MeetingStore {
       return;
     }
     if (type === 'result') {
-      if (source === 'talker') return;
+      if (source === 'talker') {
+        // Turn finished without (or after) visible text — Claude hosts have no
+        // turn-status events, so this is their turn/completed equivalent.
+        this.updateWorker(slot, source, (w) => (w.responding ? { ...w, responding: false } : w), hostId);
+        return;
+      }
       this.updateWorker(slot, source, (w) => ({
         ...w,
         activity: appendCapped(
@@ -2408,6 +2524,9 @@ class MeetingStore {
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
       transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
+      // Optimistic "waiting for a reply" flag — the backend's turn/started
+      // confirms it, the first reply text / turn/completed / error clears it.
+      responding: true,
     }));
     this.persistTalkerEntry(slot, entry);
     if (slot.status !== 'ready') {
@@ -2422,6 +2541,7 @@ class MeetingStore {
       console.error('[meeting-store] sendText failed:', msg);
       this.updateWorker(slot, 'talker', (w) => ({
         ...w,
+        responding: false,
         activity: appendCapped(
           w.activity,
           [{ id: uid(), kind: 'error', title: 'Text send failed', detail: msg, ts: Date.now() }],
@@ -2446,6 +2566,7 @@ class MeetingStore {
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
       transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
+      responding: true,
     }));
     this.persistTalkerEntry(slot, entry);
     if (slot.status !== 'ready') {
@@ -2460,6 +2581,7 @@ class MeetingStore {
       console.error('[meeting-store] sendImage failed:', msg);
       this.updateWorker(slot, 'talker', (w) => ({
         ...w,
+        responding: false,
         transcript: w.transcript.filter((t) => t.id !== entryId),
         activity: appendCapped(
           w.activity,
@@ -2495,6 +2617,7 @@ class MeetingStore {
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
       transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
+      responding: true,
     }));
     this.persistTalkerEntry(slot, entry);
     if (slot.status !== 'ready') {
@@ -2512,6 +2635,7 @@ class MeetingStore {
       if (!res.ok) {
         this.updateWorker(slot, 'talker', (w) => ({
           ...w,
+          responding: false,
           transcript: w.transcript.filter((t) => t.id !== entryId),
           activity: appendCapped(
             w.activity,
@@ -2526,6 +2650,7 @@ class MeetingStore {
       const msg = err instanceof Error ? err.message : String(err);
       this.updateWorker(slot, 'talker', (w) => ({
         ...w,
+        responding: false,
         transcript: w.transcript.filter((t) => t.id !== entryId),
         activity: appendCapped(
           w.activity,

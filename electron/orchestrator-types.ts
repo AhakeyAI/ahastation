@@ -147,7 +147,7 @@ export interface WorkerDeliveryFile {
 // renderer can flip the slot's status from 'starting' → 'ready' or 'failed' and
 // replay any queued input.
 export type OrchestratorOnlyEvent =
-  | { kind: 'worker-spawned'; workerId: string; title: string; deps: string[]; specialty: WorkerSpecialtyKind }
+  | { kind: 'worker-spawned'; workerId: string; title: string; deps: string[]; specialty: WorkerSpecialtyKind; backendId: string }
   | { kind: 'worker-ended'; workerId: string; status: WorkerStatusKind; summary?: string }
   | { kind: 'worker-stalled'; workerId: string; title: string; idleMs: number; currentTool: string | null }
   | { kind: 'worker-delivery'; workerId: string; title: string; summary: string; taskId: string; deliveryId: string; files: WorkerDeliveryFile[] }
@@ -172,6 +172,11 @@ export type OrchestratorOnlyEvent =
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string }
   | { kind: 'session-ready' }
+  /** Announced synchronously when a host group is added (live invite or
+   *  recovery re-add), before its talker handshake settles. Carries the
+   *  backend id so the renderer can seed the participant tile; the hostId
+   *  travels on the OrchestratorEvent envelope. */
+  | { kind: 'host-added'; backendId: string }
   | { kind: 'session-start-failed'; error: string }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string }
   | {

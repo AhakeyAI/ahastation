@@ -61,6 +61,12 @@ function selectTalkerTranscript(s: MeetingState): TranscriptEntry[] {
   return s.workers.get('talker')?.transcript ?? EMPTY_TRANSCRIPT;
 }
 
+/** True while the coordinator host is processing a turn (drives the chat
+ *  "thinking" indicator). */
+function selectTalkerResponding(s: MeetingState): boolean {
+  return s.workers.get('talker')?.responding ?? false;
+}
+
 /** Merged activity from all workers (timestamp-sorted, capped) — same
  *  projection the legacy useClaude aggregate produced, but selected here so
  *  the shallow-equal bail-out skips snapshots that only touched transcripts. */
@@ -202,6 +208,7 @@ export const SideDrawer = memo(function SideDrawer({
   // through App): transcript/activity append many times per minute during a
   // voice session, and those updates must not re-render the App tree.
   const transcript = useMeetingSelector(selectTalkerTranscript);
+  const talkerResponding = useMeetingSelector(selectTalkerResponding);
   const activity = useMeetingSelector(selectMergedActivity, shallowEqualArray);
   const hostGroups = useMeetingSelector((s) => s.hostGroups);
   const [tab, setTab] = useState<Tab>('chat');
@@ -403,7 +410,7 @@ export const SideDrawer = memo(function SideDrawer({
   useEffect(() => {
     if (tab !== 'chat') return;
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [transcript.length, tab, pending]);
+  }, [transcript.length, tab, pending, talkerResponding]);
 
   const totalStagedBytes = useMemo(
     () => staged.reduce((acc, a) => acc + a.sizeBytes, 0),
@@ -644,6 +651,17 @@ export const SideDrawer = memo(function SideDrawer({
                 </div>
               );
             })}
+            {talkerResponding && (
+              <div className="msg msg-assistant msg-thinking" aria-live="polite">
+                <div className="msg-meta">
+                  <span className="msg-author">{backendNameForHost(undefined)}</span>
+                </div>
+                <div className="msg-body thinking-body">
+                  <span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+                  <span className="thinking-text">正在思考</span>
+                </div>
+              </div>
+            )}
             {pending && (
               <ApprovalCard
                 pending={pending}

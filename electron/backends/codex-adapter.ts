@@ -512,6 +512,13 @@ class CodexAppServerSession implements BackendSession {
       if (message) this.emit({ kind: 'message', message });
       return;
     }
+    if (notification.method === 'turn/started') {
+      // Host turns drive the renderer's "thinking" indicator; worker turns
+      // already surface progress through worker signals.
+      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'started' });
+      return;
+    }
+
     if (notification.method === 'turn/completed' && isRecord(notification.params.turn)) {
       const turn = notification.params.turn;
       const turnId = typeof turn.id === 'string' ? turn.id : '';
@@ -537,6 +544,7 @@ class CodexAppServerSession implements BackendSession {
           this.emit({ kind: 'worker-signal', signal });
         }
       }
+      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'completed' });
       if (turnId) this.completeTurn(turnId);
       return;
     }

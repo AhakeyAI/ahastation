@@ -9,6 +9,7 @@ import {
   QoderTerminalBackend,
   QODER_TERMINAL_PROFILE,
 } from '../dist-electron/backends/qoder-terminal-adapter.js';
+import { stripAnsi } from '../dist-electron/backends/terminal-cli-adapter.js';
 import { PtyHost } from '../dist-electron/pty-host.js';
 
 const PASTE_START = '\u001b[200~';
@@ -184,4 +185,62 @@ test('profile metadata is consistent', () => {
   assert.ok(QODER_TERMINAL_PROFILE.missingBinaryMessage.includes('qodercli'));
   // Hookless by design.
   assert.equal(QODER_TERMINAL_PROFILE.registerTurnHook, undefined);
+});
+
+test('stripAnsi removes CSI/OSC sequences and normalizes carriage returns', () => {
+  assert.equal(stripAnsi('\x1b[1mBold\x1b[22m plain'), 'Bold plain');
+  assert.equal(stripAnsi('a\r\nb\rc'), 'a\nb\nc');
+  assert.equal(stripAnsi('\x1b]0;title\x07visible'), 'visible');
+  assert.equal(stripAnsi(`\x1b[200~pasted\x1b[201~`), 'pasted');
+});
+
+test('login-gate output fails fast with auth-required and blocks further input', async (t) => {
+  const { backend, spawned } = createFixture(t);
+  const cwd = await createWorkspace(t);
+  const events = [];
+  const session = backend.createSession(
+    { cwd, extra: { workerId: 'qw-authwall' } },
+    (event) => events.push(event),
+  );
+  session.sendUserText('任务提示词');
+  await session.start();
+  // timersEnabled=false → the queued prompt is pasted immediately on ready.
+  assert.equal(spawned[0].pty.writes.length, 2);
+
+  // The qodercli 1.0.47 login gate, with ANSI styling interleaved the way
+  // the real TUI draws it.
+  spawned[0].pty.emitData(
+    '\x1b[1m Qoder CLI v1.0.47\x1b[22m  \x1b[31mNot Login Please Auth\x1b[39m\n'
+    + ' Welcome to Qoder CLI\n Sign in to get started\n  ❯ 1. Sign in to continue\n',
+  );
+  const failures = events.filter((e) => e.signal?.kind === 'failed');
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].signal.code, 'auth-required');
+  assert.equal(failures[0].signal.retryable, false);
+  assert.ok(failures[0].signal.message.includes('qodercli'));
+
+  // Further input is dropped — paste + \r must not reach the login menu.
+  session.sendUserText('后续输入');
+  assert.equal(spawned[0].pty.writes.length, 2);
+
+  // Idempotent: repeated login-gate frames do not re-emit the failure.
+  spawned[0].pty.emitData('Not Login Please Auth');
+  assert.equal(events.filter((e) => e.signal?.kind === 'failed').length, 1);
+  session.end();
+});
+
+test('normal TUI output and login-related task text never trip the auth wall', async (t) => {
+  const { backend, spawned } = createFixture(t);
+  const cwd = await createWorkspace(t);
+  const events = [];
+  const session = backend.createSession(
+    { cwd, extra: { workerId: 'qw-noauth' } },
+    (event) => events.push(event),
+  );
+  await session.start();
+  spawned[0].pty.emitData('Qoder CLI v1.0.47\n Tips for getting started\n> ready\n');
+  // A task conversation about login pages must not false-positive.
+  spawned[0].pty.emitData('我帮你实现登录页，包含 Sign in to continue 按钮文案');
+  assert.ok(events.every((e) => e.signal?.kind !== 'failed'));
+  session.end();
 });
