@@ -668,3 +668,93 @@ test('a re-added host still mid-handshake keeps its recovered resume handle', as
     await rm(runtime.dir, { recursive: true, force: true });
   }
 });
+
+test('terminal hosts use the renderer session scope and normalize process failures', async (t) => {
+  const runtime = fakeHostRuntime();
+  const meetingId = `terminal-scope-${randomUUID()}`;
+  const ptyScopeId = `renderer-session-${randomUUID()}`;
+  const events = [];
+  const configs = [];
+  let terminalEmit;
+
+  resetBackendRegistry();
+  t.after(() => resetBackendRegistry());
+  // The default HostGroup requires a coordinating backend — register one.
+  getBackendRegistry().register({
+    ...fakeCoordinatingBackend(runtime.binary),
+    createSession(_config, _emit) { return fakeSessionFactory(); },
+  });
+  getBackendRegistry().register({
+    id: 'qoder-terminal',
+    capabilities: {
+      coordinate: false,
+      executeTasks: true,
+      displayName: 'Qoder (终端)',
+      iconId: 'qoder',
+      mcp: false,
+      permissions: false,
+      systemPrompt: false,
+      skills: false,
+      interrupt: true,
+      defaultModel: 'auto',
+      models: ['auto'],
+      installHint: '',
+    },
+    resolveBinary: () => '/fake/qodercli',
+    buildEnv: (_auth, extra) => extra,
+    createSession(config, emit) {
+      configs.push(config);
+      terminalEmit = emit;
+      return fakeSessionFactory();
+    },
+  });
+
+  const orchestrator = new Orchestrator({
+    emit: (event) => events.push(event),
+    cwd: '/tmp',
+    meetingId,
+    ptyScopeId,
+  });
+  try {
+    assert.deepEqual(orchestrator.addHost('qoder-terminal', 'qoder'), { ok: true, hostId: 'qoder' });
+    const readyDeadline = Date.now() + 2_000;
+    while (!events.some((item) => item.hostId === 'qoder' && item.event.kind === 'session-ready')) {
+      if (Date.now() > readyDeadline) assert.fail('terminal host did not become ready');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    assert.equal(configs.length, 1);
+    assert.equal(configs[0].meetingId, meetingId, 'durable meeting identity remains unchanged');
+    assert.equal(
+      configs[0].extra.workerId,
+      `host-terminal-${ptyScopeId}-qoder`,
+      'PTY identity must use the renderer-visible session scope',
+    );
+
+    terminalEmit({
+      kind: 'worker-signal',
+      signal: { kind: 'failed', code: 'runtime-crash', message: 'qoder crashed', retryable: true },
+    });
+    // safeEmit appends to the journal before the emit callback fires;
+    // let the async append settle before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(events.some((item) => (
+      item.hostId === 'qoder'
+      && item.event.kind === 'error'
+      && item.event.error === 'qoder crashed'
+    )), 'error event for terminal failure');
+    assert.ok(events.some((item) => (
+      item.hostId === 'qoder'
+      && item.event.kind === 'turn-status'
+      && item.event.status === 'completed'
+    )));
+
+    terminalEmit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'), 'ended event');
+  } finally {
+    await orchestrator.end();
+    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(runtime.dir, { recursive: true, force: true });
+  }
+});

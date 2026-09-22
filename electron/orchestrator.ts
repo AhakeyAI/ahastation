@@ -23,6 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { ClaudeSession, type SessionEvent } from './claude-session.js';
 import type { BackendSession, BackendSessionSnapshot } from './backends/cli-backend.js';
 import { getBackendRegistry } from './backends/registry.js';
+import {
+  hostTerminalWorkerId,
+  isTerminalWorkerBackend,
+} from './backends/terminal-cli-adapter.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import {
   coerceWorkspaceModeForBaseline,
@@ -193,6 +197,9 @@ interface OrchestratorOpts {
   defaultBackendId?: string;
   /** Existing Meeting identity and native Host handles selected by the user for recovery. */
   meetingId?: string;
+  /** Runtime session identity shared with the renderer for terminal-host PTY routing.
+   *  This is deliberately separate from the durable meetingId during recovery. */
+  ptyScopeId?: string;
   recoverySeq?: number;
   resumeBackendSessions?: Record<string, BackendSessionSnapshot>;
   recoveredTasks?: Array<Record<string, unknown>>;
@@ -245,6 +252,7 @@ export class Orchestrator implements OrchestratorBridge {
   private closed = false;
   private projectId: string;
   private meetingId: string;
+  private readonly ptyScopeId: string;
   private repository: MeetingRepository;
   private repositoryReady: Promise<void>;
   private taskMailbox: TaskMailbox;
@@ -341,6 +349,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.browserTabManager = opts.browserTabManager;
     this.projectId = computeProjectId(this.cwd);
     this.meetingId = opts.meetingId ?? randomUUID();
+    this.ptyScopeId = opts.ptyScopeId ?? this.meetingId;
     this.resumeBackendSessions = opts.resumeBackendSessions ?? {};
     this.recoveredTasks = opts.recoveredTasks ?? [];
     this.recoveredHosts = opts.recoveredHosts ?? [];
@@ -554,6 +563,12 @@ export class Orchestrator implements OrchestratorBridge {
             // API keys entirely. When an apiKey is configured, fall back to
             // the one-shot CLI mode (buildEnv injects MOONSHOT_API_KEY).
             ...(backendId === 'kimi' && !auth.apiKey ? { kimiTransport: 'acp' } : {}),
+            // Terminal-mode hosts run their TUI as the host session itself:
+            // pin the pty worker id so the renderer can attach a RealTerminal
+            // (mirrored helper in src/lib/terminal-backends.ts).
+            ...(purpose === 'host' && isTerminalWorkerBackend(backendId)
+              ? { workerId: hostTerminalWorkerId(this.ptyScopeId, actorHostId) }
+              : {}),
             meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw),
           },
         },
@@ -1476,7 +1491,18 @@ export class Orchestrator implements OrchestratorBridge {
   sendUserText(text: string) {
     const mention = this.resolveHostMention(text);
     if (!mention) {
-      this.defaultHost().sendUserText(text);
+      const fallback = this.defaultHost();
+      fallback.sendUserText(text);
+      // The renderer names its optimistic "thinking" bubble after the routed
+      // host; default-route sends must tag that too, or a stale @mention from
+      // an earlier turn keeps naming the wrong host. safeEmit (not a bare
+      // repository.append) is required so the tag actually reaches the
+      // renderer — append alone only journals it.
+      this.safeEmit({
+        source: 'system',
+        hostId: DEFAULT_HOST_ID,
+        event: { kind: 'user-mentioned-host', backendId: fallback.backendId, chars: text.length },
+      });
       return;
     }
     const addressedText = mention.text || '用户刚刚直接点名了你，请简短回应。';
@@ -1484,10 +1510,10 @@ export class Orchestrator implements OrchestratorBridge {
       `[direct user mention from meeting chat]\n${addressedText}\n\n`
       + '直接用普通 assistant 文本回答用户；不要主持、派任务或输出 meeting-command。',
     );
-    void this.repository.append('user-mentioned-host', {
+    this.safeEmit({
+      source: 'system',
       hostId: mention.hostId,
-      backendId: mention.host.backendId,
-      chars: addressedText.length,
+      event: { kind: 'user-mentioned-host', backendId: mention.host.backendId, chars: addressedText.length },
     });
   }
 

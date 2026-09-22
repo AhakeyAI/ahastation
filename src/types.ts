@@ -892,6 +892,7 @@ export type RendererEvent =
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'host-added'; backendId: string; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string };
 
 export interface DesktopSource {

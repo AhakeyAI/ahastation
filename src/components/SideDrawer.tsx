@@ -56,15 +56,36 @@ const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
 const MAX_AGGREGATE_ACTIVITY = 500;
 
 /** Talker's transcript drives the chat timeline; subscribed internally so
- *  per-message updates re-render only the drawer, never the App tree. */
+ *  per-message updates re-render only the drawer, never the App tree.
+ *
+ *  The timeline shows EVERY host's assistant replies, not just the
+ *  coordinator's. Coordinator/default replies (and the user's own messages)
+ *  live under the 'talker' worker; @mentioned expert hosts — including
+ *  terminal CLIs whose answers arrive via the session-transcript tailer —
+ *  land under 'talker:<hostId>'. Merge them chronologically so a mentioned
+ *  host's answer appears inline instead of vanishing into a hidden worker. */
 function selectTalkerTranscript(s: MeetingState): TranscriptEntry[] {
-  return s.workers.get('talker')?.transcript ?? EMPTY_TRANSCRIPT;
+  let only: TranscriptEntry[] = EMPTY_TRANSCRIPT;
+  let merged: TranscriptEntry[] | null = null;
+  let count = 0;
+  for (const [key, ws] of s.workers) {
+    if (key !== 'talker' && !key.startsWith('talker:')) continue;
+    if (ws.transcript.length === 0) continue;
+    count += 1;
+    only = ws.transcript;
+    (merged ??= []).push(...ws.transcript);
+  }
+  // Fast path: a single contributing talker — return its array by reference so
+  // the shallow-equal bail-out can skip snapshots that touched nothing here.
+  if (count <= 1 || !merged) return only;
+  merged.sort((a, b) => a.ts - b.ts);
+  return merged;
 }
 
-/** True while the coordinator host is processing a turn (drives the chat
- *  "thinking" indicator). */
+/** True while the host selected for the latest user turn is responding. */
 function selectTalkerResponding(s: MeetingState): boolean {
-  return s.workers.get('talker')?.responding ?? false;
+  const key = s.lastMentionedHostId ? `talker:${s.lastMentionedHostId}` : 'talker';
+  return s.workers.get(key)?.responding ?? false;
 }
 
 /** Merged activity from all workers (timestamp-sorted, capped) — same
@@ -207,8 +228,11 @@ export const SideDrawer = memo(function SideDrawer({
   // High-frequency meeting streams are subscribed in-component (not threaded
   // through App): transcript/activity append many times per minute during a
   // voice session, and those updates must not re-render the App tree.
-  const transcript = useMeetingSelector(selectTalkerTranscript);
+  const transcript = useMeetingSelector(selectTalkerTranscript, shallowEqualArray);
   const talkerResponding = useMeetingSelector(selectTalkerResponding);
+  // The bubble names the host the input was actually routed to (default:
+  // the coordinator host), so @mentioning qoder no longer reads "Codex 正在思考".
+  const thinkingHostId = useMeetingSelector((s) => s.lastMentionedHostId ?? null);
   const activity = useMeetingSelector(selectMergedActivity, shallowEqualArray);
   const hostGroups = useMeetingSelector((s) => s.hostGroups);
   const [tab, setTab] = useState<Tab>('chat');
@@ -654,7 +678,7 @@ export const SideDrawer = memo(function SideDrawer({
             {talkerResponding && (
               <div className="msg msg-assistant msg-thinking" aria-live="polite">
                 <div className="msg-meta">
-                  <span className="msg-author">{backendNameForHost(undefined)}</span>
+                  <span className="msg-author">{backendNameForHost(thinkingHostId ?? undefined)}</span>
                 </div>
                 <div className="msg-body thinking-body">
                   <span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span>

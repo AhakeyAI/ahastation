@@ -177,6 +177,10 @@ export type OrchestratorOnlyEvent =
    *  backend id so the renderer can seed the participant tile; the hostId
    *  travels on the OrchestratorEvent envelope. */
   | { kind: 'host-added'; backendId: string }
+  /** The user @mentioned (or default-routed to) a host from the meeting chat.
+   *  Purely a renderer hint: it names the optimistic "thinking" bubble after
+   *  the routed host. hostId travels on the OrchestratorEvent envelope. */
+  | { kind: 'user-mentioned-host'; backendId: string; chars: number }
   | { kind: 'session-start-failed'; error: string }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string }
   | {

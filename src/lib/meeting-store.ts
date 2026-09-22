@@ -39,6 +39,11 @@ import { extractText, extractToolUses, uid } from './sdk-message';
 import { isSpeechActive, type SpeakHandle } from './speech-session';
 import { reduceWorkerEvent, upsertCommandLog } from './worker-event-reducer';
 import {
+  hostTerminalWorkerId,
+  isTerminalWorkerBackendId,
+  terminalBackendLabel,
+} from './terminal-backends';
+import {
   hydrateTaskProjection,
   reduceTaskEvent,
   type TaskInspectorProjection,
@@ -223,6 +228,12 @@ export interface MeetingState {
     candidateHostId: string;
     error?: string;
   };
+  /** Host the latest chat input was routed to (null/'default' = the
+   *  coordinator host). Drives the thinking bubble's author name so an
+   *  @mention of an expert host doesn't look like the coordinator is the
+   *  one answering. Set by the main-process user-mentioned-host event;
+   *  cleared optimistically on every local send. */
+  lastMentionedHostId?: string | null;
 }
 
 /** One host group: a host agent + its worker pool. Collapsible in the
@@ -463,6 +474,20 @@ function emptySlot(id: string, cwd: string, defaultBackendId: string = 'claude-c
 const PLACEHOLDER_PREFIX = 'placeholder:';
 function placeholderId(cwd: string): string {
   return `${PLACEHOLDER_PREFIX}${cwd}`;
+}
+
+/** Best-effort local mirror of the main-process mention resolver. This only
+ *  drives the optimistic thinking indicator; the authoritative
+ *  user-mentioned-host event reconciles fallbacks and readiness races. */
+function optimisticMentionedHostId(state: MeetingState, text: string): string | null {
+  for (const match of text.matchAll(/@([a-zA-Z0-9._-]+)/g)) {
+    const token = match[1].toLowerCase();
+    const host = Array.from(state.hostGroups.values()).find((candidate) => (
+      candidate.id.toLowerCase() === token || candidate.backendId.toLowerCase() === token
+    ));
+    if (host) return host.id === 'default' ? null : host.id;
+  }
+  return null;
 }
 
 class MeetingStore {
@@ -1385,6 +1410,29 @@ class MeetingStore {
       this.updateWorker(slot, source, (w) => (w.responding === responding ? w : { ...w, responding }), e.hostId);
       return;
     }
+    if (e.kind === 'user-mentioned-host') {
+      const routed = e.hostId && e.hostId !== 'default' ? e.hostId : null;
+      const targetKey = routed ? `talker:${routed}` : 'talker';
+      this.mutateSlot(slot.id, (s) => {
+        const talkerResponding = Array.from(s.workers.entries()).some(([key, worker]) => (
+          (key === 'talker' || key.startsWith('talker:')) && worker.responding
+        ));
+        if (!talkerResponding && s.lastMentionedHostId === routed) return s;
+
+        const workers = new Map(s.workers);
+        if (talkerResponding) {
+          for (const [key, worker] of workers) {
+            if ((key === 'talker' || key.startsWith('talker:')) && worker.responding && key !== targetKey) {
+              workers.set(key, { ...worker, responding: false });
+            }
+          }
+          const target = workers.get(targetKey) ?? this.makeBlankWorker('talker', e.hostId);
+          if (!target.responding) workers.set(targetKey, { ...target, responding: true });
+        }
+        return { ...s, workers, lastMentionedHostId: routed };
+      });
+      return;
+    }
     if (e.kind === 'host-added') {
       // Upsert the host group so the Participants gallery can render its tile.
       // Live invites already seed it optimistically in addHostGroup(); on
@@ -1404,6 +1452,48 @@ class MeetingStore {
         });
         return { ...s, hostGroups };
       });
+      // A terminal-mode host runs its interactive TUI as the host session
+      // itself. Surface it as a worker entry keyed by the deterministic pty
+      // id (main injects the same id as the session workerId) so the stage
+      // auto-opens a RealTerminal attached to that pty instead of leaving
+      // the TUI invisible.
+      if (isTerminalWorkerBackendId(e.backendId)) {
+        const ptyWorkerId = hostTerminalWorkerId(slot.id, hostId);
+        this.mutateSlot(slot.id, (s) => {
+          if (s.workers.has(ptyWorkerId)) return s;
+          const workers = new Map(s.workers);
+          workers.set(ptyWorkerId, {
+            id: ptyWorkerId,
+            title: `${terminalBackendLabel(e.backendId)} 终端`,
+            role: 'worker',
+            status: 'running',
+            deps: [],
+            backendId: e.backendId,
+            transcript: [],
+            activity: [],
+            pendingPermission: null,
+            resolvingPermissionId: null,
+            permissionError: null,
+            currentTool: null,
+            currentToolInput: null,
+            lastText: '',
+            responding: false,
+            endedAt: null,
+            summary: '',
+            specialty: 'general',
+            startedAt: Date.now(),
+            taskHistory: [],
+            hostId,
+            commandLog: [],
+          });
+          const hostGroups = new Map(s.hostGroups);
+          const hg = hostGroups.get(hostId);
+          if (hg && !hg.workerIds.includes(ptyWorkerId)) {
+            hostGroups.set(hostId, { ...hg, workerIds: [...hg.workerIds, ptyWorkerId] });
+          }
+          return { ...s, workers, hostGroups };
+        });
+      }
       return;
     }
     if (e.kind === 'session-ready') {
@@ -2521,14 +2611,26 @@ class MeetingStore {
     // while still shipping the full prompt to the model.
     const visible = (options?.displayText ?? text).trim() || text;
     const entry: TranscriptEntry = { id: entryId, role: 'user', text: visible, ts: Date.now() };
+    const optimisticHostId = optimisticMentionedHostId(slot.state, text);
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
       transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
-      // Optimistic "waiting for a reply" flag — the backend's turn/started
-      // confirms it, the first reply text / turn/completed / error clears it.
-      responding: true,
+      // Keep the user's message in the canonical talker transcript, but put
+      // the optimistic waiting state on the host named by @mention.
+      responding: optimisticHostId === null,
     }));
+    if (optimisticHostId) {
+      this.updateWorker(slot, 'talker', (w) => ({ ...w, responding: true }), optimisticHostId);
+    }
     this.persistTalkerEntry(slot, entry);
+    // Main sends the authoritative route after checking host readiness. Seed
+    // the local mention immediately so the first rendered frame is attributed
+    // to Qoder rather than briefly showing the coordinator/cloud host.
+    this.mutateSlot(slot.id, (s) => (
+      s.lastMentionedHostId === optimisticHostId
+        ? s
+        : { ...s, lastMentionedHostId: optimisticHostId }
+    ));
     if (slot.status !== 'ready') {
       slot.pendingInput.push({ kind: 'text', text });
       return;
@@ -2569,6 +2671,9 @@ class MeetingStore {
       responding: true,
     }));
     this.persistTalkerEntry(slot, entry);
+    this.mutateSlot(slot.id, (s) => (
+      s.lastMentionedHostId ? { ...s, lastMentionedHostId: null } : s
+    ));
     if (slot.status !== 'ready') {
       slot.pendingInput.push({ kind: 'image', dataUrl, caption });
       return;
@@ -2620,6 +2725,9 @@ class MeetingStore {
       responding: true,
     }));
     this.persistTalkerEntry(slot, entry);
+    this.mutateSlot(slot.id, (s) => (
+      s.lastMentionedHostId ? { ...s, lastMentionedHostId: null } : s
+    ));
     if (slot.status !== 'ready') {
       slot.pendingInput.push({ kind: 'attachments', staged, text });
       return { ok: true };

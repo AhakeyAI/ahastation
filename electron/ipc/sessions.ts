@@ -178,6 +178,9 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         getObservedSnapshot: ctx.getObservedSnapshot,
         defaultBackendId: selectedBackendId,
         meetingId: recovery?.meetingId,
+        // PTY attach is a runtime IPC concern: renderer slots are keyed by
+        // sessionId, while a recovered meeting keeps its older durable ID.
+        ptyScopeId: sessionId,
         recoverySeq: recovery?.seq,
         resumeBackendSessions: recovery
           ? Object.fromEntries((Array.isArray(recovery.state.hosts) ? recovery.state.hosts : [])
