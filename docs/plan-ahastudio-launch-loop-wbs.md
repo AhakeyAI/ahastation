@@ -240,7 +240,7 @@ M0（≈1 周）
 ### M0.1 git 通道
 
 - github.com 直连不稳定（HTTP2 framing / 连接超时交替出现），`api.github.com` 稳定。`gh auth setup-git` 后 fetch 偶尔成功；fetch 失败时的可靠通道是 `gh api repos/.../tarball/<branch>`。
-- 工作分支原停在空白 Initial commit，已 `git reset origin/main` 对齐真实历史（8f1506e）。**push 尚未验证**（网络窗口期未出现），下次网络可用时优先 `git push origin HEAD` 并建立 PR。
+- 工作分支原停在空白 Initial commit，已 `git reset origin/main` 对齐真实历史（8f1506e）。后续 push/PR 已完成：**PR #46 于 2026-10-04 合入 main**（merge commit `c134de2`）。CI 注意：Actions 制品存储配额已满（474M DMG 上传失败），macOS 测试 0 失败；Windows 存量 33 失败属平台债（main 上原为 39，本分支已改善）。
 
 ### M0.2 测试归零（16 失败的完整归因）
 
