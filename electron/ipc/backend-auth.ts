@@ -22,7 +22,7 @@ import {
 } from '../store.js';
 import {
   assessConfiguredWorkerRuntime,
-  probeWorkerRuntimeVersion,
+  probeWorkerRuntimeVersionAsync,
   FIRST_RELEASE_STABLE_WORKERS,
 } from '../backends/worker-runtime-contract.js';
 import {
@@ -32,6 +32,7 @@ import {
   type ClaudeCodeCliSource,
 } from '../claude-cli/resolve.js';
 import { getBackendRegistry, registerCustomBackends } from '../backends/registry.js';
+import type { CliBackend } from '../backends/cli-backend.js';
 import { resolveDefaultWorkerBackendId } from '../worker-backend-default.js';
 import { augmentedPath } from '../backends/subprocess-backend.js';
 import { isolatedSubprocessEnv } from '../backends/backend-environment.js';
@@ -40,6 +41,65 @@ import type { BackendAuthEntry } from '../store.js';
 /** One install at a time — prevents double-click races from stacking npm
  *  processes that fight over the same global node_modules lock. */
 let activeInstall: { backendId: string; proc: ReturnType<typeof spawn> } | null = null;
+
+// ── Probe caches ───────────────────────────────────────────────────────────
+// backend-auth:list probes every registered backend: `--version` spawns for
+// ~10 CLIs plus per-backend auth checks (OAuth handshakes, SDK init, …).
+// Serial uncached probes took seconds and blocked the main process — and the
+// settings panel re-lists after every save. Versions are keyed by resolved
+// binary path (a backend and its terminal twin share one binary, and a
+// reinstall to a new path naturally misses); auth state is keyed by backend
+// id. Auth/install mutations below drop their entries.
+const VERSION_PROBE_TTL_MS = 60_000;
+const AUTH_PROBE_TTL_MS = 30_000;
+const versionProbeCache = new Map<string, { version: string | null; expiresAt: number }>();
+const authProbeCache = new Map<string, { loggedIn: boolean; expiresAt: number }>();
+const versionProbeInflight = new Map<string, Promise<string | null>>();
+const authProbeInflight = new Map<string, Promise<boolean>>();
+
+function probeVersionCached(backendId: string, binaryPath: string | null): Promise<string | null> {
+  if (!binaryPath) return Promise.resolve(null);
+  const hit = versionProbeCache.get(binaryPath);
+  if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.version);
+  const inflight = versionProbeInflight.get(binaryPath);
+  if (inflight) return inflight;
+  const probe = probeWorkerRuntimeVersionAsync(backendId, binaryPath)
+    .then((version) => {
+      versionProbeCache.set(binaryPath, { version, expiresAt: Date.now() + VERSION_PROBE_TTL_MS });
+      return version;
+    })
+    .finally(() => versionProbeInflight.delete(binaryPath));
+  versionProbeInflight.set(binaryPath, probe);
+  return probe;
+}
+
+function checkAuthCached(backend: CliBackend): Promise<boolean> {
+  if (!backend.checkAuthStatus) return Promise.resolve(false);
+  const hit = authProbeCache.get(backend.id);
+  if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.loggedIn);
+  const inflight = authProbeInflight.get(backend.id);
+  if (inflight) return inflight;
+  const probe = backend.checkAuthStatus()
+    .then(({ loggedIn }) => {
+      authProbeCache.set(backend.id, { loggedIn, expiresAt: Date.now() + AUTH_PROBE_TTL_MS });
+      return loggedIn;
+    })
+    .catch(() => false)
+    .finally(() => authProbeInflight.delete(backend.id));
+  authProbeInflight.set(backend.id, probe);
+  return probe;
+}
+
+/** Drop cached probe results after auth/install mutations. Pass
+ *  runtimeChanged when the on-disk binary may differ (install, binaryName
+ *  edit) so the version entry for its resolved path is dropped too. */
+function invalidateProbeCaches(backendId: string, opts?: { runtimeChanged?: boolean }): void {
+  authProbeCache.delete(backendId);
+  if (opts?.runtimeChanged) {
+    const binaryPath = getBackendRegistry().get(backendId)?.resolveBinary() ?? null;
+    if (binaryPath) versionProbeCache.delete(binaryPath);
+  }
+}
 
 /** Build a subprocess env using the same allowlist as the Claude SDK session
  *  (see settings-loader.ts). Previously spread all of process.env, which
@@ -100,16 +160,17 @@ export function registerBackendAuthIpc(): void {
     const effectiveDefaultWorkerBackendId = resolveDefaultWorkerBackendId(defaultBackend);
     const bundledClaudePath = resolveClaudeBundledBinary();
     const systemClaudePath = resolveClaudeCliBinary();
-    const bundledClaudeVersion = probeWorkerRuntimeVersion('claude-code', bundledClaudePath);
-    const systemClaudeVersion = probeWorkerRuntimeVersion('claude-code', systemClaudePath);
+    // Start the Claude-source probes before the per-backend map so all of the
+    // CLI subprocesses overlap instead of running one after another.
+    const bundledClaudeVersionP = probeVersionCached('claude-code', bundledClaudePath);
+    const systemClaudeVersionP = probeVersionCached('claude-code', systemClaudePath);
 
     const result = await Promise.all(registry.listWithStatus().map(async ({ backend, available, binaryPath }) => {
       const auth = authEntries.find((e) => e.backendId === backend.id);
-      let loggedIn = false;
-      if (available && backend.checkAuthStatus) {
-        try { loggedIn = (await backend.checkAuthStatus()).loggedIn; } catch { loggedIn = false; }
-      }
-      const version = probeWorkerRuntimeVersion(backend.id, binaryPath);
+      const [loggedIn, version] = await Promise.all([
+        available ? checkAuthCached(backend) : Promise.resolve(false),
+        probeVersionCached(backend.id, binaryPath),
+      ]);
       const runtime = assessConfiguredWorkerRuntime({
         backendId: backend.id,
         installed: available,
@@ -150,8 +211,8 @@ export function registerBackendAuthIpc(): void {
         effectiveDefaultWorkerBackendId: backend.id === 'claude-code'
           ? effectiveDefaultWorkerBackendId
           : null,
-        bundledClaudeVersion: backend.id === 'claude-code' ? bundledClaudeVersion : null,
-        systemClaudeVersion: backend.id === 'claude-code' ? systemClaudeVersion : null,
+        bundledClaudeVersion: backend.id === 'claude-code' ? await bundledClaudeVersionP : null,
+        systemClaudeVersion: backend.id === 'claude-code' ? await systemClaudeVersionP : null,
         bundledClaudeAvailable: backend.id === 'claude-code' ? bundledClaudePath !== null : null,
         systemClaudeAvailable: backend.id === 'claude-code' ? systemClaudePath !== null : null,
         customAvatar: auth?.customAvatar ?? null,
@@ -206,6 +267,9 @@ export function registerBackendAuthIpc(): void {
       : { authMode: 'apikey', apiKey: trimmed };
     try {
       await setBackendAuth(backendId, patch);
+      // Some adapters (codex, pocket-vibe) derive login state from the stored
+      // key, so the cached auth probe is now stale.
+      invalidateProbeCaches(backendId);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -288,6 +352,7 @@ export function registerBackendAuthIpc(): void {
     }
     try {
       await setBackendAuth(backendId, { authMode: mode });
+      invalidateProbeCaches(backendId);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -337,6 +402,8 @@ export function registerBackendAuthIpc(): void {
     }
     try {
       await updateSettings({ claudeCodeCliSource: source as ClaudeCodeCliSource });
+      // Auth probes run against the resolved binary, which just changed.
+      invalidateProbeCaches('claude-code');
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -396,6 +463,9 @@ export function registerBackendAuthIpc(): void {
     }
     if (backend.checkAuthStatus) {
       const status = await backend.checkAuthStatus();
+      // Manual re-check: refresh the cache entry so the follow-up list()
+      // reflects reality instead of a stale cached value.
+      authProbeCache.set(backendId, { loggedIn: status.loggedIn, expiresAt: Date.now() + AUTH_PROBE_TTL_MS });
       return { ok: true, ...status };
     }
     // For backends without explicit auth check, having an API key or the
@@ -439,6 +509,7 @@ export function registerBackendAuthIpc(): void {
     if (result.ok) {
       // Update auth mode to oauth on success
       await setBackendAuth(backendId, { authMode: 'oauth', apiKey: undefined });
+      invalidateProbeCaches(backendId);
     }
     return result;
   });
@@ -523,6 +594,7 @@ export function registerBackendAuthIpc(): void {
             const installedBinary = backend.resolveBinary();
             if (installedBinary) {
               sendProgress(`\n✓ Runtime ready: ${installedBinary}\n`);
+              invalidateProbeCaches(backendId, { runtimeChanged: true });
               resolve({ ok: true });
             } else {
               resolve({
@@ -637,6 +709,7 @@ export function registerBackendAuthIpc(): void {
     if (result.ok) {
       // Re-register all custom backends to pick up changes
       registerCustomBackends();
+      invalidateProbeCaches(id, { runtimeChanged: true });
     }
 
     return result;
@@ -656,6 +729,7 @@ export function registerBackendAuthIpc(): void {
       registry.unregister(id);
       // Also remove any auth entry for this backend
       await removeBackendAuth(id);
+      invalidateProbeCaches(id);
     }
 
     return result;

@@ -312,12 +312,14 @@ export function normalizePlanMeetingTask(
   ) {
     throw new Error('executorBackendId must match executionProfile.backendId');
   }
-  // Workers are forced to the TUI backend. Ignore any executorBackendId the
-  // host may have set in plan_meeting; defaultBackendId comes from
-  // resolveDefaultWorkerBackendId which forces 'claude-code-terminal' (or
-  // falls back to the host backend if terminal is unavailable, so validation
-  // surfaces a clear error instead of silently running headless).
-  const backendId = defaultBackendId.trim();
+  // An explicit executorBackendId is a task-scope route preference (CONTEXT.md
+  // Route Preference: the narrower scope wins) and is honored here, subject to
+  // validateExecutionBackends at the orchestrator seam — an unregistered or
+  // non-executing backend is rejected there with a clear error instead of
+  // silently falling back. When omitted, defaultBackendId applies, which
+  // production sources from resolveDefaultWorkerBackendId (the configured
+  // worker backend, else the interactive TUI backend, else the host backend).
+  const backendId = (legacy.executorBackendId ?? defaultBackendId).trim();
   if (!backendId) throw new Error('plan task requires a default execution Backend');
 
   const declaredWritePaths = legacy.authorityRequest?.writePaths

@@ -23,6 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { ClaudeSession, type SessionEvent } from './claude-session.js';
 import type { BackendSession, BackendSessionSnapshot } from './backends/cli-backend.js';
 import { getBackendRegistry } from './backends/registry.js';
+import {
+  hostTerminalWorkerId,
+  isTerminalWorkerBackend,
+} from './backends/terminal-cli-adapter.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import {
   coerceWorkspaceModeForBaseline,
@@ -193,11 +197,19 @@ interface OrchestratorOpts {
   defaultBackendId?: string;
   /** Existing Meeting identity and native Host handles selected by the user for recovery. */
   meetingId?: string;
+  /** Runtime session identity shared with the renderer for terminal-host PTY routing.
+   *  This is deliberately separate from the durable meetingId during recovery. */
+  ptyScopeId?: string;
   recoverySeq?: number;
   resumeBackendSessions?: Record<string, BackendSessionSnapshot>;
   recoveredTasks?: Array<Record<string, unknown>>;
   recoveredPlanVersion?: number;
   recoveredReviewSessions?: CoordinatorReviewSession[];
+  /** Host groups invited before the previous shutdown (from the recovered
+   *  snapshot's `hosts` list). `start()` re-adds every non-default entry so
+   *  invited agents come back with the meeting; 'default' is always created
+   *  by the constructor and must be skipped here. */
+  recoveredHosts?: Array<{ id: string; backendId: string }>;
   /** How long an active review may sit without Coordinator progress before the
    * stall budget is charged. Set to 0 to disable the watchdog in tests. */
   reviewStallTimeoutMs?: number;
@@ -240,6 +252,7 @@ export class Orchestrator implements OrchestratorBridge {
   private closed = false;
   private projectId: string;
   private meetingId: string;
+  private readonly ptyScopeId: string;
   private repository: MeetingRepository;
   private repositoryReady: Promise<void>;
   private taskMailbox: TaskMailbox;
@@ -258,6 +271,7 @@ export class Orchestrator implements OrchestratorBridge {
   private diagnostics: DiagnosticLogger;
   private resumeBackendSessions: Record<string, BackendSessionSnapshot>;
   private recoveredTasks: Array<Record<string, unknown>>;
+  private recoveredHosts: Array<{ id: string; backendId: string }>;
   private recoveredPlanVersion: number;
   private saveMemoryCallsThisSession = 0;
   private autoOrchestration = false;
@@ -335,8 +349,10 @@ export class Orchestrator implements OrchestratorBridge {
     this.browserTabManager = opts.browserTabManager;
     this.projectId = computeProjectId(this.cwd);
     this.meetingId = opts.meetingId ?? randomUUID();
+    this.ptyScopeId = opts.ptyScopeId ?? this.meetingId;
     this.resumeBackendSessions = opts.resumeBackendSessions ?? {};
     this.recoveredTasks = opts.recoveredTasks ?? [];
+    this.recoveredHosts = opts.recoveredHosts ?? [];
     this.recoveredPlanVersion = Number.isSafeInteger(opts.recoveredPlanVersion)
       && (opts.recoveredPlanVersion ?? 0) >= 0
       ? opts.recoveredPlanVersion!
@@ -508,10 +524,14 @@ export class Orchestrator implements OrchestratorBridge {
       } = so;
       const requestedModel = taskProfile?.model
         ?? (typeof so.model === 'string' ? so.model : undefined);
-      const model = taskProfile
-        ? taskProfile.model
-        : backendId === 'codex'
-          ? (auth.model ?? requestedModel)
+      // Codex honors only the model from user settings. Every other source
+      // (the talker's Claude-centric fallback, compiled task profiles) can
+      // name a model the configured provider doesn't serve; with no override
+      // the CLI falls back to ~/.codex/config.toml's own `model`.
+      const model = backendId === 'codex'
+        ? auth.model
+        : taskProfile
+          ? taskProfile.model
           : backendId === 'claude-code'
             ? (auth.model ?? requestedModel ?? backend.capabilities.defaultModel)
             : requestedModel?.startsWith('claude-')
@@ -543,6 +563,12 @@ export class Orchestrator implements OrchestratorBridge {
             // API keys entirely. When an apiKey is configured, fall back to
             // the one-shot CLI mode (buildEnv injects MOONSHOT_API_KEY).
             ...(backendId === 'kimi' && !auth.apiKey ? { kimiTransport: 'acp' } : {}),
+            // Terminal-mode hosts run their TUI as the host session itself:
+            // pin the pty worker id so the renderer can attach a RealTerminal
+            // (mirrored helper in src/lib/terminal-backends.ts).
+            ...(purpose === 'host' && isTerminalWorkerBackend(backendId)
+              ? { workerId: hostTerminalWorkerId(this.ptyScopeId, actorHostId) }
+              : {}),
             meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw),
           },
         },
@@ -705,6 +731,16 @@ export class Orchestrator implements OrchestratorBridge {
       return { ok: false, error: `host group '${id}' already exists` };
     }
     const hg = this.createHostGroup(id, backendId);
+
+    // Announce the group before the handshake so the renderer can show a
+    // "Connecting…" tile. Live invites already add one optimistically, but
+    // recovery re-adds (start()) have no renderer-side seed — this event is
+    // the only signal that rebuilds the participant tile there.
+    this.safeEmit({
+      source: 'system',
+      hostId: id,
+      event: { kind: 'host-added', backendId },
+    });
 
     // Fire-and-forget the talker transport handshake. Starting a Host must not
     // spend a model turn: delayed startup greetings used to surface minutes
@@ -1207,6 +1243,22 @@ export class Orchestrator implements OrchestratorBridge {
     this.taskProjection = projectMeetingTasks(journal);
     await this.defaultHost().start(greeting);
     this.flushPendingCrossHostMessages(this.coordinatorHostId);
+    // Re-add the host groups that were invited before the previous shutdown.
+    // The default host is already up; the rest reconnect asynchronously and
+    // each announces itself via host-added/session-ready exactly like a live
+    // invite. A backend that disappeared in the meantime is skipped — the
+    // meeting must still recover when one invited runtime is gone.
+    for (const host of this.recoveredHosts) {
+      if (host.id === DEFAULT_HOST_ID) continue;
+      const result = this.addHost(host.backendId, host.id);
+      if (!result.ok) {
+        this.diagnostics.log('host-recovery-skipped', {
+          hostId: host.id,
+          backendId: host.backendId,
+          error: result.error,
+        });
+      }
+    }
     // A worker may have asked a question while the Coordinator host was still
     // starting; those messages are durable but undelivered. Re-deliver now.
     await this.meetingScheduler.redeliverPendingWorkerQuestions();
@@ -1395,7 +1447,13 @@ export class Orchestrator implements OrchestratorBridge {
       status: 'active',
       cwd: this.cwd,
       coordinatorHostId: this.coordinatorHostId,
-      hosts: this.listHosts(),
+      hosts: this.listHosts().map((host) => ({
+        ...host,
+        // A host that has not finished (re)starting has no live session
+        // handle yet; keep the recovered one so a crash in this window does
+        // not strand the next recovery without a thread to resume.
+        backendSession: host.backendSession ?? this.resumeBackendSessions[host.id],
+      })),
       tasks: liveTasks.length > 0 ? liveTasks : this.recoveredTasks,
       taskMailboxes: (liveTasks.length > 0 ? liveTasks : this.recoveredTasks)
         .map((task) => {
@@ -1433,7 +1491,18 @@ export class Orchestrator implements OrchestratorBridge {
   sendUserText(text: string) {
     const mention = this.resolveHostMention(text);
     if (!mention) {
-      this.defaultHost().sendUserText(text);
+      const fallback = this.defaultHost();
+      fallback.sendUserText(text);
+      // The renderer names its optimistic "thinking" bubble after the routed
+      // host; default-route sends must tag that too, or a stale @mention from
+      // an earlier turn keeps naming the wrong host. safeEmit (not a bare
+      // repository.append) is required so the tag actually reaches the
+      // renderer — append alone only journals it.
+      this.safeEmit({
+        source: 'system',
+        hostId: DEFAULT_HOST_ID,
+        event: { kind: 'user-mentioned-host', backendId: fallback.backendId, chars: text.length },
+      });
       return;
     }
     const addressedText = mention.text || '用户刚刚直接点名了你，请简短回应。';
@@ -1441,10 +1510,10 @@ export class Orchestrator implements OrchestratorBridge {
       `[direct user mention from meeting chat]\n${addressedText}\n\n`
       + '直接用普通 assistant 文本回答用户；不要主持、派任务或输出 meeting-command。',
     );
-    void this.repository.append('user-mentioned-host', {
+    this.safeEmit({
+      source: 'system',
       hostId: mention.hostId,
-      backendId: mention.host.backendId,
-      chars: addressedText.length,
+      event: { kind: 'user-mentioned-host', backendId: mention.host.backendId, chars: addressedText.length },
     });
   }
 

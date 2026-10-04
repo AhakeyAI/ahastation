@@ -1,0 +1,6 @@
+2026-07-24T09:00:00.000Z [info] agent main started
+2026-07-24T09:00:01.000Z [info] llm request model=kimi-k2 turn=1
+2026-07-24T09:00:15.000Z [info] llm response turn=1 tokens=350
+2026-07-24T09:05:00.000Z [info] llm request model=kimi-k2 turn=2
+2026-07-24T09:05:12.000Z [info] llm response turn=2 tokens=402
+2026-07-24T09:06:00.000Z [info] llm request model=kimi-k2 turn=3

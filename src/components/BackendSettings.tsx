@@ -1,10 +1,12 @@
 // BackendSettings.tsx — per-CLI-backend auth configuration panel.
 //
-// Displays a horizontal tab bar with one tab per registered CLI backend
-// (Claude Code, Codex, Kimi, Qoder, plus any custom backends). Selecting a
-// tab shows that backend's auth config card — API key, base URL, model
-// selector, default toggle, and an install button for unavailable backends.
-// Includes a "+" button to add custom CLI backends.
+// Two sections split by auth state: 已配置 (loggedIn or hasApiKey) and
+// 未配置, each listing backends in the order the launch scan discovered
+// them. Clicking a chip shows that backend's auth config card below — API
+// key, base URL, model selector, default toggle, and an install button for
+// unavailable backends. The 未配置 section is the landing target for the
+// Participants sidebar's ＋ 新增 button (settings:focus-section IPC /
+// ?focus= URL param). Includes a "+" button to add custom CLI backends.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BackendInfo, CustomBackendInfo } from '../types';
@@ -52,8 +54,10 @@ export function BackendSettings() {
   const [loginStatus, setLoginStatus] = useState<Record<string, 'idle' | 'pending' | 'done' | 'error'>>({});
   const [loginError, setLoginError] = useState<Record<string, string>>({});
 
+  // Note: loading is only set on the initial fetch (useState(true) above).
+  // Subsequent reloads after a save refresh silently in the background so
+  // the panel doesn't flash "加载中…" on every edit.
   const reload = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const [list, customList] = await Promise.all([
@@ -302,6 +306,50 @@ export function BackendSettings() {
     [backends, activeTab],
   );
 
+  // Auth-state split, launch-scan order preserved within each section.
+  const configuredBackends = useMemo(
+    () => backends.filter((b) => b.loggedIn || b.hasApiKey),
+    [backends],
+  );
+  const unconfiguredBackends = useMemo(
+    () => backends.filter((b) => !b.loggedIn && !b.hasApiKey),
+    [backends],
+  );
+
+  // ---- ＋新增 landing: scroll + highlight the 未配置 section ------------
+  // Two delivery paths: ?focus= URL param (fresh settings window) and the
+  // settings:focus-section push (window already open). The URL param waits
+  // for the backend list to finish loading before scrolling.
+  const unconfiguredSectionRef = useRef<HTMLElement | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+
+  useEffect(() => {
+    const focus = new URLSearchParams(window.location.search).get('focus');
+    if (focus) setPendingFocus(focus);
+  }, []);
+
+  const focusSection = useCallback((section: string) => {
+    if (section !== 'backends-unconfigured') return;
+    const el = unconfiguredSectionRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('backend-section-highlight');
+    window.setTimeout(() => el.classList.remove('backend-section-highlight'), 2000);
+  }, []);
+
+  useEffect(() => {
+    if (pendingFocus === null || loading) return;
+    focusSection(pendingFocus);
+    setPendingFocus(null);
+  }, [pendingFocus, loading, focusSection]);
+
+  useEffect(() => {
+    const unsubscribe = window.vibeMeet.settingsWindow.onFocusSection((payload) => {
+      focusSection(payload.section);
+    });
+    return unsubscribe;
+  }, [focusSection]);
+
   if (loading) {
     return <div className="backend-settings-loading">加载中…</div>;
   }
@@ -324,49 +372,66 @@ export function BackendSettings() {
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="backend-tabs" role="tablist" aria-label="后端选择">
-        {backends.map((b) => {
-          const hasAuth = b.loggedIn;
-          const isActive = b.id === activeTab;
-          const isCustom = b.id.startsWith('custom-');
-          return (
-            <button
-              key={b.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={`backend-tab ${isActive ? 'backend-tab-active' : ''}`}
-              onClick={() => setActiveTab(b.id)}
-            >
-              <span className="backend-tab-label">{b.displayName}</span>
-              {b.isDefault && <span className="backend-tab-default">默认</span>}
-              {!b.available && <span className="backend-tab-dot unavailable" />}
-              {hasAuth && b.available && <span className="backend-tab-dot ok" />}
-              {isCustom && (
-                <span
-                  className="backend-tab-custom-remove"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleRemoveCustomBackend(b.id);
-                  }}
-                  title="删除此自定义后端"
-                >
-                  ×
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          className={`backend-tab backend-tab-add ${showCustomForm ? 'backend-tab-active' : ''}`}
-          onClick={() => setShowCustomForm(!showCustomForm)}
-          title="添加自定义 CLI 后端"
-        >
-          <span className="backend-tab-label">＋ 新增</span>
-        </button>
-      </div>
+      {/* 已配置 section */}
+      <section className="backend-section">
+        <div className="backend-section-header">
+          <span className="backend-section-title">已配置</span>
+          <span className="backend-section-count">{configuredBackends.length}</span>
+        </div>
+        {configuredBackends.length === 0 ? (
+          <div className="backend-section-empty">暂无已配置的后端。可在下方「未配置」中选择一个并完成认证。</div>
+        ) : (
+          <div className="backend-chip-row">
+            {configuredBackends.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                className={`backend-chip ${b.id === activeTab ? 'backend-chip-active' : ''}`}
+                onClick={() => setActiveTab(b.id)}
+              >
+                <span className="backend-chip-name">{b.displayName}</span>
+                {b.isDefault && <span className="backend-chip-default">默认</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 未配置 section — landing target of the Participants ＋新增 flow */}
+      <section
+        className="backend-section"
+        id="backend-section-unconfigured"
+        ref={unconfiguredSectionRef}
+      >
+        <div className="backend-section-header">
+          <span className="backend-section-title">未配置</span>
+          <span className="backend-section-count">{unconfiguredBackends.length}</span>
+          <button
+            type="button"
+            className={`backend-add-btn ${showCustomForm ? 'backend-add-btn-active' : ''}`}
+            onClick={() => setShowCustomForm(!showCustomForm)}
+            title="添加自定义 CLI 后端"
+          >
+            ＋ 新增
+          </button>
+        </div>
+        {unconfiguredBackends.length === 0 ? (
+          <div className="backend-section-empty">所有后端均已配置。</div>
+        ) : (
+          <div className="backend-chip-row">
+            {unconfiguredBackends.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                className={`backend-chip ${b.id === activeTab ? 'backend-chip-active' : ''}`}
+                onClick={() => setActiveTab(b.id)}
+              >
+                <span className="backend-chip-name">{b.displayName}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Custom backend form */}
       {showCustomForm && (
@@ -503,9 +568,23 @@ export function BackendSettings() {
         </div>
       )}
 
-      {/* Active tab content */}
+      {/* Active backend detail card */}
       {activeBackend && (
-        <BackendCard
+        <>
+          {activeBackend.id.startsWith('custom-') && (
+            <div className="backend-card-remove-row">
+              <span className="backend-card-remove-hint">自定义后端</span>
+              <button
+                type="button"
+                className="backend-selector-remove"
+                onClick={() => void handleRemoveCustomBackend(activeBackend.id)}
+                title="删除此自定义后端"
+              >
+                删除
+              </button>
+            </div>
+          )}
+          <BackendCard
           key={activeBackend.id}
           backend={activeBackend}
           editingApiKey={editingApiKey[activeBackend.id] ?? ''}
@@ -526,6 +605,7 @@ export function BackendSettings() {
           onAvatarChange={(dataUrl) => handleSetAvatar(activeBackend.id, dataUrl)}
           onKeyDown={(e) => handleKeyDown(e, activeBackend.id)}
         />
+        </>
       )}
     </div>
   );

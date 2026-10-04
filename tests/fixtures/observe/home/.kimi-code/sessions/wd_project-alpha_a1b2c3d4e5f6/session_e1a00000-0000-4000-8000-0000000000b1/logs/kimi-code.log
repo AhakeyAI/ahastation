@@ -1,0 +1,6 @@
+2026-07-24T10:28:00.000Z [info] agent main started
+2026-07-24T10:28:01.000Z [info] llm request model=kimi-k2 turn=1
+2026-07-24T10:28:20.000Z [info] llm response turn=1 tokens=412
+2026-07-24T10:29:45.000Z [info] llm request model=kimi-k2 turn=2
+2026-07-24T10:30:00.000Z [info] llm response turn=2 tokens=388
+[info] tool result written, agent idle

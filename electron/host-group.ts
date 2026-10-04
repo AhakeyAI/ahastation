@@ -395,6 +395,25 @@ export class HostGroup {
   }
 
   private onHostEvent(e: SessionEvent) {
+    // Terminal adapters originated as worker-only backends and report process
+    // failures through WorkerAdapterSignal. A host cannot forward that private
+    // protocol to the renderer: normalize it into the public host lifecycle so
+    // errors are visible and the responding indicator always closes.
+    if (e.kind === 'worker-signal') {
+      if (e.signal.kind === 'failed') {
+        this.taggedEmit({
+          source: 'talker',
+          event: { kind: 'error', error: e.signal.message },
+        });
+        this.taggedEmit({
+          source: 'talker',
+          event: { kind: 'turn-status', status: 'completed' },
+        });
+      } else if (e.signal.kind === 'ended') {
+        this.onHostEvent({ kind: 'ended' });
+      }
+      return;
+    }
     if (e.kind === 'auth-required') {
       // Authentication failure is an intentional circuit-breaker, not a
       // subprocess crash. Stop routing new turns and preserve existing workers.

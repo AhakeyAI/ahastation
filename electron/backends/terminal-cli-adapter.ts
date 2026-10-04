@@ -26,6 +26,7 @@ import {
   mkdirSync,
   writeFileSync,
   readFileSync,
+  statSync,
   rmSync,
   watch,
   type FSWatcher,
@@ -94,6 +95,16 @@ export function isTerminalWorkerBackend(backendId: string): boolean {
   return TERMINAL_WORKER_BACKEND_IDS.has(backendId);
 }
 
+/** Deterministic pty id for a terminal-mode HOST session (invited as a
+ *  meeting participant, the TUI *is* the host). The orchestrator injects this
+ *  as the session's workerId and the renderer mirrors it in
+ *  src/lib/terminal-backends.ts to attach its RealTerminal — without a
+ *  shared, predictable id the pty spawns under a random `terminal-<uuid>`
+ *  that no one can ever attach to. Keep the two copies in sync. */
+export function hostTerminalWorkerId(meetingId: string, hostId: string): string {
+  return `host-terminal-${meetingId}-${hostId}`;
+}
+
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 
@@ -102,6 +113,32 @@ const PASTE_END = '\x1b[201~';
  *  actually submits is written separately after a short settle delay. */
 export function buildPasteFrame(text: string): string {
   return `${PASTE_START}${text}${PASTE_END}`;
+}
+
+// ── Auth-wall detection ─────────────────────────────────────────────────────
+
+/** How long after spawn the session keeps scanning pty output for the CLI's
+ *  login-gate screen. The gate only appears at startup, so a bounded window
+ *  keeps false positives (task text mentioning 'sign in') effectively at
+ *  zero while still covering slow cold starts. */
+export const AUTH_WALL_WINDOW_MS = 60_000;
+
+/** Rolling text buffer cap for auth-wall matching. A login gate is a single
+ *  static frame of a few KB; 16KB of recent stripped output is plenty. */
+const AUTH_WALL_BUFFER_MAX = 16 * 1024;
+
+/** Strip ANSI escape sequences (CSI/OSC/charset/keypad) so login-gate text
+ *  interrupted by styling or cursor moves still matches the profile pattern.
+ *  \r becomes \n — TUIs repaint with carriage returns, and the profile
+ *  patterns use \s+ which bridges the splits either way. */
+export function stripAnsi(data: string): string {
+  return data
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI (incl. bracketed-paste marks)
+    .replace(/\x1b[()][0-2]/g, '') // charset select
+    .replace(/\x1b[=>]/g, '') // keypad modes
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
 }
 
 /** Parse newly-appended turn-event lines. Fail-open per line: the hook file
@@ -156,6 +193,48 @@ export function buildStopHookScript(eventsPath: string): string {
   ].join('\n');
 }
 
+// ── Session transcript tailing ─────────────────────────────────────────────
+
+/** One parsed entry from the CLI's own session transcript file. */
+export interface TerminalTranscriptEntry {
+  /** Stable dedupe key (e.g. the transcript row uuid). */
+  id: string;
+  /** Visible assistant text ('' = nothing to surface for this entry). */
+  text: string;
+  /** True when this entry terminates a model turn. */
+  turnEnded: boolean;
+}
+
+/** Hookless CLIs (qoder) have no Stop hook, but they DO persist a per-session
+ *  transcript (jsonl) as turns complete. Tailing it lets the session speak:
+ *  assistant text flows into the meeting chat and turn-status events clear
+ *  the renderer's optimistic "thinking" indicator. Without this a terminal
+ *  host is a black box whose answers exist only inside the TUI — the chat
+ *  never syncs and the thinking bubble never clears. */
+export interface TerminalTranscriptCandidate {
+  /** Absolute path to a CLI transcript file. */
+  path: string;
+  /** True when the candidate is tied to this exact spawned process (for
+   *  example via a PID-bearing diagnostic path). Untrusted fallback files
+   *  must pass matchesPrompt before this session may claim them. */
+  trusted?: boolean;
+}
+
+export interface TerminalSessionTranscriptSource {
+  /** Re-resolve candidate files on every poll. This supports CLIs that create
+   *  their session directory only after the TUI receives its first prompt. */
+  resolveCandidates(
+    config: BackendSessionConfig,
+    processId: number,
+  ): TerminalTranscriptCandidate[];
+  /** Verify ownership of an untrusted fallback file using prompts that this
+   *  session actually injected. Omit only when every candidate is trusted. */
+  matchesPrompt?(line: string, sentPrompts: readonly string[]): boolean;
+  /** Parse one transcript line; null = not an assistant entry worth
+   *  surfacing (metadata rows, user echoes, tool plumbing). */
+  parseLine(line: string): TerminalTranscriptEntry | null;
+}
+
 // ── Profile ──────────────────────────────────────────────────────────────────
 
 export interface TerminalCliHookRegistration {
@@ -197,8 +276,40 @@ export interface TerminalCliProfile {
   startupMessage: string;
   /** Failure message when the CLI binary is missing. */
   missingBinaryMessage: string;
+  /** Auth-wall detection for CLIs that draw a full-screen login gate when
+   *  credentials are missing. Without this, the task prompt is pasted onto
+   *  the login menu and silently swallowed — the worker hangs forever with
+   *  zero events. When the (ANSI-stripped) pty output matches `pattern`
+   *  within AUTH_WALL_WINDOW_MS of spawn, the session fails fast with code
+   *  'auth-required' and stops injecting input. Omit for CLIs that handle
+   *  auth non-modally. */
+  authWall?: {
+    pattern: RegExp;
+    /** Failure message surfaced through the worker-failed signal. */
+    message: string;
+  };
+  /** Gate the first paste on this pattern appearing in (ANSI-stripped) pty
+   *  output. CLIs with a slow modal boot phase (token refresh, trust dialog)
+   *  draw frames long before the input box exists — the first-frame
+   *  heuristic then pastes into the void and the prompt is swallowed. When
+   *  set, "first output" only counts once this pattern matches and the ready
+   *  fallback stretches to READY_FALLBACK_PATTERN_MS. Pick the input-box
+   *  placeholder or equivalent proof that typing is accepted; remember the
+   *  TUI paints word-granularity runs, so allow \s* between words. */
+  readyPattern?: RegExp;
+  /** Optional bytes written after the bracketed-paste frame and before the
+   *  actual submit key. Some TUIs keep pasted input isolated until bracketed
+   *  paste mode is explicitly detached; putting Enter inside that frame (or
+   *  replacing Enter with CSI-u) only edits the input instead of submitting. */
+  beforeSubmitSequence?: string;
+  /** Bytes that submit the prompt after the paste has settled. Default '\r'. */
+  submitSequence?: string;
   /** Key written to the pty on interrupt(). Default: Esc ('\x1b'). */
   interruptKey?: string;
+  /** Session transcript tailer for hookless CLIs — the only channel that
+   *  lets their answers reach the meeting chat. Omit for CLIs whose hooks
+   *  (or whose design) keep the confirm bar as the turn-end signal. */
+  sessionTranscript?: TerminalSessionTranscriptSource;
   /** Map backend auth settings onto the subprocess env (api key, base url).
    *  Default: no auth mapping (the TUI owns login interactively). */
   applyAuth?(env: NodeJS.ProcessEnv, auth: BackendAuthConfig): void;
@@ -207,8 +318,23 @@ export interface TerminalCliProfile {
 // ── Session ──────────────────────────────────────────────────────────────────
 
 const READY_FALLBACK_MS = 5_000;
+const READY_FALLBACK_PATTERN_MS = 30_000;
 const READY_AFTER_FIRST_OUTPUT_MS = 1_600;
-const SUBMIT_DELAY_MS = 150;
+const READY_QUIESCE_MS = 2_500;
+const READY_BUFFER_MAX = 8 * 1024;
+const SUBMIT_DELAY_MS = 400;
+/** The transcript tailer polls on a single cadence for the whole session:
+ *  it both discovers newly-created or rotated transcript files and drains
+ *  growth from every file it owns. We do
+ *  NOT use fs.watch: macOS FSEvents can silently drop a change that lands
+ *  within milliseconds of the watch being registered (verified empirically),
+ *  and the dropped event may be the transcript's LAST append of the turn — a
+ *  plain stat-short-circuited poll is both simpler and reliable. */
+const TRANSCRIPT_POLL_MS = 1_500;
+/** A transcript file is only adopted when modified at/after spawn (minus this
+ *  clock-skew grace) — older files belong to previous sessions in the same
+ *  cwd. */
+const TRANSCRIPT_MTIME_GRACE_MS = 5_000;
 
 export interface TerminalCliSessionDeps {
   host: PtyHost;
@@ -231,9 +357,31 @@ export class TerminalCliSession implements BackendSession {
   private ready = false;
   private closed = false;
   private started = false;
+  private authWallBuffer = '';
+  private authWallDeadline = 0;
+  private authWallEmitted = false;
+  private readyBuffer = '';
   private readonly pendingTexts: string[] = [];
   private watcher: FSWatcher | null = null;
   private eventsOffset = 0;
+  private transcriptPoll: ReturnType<typeof setInterval> | null = null;
+  private transcriptProcessId: number | null = null;
+  /** Owned transcript files -> byte offset already consumed (NOT a string
+   *  offset — utf8 lengths diverge). A session tails every file its source
+   *  resolves, so file rotation remains safe. */
+  private readonly transcriptFiles = new Map<string, number>();
+  private transcriptSpawnAt = 0;
+  private readonly transcriptSeen = new Set<string>();
+  private readonly transcriptPrompts = new Set<string>();
+  private readonly transcriptOwnerId = randomUUID();
+  /** Process-wide path ownership. The owner token is per BackendSession
+   *  instance, so equal worker ids in different meetings cannot unlock or
+   *  consume each other's transcript. A PID-trusted claim may supersede an
+   *  earlier fallback claim before assistant output is drained. */
+  private static readonly transcriptFileOwners = new Map<
+    string,
+    { ownerId: string; trusted: boolean }
+  >();
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private firstOutputSeen = false;
   private unsubscribeData: (() => void) | null = null;
@@ -312,15 +460,31 @@ export class TerminalCliSession implements BackendSession {
     const file = isWinShim ? 'cmd.exe' : binary;
     const args = isWinShim ? ['/d', '/s', '/c', binary, ...cliArgs] : cliArgs;
 
-    this.deps.host.spawn(this.workerId, {
+    const processId = this.deps.host.spawn(this.workerId, {
       file,
       args,
       cwd: this.config.cwd,
       env,
     });
 
-    this.unsubscribeData = this.deps.host.onData(this.workerId, () => {
-      if (this.firstOutputSeen || this.closed) return;
+    this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;
+    this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
+      this.scanForAuthWall(data);
+      if (this.closed || this.ready) return;
+      if (this.profile.readyPattern) {
+        // Pattern-gated: boot frames (token refresh, trust dialogs) are not
+        // proof the input box exists — only the pattern is. But the pattern
+        // appearing is not proof the TUI is DONE booting either: MCP/skills
+        // loading and self-update notices keep repainting, and a paste
+        // mid-repaint is swallowed (empirically ~50% at 13s post-spawn,
+        // 0% once quiet). Wait for output to go quiet; every new frame
+        // re-arms the quiesce timer via scheduleReady's clear-and-reset.
+        this.readyBuffer = (this.readyBuffer + stripAnsi(data)).slice(-READY_BUFFER_MAX);
+        if (!this.profile.readyPattern.test(this.readyBuffer)) return;
+        this.scheduleReady(READY_QUIESCE_MS);
+        return;
+      }
+      if (this.firstOutputSeen) return;
       this.firstOutputSeen = true;
       // The TUI draws its input box shortly after the first frame; give it a
       // beat before pasting so the prompt is not swallowed mid-init.
@@ -331,9 +495,16 @@ export class TerminalCliSession implements BackendSession {
       this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
     });
     // Fallback: paste anyway if the TUI stays quiet (e.g. output buffered).
-    this.scheduleReady(READY_FALLBACK_MS, true);
+    // Pattern-gated profiles get a longer leash: their boot phase (auth
+    // token refresh) legitimately takes seconds before the input box is
+    // drawn, and a 5s fallback would fire mid-boot and swallow the prompt.
+    this.scheduleReady(
+      this.profile.readyPattern ? READY_FALLBACK_PATTERN_MS : READY_FALLBACK_MS,
+      true,
+    );
 
     this.startTurnEventWatcher();
+    this.startTranscriptTailer(processId);
     this.emit({
       kind: 'worker-signal',
       signal: { kind: 'progress', message: this.profile.startupMessage },
@@ -362,12 +533,48 @@ export class TerminalCliSession implements BackendSession {
     for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
   }
 
+  /** Fail fast when the pty shows the CLI's login gate. Runs before the
+   *  first-output handler so detection is independent of the ready/paste
+   *  path. Best-effort by design: a missed match degrades to the old silent
+   *  behaviour, while a match converts an infinite hang into an actionable
+   *  auth-required failure. */
+  private scanForAuthWall(data: string): void {
+    const wall = this.profile.authWall;
+    if (!wall || this.authWallEmitted || this.closed) return;
+    if (Date.now() > this.authWallDeadline) return;
+    this.authWallBuffer = (this.authWallBuffer + stripAnsi(data)).slice(-AUTH_WALL_BUFFER_MAX);
+    if (!wall.pattern.test(this.authWallBuffer)) return;
+    this.authWallEmitted = true;
+    this.emit({
+      kind: 'worker-signal',
+      signal: {
+        kind: 'failed',
+        code: 'auth-required',
+        message: wall.message,
+        retryable: false,
+      },
+    });
+  }
+
   private pasteIntoTui(text: string): void {
-    if (this.closed) return;
+    if (this.closed || this.authWallEmitted) return;
+    if (this.profile.sessionTranscript) this.transcriptPrompts.add(text);
     this.deps.host.write(this.workerId, buildPasteFrame(text));
-    const submit = () => { this.deps.host.write(this.workerId, '\r'); };
+    const submitSeq = this.profile.submitSequence ?? '\r';
+    const submit = () => {
+      if (this.profile.beforeSubmitSequence) {
+        this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence);
+      }
+      this.deps.host.write(this.workerId, submitSeq);
+    };
     if (this.deps.timersEnabled === false) submit();
     else setTimeout(submit, SUBMIT_DELAY_MS).unref?.();
+    // Transcript-tailed sessions own a started/completed pair: the tailer's
+    // turnEnded entry closes what we open here. Other profiles stay out of
+    // this state machine (their confirm bar is the turn-end signal).
+    if (this.profile.sessionTranscript) {
+      this.emit({ kind: 'turn-status', status: 'started' });
+    }
   }
 
   private startTurnEventWatcher(): void {
@@ -414,8 +621,154 @@ export class TerminalCliSession implements BackendSession {
     }
   }
 
+  // ── Session transcript tailer ────────────────────────────────────────────
+
+  /** Discover and tail the CLI's own per-session transcript file. Best
+   *  effort by design: any failure degrades to "answers stay inside the
+   *  TUI" (the pre-tailer behaviour) — the terminal stays fully usable. */
+  private startTranscriptTailer(processId: number): void {
+    if (!this.profile.sessionTranscript || this.transcriptPoll) return;
+    this.transcriptProcessId = processId;
+    this.transcriptSpawnAt = Date.now();
+    // One poll for the whole session: discover newly-rotated files AND drain
+    // growth from every file we own. See TRANSCRIPT_POLL_MS for why there is
+    // no fs.watch.
+    this.transcriptPoll = setInterval(() => this.scanTranscripts(), TRANSCRIPT_POLL_MS);
+    this.transcriptPoll.unref?.();
+    this.scanTranscripts();
+  }
+
+  /** Adopt candidate files created since spawn, then drain every file already
+   *  owned by this exact BackendSession. PID-linked candidates are trusted;
+   *  compatibility fallbacks must contain one of this session's prompts. */
+  private scanTranscripts(): void {
+    const source = this.profile.sessionTranscript;
+    const processId = this.transcriptProcessId;
+    if (!source || processId === null || this.closed) return;
+    let candidates: TerminalTranscriptCandidate[];
+    try {
+      candidates = source.resolveCandidates(this.config, processId);
+    } catch {
+      candidates = [];
+    }
+    const uniqueCandidates = new Map(candidates.map((candidate) => [candidate.path, candidate]));
+    for (const candidate of uniqueCandidates.values()) {
+      const file = candidate.path;
+      if (this.transcriptFiles.has(file)) continue;
+      const owner = TerminalCliSession.transcriptFileOwners.get(file);
+      if (
+        owner
+        && owner.ownerId !== this.transcriptOwnerId
+        && (!candidate.trusted || owner.trusted)
+      ) continue;
+      let mtimeMs: number;
+      try {
+        mtimeMs = statSync(file).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (mtimeMs < this.transcriptSpawnAt - TRANSCRIPT_MTIME_GRACE_MS) continue;
+      if (!candidate.trusted && !this.transcriptFileMatchesPrompt(source, file)) continue;
+      TerminalCliSession.transcriptFileOwners.set(file, {
+        ownerId: this.transcriptOwnerId,
+        trusted: candidate.trusted === true,
+      });
+      this.transcriptFiles.set(file, 0);
+    }
+    for (const file of this.transcriptFiles.keys()) {
+      this.drainTranscriptFile(source, file);
+    }
+  }
+
+  private transcriptFileMatchesPrompt(
+    source: TerminalSessionTranscriptSource,
+    file: string,
+  ): boolean {
+    if (!source.matchesPrompt || this.transcriptPrompts.size === 0) return false;
+    let content: string;
+    try {
+      content = readFileSync(file, 'utf8');
+    } catch {
+      return false;
+    }
+    const prompts = Array.from(this.transcriptPrompts);
+    return content.split('\n').some((line) => {
+      try {
+        return source.matchesPrompt?.(line, prompts) ?? false;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  private drainTranscriptFile(
+    source: TerminalSessionTranscriptSource,
+    file: string,
+  ): void {
+    const owner = TerminalCliSession.transcriptFileOwners.get(file);
+    if (
+      this.closed
+      || !this.transcriptFiles.has(file)
+      || owner?.ownerId !== this.transcriptOwnerId
+    ) return;
+    let buf: Buffer;
+    try {
+      // Short-circuit on size first: the poll fires every TRANSCRIPT_POLL_MS
+      // for the whole session and transcripts can grow large — no size
+      // change, no re-read. Sizes/offsets are tracked in BYTES (utf8 makes
+      // string lengths diverge). A SHRUNK file means truncate/rebuild:
+      // re-read from scratch and let transcriptSeen dedupe.
+      const size = statSync(file).size;
+      const offset = this.transcriptFiles.get(file) ?? 0;
+      if (size === offset) return;
+      if (size < offset) this.transcriptFiles.set(file, 0);
+      buf = readFileSync(file);
+    } catch {
+      return;
+    }
+    const startOffset = this.transcriptFiles.get(file) ?? 0;
+    const chunk = buf.subarray(startOffset).toString('utf8');
+    // Only consume up to the last complete line — a torn tail row is
+    // re-read once its append finishes.
+    const lastNewline = chunk.lastIndexOf('\n');
+    if (lastNewline < 0) return;
+    const consumed = chunk.slice(0, lastNewline);
+    this.transcriptFiles.set(
+      file,
+      startOffset + Buffer.byteLength(chunk.slice(0, lastNewline + 1), 'utf8'),
+    );
+    for (const line of consumed.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: TerminalTranscriptEntry | null = null;
+      try {
+        entry = source.parseLine(trimmed);
+      } catch {
+        entry = null; // a parser crash must not break the tail loop
+      }
+      if (!entry || this.transcriptSeen.has(entry.id)) continue;
+      this.transcriptSeen.add(entry.id);
+      if (entry.text) {
+        this.emit({
+          kind: 'message',
+          message: {
+            type: 'assistant',
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text: entry.text }],
+            },
+          },
+        });
+      }
+      if (entry.turnEnded) this.emit({ kind: 'turn-status', status: 'completed' });
+    }
+  }
+
   sendUserText(text: string): void {
-    if (this.closed || !text) return;
+    // Once the login gate was detected, injecting more text is pointless
+    // (it lands on the auth menu) and its \r submit can even arm the
+    // sign-in flow. Drop input; the scheduler disposes us via the failure.
+    if (this.closed || this.authWallEmitted || !text) return;
     if (!this.ready) {
       this.pendingTexts.push(text);
       return;
@@ -451,6 +804,16 @@ export class TerminalCliSession implements BackendSession {
     this.unsubscribeExit?.();
     try { this.watcher?.close(); } catch { /* already closed */ }
     this.watcher = null;
+    if (this.transcriptPoll) {
+      clearInterval(this.transcriptPoll);
+      this.transcriptPoll = null;
+    }
+    for (const file of this.transcriptFiles.keys()) {
+      if (TerminalCliSession.transcriptFileOwners.get(file)?.ownerId === this.transcriptOwnerId) {
+        TerminalCliSession.transcriptFileOwners.delete(file);
+      }
+    }
+    this.transcriptFiles.clear();
     this.deps.host.kill(this.workerId);
     // Cleanup paths may include per-session managed config homes (dirs).
     for (const path of this.profileCleanupPaths) {

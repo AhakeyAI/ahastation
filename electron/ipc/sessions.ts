@@ -43,6 +43,11 @@ interface OpenPayload {
 // the burst into a single fs write. `before-quit` calls `flushOpenTabsNow`
 // to make sure the final state always lands on disk.
 const SNAPSHOT_DEBOUNCE_MS = 100;
+/** Upper bound for graceful orchestrator teardown on sessions:close. Recap
+ *  (a model call) or a stuck worker can stall end() indefinitely; the
+ *  registry slot must still be freed — otherwise the cwd stays mapped to a
+ *  zombie session and every later open degrades to 'duplicate'. */
+const END_TIMEOUT_MS = 15_000;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotPendingCtx: IpcContext | null = null;
 
@@ -173,6 +178,9 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         getObservedSnapshot: ctx.getObservedSnapshot,
         defaultBackendId: selectedBackendId,
         meetingId: recovery?.meetingId,
+        // PTY attach is a runtime IPC concern: renderer slots are keyed by
+        // sessionId, while a recovered meeting keeps its older durable ID.
+        ptyScopeId: sessionId,
         recoverySeq: recovery?.seq,
         resumeBackendSessions: recovery
           ? Object.fromEntries((Array.isArray(recovery.state.hosts) ? recovery.state.hosts : [])
@@ -199,6 +207,17 @@ export function registerSessionsIpc(ctx: IpcContext): void {
                 Boolean(session && typeof session === 'object' && !Array.isArray(session))
               ),
             )
+          : undefined,
+        // Invited host groups ride along so start() can re-add them; the
+        // resume handles above are keyed by the same host ids.
+        recoveredHosts: recovery
+          ? (Array.isArray(recovery.state.hosts) ? recovery.state.hosts : [])
+              .filter((host): host is Record<string, unknown> => typeof host === 'object' && host !== null)
+              .flatMap((host) => (
+                typeof host.id === 'string' && typeof host.backendId === 'string'
+                  ? [{ id: host.id, backendId: host.backendId }]
+                  : []
+              ))
           : undefined,
       });
 
@@ -283,7 +302,23 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const id = typeof payload?.id === 'string' ? payload.id : '';
     const slot = ctx.registry.get(id);
     if (!slot) return { ok: false, error: 'not-found' };
-    try { await slot.orchestrator.end(); } catch { /* ignore */ }
+    let endTimedOut = false;
+    let endTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        slot.orchestrator.end(),
+        new Promise<void>((resolve) => {
+          endTimer = setTimeout(() => { endTimedOut = true; resolve(); }, END_TIMEOUT_MS);
+        }),
+      ]);
+    } catch { /* ignore */ } finally {
+      if (endTimer) clearTimeout(endTimer);
+    }
+    if (endTimedOut) {
+      // Teardown is still in flight (its cached endPromise will finish
+      // whenever it finishes); the registry must not wait on it.
+      console.warn(`[sessions] orchestrator.end() exceeded ${END_TIMEOUT_MS}ms for ${id}; freeing the registry slot anyway`);
+    }
     clearApprovedExternalDirs(id);
     ctx.registry.close(id);
     // Close is the one path where "tab still on disk after close" would be a
