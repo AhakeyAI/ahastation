@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen } from 'electron';
+import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -352,6 +352,36 @@ function summarizeToolInput(toolName: string, input: Record<string, unknown>): s
   }
 }
 
+// Destructive confirms while the main window is off-stage (minimized or
+// AhaBar-hidden) used to yank the window straight back to the foreground,
+// dialog on top — to the user that reads as two windows popping up out of
+// nowhere with no input on their side. Instead we raise a native
+// notification first and only surface the window once the user engages with
+// it. Notifications are a main-process channel: a compromised renderer
+// cannot synthesize their click events, so the S3 threat model below is
+// unchanged. If the user never engages (notification refused by the OS, user
+// away from the desk) we still fall back to the forced-surface path — a
+// rude dialog beats a silent blocker.
+const DESTRUCTIVE_ATTENTION_TIMEOUT_MS = 25_000;
+
+function requestDestructiveAttention(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!Notification.isSupported()) return resolve();
+    const notify = new Notification({
+      title: 'AhaStation 需要确认高风险操作',
+      body: 'Worker 请求执行破坏性工具，点击通知进行处理',
+      timeoutType: 'never',
+      urgency: 'critical',
+    });
+    notify.on('click', () => resolve());
+    notify.on('failed', () => resolve());
+    notify.show();
+    // Promise resolve is idempotent — first signal (click, failure, or
+    // timeout) wins and the rest are no-ops.
+    setTimeout(resolve, DESTRUCTIVE_ATTENTION_TIMEOUT_MS);
+  });
+}
+
 // S3: native OS confirmation for destructive tool calls under auto-approve.
 // A compromised renderer (XSS, injected script) could fake the in-app
 // permission row and flip auto-approve on, but it cannot synthesize a click
@@ -363,6 +393,12 @@ async function nativeConfirmDestructive(
 ): Promise<boolean> {
   const win = liveWindow();
   if (!win) return false;
+  // Off-stage window: ask for attention without stealing focus. The restore/
+  // show/focus below only runs once the user clicks the notification (or the
+  // attention request times out and falls back).
+  if (!win.isVisible() || win.isMinimized()) {
+    await requestDestructiveAttention();
+  }
   // Surface the window first: a window-modal sheet on an unfocused/minimized
   // app is effectively invisible, so the worker would block on this promise
   // with no on-screen signal (one of the "silent blocker" symptoms).
@@ -622,9 +658,21 @@ app.on('child-process-gone', (_event, details) => {
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
-  app.quit();
+  // A duplicate launch (DMG-volume twin, Spotlight prefetch, a stray `open
+  // -a`) never got past this point: no window, no IPC handlers, nothing to
+  // clean up. app.quit() would still run the before-quit drain (up to 5 s)
+  // while the twin sits in the Dock next to the real instance — exactly the
+  // "two identical icons / two windows flashing" window users were seeing.
+  // app.exit() skips all of that and disappears immediately.
+  app.exit(0);
 } else {
   app.on('second-instance', () => {
+    // AhaBar mode means the user deliberately sent the main window off-stage
+    // (voice link stays alive behind the floating bar). Ghost second
+    // launches arrive here without any user intent and must not drag the
+    // window back to the foreground. A real user who wants the window back
+    // clicks the Dock icon, which goes through the activate handler below.
+    if (isCompanionWindowOpen('ahabar')) return;
     const win = liveWindow();
     if (!win) return;
     if (win.isMinimized()) win.restore();

@@ -148,7 +148,7 @@ export class PtyHost {
     return this.sessions.has(id);
   }
 
-  spawn(id: string, options: PtySpawnOptions): void {
+  spawn(id: string, options: PtySpawnOptions): number {
     if (this.sessions.has(id)) {
       throw new Error(`pty '${id}' already has a live PTY`);
     }
@@ -186,6 +186,7 @@ export class PtyHost {
       this.dispose(id);
     }));
     this.sessions.set(id, live);
+    return pty.pid;
   }
 
   write(id: string, data: string): boolean {

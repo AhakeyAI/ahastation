@@ -867,8 +867,9 @@ export type RendererEvent =
   | { kind: 'permission-cancelled'; id: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'auth-required'; error: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'error'; error: string; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'turn-status'; status: 'started' | 'completed'; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'ended'; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'worker-spawned'; workerId: string; title: string; deps: string[]; specialty: WorkerSpecialty; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'worker-spawned'; workerId: string; title: string; deps: string[]; specialty: WorkerSpecialty; backendId?: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'worker-ended'; workerId: string; status: WorkerStatus; summary?: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'worker-stalled'; workerId: string; title: string; idleMs: number; currentTool: string | null; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'worker-delivery'; workerId: string; title: string; summary: string; taskId: string; deliveryId: string; files: WorkerDeliveryFile[]; source?: AgentSource; sessionId?: string; hostId?: string }
@@ -890,6 +891,8 @@ export type RendererEvent =
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'host-added'; backendId: string; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string };
 
 export interface DesktopSource {
@@ -1379,8 +1382,11 @@ export interface VibeMeetApi {
   };
   skills: SkillsApi;
   settingsWindow: {
-    open: () => Promise<{ ok: boolean }>;
+    /** `focus` names a settings section to bring into view (e.g.
+     *  'backends-unconfigured' from the Participants sidebar's ＋ 新增). */
+    open: (opts?: { focus?: string }) => Promise<{ ok: boolean }>;
     close: () => Promise<{ ok: boolean }>;
+    onFocusSection: (cb: (payload: { section: string }) => void) => () => void;
   };
   openCodeEditor: {
     open: (payload: { backendId: string; hostId: string; sessionId: string; cwd: string; title?: string }) => Promise<{ ok: boolean; error?: string }>;

@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react';
-import { AlertTriangle, Bell, RotateCcw, Terminal } from 'lucide-react';
+import { Bell, Terminal } from 'lucide-react';
 import type { WorkerState } from '../lib/meeting-store';
 import { WORKER_STATUS_LABEL } from '../lib/task-columns';
 import { BackendAvatar } from './BackendAvatar';
@@ -45,15 +45,6 @@ function avatarInitial(title: string): string {
   return trim.slice(0, 1).toUpperCase();
 }
 
-function formatUpdateTime(timestamp: number): string {
-  if (!timestamp) return '尚无活动';
-  return new Intl.DateTimeFormat('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(timestamp);
-}
-
 /** Human-readable status label shown below the avatar. */
 function statusLabel(worker: WorkerState, speaking: boolean): string {
   if (speaking) return '发言中';
@@ -96,13 +87,6 @@ export const WorkerCard = memo(function WorkerCard({
   ) : (
     <span className="worker-card-initial">{avatarInitial(worker.title)}</span>
   );
-  const latestActivity = worker.activity.at(-1);
-  const updateTimestamp = latestActivity?.ts ?? worker.endedAt ?? worker.startedAt ?? 0;
-  const currentStep = worker.currentTool
-    ? `工具：${worker.currentTool}`
-    : worker.lastText || latestActivity?.title || '等待下一步';
-  const reportBlocked = worker.workReport?.status === 'blocked';
-
   const className = [
     'worker-card',
     `worker-card-${mode}`,
@@ -154,25 +138,6 @@ export const WorkerCard = memo(function WorkerCard({
               )}
             </div>
           </div>
-
-          {!isTalker && (
-            <div className="worker-card-gallery-detail">
-              <div className="worker-card-gallery-title" title={worker.title}>{worker.title}</div>
-              <div className="worker-card-gallery-step" title={currentStep}>{currentStep}</div>
-              <div className="worker-card-gallery-meta">
-                <span>attempt {worker.attempt ?? 1}</span>
-                <time dateTime={updateTimestamp ? new Date(updateTimestamp).toISOString() : undefined}>
-                  {formatUpdateTime(updateTimestamp)}
-                </time>
-              </div>
-              <div className="worker-card-gallery-flags" aria-label="任务提示">
-                {worker.pendingPermission && <span className="is-permission"><Bell size={11} />等待权限</span>}
-                {worker.status === 'reworking' && <span className="is-rework"><RotateCcw size={11} />返工</span>}
-                {reportBlocked && <span className="is-blocked"><AlertTriangle size={11} />阻塞</span>}
-                {worker.status === 'failed' && <span className="is-failed"><AlertTriangle size={11} />失败</span>}
-              </div>
-            </div>
-          )}
         </button>
 
         {/* Permission approval inline */}

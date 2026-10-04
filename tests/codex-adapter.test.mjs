@@ -411,6 +411,79 @@ test('Codex production app-server session becomes ready without a model turn', a
   session.end();
 });
 
+test('Codex app-server host emits turn-status around the turn lifecycle', async () => {
+  const events = [];
+  let notification;
+  const transport = {
+    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async openThread() { return 'app-thread-ts'; },
+    async resumeThread(id) { return id; },
+    async startTurn() {
+      queueMicrotask(() => {
+        notification({ method: 'turn/started', params: {
+          threadId: 'app-thread-ts', turn: { id: 'turn-ts', status: 'inProgress' },
+        } });
+        notification({ method: 'turn/completed', params: {
+          threadId: 'app-thread-ts', turn: { id: 'turn-ts', status: 'completed', error: null },
+        } });
+      });
+      return 'turn-ts';
+    },
+    async interruptTurn() {},
+    close() {},
+  };
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport: (options) => { notification = options.onNotification; return transport; },
+  });
+  const session = backend.createSession({
+    cwd: '/workspace', executionRole: 'host', extra: { codexTransport: 'app-server' },
+  }, (event) => events.push(event));
+  await session.start();
+  session.sendUserText('hi');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, [
+    { kind: 'turn-status', status: 'started' },
+    { kind: 'turn-status', status: 'completed' },
+  ]);
+  session.end();
+});
+
+test('Codex app-server worker does not emit turn-status events', async () => {
+  const events = [];
+  let notification;
+  const transport = {
+    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async openThread() { return 'app-thread-wts'; },
+    async resumeThread(id) { return id; },
+    async startTurn() {
+      queueMicrotask(() => {
+        notification({ method: 'turn/started', params: {
+          threadId: 'app-thread-wts', turn: { id: 'turn-wts', status: 'inProgress' },
+        } });
+        notification({ method: 'turn/completed', params: {
+          threadId: 'app-thread-wts', turn: { id: 'turn-wts', status: 'completed', error: null },
+        } });
+      });
+      return 'turn-wts';
+    },
+    async interruptTurn() {},
+    close() {},
+  };
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport: (options) => { notification = options.onNotification; return transport; },
+  });
+  const session = backend.createSession({
+    cwd: '/workspace', executionRole: 'worker', extra: { codexTransport: 'app-server' },
+  }, (event) => events.push(event));
+  await session.start();
+  session.sendUserText('do work');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.some((e) => e.kind === 'turn-status'), false);
+  session.end();
+});
+
 test('Codex app-server receives the compiled task model and reasoning effort', async () => {
   let openOptions;
   const transport = {

@@ -1,3 +1,4 @@
+import { dialog } from 'electron';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -20,8 +21,10 @@ export function loadClaudeEnv(): ClaudeEnv {
     return env;
   } catch (err) {
     console.error('[settings-loader] failed to parse Claude settings:', err);
+    // dialog is imported statically at the top — the old lazy
+    // require('electron') threw ReferenceError in the ESM main process, so
+    // this warning silently never appeared.
     try {
-      const { dialog } = require('electron');
       dialog.showMessageBoxSync({
         type: 'warning',
         title: '配置警告',

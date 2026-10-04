@@ -16,7 +16,7 @@ function getThemeBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f2f2f7';
 }
 
-function createSettingsWindow(): BrowserWindow {
+function createSettingsWindow(focus?: string | null): BrowserWindow {
   const dev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
 
   const win = new BrowserWindow({
@@ -101,12 +101,15 @@ function createSettingsWindow(): BrowserWindow {
 
   if (dev) {
     const sep = process.env.VITE_DEV_SERVER_URL!.includes('?') ? '&' : '?';
-    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}${sep}view=settings`).catch((err) => {
+    const focusQ = focus ? `&focus=${encodeURIComponent(focus)}` : '';
+    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}${sep}view=settings${focusQ}`).catch((err) => {
       console.error('[settings-window] loadURL error:', err);
     });
   } else {
     const htmlPath = join(__dirname, '..', '..', 'dist', 'index.html');
-    win.loadFile(htmlPath, { query: { view: 'settings' } }).catch((err) => {
+    const query: Record<string, string> = { view: 'settings' };
+    if (focus) query.focus = focus;
+    win.loadFile(htmlPath, { query }).catch((err) => {
       console.error('[settings-window] loadFile error:', htmlPath, err);
     });
   }
@@ -115,12 +118,21 @@ function createSettingsWindow(): BrowserWindow {
 }
 
 export function registerSettingsWindowIpc(): void {
-  ipcMain.handle('settings:open-window', () => {
+  // `focus` names a settings section the caller wants brought into view, e.g.
+  // 'backends-unconfigured' from the Participants sidebar's ＋ 新增 button.
+  // Fresh windows receive it as a URL query param (consumed on mount); an
+  // already-open window gets a 'settings:focus-section' push instead —
+  // reloading it would wipe half-typed form state.
+  ipcMain.handle('settings:open-window', (_e, payload?: { focus?: string }) => {
+    const focus = typeof payload?.focus === 'string' && payload.focus ? payload.focus : null;
     if (settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.focus();
+      if (focus) {
+        settingsWindow.webContents.send('settings:focus-section', { section: focus });
+      }
       return { ok: true };
     }
-    settingsWindow = createSettingsWindow();
+    settingsWindow = createSettingsWindow(focus);
     return { ok: true };
   });
 

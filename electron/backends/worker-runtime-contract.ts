@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { getClaudeCodeCliSource } from '../claude-cli/resolve.js';
 
 export type WorkerRuntimeState =
@@ -268,31 +268,68 @@ export function assessWorkerRuntime(input: {
   };
 }
 
+interface VersionProbeTarget {
+  file: string;
+  args: string[];
+  shell: boolean;
+}
+
+function versionProbeTarget(binaryPath: string): VersionProbeTarget {
+  // JS stubs (used by injected-session tests) are not directly exec-able on
+  // Windows; run them through the current Node binary instead.
+  const isJsStub = /\.(c|m)?js$/i.test(binaryPath);
+  // npm .cmd/.bat shims (e.g. a PATH-installed claude CLI on Windows) can
+  // only be launched through a shell; quote the path so spaces survive.
+  const isWinShim = process.platform === 'win32' && (
+    /\.(cmd|bat)$/i.test(binaryPath)
+    || (!/\.(?:exe|cmd|bat|js|mjs|cjs)$/i.test(binaryPath) && !/node_modules[\\/]/i.test(binaryPath))
+  );
+  return {
+    file: isJsStub ? process.execPath : isWinShim ? `"${binaryPath}"` : binaryPath,
+    args: isJsStub ? [binaryPath, '--version'] : ['--version'],
+    shell: isWinShim,
+  };
+}
+
 export function probeWorkerRuntimeVersion(backendId: string, binaryPath: string | null): string | null {
   if (!binaryPath) return null;
   try {
-    // JS stubs (used by injected-session tests) are not directly exec-able on
-    // Windows; run them through the current Node binary instead.
-    const isJsStub = /\.(c|m)?js$/i.test(binaryPath);
-    // npm .cmd/.bat shims (e.g. a PATH-installed claude CLI on Windows) can
-    // only be launched through a shell; quote the path so spaces survive.
-    const isWinShim = process.platform === 'win32' && (
-      /\.(cmd|bat)$/i.test(binaryPath)
-      || (!/\.(?:exe|cmd|bat|js|mjs|cjs)$/i.test(binaryPath) && !/node_modules[\\/]/i.test(binaryPath))
-    );
-    const output = execFileSync(
-      isJsStub ? process.execPath : isWinShim ? `"${binaryPath}"` : binaryPath,
-      isJsStub ? [binaryPath, '--version'] : ['--version'],
-      {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 3_000,
-        windowsHide: true,
-        ...(isWinShim ? { shell: true } : {}),
-      },
-    );
+    const target = versionProbeTarget(binaryPath);
+    const output = execFileSync(target.file, target.args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 3_000,
+      windowsHide: true,
+      ...(target.shell ? { shell: true } : {}),
+    });
     return extractRuntimeVersion(output);
   } catch {
     return null;
   }
+}
+
+/** Async twin of probeWorkerRuntimeVersion. The sync version blocks the main
+ *  process event loop, so callers probing many runtimes at once (e.g. the
+ *  backend-auth:list IPC) must use this and Promise.all the results. */
+export function probeWorkerRuntimeVersionAsync(
+  backendId: string,
+  binaryPath: string | null,
+): Promise<string | null> {
+  if (!binaryPath) return Promise.resolve(null);
+  const target = versionProbeTarget(binaryPath);
+  return new Promise((resolve) => {
+    execFile(
+      target.file,
+      target.args,
+      {
+        encoding: 'utf8' as const,
+        timeout: 3_000,
+        windowsHide: true,
+        ...(target.shell ? { shell: true } : {}),
+      },
+      (error, stdout) => {
+        resolve(error ? null : extractRuntimeVersion(stdout));
+      },
+    );
+  });
 }

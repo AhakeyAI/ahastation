@@ -108,6 +108,7 @@ export type BackendSessionEvent =
   | { kind: 'permission-cancelled'; id: string }
   | { kind: 'auth-required'; error: string }
   | { kind: 'error'; error: string }
+  | { kind: 'turn-status'; status: 'started' | 'completed' }
   | { kind: 'ended' };
 
 // ── User message input ────────────────────────────────────────────────────────

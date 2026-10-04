@@ -246,8 +246,17 @@ const api = {
     uninstall: (name) => ipcRenderer.invoke('skills:uninstall', name),
   },
   settingsWindow: {
-    open: () => ipcRenderer.invoke('settings:open-window'),
+    open: (opts) => ipcRenderer.invoke('settings:open-window', opts ?? {}),
     close: () => ipcRenderer.invoke('settings:close-window'),
+    // Section-focus relay for an already-open settings window (fresh windows
+    // carry the same intent as a `focus` URL query param instead).
+    onFocusSection: (cb) => {
+      const listener = (_event, payload) => cb(payload);
+      ipcRenderer.on('settings:focus-section', listener);
+      return () => {
+        ipcRenderer.removeListener('settings:focus-section', listener);
+      };
+    },
   },
   openCodeEditor: {
     open: (payload) => ipcRenderer.invoke('opencode-editor:open', payload),

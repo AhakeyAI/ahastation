@@ -56,9 +56,36 @@ const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
 const MAX_AGGREGATE_ACTIVITY = 500;
 
 /** Talker's transcript drives the chat timeline; subscribed internally so
- *  per-message updates re-render only the drawer, never the App tree. */
+ *  per-message updates re-render only the drawer, never the App tree.
+ *
+ *  The timeline shows EVERY host's assistant replies, not just the
+ *  coordinator's. Coordinator/default replies (and the user's own messages)
+ *  live under the 'talker' worker; @mentioned expert hosts — including
+ *  terminal CLIs whose answers arrive via the session-transcript tailer —
+ *  land under 'talker:<hostId>'. Merge them chronologically so a mentioned
+ *  host's answer appears inline instead of vanishing into a hidden worker. */
 function selectTalkerTranscript(s: MeetingState): TranscriptEntry[] {
-  return s.workers.get('talker')?.transcript ?? EMPTY_TRANSCRIPT;
+  let only: TranscriptEntry[] = EMPTY_TRANSCRIPT;
+  let merged: TranscriptEntry[] | null = null;
+  let count = 0;
+  for (const [key, ws] of s.workers) {
+    if (key !== 'talker' && !key.startsWith('talker:')) continue;
+    if (ws.transcript.length === 0) continue;
+    count += 1;
+    only = ws.transcript;
+    (merged ??= []).push(...ws.transcript);
+  }
+  // Fast path: a single contributing talker — return its array by reference so
+  // the shallow-equal bail-out can skip snapshots that touched nothing here.
+  if (count <= 1 || !merged) return only;
+  merged.sort((a, b) => a.ts - b.ts);
+  return merged;
+}
+
+/** True while the host selected for the latest user turn is responding. */
+function selectTalkerResponding(s: MeetingState): boolean {
+  const key = s.lastMentionedHostId ? `talker:${s.lastMentionedHostId}` : 'talker';
+  return s.workers.get(key)?.responding ?? false;
 }
 
 /** Merged activity from all workers (timestamp-sorted, capped) — same
@@ -201,7 +228,11 @@ export const SideDrawer = memo(function SideDrawer({
   // High-frequency meeting streams are subscribed in-component (not threaded
   // through App): transcript/activity append many times per minute during a
   // voice session, and those updates must not re-render the App tree.
-  const transcript = useMeetingSelector(selectTalkerTranscript);
+  const transcript = useMeetingSelector(selectTalkerTranscript, shallowEqualArray);
+  const talkerResponding = useMeetingSelector(selectTalkerResponding);
+  // The bubble names the host the input was actually routed to (default:
+  // the coordinator host), so @mentioning qoder no longer reads "Codex 正在思考".
+  const thinkingHostId = useMeetingSelector((s) => s.lastMentionedHostId ?? null);
   const activity = useMeetingSelector(selectMergedActivity, shallowEqualArray);
   const hostGroups = useMeetingSelector((s) => s.hostGroups);
   const [tab, setTab] = useState<Tab>('chat');
@@ -253,6 +284,14 @@ export const SideDrawer = memo(function SideDrawer({
       b.displayName.toLowerCase().includes(lower)
     );
   }, [activeBackendIds, backends, mentionFilter]);
+
+  // Participants tab shows configured agents only (loggedIn via OAuth or a
+  // saved API key — same auth-state split as BackendSettings). Unconfigured
+  // ones are reachable through the ＋新增 → settings flow instead.
+  const configuredBackends = useMemo(
+    () => backends.filter((b) => b.loggedIn || b.hasApiKey),
+    [backends],
+  );
 
   const handleSlashSelect = useCallback((skill: SkillInfo) => {
     const before = text.slice(0, slashStartRef.current);
@@ -395,7 +434,7 @@ export const SideDrawer = memo(function SideDrawer({
   useEffect(() => {
     if (tab !== 'chat') return;
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [transcript.length, tab, pending]);
+  }, [transcript.length, tab, pending, talkerResponding]);
 
   const totalStagedBytes = useMemo(
     () => staged.reduce((acc, a) => acc + a.sizeBytes, 0),
@@ -532,19 +571,22 @@ export const SideDrawer = memo(function SideDrawer({
       {tab === 'participants' && (
         <div className="drawer-participants">
           <div className="drawer-participants-header">
-            <span className="drawer-participants-title">Configured CLI Backends</span>
-            <span className="drawer-participants-count">{backends.length} available</span>
+            <span className="drawer-participants-title">已配置的智能体</span>
+            <span className="drawer-participants-count">{configuredBackends.length} 个</span>
+            <button
+              className="drawer-participant-add"
+              onClick={() => void window.vibeMeet.settingsWindow.open({ focus: 'backends-unconfigured' })}
+              title="打开设置，配置新的智能体"
+            >
+              ＋ 新增
+            </button>
           </div>
           <div className="drawer-participants-list">
-            {backends.length === 0 && (
-              <div className="drawer-empty">暂无已配置的 CLI 后端。请在设置中添加。</div>
+            {configuredBackends.length === 0 && (
+              <div className="drawer-empty">暂无已配置的智能体。点击「新增」去设置中配置。</div>
             )}
-            {backends.map((b) => {
+            {configuredBackends.map((b) => {
               const isActive = activeBackendIds.has(b.id);
-              // A backend is "configured" if:
-              // - It's the default (bundled, no extra setup needed), OR
-              // - It has an auth entry with valid credentials (apiKey or oauth)
-              const isConfigured = b.loggedIn;
               return (
                 <div key={b.id} className={`drawer-participant-row ${isActive ? 'active' : ''}`}>
                   <div className="drawer-participant-info">
@@ -552,7 +594,7 @@ export const SideDrawer = memo(function SideDrawer({
                     <span className="drawer-participant-status">
                       {b.available ? '✓ 已安装' : '✗ 未安装'}
                       {' · '}
-                      {isConfigured ? '✓ 已配置' : '✗ 未配置'}
+                      {'✓ 已配置'}
                     </span>
                   </div>
                   {isActive ? (
@@ -561,27 +603,16 @@ export const SideDrawer = memo(function SideDrawer({
                     <button
                       className="drawer-participant-invite"
                       onClick={() => onAddHost?.(b.id)}
-                      disabled={!b.available || !isConfigured || disabled}
+                      disabled={!b.available || disabled}
                       title={
                         !b.available
                           ? 'CLI 未安装，无法邀请'
-                          : !isConfigured
-                            ? '未配置 API Key，请先去设置'
-                            : disabled
-                              ? '会议未开始'
-                              : `邀请 ${b.displayName}`
+                          : disabled
+                            ? '会议未开始'
+                            : `邀请 ${b.displayName}`
                       }
                     >
                       邀请
-                    </button>
-                  )}
-                  {!isConfigured && (
-                    <button
-                      className="drawer-participant-configure"
-                      onClick={() => void window.vibeMeet.settingsWindow.open()}
-                      title="去设置中配置"
-                    >
-                      去配置
                     </button>
                   )}
                 </div>
@@ -644,6 +675,17 @@ export const SideDrawer = memo(function SideDrawer({
                 </div>
               );
             })}
+            {talkerResponding && (
+              <div className="msg msg-assistant msg-thinking" aria-live="polite">
+                <div className="msg-meta">
+                  <span className="msg-author">{backendNameForHost(thinkingHostId ?? undefined)}</span>
+                </div>
+                <div className="msg-body thinking-body">
+                  <span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+                  <span className="thinking-text">正在思考</span>
+                </div>
+              </div>
+            )}
             {pending && (
               <ApprovalCard
                 pending={pending}

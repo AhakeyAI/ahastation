@@ -413,6 +413,12 @@ button:disabled {
 
 .join-card {
   width: min(520px, 100%);
+  /* Cap the card to the screen's content box (.join-screen has 32px padding)
+     and scroll internally — otherwise tall panels (e.g. the expanded Host CLI
+     auth body) overflow the window and, with #root overflow:hidden, become
+     unreachable. */
+  max-height: 100%;
+  overflow-y: auto;
   background: var(--bg-glass);
   backdrop-filter: blur(24px);
   border: 1px solid var(--border-strong);
@@ -424,6 +430,13 @@ button:disabled {
   flex-direction: column;
   gap: 24px;
 }
+
+/* Children must never shrink to fit the card's max-height: a shrinkable child
+   with its own overflow (e.g. .join-auth-section's overflow:hidden) would be
+   squashed and silently clip its content, leaving the card with scrollHeight
+   == clientHeight — i.e. nothing to scroll. Keep children at natural height
+   so the overflow lands on the card and overflow-y:auto can do its job. */
+.join-card > * { flex-shrink: 0; }
 
 .join-brand { display: flex; align-items: center; gap: 16px; }
 
@@ -546,6 +559,10 @@ button:disabled {
   padding: 14px;
   display: flex; flex-direction: column; gap: 14px;
   background: var(--bg-elevated);
+  /* Keep the panel self-contained so the toggle, error banner and CTA below
+     stay visible without scrolling the whole card. */
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
 }
 
 .join-auth-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
@@ -2857,6 +2874,36 @@ html.popout-view #root {
 .msg-system .msg-body {
   background: transparent; color: var(--text-muted);
   font-style: italic; padding: 4px 0;
+}
+
+/* Talker "thinking" indicator — transient bubble shown while the host
+ * backend processes a turn. Cleared by the first reply text / turn end. */
+.msg-thinking .thinking-body {
+  display: inline-flex; align-items: center; align-self: flex-start; gap: 8px;
+  padding: 9px 14px;
+  background: var(--bg-elevated); color: var(--text-muted);
+  animation: thinking-fade-in 180ms ease-out;
+}
+.thinking-dots { display: inline-flex; gap: 4px; }
+.thinking-dots i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); opacity: 0.35;
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
+.thinking-text { font-size: 12px; letter-spacing: 0.02em; }
+@keyframes thinking-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes thinking-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-thinking .thinking-body, .thinking-dots i { animation: none; }
+  .thinking-dots i { opacity: 0.7; }
 }
 
 .drawer-composer {
@@ -7954,59 +8001,103 @@ html.popout-view #root {
   margin-top: 12px;
 }
 
-/* ---- Backend tabs ---- */
+/* ---- Backend sections (已配置 / 未配置) ---- */
 
-.backend-tabs {
-  display: flex;
-  gap: 2px;
+.backend-section {
   margin-top: 14px;
-  padding: 3px;
-  background: var(--bg-hover);
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
-  overflow-x: auto;
-  scrollbar-width: none;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease;
 }
-.backend-tabs::-webkit-scrollbar { display: none; }
 
-.backend-tab {
+/* Landing flash for the Participants ＋新增 flow — two seconds of accent
+   border + soft halo so the scroll target is obvious. */
+.backend-section-highlight {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.backend-section-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 8px 12px;
-  border: none;
-  border-radius: calc(var(--radius-md) - 2px);
+  margin-bottom: 10px;
+}
+
+.backend-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.backend-section-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  padding: 0 7px;
+  border-radius: 8px;
+  line-height: 1.6;
+}
+
+.backend-section-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.backend-add-btn {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
   background: transparent;
-  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.backend-add-btn:hover,
+.backend-add-btn-active {
+  background: var(--accent-soft);
+}
+
+.backend-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.backend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--transition), color var(--transition), box-shadow var(--transition);
   white-space: nowrap;
+  transition: border-color var(--transition), background var(--transition);
 }
-.backend-tab svg {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+
+.backend-chip:hover {
+  border-color: var(--accent);
 }
-.backend-tab-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.backend-tab:hover:not(.backend-tab-active) {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-.backend-tab-active {
-  background: var(--bg-app);
-  color: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+
+.backend-chip-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
   font-weight: 600;
 }
-.backend-tab-default {
+
+.backend-chip-default {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 6px;
@@ -8015,47 +8106,37 @@ html.popout-view #root {
   font-weight: 600;
   line-height: 1.4;
 }
-.backend-tab-dot {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.backend-tab-dot.ok { background: #34c759; }
-.backend-tab-dot.unavailable { background: #ff9f0a; }
 
-.backend-tab-add {
-  flex: 0 0 auto;
-  min-width: auto;
-  padding: 8px 14px;
-  color: var(--accent);
-  font-weight: 500;
-}
-.backend-tab-add:hover {
-  background: var(--accent-soft);
-}
-
-.backend-tab-custom-remove {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+.backend-card-remove-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-left: 4px;
-  border-radius: 50%;
-  font-size: 14px;
-  font-weight: 600;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.backend-card-remove-hint {
+  font-size: 11px;
   color: var(--text-muted);
-  opacity: 0;
-  transition: opacity var(--transition), background var(--transition), color var(--transition);
 }
-.backend-tab:hover .backend-tab-custom-remove {
-  opacity: 1;
+
+.backend-selector-remove {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
 }
-.backend-tab-custom-remove:hover {
-  background: var(--error-soft, rgba(255, 59, 48, 0.15));
+
+.backend-selector-remove:hover {
   color: var(--error, #ff3b30);
+  border-color: var(--error-soft, rgba(255, 59, 48, 0.15));
+  background: var(--error-soft, rgba(255, 59, 48, 0.15));
 }
 
 /* ---- Custom backend form ---- */
@@ -8751,7 +8832,7 @@ html.popout-view #root {
 .drawer-participants-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-soft);
 }
@@ -8765,6 +8846,24 @@ html.popout-view #root {
 .drawer-participants-count {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.drawer-participant-add {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.drawer-participant-add:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .drawer-participants-list {
@@ -8843,23 +8942,6 @@ html.popout-view #root {
 .drawer-participant-invite:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.drawer-participant-configure {
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--warn, #ff9500);
-  background: transparent;
-  color: var(--warn, #ff9500);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-  flex-shrink: 0;
-  margin-left: 4px;
-}
-.drawer-participant-configure:hover {
-  background: var(--warn, #ff9500);
-  color: #fff;
 }
 
 
@@ -10405,7 +10487,7 @@ html.popout-view #root {
   .host-terminal-collapse-btn { color: var(--text-muted); }
   .host-terminal-collapse-btn:hover { background: var(--bg-elevated); color: var(--text-secondary); }
   .drawer-participant-invite:hover:not(:disabled) { color: var(--text-primary); }
-  .drawer-participant-configure:hover { color: var(--text-primary); }
+  .drawer-participant-add:hover { color: var(--text-primary); }
 
   /* ---- Manual light mode contrast fixes ---- */
   /* Error text on light danger-soft background */
@@ -12167,6 +12249,11 @@ html.handheld { --density-scale: 1.2; }
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
   z-index: 110;
+  /* Rendered inside .join-screen (-webkit-app-region: drag) at JoinScreen
+     and Lobby, but outside .join-card's no-drag. Without this declaration
+     every mouse event on the modal is consumed by window-dragging, so none
+     of its buttons respond. */
+  -webkit-app-region: no-drag;
 }
 
 .dirpicker {

@@ -10,6 +10,7 @@ import test from 'node:test';
 import { MeetingRepository } from '../dist-electron/meeting-repository.js';
 import { Orchestrator } from '../dist-electron/orchestrator.js';
 import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
+import { getBackendRegistry, resetBackendRegistry } from '../dist-electron/backends/registry.js';
 
 function fakeSessionFactory() {
   return {
@@ -535,5 +536,225 @@ test('a journal without a cwd anchor is not offered for recovery', async () => {
     assert.equal(recovered, undefined, 'no cwd anchor means no usable recovery state');
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- Recovery of invited host groups (multi-host meetings). A recovered
+// meeting used to rebuild only the default host, so invited agents vanished
+// from the Participants gallery. These tests pin that start() re-adds every
+// non-default snapshot host exactly like a live invite, and that a host
+// still mid-handshake keeps its recovered resume handle in the snapshot.
+// NOTE: these reset the backend registry — keep them last in the file.
+
+function fakeHostRuntime() {
+  const dir = mkdtempSync(join(tmpdir(), 'ahastation-host-runtime-'));
+  const binary = join(dir, 'runtime.cjs');
+  writeFileSync(binary, `'use strict';\nconsole.log('2.1.150');\n`);
+  return { dir, binary };
+}
+
+/** Minimal backend: resolveBinary so addHost's gate passes. The injected
+ *  sessionFactory builds the actual sessions, so no real subprocess runs. */
+function fakeCoordinatingBackend(binaryPath) {
+  return {
+    id: 'claude-code',
+    capabilities: { coordinate: true, executeTasks: true, defaultModel: 'claude-haiku-4-5' },
+    resolveBinary: () => binaryPath,
+    buildEnv: (_auth, extra) => extra,
+    async validateAuth() { return { ok: true }; },
+    async checkAuthStatus() { return { loggedIn: true }; },
+  };
+}
+
+test('recovery re-adds invited host groups like live invites', async () => {
+  const runtime = fakeHostRuntime();
+  const events = [];
+  const sessions = [];
+  const meetingId = `recovery-hosts-${randomUUID()}`;
+  resetBackendRegistry();
+  getBackendRegistry().register(fakeCoordinatingBackend(runtime.binary));
+  const orchestrator = new Orchestrator({
+    emit: (event) => events.push(event),
+    cwd: '/tmp',
+    meetingId,
+    sessionFactory(opts) {
+      sessions.push(opts);
+      return fakeSessionFactory();
+    },
+    recoveredHosts: [
+      { id: 'default', backendId: 'claude-code' },
+      { id: 'expert', backendId: 'claude-code' },
+    ],
+    resumeBackendSessions: {
+      default: { protocol: 'claude-cli', sessionId: 'thread-default' },
+      expert: { protocol: 'claude-cli', sessionId: 'thread-expert' },
+    },
+  });
+  try {
+    await orchestrator.start();
+    // The re-add is announced synchronously with the backend id so the
+    // renderer can seed the participant tile before the handshake settles.
+    assert.ok(events.some((event) => (
+      event.event.kind === 'host-added'
+      && event.hostId === 'expert'
+      && event.event.backendId === 'claude-code'
+    )));
+    const deadline = Date.now() + 2_000;
+    while (!events.some((event) => event.event.kind === 'session-ready' && event.hostId === 'expert')) {
+      if (Date.now() > deadline) assert.fail('recovered expert host did not become ready');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    // One default host session and one expert session — the constructor-
+    // created default group was not re-added a second time.
+    assert.equal(sessions.length, 2);
+    assert.deepEqual(
+      orchestrator.listHosts().map((host) => `${host.id}:${host.role}`).sort(),
+      ['default:coordinator', 'expert:expert'],
+    );
+    // addHost snapshots after the handshake, so by the time session-ready
+    // was emitted the expert's live session handle is durable.
+    const snapshot = JSON.parse(readFileSync(`/tmp/meetings/${meetingId}/snapshot.json`, 'utf8'));
+    const expert = snapshot.state.hosts.find((host) => host.id === 'expert');
+    assert.equal(expert.backendId, 'claude-code');
+    assert.equal(expert.backendSession.sessionId, 'thread-recovered');
+  } finally {
+    await orchestrator.end();
+    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test('a re-added host still mid-handshake keeps its recovered resume handle', async () => {
+  const runtime = fakeHostRuntime();
+  const meetingId = `recovery-hosts-pending-${randomUUID()}`;
+  resetBackendRegistry();
+  getBackendRegistry().register(fakeCoordinatingBackend(runtime.binary));
+  let call = 0;
+  const orchestrator = new Orchestrator({
+    emit() {},
+    cwd: '/tmp',
+    meetingId,
+    sessionFactory() {
+      call += 1;
+      if (call === 1) return fakeSessionFactory(); // default host
+      return {
+        // The expert's handshake never settles within this test — in a real
+        // build its tile would show "Connecting…" throughout.
+        start() { return new Promise(() => {}); },
+        end() {}, sendUserText() {}, sendUserContent() {},
+        resolvePermission() {}, async interrupt() {},
+        snapshot() { return undefined; },
+      };
+    },
+    recoveredHosts: [
+      { id: 'default', backendId: 'claude-code' },
+      { id: 'expert', backendId: 'claude-code' },
+    ],
+    resumeBackendSessions: {
+      expert: { protocol: 'claude-cli', sessionId: 'thread-expert' },
+    },
+  });
+  try {
+    await orchestrator.start();
+    // start()'s closing snapshot ran while the expert had no live session
+    // yet; the recovered handle must survive rather than being blanked out.
+    const snapshot = JSON.parse(readFileSync(`/tmp/meetings/${meetingId}/snapshot.json`, 'utf8'));
+    const expert = snapshot.state.hosts.find((host) => host.id === 'expert');
+    assert.ok(expert, 're-added expert missing from the snapshot hosts list');
+    assert.equal(expert.backendSession.sessionId, 'thread-expert');
+  } finally {
+    await orchestrator.end();
+    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(runtime.dir, { recursive: true, force: true });
+  }
+});
+
+test('terminal hosts use the renderer session scope and normalize process failures', async (t) => {
+  const runtime = fakeHostRuntime();
+  const meetingId = `terminal-scope-${randomUUID()}`;
+  const ptyScopeId = `renderer-session-${randomUUID()}`;
+  const events = [];
+  const configs = [];
+  let terminalEmit;
+
+  resetBackendRegistry();
+  t.after(() => resetBackendRegistry());
+  // The default HostGroup requires a coordinating backend — register one.
+  getBackendRegistry().register({
+    ...fakeCoordinatingBackend(runtime.binary),
+    createSession(_config, _emit) { return fakeSessionFactory(); },
+  });
+  getBackendRegistry().register({
+    id: 'qoder-terminal',
+    capabilities: {
+      coordinate: false,
+      executeTasks: true,
+      displayName: 'Qoder (终端)',
+      iconId: 'qoder',
+      mcp: false,
+      permissions: false,
+      systemPrompt: false,
+      skills: false,
+      interrupt: true,
+      defaultModel: 'auto',
+      models: ['auto'],
+      installHint: '',
+    },
+    resolveBinary: () => '/fake/qodercli',
+    buildEnv: (_auth, extra) => extra,
+    createSession(config, emit) {
+      configs.push(config);
+      terminalEmit = emit;
+      return fakeSessionFactory();
+    },
+  });
+
+  const orchestrator = new Orchestrator({
+    emit: (event) => events.push(event),
+    cwd: '/tmp',
+    meetingId,
+    ptyScopeId,
+  });
+  try {
+    assert.deepEqual(orchestrator.addHost('qoder-terminal', 'qoder'), { ok: true, hostId: 'qoder' });
+    const readyDeadline = Date.now() + 2_000;
+    while (!events.some((item) => item.hostId === 'qoder' && item.event.kind === 'session-ready')) {
+      if (Date.now() > readyDeadline) assert.fail('terminal host did not become ready');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    assert.equal(configs.length, 1);
+    assert.equal(configs[0].meetingId, meetingId, 'durable meeting identity remains unchanged');
+    assert.equal(
+      configs[0].extra.workerId,
+      `host-terminal-${ptyScopeId}-qoder`,
+      'PTY identity must use the renderer-visible session scope',
+    );
+
+    terminalEmit({
+      kind: 'worker-signal',
+      signal: { kind: 'failed', code: 'runtime-crash', message: 'qoder crashed', retryable: true },
+    });
+    // safeEmit appends to the journal before the emit callback fires;
+    // let the async append settle before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(events.some((item) => (
+      item.hostId === 'qoder'
+      && item.event.kind === 'error'
+      && item.event.error === 'qoder crashed'
+    )), 'error event for terminal failure');
+    assert.ok(events.some((item) => (
+      item.hostId === 'qoder'
+      && item.event.kind === 'turn-status'
+      && item.event.status === 'completed'
+    )));
+
+    terminalEmit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'), 'ended event');
+  } finally {
+    await orchestrator.end();
+    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(runtime.dir, { recursive: true, force: true });
   }
 });
