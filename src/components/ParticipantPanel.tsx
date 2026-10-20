@@ -143,7 +143,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   <Terminal size={12} />
                 </button>
               )}
-              {onOpenEditor && (
+              {onOpenEditor && !hg.remoteTarget && (
                 <button
                   type="button"
                   className="tiles-gallery-action-btn"

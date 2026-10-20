@@ -123,6 +123,8 @@ export type UserContentBlock =
 // Passed to `CliBackend.createSession()` to configure a new session.
 
 export interface BackendSessionConfig {
+  /** Optional per-member target; consumed only by Pocket Vibe. */
+  remoteTarget?: import('./pocket-vibe-target.js').PocketVibeRemoteTarget;
   /** Working directory for the session. */
   cwd: string;
   /** System prompt / instructions for the agent. */

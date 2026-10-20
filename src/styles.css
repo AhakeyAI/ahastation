@@ -7952,6 +7952,16 @@ html.popout-view #root {
    Matches the drawer-settings vocabulary used elsewhere in SettingsWindow.
    ========================================================================== */
 
+#remote-control-settings { padding: 16px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-panel); }
+#remote-control-settings h2 { margin: 0 0 12px; font-size: 16px; }
+#remote-control-settings p { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+#remote-control-settings details { margin: 12px 0; }
+#remote-control-settings label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+#remote-control-settings input:not([type="checkbox"]), #remote-control-settings select {
+  padding: 7px 10px; min-width: 180px; max-width: 100%; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--bg-input); color: var(--text-primary);
+}
+#remote-control-settings button { margin: 4px 4px 4px 0; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border-soft); background: var(--bg-input); color: var(--text-primary); cursor: pointer; }
+#remote-control-settings button:disabled { opacity: .5; cursor: default; }
 .backend-settings {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-soft);
@@ -12970,3 +12980,26 @@ html.ahabar-view #root {
   border-radius: 8px;
 }
 .lobby-footer-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+/* Pocket Vibe: a small native-session selector inside the existing drawer. */
+.remote-session-picker { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 20px; border-radius: var(--aha-r-lg); background: var(--aha-bg-raised); color: var(--aha-text-primary); box-shadow: var(--aha-shadow-overlay); }
+.remote-session-header, .remote-session-filters, .remote-session-footer { display: flex; align-items: center; gap: 8px; }
+.remote-session-header { justify-content: space-between; }
+.remote-session-picker p, .remote-session-agent-status { font-size: 12px; line-height: 1.6; opacity: .85; }
+.remote-session-picker button, .remote-session-picker select { padding: 6px 10px; border-radius: var(--aha-r-sm); background: var(--aha-bg-surface); color: inherit; border: 1px solid var(--aha-border-strong); }
+.remote-session-picker select { min-width: 0; flex: 1; }
+.remote-session-picker option { background: var(--aha-bg-raised); }
+.remote-session-picker button:disabled { opacity: .45; }
+.remote-session-list { margin-top: 12px; max-height: 320px; overflow-y: auto; }
+.remote-session-row { display: flex; gap: 10px; padding: 10px; margin-top: 6px; border: 1px solid var(--aha-border-strong); border-radius: var(--aha-r-sm); cursor: pointer; }
+.remote-session-row.selected { border-color: var(--aha-accent); }
+.remote-session-row span { min-width: 0; overflow-wrap: anywhere; }
+.remote-session-row strong { font-size: 13px; }
+.remote-session-row small { display: block; font-size: 11px; opacity: .7; }
+.remote-session-error { color: var(--aha-danger); }
+.remote-session-footer { justify-content: flex-end; }
+:root .meeting-resume-banner {
+  display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  flex-wrap: wrap; border-bottom: 1px solid var(--border, #7774);
+}
+.meeting-resume-banner > div { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
+.meeting-navigation { padding: 4px 20px; }

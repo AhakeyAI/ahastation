@@ -1,0 +1,134 @@
+{
+  "reviewedAt": "2026-10-13T15:49:24.107Z",
+  "scope": [
+    "ended existing meeting recovery",
+    "late multi-project duplicate attachment focus"
+  ],
+  "preservedExistingWork": true,
+  "sourceSha256": {
+    "electron/host-group.ts": "730397bf33c63444f369a2ffe919eabee9bac1aa6cc00f3a965b10a082eca13a",
+    "electron/orchestrator.ts": "1bb108f2f81fdfe7a34a092b1b3e5ad71e6983035a441c8967ca08fd20ad50d8",
+    "src/types.ts": "416deacc717881af0f639a26da850c1d69664c2a5915e00ac5359b164526b34d",
+    "src/lib/meeting-store.ts": "53009f23681e22c9bab5b1a3f086a517d5b66e152862edb8bc9cdd3a81f18ae1",
+    "tests/meeting-restore.test.mjs": "428a9bad031bfc690dc757b6ded4626785c24e45a7d229ee8ea78a3ef7cd9346",
+    "tests/meeting-host-lifecycle.test.mjs": "70054cb7b3d950964ed454cfbbae54e220661f421ca4ddc765af5a2f4c55fe5f"
+  },
+  "redRegression": {
+    "total": 14,
+    "pass": 11,
+    "fail": 3
+  },
+  "newRegressionTests": 6,
+  "targeted": {
+    "total": 27,
+    "pass": 27,
+    "fail": 0,
+    "skip": 0
+  },
+  "build": {
+    "rendererTypecheck": 0,
+    "electronTypecheck": 0,
+    "rendererBuild": 0,
+    "electronClean": 0,
+    "electronBuild": 0,
+    "preloadCopy": 0
+  },
+  "full": {
+    "total": 937,
+    "pass": 892,
+    "fail": 40,
+    "skip": 5,
+    "cancelled": 0,
+    "exitCode": 1,
+    "forceExit": true,
+    "pythonFixturesEnabled": true
+  },
+  "newFailures": [],
+  "resolvedFailures": [],
+  "failureNames": [
+    "a plan cannot select a backend that cannot execute delivery tasks",
+    "unknown executor backends fail instead of silently falling back to Claude",
+    "scheduler persists effective profile before workspace and session",
+    "injected-review orchestration drives the complete multi-backend Meeting workflow",
+    "coordinator can propose a bounded validated plan",
+    "one meeting spawns four backend workers in parallel",
+    "orchestrator keeps renderer worker-eventId identical to events.jsonl",
+    "CLI/Desktop split: app-server host is detected, never a CLI candidate",
+    "correlate desktop: live chat pid → active; dead chat pids + live host → host-backed idle",
+    "correlate desktop: dead host degrades host-idle threads to unknown; live chat pid stays active",
+    "collision: live desktop chat pid + stale CLI rollout → desktop rules, chat pid owns the row",
+    "collision: live CLI pid + dead desktop side → CLI rules win",
+    "correlate desktop: untitled non-active threads fold into noise; active or titled stay visible",
+    "ObserveService: desktop threads publish; CLI rollout ids never duplicate as desktop rows",
+    "ObserveService: self-excluded host pid drops host backing (own adapter children stay hidden)",
+    "correlate: full pipeline over the fixture tree",
+    "ObserveService.tickOnce: publishes a full snapshot from the fixture home",
+    "correlate: live sessions with <2 messages are not noise; path-like titles fall back",
+    "listKimiSessions: dedupe, corrupt lines skipped, missing state.json skipped",
+    "kimi parse: state.json title wins, provenance session-index",
+    "kimi parse: empty title falls back to lastPrompt (60 chars), first-prompt provenance",
+    "kimi parse: corrupt state.json degrades to null",
+    "correlate: kimi rows — titles, states, noise, unknown without pid",
+    "ObserveService.tickOnce: kimi sessions with cwd-associated pids",
+    "ObserveService: self-exclusion by pid degrades kimi to unknown",
+    "MCP suppression: mcp-server pids detected, held rollouts collected",
+    "fallback 1: command-line session id wins",
+    "ps parsing: pid/ppid/cpu/rss/comm/args columns",
+    "ps parsing: full args survive spaces and truncation of comm",
+    "ps parsing: tt column (tty vs ?? for terminal-less processes)",
+    "findClientPids: matches CLI processes, skips helpers/mcp/grep/args",
+    "descendantsOf: two levels, cycle-protected",
+    "maxDescendantCpu: max over the two-level tree",
+    "parseLsofFieldOutput: cwd, files, permission-denied drop",
+    "a task-wide allow extends addendum and fingerprints to same-root peers",
+    "legacy plan tasks normalize with conservative non-command authority",
+    "listQoderRuns skips symlinked manifests (fail closed)",
+    "scheduler persists canonical allow before resolving the backend request",
+    "repeated identical authority denials fail the worker instead of burning budget",
+    "distinct denied requests do not accumulate one exhaustion streak"
+  ],
+  "nativeGuiVerified": false,
+  "codexStopLifecycleVerified": false,
+  "bridgeBusinessCodeChanged": false,
+  "hubBusinessCodeChanged": false,
+  "evidenceDirectory": "C:\\aha\\ahastation\\station-ctrl\\audit\\meeting-restore-followup-20261013",
+  "commands": {
+    "environment": {
+      "PATH": "Node and Git directories prepended to child environment only",
+      "POCKET_VIBE_TEST_PYTHON": "C:/aha/ahastation/pocket-vibe-agent/.venv/Scripts/python.exe"
+    },
+    "bootstrap": "data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));",
+    "targetedFiles": [
+      "tests/meeting-restore.test.mjs",
+      "tests/meeting-host-lifecycle.test.mjs",
+      "tests/meeting-restore-ipc.test.mjs",
+      "tests/station-launch.test.mjs",
+      "tests/renderer-remote-sessions.test.mjs"
+    ],
+    "targetedArgs": [
+      "--test",
+      "--test-reporter=tap",
+      "--test-timeout=120000",
+      "--import",
+      "<bootstrap>",
+      "<targetedFiles>"
+    ],
+    "fullArgs": [
+      "--test",
+      "--test-reporter=tap",
+      "--test-force-exit",
+      "--test-timeout=120000",
+      "--import",
+      "<bootstrap>",
+      "<all tests/*.test.mjs>"
+    ],
+    "buildSteps": [
+      "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json",
+      "node node_modules/vite/bin/vite.js build",
+      "node scripts/clean-dist-electron.mjs",
+      "node node_modules/typescript/bin/tsc -p tsconfig.electron.json",
+      "node scripts/copy-preloads.mjs"
+    ]
+  }
+}

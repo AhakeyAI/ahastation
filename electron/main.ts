@@ -15,6 +15,8 @@ import { requestMicrophoneAccess } from './microphone-access.js';
 import { checkForUpdateCached } from './update-check.js';
 import { getCompanionFeed } from './companion/companion-feed.js';
 import { isCompanionWindowOpen, toggleCompanionWindow } from './companion/companion-window-manager.js';
+import { installLifecycleLog } from './lifecycle-log.js';
+import { focusMainWindow } from './main-window-focus.js';
 import {
   resolveMinimizeOutcome,
   shouldPromptMinimize,
@@ -44,6 +46,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
+let initializationComplete = false;
+let focusRequested = false;
 // Multi-tab session store. Each slot owns one Orchestrator (= one Talker +
 // scheduler) tied to a single cwd. Replaces the prior global `orchestrator`
 // + `currentCwd` + `recapPending` triple — those now live per-slot inside
@@ -73,6 +77,7 @@ function awaitClaudeShadowHome(): Promise<string | null> {
 }
 
 const isDev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
+installLifecycleLog(app);
 
 function registerAppProtocol(): void {
   const bundleRoot = join(__dirname, '..', 'dist');
@@ -233,7 +238,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL!);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    if (process.env.VIBE_MEET_DEVTOOLS === '1') mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadURL('app://bundle/index.html');
     if (process.env.VIBE_MEET_DEVTOOLS === '1') {
@@ -673,11 +678,8 @@ if (!hasSingleInstanceLock) {
     // window back to the foreground. A real user who wants the window back
     // clicks the Dock icon, which goes through the activate handler below.
     if (isCompanionWindowOpen('ahabar')) return;
-    const win = liveWindow();
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    if (!initializationComplete) { focusRequested = true; return; }
+    focusMainWindow(liveWindow, createWindow);
   });
 }
 
@@ -776,6 +778,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   });
 
   createWindow();
+  initializationComplete = true;
+  if (focusRequested) { focusRequested = false; focusMainWindow(liveWindow, createWindow); }
 
   // Pragmatic update probe (Phase 6b §3.5-5): anonymous redirect parse of
   // releases/latest, 24h-cached. Silently no-ops while the repo is private
@@ -867,17 +871,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-      return;
-    }
-    // The AhaBar close path hides the main window instead of destroying it —
-    // a dock click must be able to bring it back.
-    const win = liveWindow();
-    if (win && !win.isVisible() && !win.isMinimized()) {
-      win.show();
-      win.focus();
-    }
+    focusMainWindow(liveWindow, createWindow);
   });
 });
 
@@ -891,6 +885,9 @@ function sleepMs(ms: number): Promise<void> {
 // entries are dropped synchronously up front; the async work continues to
 // run against detached orchestrator instances.
 function shutdownAllSlots(): Promise<void> {
+  // Capture native member references before removing registry slots. A later
+  // quit flush must not replace this snapshot with an empty registry.
+  if (registry.list().length && _flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
   const endPromises: Promise<void>[] = [];
   for (const slot of registry.values()) {
     try {

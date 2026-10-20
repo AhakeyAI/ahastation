@@ -118,9 +118,11 @@ export function registerSessionIpc(ctx: IpcContext): void {
     const text = typeof payload?.text === 'string' ? payload.text : '';
     if (!text.trim()) return { ok: false, error: 'Text is required' };
     if (text.length > 100_000) return { ok: false, error: 'Text is too large' };
-    slot.orchestrator.sendUserText(text);
-    ctx.registry.touch(slot.id);
-    return { ok: true };
+    try {
+      slot.orchestrator.sendUserText(text);
+      ctx.registry.touch(slot.id);
+      return { ok: true };
+    } catch (error) { return { ok: false, error: formatError(error) }; }
   });
 
   ipcMain.handle(
@@ -251,6 +253,8 @@ export function registerSessionIpc(ctx: IpcContext): void {
       if (!slot) return { ok: false, error: 'No active session' };
       const dataUrl = typeof payload?.dataUrl === 'string' ? payload.dataUrl : '';
       const caption = typeof payload?.caption === 'string' ? payload.caption : '';
+      const remoteError = slot.orchestrator.remoteInputError(caption, true);
+      if (remoteError) return { ok: false, error: remoteError };
       // S7: validate MIME type against an allowlist so a crafted data URL can't
       // slip unexpected content through to the SDK.
       const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);

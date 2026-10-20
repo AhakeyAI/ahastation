@@ -16,12 +16,17 @@ import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useHandheldMode } from './lib/handheld-mode';
 import { planDisplayMigration } from './lib/display-migration';
 import { meetingStore, type MeetingState } from './lib/meeting-store';
+import { handleVoiceFinal } from './lib/voice-final';
+import { remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../electron/backends/pocket-vibe-target';
 import { browserStore, requestHideBrowser } from './lib/browser-store';
 import { toast } from './lib/toast';
 import { Lobby } from './components/Lobby';
 import { Onboarding, ONBOARDED_STORAGE_KEY, type OnboardingMode } from './components/Onboarding';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
+import { MeetingResumeBanner } from './components/MeetingResumeBanner';
+import { meetingAvailability } from './lib/meeting-availability';
+import { watchBackendList } from './lib/backend-refresh';
 import { MeetingHeader, type MeetingView } from './components/MeetingHeader';
 import { AppTopBar } from './components/AppTopBar';
 import { StatusBar } from './components/StatusBar';
@@ -82,6 +87,7 @@ export function App() {
   const stageWindows = useStageWindows();
 
   const activeTab = useMemo(() => tabs.find((t) => t.isActive) ?? null, [tabs]);
+  const meetingGate = meetingAvailability(activeTab, running);
   const hasTabs = tabs.length > 0;
   const hasLiveTab = !!(activeTab && !activeTab.placeholder);
   const activeOpenedAt = activeTab?.openedAt ?? null;
@@ -102,6 +108,7 @@ export function App() {
    *  back off as soon as a real session tab exists so closing all tabs lands
    *  on the Lobby again. */
   const [boardOnly, setBoardOnly] = useState(false);
+  const [showLobby, setShowLobby] = useState(false);
   /** First launch ever → full 4-step flow; later cold starts → scan-only
    *  splash. Suppressed under the dev visual fixtures so screenshots of the
    *  Lobby/meeting stay deterministic. */
@@ -179,6 +186,8 @@ export function App() {
   }, []);
 
   const enterBoardOnly = useCallback(() => {
+    meetingStore.dismissRestoreHydration();
+    setShowLobby(false);
     setBoardOnly(true);
     setView('tasks');
   }, []);
@@ -205,7 +214,6 @@ export function App() {
 
   // Load available backends for the participants tab
   useEffect(() => {
-    window.vibeMeet.backendAuth.list().then(setBackends).catch(() => setBackends([]));
     window.vibeMeet.skills.list().then((res) => {
       if (res.ok) setSkills(res.skills);
     }).catch(() => {});
@@ -213,11 +221,7 @@ export function App() {
 
   // Reload backends when main window regains focus (e.g. settings window closed)
   useEffect(() => {
-    const onFocus = () => {
-      window.vibeMeet.backendAuth.list().then(setBackends).catch(() => {});
-    };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    return watchBackendList(setBackends, (error) => toast.error(`刷新后端状态失败：${String(error)}`));
   }, []);
 
   const activeBackendIds = useMemo(() => {
@@ -379,96 +383,13 @@ export function App() {
       console.warn('[voice] dropped — no active session');
       return;
     }
-    let finalText = text;
-    if (voicePrefs.voicePolishEnabled) {
-      try {
-        const result = await window.vibeMeet.polishAsrText(text);
-        if (result.ok) finalText = result.text;
-      } catch (err) {
-        console.warn('[voice] polishAsrText IPC failed:', err);
-      }
-    }
-    // Fuzzy match skill names from voice input — if spoken text contains a
-    // skill name, prepend "/" to invoke it as a slash command.
-    if (skills.length > 0 && !finalText.startsWith('/')) {
-      const lower = finalText.toLowerCase();
-      let bestMatch: SkillInfo | null = null;
-      let bestScore = 0;
-      for (const skill of skills) {
-        const nameLower = skill.name.toLowerCase();
-        // Check for exact substring match
-        if (lower.includes(nameLower)) {
-          const score = nameLower.length;
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = skill;
-          }
-        }
-        // Check for fuzzy match: remove spaces and dashes for comparison
-        const normalized = lower.replace(/[\s_-]/g, '');
-        const nameNormalized = nameLower.replace(/[\s_-]/g, '');
-        if (normalized.includes(nameNormalized)) {
-          const score = nameNormalized.length;
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = skill;
-          }
-        }
-      }
-      if (bestMatch) {
-        // Remove the matched skill name from the text and prepend the slash command
-        const nameLower = bestMatch.name.toLowerCase();
-        const idx = lower.indexOf(nameLower);
-        if (idx >= 0) {
-          const before = finalText.slice(0, idx).trim();
-          const after = finalText.slice(idx + bestMatch.name.length).trim();
-          const remaining = [before, after].filter(Boolean).join(' ');
-          finalText = remaining ? `/${bestMatch.name} ${remaining}` : `/${bestMatch.name}`;
-        }
-      }
-    }
-    // Fuzzy match backend names from voice input — if spoken text contains a
-    // backend display name, prepend "@" to invoke it as a mention.
-    const mentionableBackends = backends.filter((backend) => activeBackendIds.has(backend.id));
-    if (mentionableBackends.length > 0 && !finalText.includes('@')) {
-      const lower = finalText.toLowerCase();
-      let bestBackend: BackendInfo | null = null;
-      let bestBackendScore = 0;
-      for (const backend of mentionableBackends) {
-        const nameLower = backend.displayName.toLowerCase();
-        // Check for exact substring match
-        if (lower.includes(nameLower)) {
-          const score = nameLower.length;
-          if (score > bestBackendScore) {
-            bestBackendScore = score;
-            bestBackend = backend;
-          }
-        }
-        // Check for fuzzy match: remove spaces and dashes for comparison
-        const normalized = lower.replace(/[\s_-]/g, '');
-        const nameNormalized = nameLower.replace(/[\s_-]/g, '');
-        if (normalized.includes(nameNormalized)) {
-          const score = nameNormalized.length;
-          if (score > bestBackendScore) {
-            bestBackendScore = score;
-            bestBackend = backend;
-          }
-        }
-      }
-      if (bestBackend) {
-        // Remove the matched backend name from the text and prepend the @mention
-        const nameLower = bestBackend.displayName.toLowerCase();
-        const idx = lower.indexOf(nameLower);
-        if (idx >= 0) {
-          const before = finalText.slice(0, idx).trim();
-          const after = finalText.slice(idx + bestBackend.displayName.length).trim();
-          const remaining = [before, after].filter(Boolean).join(' ');
-          finalText = remaining ? `@${bestBackend.id} ${remaining}` : `@${bestBackend.id}`;
-        }
-      }
-    }
-    sendWithModeRef.current(finalText);
-  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds]);
+    await handleVoiceFinal(text, {
+      polish: voicePrefs.voicePolishEnabled ? (value) => window.vibeMeet.polishAsrText(value) : undefined,
+      skills, backends, activeBackendIds, hosts: workers.hostGroups.values(),
+      send: (value) => sendWithModeRef.current(value),
+      notify: (message) => { toast.error(message); },
+    });
+  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds, workers.hostGroups]);
 
   const onBargeIn = useCallback(() => {
     if (speakingRef.current) {
@@ -534,12 +455,24 @@ export function App() {
     setAiSpeaking(false);
     try { stopShare(); } catch { /* teardown continues */ }
     const id = meetingStore.getActiveId();
-    if (id) await meetingStore.closeTab(id);
-    // Zero-session board entry (boardOnly with no tabs) has nothing to close,
-    // yet Leave must still exit the shell — clearing boardOnly drops the app
-    // back to the Lobby. Harmless no-op on the normal close-tab path.
+    if (id) {
+      try { await meetingStore.closeTab(id); }
+      catch (error) { toast.error(`关闭会议失败：${String(error)}`); }
+    }
     setBoardOnly(false);
+    if (!meetingStore.getTabs().length) setShowLobby(true);
   }, [stopShare]);
+
+  const continueMeeting = useCallback(async () => {
+    if (!activeTab) return;
+    const result = await meetingStore.continueMeeting(activeTab.id);
+    if (result && !result.ok) toast.error(result.error ?? '会议启动失败');
+  }, [activeTab]);
+
+  const goHome = useCallback(() => {
+    meetingStore.dismissRestoreHydration();
+    setShowLobby(true);
+  }, []);
 
   const handlePickSource = useCallback(async (src: DesktopSource) => {
     await startShare(src.id, src.name);
@@ -650,6 +583,7 @@ export function App() {
   const [overlayHostId, setOverlayHostId] = useState<string | null>(null);
 
   const handleOpenEditor = useCallback((backendId: string, hostId: string) => {
+    if (!meetingGate.ready) { toast.error(meetingGate.reason); return; }
     if (handheld) {
       // Handheld form factor: App-internal overlay, no separate window.
       setOverlayHostId(hostId);
@@ -665,7 +599,7 @@ export function App() {
       cwd: editorCwd,
       title,
     });
-  }, [handheld, activeTab?.id, cwd]);
+  }, [handheld, activeTab?.id, cwd, meetingGate.ready, meetingGate.reason]);
 
   // Dual-display migration (Phase 6a §3.2, AUTO mode only): when the
   // resolved mode flips after a display add/remove, convert the editor form
@@ -676,6 +610,7 @@ export function App() {
     const prev = prevUiModeRef.current;
     prevUiModeRef.current = uiMode;
     if (prev === uiMode) return;
+    if (!meetingGate.ready) return;
     void (async () => {
       const wins = await window.vibeMeet.openCodeEditor.list().catch(() => null);
       const editorWindows = wins && wins.ok ? wins.windows.map((w) => w.hostId) : [];
@@ -710,6 +645,11 @@ export function App() {
   const sendWithMode = useCallback(async (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
+    const remoteMention = remoteMentionIds(trimmed, [...workers.hostGroups.values()]).length > 0;
+    if (remoteMention) {
+      await sendText(trimmed);
+      return;
+    }
     if (!multiAgent) {
       await sendText(trimmed);
       return;
@@ -719,13 +659,16 @@ export function App() {
       : buildDirectDirective(trimmed);
     // Chat shows only the user's words; the model still gets the full directive.
     await sendText(directive, { displayText: trimmed });
-  }, [dispatchMode, multiAgent, sendText]);
+  }, [dispatchMode, multiAgent, sendText, workers.hostGroups]);
 
   sendWithModeRef.current = sendWithMode;
 
   const sendAttachmentsWithMode = useCallback(
     async (staged: Parameters<typeof sendAttachments>[0], raw: string) => {
       const trimmed = raw.trim();
+      if (staged.length && remoteMentionIds(trimmed, [...workers.hostGroups.values()], true).length) {
+        return { ok: false, error: REMOTE_ATTACHMENT_ERROR };
+      }
       if (!multiAgent) {
         return sendAttachments(staged, trimmed);
       }
@@ -736,7 +679,7 @@ export function App() {
         displayText: trimmed.length > 0 ? trimmed : undefined,
       });
     },
-    [dispatchMode, multiAgent, sendAttachments],
+    [dispatchMode, multiAgent, sendAttachments, workers.hostGroups],
   );
 
   // Memoized element trees handed to memoized children. Inline JSX in props
@@ -754,7 +697,7 @@ export function App() {
     />
   ), [effectiveListening, muted]);
 
-  const galleryContent = useMemo(() => (
+  const galleryContent = useMemo(() => (!meetingGate.ready ? <div className="drawer-empty">{meetingGate.reason}</div> :
     <ParticipantPanel
       workers={workers.workerList}
       hostGroups={workers.hostGroups}
@@ -774,6 +717,7 @@ export function App() {
     />
   ), [
     workers.workerList, workers.hostGroups, workers.coordinatorHostId,
+    meetingGate.ready, meetingGate.reason,
     customAvatars, mutedHostIds, aiSpeaking, resolvePermission,
     handleToggleMuteHost, handleRemoveHost, handleSetCoordinator,
     handleRestartHost, openParticipantsTab, handleOpenEditor,
@@ -789,12 +733,13 @@ export function App() {
     />
   ) : undefined), [handheld, autoApproveScope, multiAgent, toggleMultiAgent]);
 
-  if (!hasTabs && !boardOnly) {
+  if (showLobby || (!hasTabs && !boardOnly)) {
     return (
       <>
         <Lobby
           lastError={lastError}
           onEnterBoard={enterBoardOnly}
+          onEnterMeeting={() => setShowLobby(false)}
           onReplayOnboarding={() => setOnboardingMode('full')}
         />
         {onboardingMode && (
@@ -817,6 +762,8 @@ export function App() {
       {/* 单会议收敛（一台设备一个会议，调度所有任务）：掌机模式或确有
           多会话并存时才显示 TabStrip；默认不暴露多会议 Tab。 */}
       {(handheld || tabs.length > 1) && <TabStrip tabs={tabs} />}
+      <div className="meeting-navigation"><button type="button" onClick={goHome}>首页 / 选择目录</button></div>
+      <MeetingResumeBanner tab={activeTab ?? undefined} error={lastError} onContinue={() => void continueMeeting()} onHome={goHome} />
       {handheld ? (
         <MeetingHeader
           cwd={cwd}
@@ -868,7 +815,7 @@ export function App() {
             delivery={workers.currentDelivery}
             finalMeetingDelivery={workers.finalMeetingDelivery}
             finalMeetingDecision={workers.finalMeetingDecision}
-            sessionId={activeTab?.id ?? null}
+            sessionId={meetingGate.sessionId}
             focusTask={taskFocus}
             onAcceptDelivery={() => workers.acceptDelivery()}
             onReviseDelivery={(fb: string) => workers.reviseDelivery(fb)}
@@ -915,8 +862,9 @@ export function App() {
           multiAgent={multiAgent}
           dispatchMode={dispatchMode}
           onChangeDispatchMode={setDispatchMode}
-          disabled={!running}
-          sessionId={activeTab?.id ?? null}
+          disabled={!meetingGate.ready}
+          disabledReason={meetingGate.reason}
+          sessionId={meetingGate.sessionId}
           onViewFile={handleViewFile}
           viewingFilePath={viewingFile?.relativePath ?? null}
           backends={backends}
@@ -1006,7 +954,7 @@ export function App() {
         </Modal>
       )}
 
-      {overlayHostId && (
+      {meetingGate.ready && overlayHostId && (
         <EditorOverlay
           hostId={overlayHostId}
           sessionId={activeTab?.id ?? 'default'}

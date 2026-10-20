@@ -1,5 +1,7 @@
 # AhaStation
 
+多设备开发交接：先阅读 [源码基线与启动检查](docs/collaboration/BASELINE.md)，再阅读 [整体需求、方案与分工](docs/collaboration/MULTI_DEVICE_COLLABORATION_HANDOFF.md)。已有 Hub／原生会话兼容源码位于 [services/remote](services/remote/README.md)；Station 原生多设备协作仍按交接方案继续开发。
+
 **语音会议式 AI 编程协作客户端** — 多个 CLI coding agent（Claude Code / Codex / Kimi / OpenCode / Qoder）以「数字员工参会者」身份加入你的视频会议：你说话，它们听、看、写代码、跑命令，并把进展讲给你听。
 
 每个 backend 都是一个数字员工，语音对话开会即可完成协作；要看细节，点开任意员工的独立编辑器窗口。运行于桌面（macOS 优先），并为 RK3588 掌机（AhaStation 硬件）做了掌机模式与双屏适配。

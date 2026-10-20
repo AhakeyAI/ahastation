@@ -23,6 +23,7 @@
     "dist/voice-id/**/*"
   ],
   "extraResources": [
+    { "from": "resources/remote-service.json", "to": "remote-service.json" },
     { "from": "build/claude-defaults", "to": "claude-defaults", "filter": ["**/*"] }
   ],
   "mac": {

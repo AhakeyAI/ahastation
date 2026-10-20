@@ -19,6 +19,9 @@ import {
 import { ApprovalCard } from './ApprovalCard';
 import { FileTree } from './FileTree';
 import { Modal } from './Modal';
+import { RemoteSessionPicker } from './RemoteSessionPicker';
+import { remoteSessionLabel } from '../../electron/backends/pocket-vibe-target';
+import { remotePickerReason } from '../lib/meeting-availability';
 import { toast } from '../lib/toast';
 
 interface SideDrawerProps {
@@ -43,6 +46,7 @@ interface SideDrawerProps {
   dispatchMode?: DispatchMode;
   onChangeDispatchMode?: (mode: DispatchMode) => void;
   disabled: boolean;
+  disabledReason?: string;
   sessionId?: string | null;
   onViewFile?: (relativePath: string) => void;
   viewingFilePath?: string | null;
@@ -217,6 +221,7 @@ export const SideDrawer = memo(function SideDrawer({
   dispatchMode = 'direct',
   onChangeDispatchMode,
   disabled,
+  disabledReason = '会议未开始',
   sessionId,
   onViewFile,
   viewingFilePath,
@@ -236,6 +241,8 @@ export const SideDrawer = memo(function SideDrawer({
   const activity = useMeetingSelector(selectMergedActivity, shallowEqualArray);
   const hostGroups = useMeetingSelector((s) => s.hostGroups);
   const [tab, setTab] = useState<Tab>('chat');
+  const [remotePickerSession, setRemotePickerSession] = useState<string | null>(null);
+  useEffect(() => { setRemotePickerSession(null); }, [sessionId]);
   const [text, setText] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
@@ -278,12 +285,17 @@ export const SideDrawer = memo(function SideDrawer({
 
   const filteredBackends = useMemo(() => {
     const participants = backends.filter((backend) => activeBackendIds.has(backend.id));
+    for (const host of hostGroups.values()) {
+      if (!host.remoteTarget) continue;
+      const backend = backends.find((b) => b.id === 'pocket-vibe');
+      if (backend) participants.push({ ...backend, id: host.id, displayName: remoteSessionLabel(host.remoteTarget) });
+    }
     if (!mentionFilter) return participants;
     const lower = mentionFilter.toLowerCase();
     return participants.filter((b) =>
       b.displayName.toLowerCase().includes(lower)
     );
-  }, [activeBackendIds, backends, mentionFilter]);
+  }, [activeBackendIds, backends, hostGroups, mentionFilter]);
 
   // Participants tab shows configured agents only (loggedIn via OAuth or a
   // saved API key — same auth-state split as BackendSettings). Unconfigured
@@ -396,6 +408,7 @@ export const SideDrawer = memo(function SideDrawer({
     if (backend) return backend.displayName;
     const hg = hostGroups.get(hostId);
     if (hg) {
+      if (hg.remoteTarget) return remoteSessionLabel(hg.remoteTarget);
       const fallback = backends.find((b) => b.id === hg.backendId);
       return fallback?.displayName ?? hg.backendId;
     }
@@ -538,7 +551,7 @@ export const SideDrawer = memo(function SideDrawer({
   };
 
   const placeholder = disabled
-    ? 'Join a meeting to chat'
+    ? disabledReason
     : multiAgent
       ? dispatchMode === 'plan'
         ? 'Plan 模式 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
@@ -581,6 +594,7 @@ export const SideDrawer = memo(function SideDrawer({
               ＋ 新增
             </button>
           </div>
+          {disabled && <div className="drawer-empty" role="status">{disabledReason}</div>}
           <div className="drawer-participants-list">
             {configuredBackends.length === 0 && (
               <div className="drawer-empty">暂无已配置的智能体。点击「新增」去设置中配置。</div>
@@ -598,8 +612,8 @@ export const SideDrawer = memo(function SideDrawer({
                     </span>
                   </div>
                   {isActive ? (
-                    <span className="drawer-participant-badge">已加入</span>
-                  ) : (
+                    <span className="drawer-participant-badge" title={disabled ? disabledReason : undefined}>{disabled ? '已保存 · 未就绪' : '已加入'}</span>
+                  ) : b.remoteControlMode === 'public' ? null : (
                     <button
                       className="drawer-participant-invite"
                       onClick={() => onAddHost?.(b.id)}
@@ -608,11 +622,18 @@ export const SideDrawer = memo(function SideDrawer({
                         !b.available
                           ? 'CLI 未安装，无法邀请'
                           : disabled
-                            ? '会议未开始'
+                            ? disabledReason
                             : `邀请 ${b.displayName}`
                       }
                     >
                       邀请
+                    </button>
+                  )}
+                  {b.id === 'pocket-vibe' && (
+                    <button className="drawer-participant-invite" disabled={Boolean(remotePickerReason(true, disabled ? disabledReason : '', sessionId ?? null))}
+                      title={remotePickerReason(true, disabled ? disabledReason : '', sessionId ?? null) || '选择远端会话加入当前会议'}
+                      onClick={() => { if (sessionId && !disabled) setRemotePickerSession(sessionId); }}>
+                      选择远端会话
                     </button>
                   )}
                 </div>
@@ -626,7 +647,7 @@ export const SideDrawer = memo(function SideDrawer({
         <div className="drawer-chat">
           <div className="drawer-scroll">
             {transcript.length === 0 && (
-              <div className="drawer-empty">Host 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。</div>
+              <div className="drawer-empty">{disabled ? disabledReason : 'Host 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。'}</div>
             )}
             {transcript.map((e) => {
               const timeLabel = formatMessageTime(e.ts, now);
@@ -915,6 +936,10 @@ export const SideDrawer = memo(function SideDrawer({
             viewingPath={viewingFilePath ?? null}
           />
         </div>
+      )}
+
+      {remotePickerSession && remotePickerSession === sessionId && (
+        <RemoteSessionPicker sessionId={remotePickerSession} hosts={hostGroups} onClose={() => setRemotePickerSession(null)} />
       )}
 
       {previewImg && (

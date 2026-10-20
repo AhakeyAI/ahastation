@@ -1,0 +1,441 @@
+{
+  "format": 1,
+  "sourceRepository": "https://github.com/Dryoung95/pocket-vibe-agent",
+  "sourceHead": "21beb9e7618290035ae328020ed8f5dad3929262",
+  "sourceIncludesUncommittedChanges": true,
+  "purpose": "Existing Hub and native-session compatibility source baseline; not Station-native collaboration implementation.",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "00f0119b3c7e425344b46109ea48ec3475b66b7118251727fd56a1647e425b8a"
+    },
+    {
+      "path": "configs/claude_code.example.json",
+      "sha256": "e4b1591673441ed231d5eeb14838e356d7aa4a6d9db37d2900ec989908f3767f"
+    },
+    {
+      "path": "configs/claude_current_session.example.json",
+      "sha256": "1f41d7cc1c62b58509b4c594d884879df08e86208aa7a32861b7e36ebd29e0b5"
+    },
+    {
+      "path": "configs/codex_cli.example.json",
+      "sha256": "b70640b230e712578cfbebbd1b84a671766d4adfddc91914a3d3f3422e6c6cc5"
+    },
+    {
+      "path": "configs/codex_current_thread.example.json",
+      "sha256": "71c29e9520ccd6ceaf3772a6d3bb5e336090ea922c5e304a34c4ce1034d908af"
+    },
+    {
+      "path": "configs/local_agent.example.json",
+      "sha256": "df0894650de8af13ee1dc0249f4b7f95d90da1c3f1b4841335c51fac4166637c"
+    },
+    {
+      "path": "deploy/.dockerignore",
+      "sha256": "9ff9845a5e72b214622feacc1c923cf1067f7dc7df06b0588a6d2d79f5da3aaa"
+    },
+    {
+      "path": "deploy/compose.yaml",
+      "sha256": "ff52d8aecf4c83d8fed3c859cf1efd197b5b96f00016fde6aee8f00c6f59b39b"
+    },
+    {
+      "path": "deploy/Dockerfile",
+      "sha256": "c7e960262a8db0919fa10933f4c2928f4fe39d7df2280cfce623f89fea95ce6d"
+    },
+    {
+      "path": "deploy/Dockerfile.dockerignore",
+      "sha256": "9ff9845a5e72b214622feacc1c923cf1067f7dc7df06b0588a6d2d79f5da3aaa"
+    },
+    {
+      "path": "deploy/hub.env.example",
+      "sha256": "dfb415a2ebaa515e9328e91a43176a2988c1ac5c17c99520451d4ce48408c8d5"
+    },
+    {
+      "path": "deploy/migrate.py",
+      "sha256": "a8f0e8bbc66edab0ec0fad6662288b7e59d259b29cea0d056e53e4ad32649e4b"
+    },
+    {
+      "path": "deploy/schema-v1.sql",
+      "sha256": "03613e4349dd61e782df4c0ed8baddcc8c83476d8863965ab0834b7eca528d45"
+    },
+    {
+      "path": "device/bridge_app.py",
+      "sha256": "753073843d82b31fbf7dd69f41ae02ccf7ada81df445f83920f54718135bf315"
+    },
+    {
+      "path": "device/bridge_settings.py",
+      "sha256": "7d4fb138f332da2951e44d5ee29780d1270823133627828e176295e35759df55"
+    },
+    {
+      "path": "device/codex_desktop.py",
+      "sha256": "dabe0315179efab26ba61cd0f8f2d370935e0fa54b14896495dfbac5674b3477"
+    },
+    {
+      "path": "device/codex_shared_rpc.py",
+      "sha256": "5f5190a429a5f08e1552eefba85b706a8b3e68cc1cc5b45c3f3803b8db2ec8f9"
+    },
+    {
+      "path": "device/codex_shared_service.py",
+      "sha256": "0d01d08ab6b4ecd5daede42f88dd24a355ba05bab3f2a5c1ddf33359a25a09c9"
+    },
+    {
+      "path": "device/codex_shared.py",
+      "sha256": "6a9d6d04fb661b3c362cf5b3d51723a55592001a853c8204f6941f79368ab9b0"
+    },
+    {
+      "path": "device/desktop_agent.py",
+      "sha256": "58692bbfd36d53fa3ea525683dc40c243542af5162c1a9cc555ee84643ddc9d6"
+    },
+    {
+      "path": "device/desktop_control_panel.py",
+      "sha256": "6460a197d6c9d61cfd69083a156cfc220b66f9e9c606019f19679128a30adae9"
+    },
+    {
+      "path": "device/device_hub.py",
+      "sha256": "e89c5543778ff6082d947a0bb61235c091ff559ed802803e839b387ab034691a"
+    },
+    {
+      "path": "device/hub_store.py",
+      "sha256": "836e50932f1b5593ccce12b714371c44bd5d25855bde29ab311b2ea66b7f09a8"
+    },
+    {
+      "path": "device/idle_probe.py",
+      "sha256": "b1d73aa103823e9971285717a9da5bf86ee08c70ff300d272926029b421f4fd1"
+    },
+    {
+      "path": "device/local_control_panel.py",
+      "sha256": "cf679e2bdf1ae6c38cacb590e9453e67b91fb3f9c0a073cbd5a44571eec3207c"
+    },
+    {
+      "path": "device/macos_task.py",
+      "sha256": "8b44dc80cdeb4ad644fc9399be31bcf4053b0c00a881c9b4b977e960a07342ff"
+    },
+    {
+      "path": "device/project_policy.py",
+      "sha256": "c0d837f221b2166c6a1f45284cfeeb9c8f9459b9223e191dead3ddda6771b3c1"
+    },
+    {
+      "path": "device/protocol.py",
+      "sha256": "35ba3fffde991fafa2cedc1b90ccb38b8410800de4cabc7879b326e52ec0d585"
+    },
+    {
+      "path": "device/public_bridge.py",
+      "sha256": "7d68cf0cd8fa6fb09d69ad32a3d53432675ff699de39e8d123518d338e7a68d9"
+    },
+    {
+      "path": "device/public_hub.py",
+      "sha256": "3ea548a4b0fc2b904b4bc80b91768cd08d5fe322a91e51c5291a83b6af480d50"
+    },
+    {
+      "path": "device/qwen_router.py",
+      "sha256": "fc0c3dad2c54745449cb781a7b0153892632c6e89687f636717ac3313080d586"
+    },
+    {
+      "path": "device/runtime_entry.py",
+      "sha256": "c13fe9a9334af972b98d9bd52908c2f55f583bae12d1a4038b26fe73e6a86510"
+    },
+    {
+      "path": "device/session_runtime.py",
+      "sha256": "89ab713a10d9327bb85918e95d6750fa53d3fb657c060e966e56b65f79f715aa"
+    },
+    {
+      "path": "device/task_journal.py",
+      "sha256": "15f7db086265017a2d9c46ed186bd522561f9d9b52ad7c3c9dc8ad387519f2f7"
+    },
+    {
+      "path": "device/task_ownership.py",
+      "sha256": "ea9ebd5f7d953560ce33a756649dccc671286203a279ee72d536a3c44b8b77bf"
+    },
+    {
+      "path": "device/task_process.py",
+      "sha256": "fe8e732e6c884b61040f5ae2056a747a1c4d354c6567df0eda781992979f94a1"
+    },
+    {
+      "path": "docs/ACCEPTANCE_PUBLIC.md",
+      "sha256": "35270154c4c89302e6e88b861705e915c22e784746cb7e5aef4a18cb8a0de85c"
+    },
+    {
+      "path": "docs/AGENT_ID_CALLING.md",
+      "sha256": "5f9291835fe7f6466d13ea7804bddaf5708a5060702e47e439aa35f5dfe39ce7"
+    },
+    {
+      "path": "docs/AGENT_VISUALIZATION_STRATEGY.md",
+      "sha256": "b4bbf7942c7d003c869de4000346c3209bf27d224fb85d5cb64dc730aac34d4f"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "sha256": "631208dd1f83438e4f2c352841dac8eb35b1f28d5f07dd0b66bde36c5034fa59"
+    },
+    {
+      "path": "docs/BRIDGE_PRODUCT.md",
+      "sha256": "c1a78b2dc5afba0cfed51f94c92be97d4d83555999a47f78612d96c7a4eafcaa"
+    },
+    {
+      "path": "docs/CLAUDE_BRIDGE.md",
+      "sha256": "5ecd2f6aba053f7f0358ccf56e085cb150313f78be854cc7fa419e8d18ff4153"
+    },
+    {
+      "path": "docs/CODEX_BRIDGE.md",
+      "sha256": "d645cb8986a6377288f49970c3e3e5f64b8b58f19c1e4c723ab4ed2001c143df"
+    },
+    {
+      "path": "docs/DESKTOP_CONTROL_PANEL.md",
+      "sha256": "daad3911500288be82e5c88a72ae3ab6a841219d7be1050a07e9c8c777f2d0f8"
+    },
+    {
+      "path": "docs/LOCAL_AGENT_BRIDGE.md",
+      "sha256": "ae996127742b467609f75532a63f38c29a50bb93afdb1a80e8cf7c75d9589a59"
+    },
+    {
+      "path": "docs/LOCAL_AGENT_GATEWAY_DESIGN.md",
+      "sha256": "23066f825758587a74ea581e9f2dd05b6e679b1c2a0f4b584afe28de567d5cc6"
+    },
+    {
+      "path": "docs/LOCAL_CONTROL_PANEL.md",
+      "sha256": "0ee098df7614892ccf68ecc92cfab955b48d75263216169df4d9572076631d8f"
+    },
+    {
+      "path": "docs/POCKET_AGENT_ID_SETUP.md",
+      "sha256": "613ff203d15e7cfff270355454b8a59271a330950374b9aea0435cb8a3be3d24"
+    },
+    {
+      "path": "docs/PUBLIC_REMOTE_CONTROL.md",
+      "sha256": "680ea8b103148ac71df25fc7556c04b63b777a848d71c06a7c4aa0df7298933d"
+    },
+    {
+      "path": "docs/REMOTE_LINUX_CONTROL_QUICKSTART.md",
+      "sha256": "6df191eef179301eb6c21ca6a647ffe1b8991eeb6d02463f7b045b31d35e9ea3"
+    },
+    {
+      "path": "docs/RK3588_PAIRING.md",
+      "sha256": "79da7c5b913a4cc01acb77f8f991c34fdbdd8dcd06abfcdc7b2223ba7e3bccdb"
+    },
+    {
+      "path": "docs/SHARED_DESKTOP_ACCEPTANCE.md",
+      "sha256": "0a0cf45d2454c8bcf8733225ed161c9d36277beeed18f34a3db164c2c532f10d"
+    },
+    {
+      "path": "docs/STATION_REMOTE_SESSIONS.md",
+      "sha256": "85803d7b09ccebe8f9de5f14cf20114aaf5305d252fdae2d35e98cdca9d023b5"
+    },
+    {
+      "path": "docs/WEIXIN_CLOUD_DEPLOY.md",
+      "sha256": "ef7e28a37e03e72f45ebbe870abdc8df27dcde4fe0f667eb55d8468ea438ff48"
+    },
+    {
+      "path": "examples/claude_code_adapter.py",
+      "sha256": "b9a5b109ea87083cc40749069e12cfd9aae7440aca2d2398075e5fdc593daa8c"
+    },
+    {
+      "path": "examples/codex_cli_adapter.py",
+      "sha256": "0bdf5f8c443186a416b8b42e78b16e77dedcc392457fac7d4eec30ced01dac2d"
+    },
+    {
+      "path": "examples/local_agent_echo.py",
+      "sha256": "34b360f108c7cc04a23c82bd0b026acae34c0baa7a093fbb84f4624ca809de59"
+    },
+    {
+      "path": "probe/app.py",
+      "sha256": "e810f0f100679ebf53d3b21f63b3ff01ac5add7905d0ef0fc3d643ac76259f18"
+    },
+    {
+      "path": "probe/client.py",
+      "sha256": "19887eadea2ff8a0226735c1c3b797ad41c48bec2ca36c9ec5e5e8dcd8520946"
+    },
+    {
+      "path": "probe/Dockerfile",
+      "sha256": "1bc442d20090677b1819bb13fb35d3bd147416d670ec199bafb83302ff2e8383"
+    },
+    {
+      "path": "probe/README.md",
+      "sha256": "c3e24655bab68d36165ac1c619d92ede35ec4b0bcbde456885b99111412d05b6"
+    },
+    {
+      "path": "probe/requirements.txt",
+      "sha256": "8d9239df3977165304c3729e7e1dfe18f0c42fd90692188a8cab6f3941737df6"
+    },
+    {
+      "path": "requirements-bridge.txt",
+      "sha256": "5648fbebc86846c0e9cd63e3cddf6330f2370bd2f4f8e6c17289391d9afde523"
+    },
+    {
+      "path": "requirements-public.txt",
+      "sha256": "5812494c2ceb143235f1dbad9d364a94e2039e8b218029ff6877a61f2b205615"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "db6d9a2bdccd001627de5ff9fad2d49db78ad52895752ace3dc8b205005bce9d"
+    },
+    {
+      "path": "scripts/build_bridge.py",
+      "sha256": "211b73a325fcdb73b914cc336378e1cbd0c35afdae6dccde8707a4944fd9344d"
+    },
+    {
+      "path": "scripts/frozen_smoke.py",
+      "sha256": "8dd89f143be9ebc98f83b910ba1a83bdfd332d42df41059d5b34ac7b61080c9c"
+    },
+    {
+      "path": "scripts/package_hub.py",
+      "sha256": "4a362bd8c1890c163f5ad316b33c940c0d81cc8ef72550bb00e3b341d38740c8"
+    },
+    {
+      "path": "scripts/probe_shared_desktop.py",
+      "sha256": "f5e70c8246de4bec1b0f2c5034a4f4c4f13177974f52a0d9b84a3b73d0284775"
+    },
+    {
+      "path": "scripts/real_remote_smoke.py",
+      "sha256": "17c3960f098b229859a9f747b88790fd7b730dbc290329512c9a28d1a51b431e"
+    },
+    {
+      "path": "tests/public_remote_fixture.py",
+      "sha256": "c83f89dbaa4fa811e04e34d188ceca537a539f0ac723d6a6c5609681fcffb07d"
+    },
+    {
+      "path": "tests/remote_session_fixture.py",
+      "sha256": "844e23f815d2d09fc35e8c9beaebfba1334de63a0b5ac6608af7d6cfb19d8607"
+    },
+    {
+      "path": "tests/test_bridge_tray.py",
+      "sha256": "b37347ad7a7259fa6c26aba869ecaa26724f05c7d8f3e28b4be35b52d3132431"
+    },
+    {
+      "path": "tests/test_codex_desktop.py",
+      "sha256": "b7b00c4b06e44ef30beac13a3ed187ff0f468ecf93518c02065e0bd90db1d642"
+    },
+    {
+      "path": "tests/test_codex_shared.py",
+      "sha256": "829cbd0756c542b2950c43e1513e212162fd3c73091ac5006adc87044781101b"
+    },
+    {
+      "path": "tests/test_macos_native.py",
+      "sha256": "e239146d21ec4b0602350cdab7a14d5cabbc922758d33a86f64d775aac707c69"
+    },
+    {
+      "path": "tests/test_macos_supervision_policy.py",
+      "sha256": "f3bc435f47e51e16a1e03fb195828923ee2615b7c7a7f4a17abc3f3b600d0e0c"
+    },
+    {
+      "path": "tests/test_mysql_native.py",
+      "sha256": "aa7249fa96a1c5137e5e6ad9367053fefc8955fffae4d8ceaf72253227a53c53"
+    },
+    {
+      "path": "tests/test_probe_package.py",
+      "sha256": "e28cb61469245072d9bd6c3a2b88acba9977009d4a7c82b4b32c70d192b02012"
+    },
+    {
+      "path": "tests/test_public_remote.py",
+      "sha256": "5188c6b3a6bf4e2ccc021708eb505435db7bc21f002973c88c8689906d5bdaa2"
+    },
+    {
+      "path": "tests/test_remote_catalog_concurrency.py",
+      "sha256": "e63b775beeb92b39ddb92cacf1b07dabb219e5640c54576a17b0388c6065379c"
+    },
+    {
+      "path": "tests/test_remote_repairs.py",
+      "sha256": "00f5702c4a1f28cf3538b962a466ddf56afaa5c971d6ae77913dddc9ae6a8ae3"
+    },
+    {
+      "path": "tests/test_remote_sessions.py",
+      "sha256": "f3d012386823b098ac09a82d3ee0fa76aef902d13fed3edeee216163d914e375"
+    },
+    {
+      "path": "tests/test_task_process_ownership.py",
+      "sha256": "892c5514cb835e63826600abe070ca6ebaf031c67d4b6e2a1c05ed2de37d4f79"
+    },
+    {
+      "path": "web_control_panel/app.js",
+      "sha256": "41106f2274df7097981a4d6a7d4bab0dc87084e8ee82ac13712432938738bbcc"
+    },
+    {
+      "path": "web_control_panel/icon.svg",
+      "sha256": "96186d56c25527aa744573aca9f2bb26805331f0833384e7d4aaede719d386a3"
+    },
+    {
+      "path": "web_control_panel/index.html",
+      "sha256": "3cd677fc46dc452624702fa5322ee922f748209328044eeccd0ae5d9e4fbd4d1"
+    },
+    {
+      "path": "web_control_panel/service-worker.js",
+      "sha256": "219bb7cf12dd2dc12c7f8d5423cf2ce2961b3a7d2d695340c3770d10a7508b25"
+    },
+    {
+      "path": "web_control_panel/site.webmanifest",
+      "sha256": "82eb653f22d844c645abc28fa7668fe89b971fa85d4cec09ad1462865c39f0ef"
+    },
+    {
+      "path": "web_control_panel/styles.css",
+      "sha256": "fcfacad3fb96d0c9baa22431f5ab17b290531db59cd858e4c18ed781a96a1474"
+    },
+    {
+      "path": "web/app.js",
+      "sha256": "d37d42dc3ac868a34f5d953bb6f9ff021bf3afb909210bde5c0adea73c78d79a"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "6e4a0c7cf584e4719455c2a20fded87ef81c1aa13ce45e694990c26052b8f014"
+    },
+    {
+      "path": "web/local-panel.html",
+      "sha256": "644f3b8abf128c069f69534bf53105aeefebbd77c915dc8c857ca50725f5f991"
+    },
+    {
+      "path": "web/local-panel.js",
+      "sha256": "8bc3a30d99038777126c5fe6512d11b0e5f947fd39edd7db61f43f2b8a316af7"
+    },
+    {
+      "path": "web/styles.css",
+      "sha256": "cbc1f963c5353196a17d0d198678e37d6d22b4634600ae3751472200c22892a6"
+    }
+  ],
+  "importNormalizations": [
+    {
+      "path": "configs/local_agent.example.json",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "37533483dfaeb002242090eb0da2a2a2a2c222a826729e010c364d1e964040d7"
+    },
+    {
+      "path": "deploy/schema-v1.sql",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "d11425c34b9fd916ae6097b0021ce7bad5a51625fcfd9718bb58aedffd2f8f51"
+    },
+    {
+      "path": "device/protocol.py",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "e4d3dab3f8ecf91ae685c90fd54f3cb65035584a8d251b8e17f16edabc9f1764"
+    },
+    {
+      "path": "docs/AGENT_VISUALIZATION_STRATEGY.md",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "d05b974ea75930ec6acc351c1dcdc3b3823476632feef021805f96aea793c8ee"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "f26f8fc6d590e718634937b7cffc2ba695794eccd29c8fe2f4e523e62b5daf4c"
+    },
+    {
+      "path": "docs/LOCAL_AGENT_GATEWAY_DESIGN.md",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "f2967837f7654c6272c793895a01def4d90bf9518c68ece9413db8943f602356"
+    },
+    {
+      "path": "examples/claude_code_adapter.py",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "73ef00533288a4f0561361017946dc1bdabf64c9f6bb5ce86bb20b49efc34de8"
+    },
+    {
+      "path": "examples/codex_cli_adapter.py",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "574feeb42b5c8ced5c0fa89e9f38b94665a5b5157be0d3596c8e4500b1b7583a"
+    },
+    {
+      "path": "examples/local_agent_echo.py",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "d34546b4b084cd142c3206f3f67c533e180d3250427d822298e451c680027595"
+    },
+    {
+      "path": "requirements.txt",
+      "kind": "trailing whitespace or blank EOF normalization only",
+      "importedSha256": "ece11ab878255fb113c0a25d911e1768b7a51d57bea26490cbc27176c535c7e5"
+    }
+  ]
+}

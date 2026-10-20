@@ -14,12 +14,13 @@ export const systemPreferences = {
 };
 export const shell = { openExternal: async () => {} };
 export const dialog = { showMessageBox: async () => ({ response: 1 }) };
+export const clipboard = { writeText: () => {} };
 export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
 export const safeStorage = { encryptString: () => Buffer.alloc(0), decryptString: () => '' };
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };
-export const webContents = { fromId: () => null };
+export const webContents = { fromId: () => null, getAllWebContents: () => [] };
 
 export default { app, ipcMain, dialog, desktopCapturer, systemPreferences, shell, BrowserWindow, safeStorage, screen, nativeTheme, webContents };
