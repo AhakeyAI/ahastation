@@ -24,6 +24,7 @@ deliveries/
 !.env.example
 *.env
 **/.venv/
+**/.venv-contracts/
 **/__pycache__/
 **/*.py[cod]
 services/remote/runtime/

@@ -9,6 +9,7 @@
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
+    "contracts/collaboration/v1.schema.json",
     "package.json"
   ],
   "asarUnpack": [

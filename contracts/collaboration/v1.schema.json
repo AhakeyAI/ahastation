@@ -1,0 +1,899 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ahastation:collaboration:v1",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "permission": {
+      "enum": [
+        "read-only",
+        "workspace-write"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "worker",
+        "native-session"
+      ]
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+    },
+    "subdirectory": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\:\\u0000-\\u001f]+$",
+      "not": {
+        "pattern": "//|/$"
+      }
+    },
+    "repository": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "const": "github"
+        },
+        "canonicalUrl": {
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^https://github\\.com/[a-z0-9][a-z0-9_.-]*/[a-z0-9_.-]+$"
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        }
+      },
+      "required": [
+        "provider",
+        "canonicalUrl"
+      ],
+      "additionalProperties": false
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "backendId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "executionModes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mode"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "unavailableReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      },
+      "required": [
+        "agentId",
+        "backendId",
+        "available",
+        "executionModes"
+      ],
+      "additionalProperties": false
+    },
+    "deviceConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "platform": {
+          "enum": [
+            "windows",
+            "linux",
+            "macos"
+          ]
+        },
+        "acceptingTasks": {
+          "type": "boolean"
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agent"
+          },
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "name",
+        "platform",
+        "acceptingTasks",
+        "maxConcurrency",
+        "agents"
+      ],
+      "additionalProperties": false
+    },
+    "projectConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "repository": {
+          "$ref": "#/$defs/repository"
+        },
+        "repoSubdirectory": {
+          "$ref": "#/$defs/subdirectory"
+        }
+      },
+      "required": [
+        "name",
+        "repository"
+      ],
+      "additionalProperties": false
+    },
+    "device": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "platform": {
+          "enum": [
+            "windows",
+            "linux",
+            "macos"
+          ]
+        },
+        "acceptingTasks": {
+          "type": "boolean"
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/agent"
+          },
+          "maxItems": 32
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "lastSeenAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "connectionGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "activeTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "name",
+        "platform",
+        "acceptingTasks",
+        "maxConcurrency",
+        "agents",
+        "schemaVersion",
+        "deviceId",
+        "online",
+        "lastSeenAt",
+        "connectionGeneration",
+        "activeTasks",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "repository": {
+          "$ref": "#/$defs/repository"
+        },
+        "repoSubdirectory": {
+          "$ref": "#/$defs/subdirectory"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "name",
+        "repository",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "localBinding": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "localRepoRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "taskWorkspaceRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "permissionCeiling": {
+          "$ref": "#/$defs/permission"
+        },
+        "allowedAgentIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "deviceId",
+        "localRepoRoot",
+        "taskWorkspaceRoot",
+        "permissionCeiling",
+        "allowedAgentIds",
+        "confirmed",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "bindingReport": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unbound",
+            "invalid"
+          ]
+        },
+        "bindingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reasonCode": {
+          "enum": [
+            "NOT_BOUND",
+            "REVOKED",
+            "REPOSITORY_MISMATCH",
+            "PATH_NOT_AUTHORIZED",
+            "AGENT_UNAVAILABLE"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "deviceId",
+        "state",
+        "bindingRevision"
+      ],
+      "additionalProperties": false
+    },
+    "bindingSummary": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unbound",
+            "invalid"
+          ]
+        },
+        "bindingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reasonCode": {
+          "enum": [
+            "NOT_BOUND",
+            "REVOKED",
+            "REPOSITORY_MISMATCH",
+            "PATH_NOT_AUTHORIZED",
+            "AGENT_UNAVAILABLE"
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "projectId",
+        "deviceId",
+        "state",
+        "bindingRevision",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "authorizationRequest": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "baseCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "requiredPermission": {
+          "$ref": "#/$defs/permission"
+        },
+        "executionMode": {
+          "$ref": "#/$defs/mode"
+        },
+        "expectedBindingRevision": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "projectId",
+        "taskId",
+        "attemptId",
+        "agentId",
+        "baseCommit",
+        "requiredPermission",
+        "executionMode"
+      ],
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "assurance": {
+          "enum": [
+            "local-verified",
+            "simulation"
+          ]
+        },
+        "authorizationRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "baseCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "executionMode": {
+          "$ref": "#/$defs/mode"
+        },
+        "permission": {
+          "$ref": "#/$defs/permission"
+        },
+        "repoRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "taskWorkspaceRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "bindingRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "assurance",
+        "authorizationRef",
+        "projectId",
+        "deviceId",
+        "taskId",
+        "attemptId",
+        "agentId",
+        "baseCommit",
+        "executionMode",
+        "permission",
+        "repoRoot",
+        "taskWorkspaceRoot",
+        "bindingRevision",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "workspaceRequest": {
+      "type": "object",
+      "properties": {
+        "authorizationRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "workspacePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "baseCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "bindingRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "effectiveAgentPermission": {
+          "$ref": "#/$defs/permission"
+        }
+      },
+      "required": [
+        "authorizationRef",
+        "taskId",
+        "attemptId",
+        "workspacePath",
+        "baseCommit",
+        "bindingRevision",
+        "effectiveAgentPermission"
+      ],
+      "additionalProperties": false
+    },
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "assurance": {
+          "enum": [
+            "local-verified",
+            "simulation"
+          ]
+        },
+        "authorizationRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "attemptId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "agentId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "baseCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "permission": {
+          "$ref": "#/$defs/permission"
+        },
+        "bindingRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "assurance",
+        "authorizationRef",
+        "projectId",
+        "deviceId",
+        "taskId",
+        "attemptId",
+        "agentId",
+        "baseCommit",
+        "cwd",
+        "permission",
+        "bindingRevision",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "localAuthorizationEvent": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "scope": {
+          "const": "local"
+        },
+        "type": {
+          "const": "project.authorization_changed"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "bindingRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "occurredAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "scope",
+        "type",
+        "projectId",
+        "deviceId",
+        "bindingRevision",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "scope": {
+              "const": "account"
+            },
+            "type": {
+              "const": "device.changed"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "streamId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "revision": {
+              "$ref": "#/$defs/revision"
+            },
+            "occurredAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/$defs/device"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "scope",
+            "type",
+            "eventId",
+            "streamId",
+            "seq",
+            "revision",
+            "occurredAt",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "scope": {
+              "const": "account"
+            },
+            "type": {
+              "const": "project.changed"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "streamId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "revision": {
+              "$ref": "#/$defs/revision"
+            },
+            "occurredAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/$defs/project"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "scope",
+            "type",
+            "eventId",
+            "streamId",
+            "seq",
+            "revision",
+            "occurredAt",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "scope": {
+              "const": "account"
+            },
+            "type": {
+              "const": "project.binding_changed"
+            },
+            "eventId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "streamId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "revision": {
+              "$ref": "#/$defs/revision"
+            },
+            "occurredAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/$defs/bindingSummary"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "scope",
+            "type",
+            "eventId",
+            "streamId",
+            "seq",
+            "revision",
+            "occurredAt",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/device"
+          },
+          "maxItems": 1000
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project"
+          },
+          "maxItems": 1000
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bindingSummary"
+          },
+          "maxItems": 5000
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "cursor",
+        "devices",
+        "projects",
+        "bindings"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
