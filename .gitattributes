@@ -1,0 +1,3 @@
+# Test fixtures are byte-exact captures (ps, lsof, JSONL logs). Never convert
+# line endings, or parsers see CRLF on Windows checkouts (core.autocrlf=true).
+tests/fixtures/** -text

@@ -79,7 +79,16 @@ test('listQoderRuns skips symlinked manifests (fail closed)', async (t) => {
   const outside = join(home, 'outside.json');
   await writeFile(outside, JSON.stringify(MANIFEST));
   await rm(join(runDir, 'manifest.json'));
-  await symlink(outside, join(runDir, 'manifest.json'));
+  try {
+    await symlink(outside, join(runDir, 'manifest.json'));
+  } catch (error) {
+    // Windows only lets admins or Developer Mode create symlinks.
+    if (error?.code === 'EPERM') {
+      t.skip('symlink creation not permitted on this machine (Windows without Developer Mode)');
+      return;
+    }
+    throw error;
+  }
   const refs = await listQoderRuns(home);
   assert.equal(refs.length, 0);
 });
