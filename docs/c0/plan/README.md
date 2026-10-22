@@ -7,7 +7,7 @@
 
 | 包 | 状态 | 证据 / 产物 | 收尾还差 |
 | --- | --- | --- | --- |
-| B01 | macOS 通过；**Windows 本机未完成**：2026-10-23 在 N5095 上用 Node 22.23.4 运行，`npm ci` 阶段因系统内存不足被 Claude Code 停止（不是脚本错误）。Windows 测试结果暂以 CI run #98（windows-latest、Node 22）为证据 | `../evidence/`；CI run 37176224639 | 关闭其他程序后在 N5095 上重跑 `run-n5095.ps1 -SkipBench -RunBaseline`（先把 PATH 指向 `%USERPROFILE%\aha-c0\node22\node-v22.23.4-win-x64`） |
+| B01 | macOS 通过；**Windows N5095 部分通过（2026-10-23 前台重跑，Node 22.23.4 / npm 10.9.9）：`npm ci` exit 0（607 s），`npm run typecheck` 两端 exit 0（336 s）；`build` 与 `test` 未跑（额度用尽）**。此前一次后台运行： |2026-10-23 在 N5095 上用 Node 22.23.4 运行，`npm ci` 阶段因系统内存不足被 Claude Code 停止（不是脚本错误）。Windows 测试结果暂以 CI run #98（windows-latest、Node 22）为证据 | `../evidence/`；CI run 37176224639 | 关闭其他程序后在 N5095 上重跑 `run-n5095.ps1 -SkipBench -RunBaseline`（先把 PATH 指向 `%USERPROFILE%\aha-c0\node22\node-v22.23.4-win-x64`） |
 | B02 | macOS / Linux 默认套件 0 失败；**Windows 33 失败（CI #98）** | 同上；CI run 37176224639 | **修 Windows 33 个失败（实施卡 A-00）**；修 CI 的 dmg 上传条件；`npm audit` 分级；f5d88aa 语义确认（用户） |
 | B03 | **契约草案完成** | `../b03-contract/README.md` | 评审 → 写成 zod schema（实施卡 A-01） |
 | B04 | **方案完成，未执行** | `../b04-runtime/README.md` | **用户授权预算与账号** → 执行约 1 周 |
