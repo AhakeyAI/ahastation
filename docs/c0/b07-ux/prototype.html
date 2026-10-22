@@ -1,0 +1,313 @@
+<title>AhaStudio 主界面原型</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: app shell — left rail nav, main area; meeting = conversation column + shared area. */
+:root{
+  --bg:#f3f5f4; --panel:#ffffff; --sunk:#e8ecea; --line:#d3dad7;
+  --fg:#17201d; --muted:#5c6b66; --accent:#1f6f5c; --accent-ink:#ffffff;
+  --warn:#9a6200; --warn-bg:#fdf1dc; --crit:#b3261e; --crit-bg:#fbe5e3; --ok:#2e7d32; --ok-bg:#e3f2e4; --info:#2f5f9e; --info-bg:#e4ecf7;
+  --f-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111715; --panel:#18201d; --sunk:#202a27; --line:#2f3b37; --fg:#e3ebe8; --muted:#94a59f; --accent:#4fb398; --accent-ink:#08130f;
+  --warn:#f0b54a; --warn-bg:#3a2c10; --crit:#f2867e; --crit-bg:#3d1916; --ok:#7ccf80; --ok-bg:#1b3320; --info:#8fb5ea; --info-bg:#1a2a40; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111715; --panel:#18201d; --sunk:#202a27; --line:#2f3b37; --fg:#e3ebe8; --muted:#94a59f; --accent:#4fb398; --accent-ink:#08130f;
+  --warn:#f0b54a; --warn-bg:#3a2c10; --crit:#f2867e; --crit-bg:#3d1916; --ok:#7ccf80; --ok-bg:#1b3320; --info:#8fb5ea; --info-bg:#1a2a40; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.5}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:76px 1fr;height:100%}
+.rail{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;padding-block:12px;padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:8px}
+.rail button{border:0;background:none;border-radius:var(--r);padding:8px 4px;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);position:relative}
+.rail button .ic{font-family:var(--f-mono);font-size:16px;font-weight:600}
+.rail button[aria-current="page"]{background:var(--sunk);color:var(--fg)}
+.rail .dot{position:absolute;top:6px;right:12px;min-width:16px;height:16px;border-radius:8px;background:var(--crit);color:#fff;font-size:10px;line-height:16px;text-align:center;font-family:var(--f-mono)}
+.main{display:flex;flex-direction:column;min-width:0;height:100%}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding-block:10px;padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--panel)}
+.top h1{font-size:16px;margin:0;font-weight:700}
+.top .sp{flex:1}
+select{font:inherit;background:var(--sunk);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);border:1px solid transparent;white-space:nowrap}
+button.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--fg)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)} .chip.crit{background:var(--crit-bg);color:var(--crit)} .chip.ok{background:var(--ok-bg);color:var(--ok)} .chip.info{background:var(--info-bg);color:var(--info)}
+.view{flex:1;min-height:0;overflow:auto;padding-block:16px;padding-left:16px;padding-right:max(16px,env(safe-area-inset-right,0px))}
+.banner{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;border-radius:var(--r);margin-bottom:12px;font-size:13px}
+.banner.info{background:var(--info-bg);color:var(--info)} .banner.warn{background:var(--warn-bg);color:var(--warn)} .banner.crit{background:var(--crit-bg);color:var(--crit)}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 10px;font-size:13px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+/* meeting */
+.meet{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:16px;height:100%}
+.convo{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-height:0}
+.members{display:flex;flex-wrap:wrap;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.members .grp{display:flex;gap:6px;align-items:center}
+.av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:700;color:#fff;position:relative;flex:none}
+.av.speaking::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--accent);animation:pulse 1.2s infinite}
+@keyframes pulse{0%{opacity:1;transform:scale(.9)}100%{opacity:0;transform:scale(1.25)}}
+@media (prefers-reduced-motion:reduce){.av.speaking::after{animation:none}}
+.feed{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;min-height:0}
+.msg{display:grid;grid-template-columns:28px 1fr;gap:8px}
+.msg .who{font-size:12px;color:var(--muted)}
+.msg .who b{color:var(--fg);font-weight:500}
+.msg .body{min-width:0}
+.ref{font-family:var(--f-mono);font-size:11px;color:var(--muted);background:var(--sunk);padding:1px 6px;border-radius:4px;display:inline-block;margin-top:2px}
+.sys{font-size:12px;color:var(--muted);text-align:center}
+.voice{border-top:1px solid var(--line);padding:12px;display:flex;gap:12px;align-items:center}
+.ptt{width:64px;height:64px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;flex:none;touch-action:none;user-select:none}
+.ptt.rec{background:var(--crit);color:#fff}
+.vstate{font-size:13px;min-width:0}
+.vstate small{display:block;color:var(--muted)}
+.shared{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-width:0;overflow:auto;position:relative}
+.shared.locked{outline:2px dashed var(--crit);outline-offset:-4px}
+.lockbadge{position:absolute;top:8px;right:8px}
+/* board */
+.board{display:grid;grid-template-columns:repeat(5,minmax(180px,1fr));gap:10px;overflow-x:auto}
+.col{background:var(--sunk);border-radius:var(--r);padding:8px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.col h3{font-size:13px;margin:0;display:flex;justify-content:space-between;color:var(--muted);font-weight:500}
+.col h3 span{font-family:var(--f-mono)}
+.lane{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.04em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px;font-size:13px;text-align:left}
+.card .meta{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.card .proj{font-size:11px;color:var(--muted)}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.bar.est i{background:repeating-linear-gradient(90deg,var(--accent) 0 4px,transparent 4px 7px)}
+.barlab{font-size:11px;color:var(--muted);font-family:var(--f-mono)}
+/* gantt */
+.gantt{display:grid;grid-template-columns:180px 1fr;gap:6px 12px;align-items:center;min-width:640px}
+.gwrap{overflow-x:auto}
+.gtrack{position:relative;height:30px;background:var(--sunk);border-radius:4px}
+.gtrack .plan{position:absolute;top:6px;height:3px;background:var(--muted)}
+.gtrack .est{position:absolute;top:13px;height:0;border-top:3px dashed var(--warn)}
+.gtrack .act{position:absolute;top:20px;height:6px;background:var(--accent);border-radius:3px}
+.gtrack .today{position:absolute;top:0;bottom:0;width:2px;background:var(--crit)}
+.gscale{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--muted);margin-bottom:12px}
+/* decisions */
+.dlist{display:grid;gap:12px;max-width:760px}
+.dcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:8px}
+.dcard header{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dcard h4{margin:0;font-size:15px}
+.dcard dl{display:grid;grid-template-columns:90px 1fr;gap:4px 12px;margin:0;font-size:13px}
+.dcard dt{color:var(--muted)} .dcard dd{margin:0;min-width:0}
+.dcard .acts{display:flex;flex-wrap:wrap;gap:8px}
+.mono{font-family:var(--f-mono);font-size:12px}
+/* scenarios drawer */
+.scen{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.scen button{text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:var(--r);padding:10px}
+.scen b{display:block;font-size:13px}
+.scen small{color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:var(--r);font-size:13px;max-width:min(420px,calc(100vw - 32px))}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .rail{flex-direction:row;order:2;border-right:0;border-top:1px solid var(--line);justify-content:space-around;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px))}
+  .meet{grid-template-columns:1fr;height:auto}
+  .convo{min-height:480px}
+}
+</style>
+
+<div class="app">
+  <nav class="rail" aria-label="主导航">
+    <button data-v="meet" aria-current="page"><span class="ic">◐</span>会议</button>
+    <button data-v="board"><span class="ic">▦</span>看板</button>
+    <button data-v="gantt"><span class="ic">≡</span>甘特图</button>
+    <button data-v="inbox"><span class="ic">!</span>决定<span class="dot" id="inboxDot">3</span></button>
+    <button data-v="scen"><span class="ic">?</span>异常</button>
+  </nav>
+  <div class="main">
+    <div class="top">
+      <h1 id="vtitle">会议</h1>
+      <label class="chip" for="proj">项目</label>
+      <select id="proj"><option value="all">全部项目</option></select>
+      <span class="chip" id="remember" title="刷新页面后仍会恢复">已记住最近筛选</span>
+      <span class="sp"></span>
+      <span class="chip info" id="hostState">本机主持 · Windows N5095</span>
+    </div>
+    <div class="view" id="view"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const PROJECTS={aha:"AhaStudio",orca:"Orca 调研",voice:"N5095 语音"};
+const PEOPLE={
+  host:{n:"小A",role:"助理",c:"#1f6f5c",voice:"aishell3 #33"},
+  pm:{n:"林舟",role:"产品",c:"#7a4fb3",voice:"aishell3 #10"},
+  fe:{n:"陈野",role:"前端",c:"#2f5f9e",voice:"aishell3 #99"},
+  qa:{n:"许宁",role:"测试",c:"#9a6200",voice:"aishell3 #150"},
+  me:{n:"我",role:"",c:"#5c6b66"}
+};
+const STAGES=[["design","待设计"],["ready","待执行"],["running","执行中"],["testing","测试中"],["done","已完成"]];
+const SUB={grilling:["澄清中",""],"awaiting-confirm":["待确认","warn"],queued:["排队",""],active:["进行中","info"],reworking:["返工 2/3","warn"],paused:["暂停（额度）","crit"],failed:["失败","crit"],unknown:["状态未知","crit"],verifying:["复核中","info"],"review-undecided":["复核未决","warn"],"awaiting-accept":["待你接受","warn"],integrating:["合入中","info"],merged:["已合并","ok"],"plan-accepted":["方案已验收","ok"],risk:["暂停（风险）","crit"]};
+let items=[
+ {id:"wi_3",t:"看板记住最近项目筛选",p:"aha",st:"design",sub:"awaiting-confirm",owner:"fe",parent:"自举 A",use:0,q:"—"},
+ {id:"wi_4",t:"决定卡片三类分开",p:"aha",st:"ready",sub:"queued",owner:"fe",parent:"B07 原型",use:0,q:"—"},
+ {id:"wi_5",t:"B06 用量信号接线",p:"aha",st:"running",sub:"active",owner:"qa",parent:"B06",use:38,q:"实际"},
+ {id:"wi_6",t:"迁移旧任务状态到五阶段",p:"aha",st:"running",sub:"paused",owner:"fe",parent:"B08",use:100,q:"估算"},
+ {id:"wi_7",t:"N5095 TTS 选型实测",p:"voice",st:"testing",sub:"review-undecided",owner:"qa",parent:"B05",use:62,q:"实际"},
+ {id:"wi_8",t:"Paseo 0.12 对照驱动",p:"orca",st:"testing",sub:"awaiting-accept",owner:"pm",parent:"B04",use:45,q:"估算"},
+ {id:"wi_9",t:"上游许可核查",p:"orca",st:"done",sub:"plan-accepted",owner:"pm",parent:"调研",use:12,q:"实际"},
+ {id:"wi_10",t:"远端停止回执",p:"aha",st:"running",sub:"unknown",owner:"qa",parent:"X2",use:20,q:"实际"},
+];
+const GANTT=[ // days from Oct 20; plan [s,e], est end, actual [s,e|null]
+ {id:"wi_3",plan:[3,6],est:6,act:null},{id:"wi_5",plan:[2,7],est:9,act:[2,null]},{id:"wi_6",plan:[4,10],est:10,act:[4,null]},
+ {id:"wi_7",plan:[1,4],est:5,act:[1,null]},{id:"wi_8",plan:[3,8],est:8,act:[3,7]},{id:"wi_9",plan:[0,2],est:2,act:[0,2]},{id:"wi_4",plan:null}
+];
+const TODAY=3, SPAN=14;
+let decisions=[
+ {k:"stage",id:"dec_1",wi:"wi_3",ver:2,title:"确认第 2 版计划：看板记住最近项目筛选",goal:"刷新、离开再返回、重启后恢复最近项目筛选",scope:"仅本机设置；不做跨设备同步",accept:"首次无设置时为全部；旧项目失效回到全部并提示",mode:"默认（逐项批准高风险动作）",budget:"本周 AhaStudio 额度的 5%（估算）"},
+ {k:"action",id:"dec_2",wi:"wi_5",title:"许宁 想运行一条命令",what:"npm test -- tests/worker-protocol.test.mjs",why:"验证 usage 信号的 schema",scope:"只读测试，不写文件"},
+ {k:"accept",id:"dec_3",wi:"wi_8",title:"接受交付：Paseo 0.12 对照驱动",evidence:"10 个场景脚本；独立复核通过 8 项、2 项不适用",left:"S6 停止：Paseo 文档无中断接口，标记为待实测",endpoint:"约定终点：已合并"}
+];
+let state={v:"meet",proj:"all",dim:"need",filter:null,meetLocked:false,rec:false,recMode:null,pressAt:0,feed:null,stopTimer:null};
+try{const s=localStorage.getItem("aha.proj");if(s&&(s==="all"||PROJECTS[s]))state.proj=s;}catch(e){}
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function av(k,extra=""){const p=PEOPLE[k];return `<span class="av ${extra}" style="background:${p.c}" title="${esc(p.role+" "+p.n)}">${esc(p.n.slice(0,1))}</span>`}
+function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,3200)}
+function chip(sub){const [l,c]=SUB[sub]||[sub,""];return `<span class="chip ${c}">${esc(l)}</span>`}
+function visible(i){return state.proj==="all"||i.p===state.proj}
+
+// project select
+const sel=$("#proj");for(const [k,v] of Object.entries(PROJECTS)){const o=document.createElement("option");o.value=k;o.textContent=v;sel.appendChild(o)}
+sel.value=state.proj;
+sel.onchange=()=>{state.proj=sel.value;try{localStorage.setItem("aha.proj",state.proj)}catch(e){}render()};
+
+document.querySelectorAll(".rail button").forEach(b=>b.onclick=()=>{state.v=b.dataset.v;document.querySelectorAll(".rail button").forEach(x=>x.removeAttribute("aria-current"));b.setAttribute("aria-current","page");render()});
+
+if(!state.feed)state.feed=[
+ {who:"me",txt:"把看板的项目筛选做成能记住的，刷新以后别丢。",ref:"看板 › 项目筛选 › wi_3"},
+ {who:"host",txt:"明白。我理解的范围是只记在本机，不做跨设备同步；旧项目失效时回到“全部”并提示。我请前端陈野看一下现有实现。"},
+ {sys:"陈野 已入会 · 已审阅 TasksView.tsx"},
+ {who:"fe",txt:"现在筛选值是 useState 初始化的，没有持久化。改动很小，建议存本机设置。"},
+ {who:"host",txt:"计划已整理成第 2 版，放在决定收件箱。你确认后再开工。",ref:"计划 sp_7a v2"}
+];
+
+function render(){
+  $("#vtitle").textContent={meet:"会议",board:"看板",gantt:"甘特图",inbox:"决定收件箱",scen:"异常场景走查"}[state.v];
+  $("#inboxDot").textContent=decisions.length;$("#inboxDot").hidden=!decisions.length;
+  const v=$("#view");
+  if(state.v==="meet")v.innerHTML=meetHTML(),bindMeet();
+  if(state.v==="board")v.innerHTML=boardHTML(),bindBoard();
+  if(state.v==="gantt")v.innerHTML=ganttHTML();
+  if(state.v==="inbox")v.innerHTML=inboxHTML(),bindInbox();
+  if(state.v==="scen")v.innerHTML=scenHTML(),bindScen();
+}
+
+function meetHTML(){
+  const speaking=state.speaking||null;
+  const feed=state.feed.map(m=>m.sys?`<div class="sys">${esc(m.sys)}</div>`:
+   `<div class="msg">${av(m.who,speaking===m&&!state.rec?"speaking":"")}<div class="body"><div class="who"><b>${esc((PEOPLE[m.who].role?PEOPLE[m.who].role+" · ":"")+PEOPLE[m.who].n)}</b>${PEOPLE[m.who].voice?` · 音色 ${esc(PEOPLE[m.who].voice)}`:""}${m.cut?` · <span class="chip warn">未播完</span>`:""}${m.urgent?` · <span class="chip crit">风险直报</span>`:""}</div><div>${esc(m.txt)}</div>${m.ref?`<span class="ref">关于：${esc(m.ref)}</span>`:""}</div></div>`).join("");
+  const vs=state.rec?(state.recMode==="hold"?["录音中","松开发送"]:["录音中","再按一次发送"]):(state.pending?["识别失败，已保留","点“重试”或“丢弃”，不会自动重发"]:["待命","短按开始 · 长按说话"]);
+  return `<div class="meet">
+   <section class="convo" aria-label="对话">
+    <div class="members"><span class="grp">在会 ${av("host")}${av("fe")}</span><span class="grp">已审阅 ${av("pm")}</span><span class="grp">可邀请 ${av("qa")}</span></div>
+    <div class="feed" id="feed">${feed}</div>
+    <div class="voice">
+     <button class="ptt ${state.rec?"rec":""}" id="ptt" aria-label="语音键">${state.rec?"● REC":"按住"}</button>
+     <div class="vstate"><b>${vs[0]}</b><small>${vs[1]}</small>${state.pending?` <button class="btn" id="retry">重试</button> <button class="btn" id="drop">丢弃</button>`:""}</div>
+    </div>
+   </section>
+   <section class="shared ${state.rec?"locked":""}" aria-label="共享区">
+    ${state.rec?`<span class="chip crit lockbadge">已锁定：看板 › ${esc(PROJECTS[state.proj]||"全部项目")}</span>`:""}
+    ${state.suggest?`<div class="banner info">助理想展示：甘特图 <button class="btn pri" id="sgo">切换</button><button class="btn" id="sno">保持当前</button></div>`:""}
+    <div class="legend"><span>共享区默认看板</span><button class="btn" id="askSwitch">模拟：助理请求切换展示</button><button class="btn" id="endMeet">结束会议</button></div>
+    ${boardHTML(true)}
+   </section></div>`;
+}
+function bindMeet(){
+  const f=$("#feed");f.scrollTop=f.scrollHeight;
+  const b=$("#ptt");
+  const down=()=>{state.pressAt=Date.now();interrupt();if(state.rec&&state.recMode==="toggle"){send();return}state.rec=true;state.recMode="pending";render();};
+  const up=()=>{if(!state.rec)return;const held=Date.now()-state.pressAt;if(state.recMode==="pending"){if(held>=350){state.recMode="hold";send()}else{state.recMode="toggle";render()}}};
+  b.addEventListener("pointerdown",e=>{e.preventDefault();down()});
+  b.addEventListener("pointerup",up);b.addEventListener("pointerleave",()=>{if(state.recMode==="pending")up()});
+  b.addEventListener("keydown",e=>{if((e.key===" "||e.key==="Enter")&&!e.repeat){e.preventDefault();down()}});
+  b.addEventListener("keyup",e=>{if(e.key===" "||e.key==="Enter")up()});
+  $("#askSwitch").onclick=()=>{state.suggest=true;render()};
+  const sg=$("#sgo");if(sg){sg.onclick=()=>{state.suggest=false;state.v="gantt";syncNav();render()};$("#sno").onclick=()=>{state.suggest=false;render()}}
+  const r=$("#retry");if(r){r.onclick=()=>{state.pending=false;state.feed.push({who:"me",txt:"（重试识别）那就按第 2 版来。",ref:"计划 sp_7a v2"});render()};$("#drop").onclick=()=>{state.pending=false;render()}}
+  $("#endMeet").onclick=()=>{state.feed.push({sys:"结束会议？已授权的 2 项工作会继续；1 项未确认安排保留为草稿；麦克风将关闭。"});state.feed.push({sys:"（原型）会议已结束，执行中的任务未受影响。"});render()};
+  bindBoard(true);
+}
+function interrupt(){const s=state.speaking;if(s){s.cut=true;state.speaking=null;toast("已打断播报（任务执行不受影响）")}}
+function send(){state.rec=false;state.recMode=null;state.feed.push({who:"me",txt:"（语音）好的，第 2 版没问题，开工吧。",ref:"看板 › "+(PROJECTS[state.proj]||"全部项目")});const r={who:"host",txt:"收到。“开工”需要确认第 2 版计划，我已经在决定收件箱里标出来，你也可以直接说“确认第 2 版”。这条回复正在播报，按语音键可以打断。"};state.feed.push(r);state.speaking=r;render()}
+function syncNav(){document.querySelectorAll(".rail button").forEach(x=>x.toggleAttribute("aria-current",x.dataset.v===state.v));document.querySelectorAll(".rail button").forEach(x=>{if(x.dataset.v===state.v)x.setAttribute("aria-current","page")})}
+
+function boardHTML(compact){
+  const list=items.filter(visible).filter(i=>!state.filter||(state.filter==="me"?["awaiting-confirm","awaiting-accept","review-undecided"].includes(i.sub):["paused","failed","unknown","risk"].includes(i.sub)));
+  const nMe=items.filter(visible).filter(i=>["awaiting-confirm","awaiting-accept","review-undecided"].includes(i.sub)).length;
+  const nBad=items.filter(visible).filter(i=>["paused","failed","unknown","risk"].includes(i.sub)).length;
+  const head=compact?"":`<div class="legend">
+    <span>维度</span><button class="chip" data-dim="need" aria-pressed="${state.dim==="need"}">需求</button><button class="chip" data-dim="role" aria-pressed="${state.dim==="role"}">职能</button>
+    <span>｜ 需关注</span><button class="chip warn" data-f="me" aria-pressed="${state.filter==="me"}">需要我决定 ${nMe}</button><button class="chip crit" data-f="bad" aria-pressed="${state.filter==="bad"}">异常 ${nBad}</button>
+    <span>｜ 额度条：实线=实际，虚线=估算</span></div>`;
+  const cols=STAGES.map(([k,l])=>{const cs=list.filter(i=>i.st===k);let inner="";
+    const groups=state.dim==="role"&&!compact?[...new Set(cs.map(i=>i.owner))].map(o=>[PEOPLE[o].role+" · "+PEOPLE[o].n,cs.filter(i=>i.owner===o)]):(compact?[["",cs]]:[...new Set(cs.map(i=>i.parent))].map(p=>[p,cs.filter(i=>i.parent===p)]));
+    for(const [g,arr] of groups){if(g)inner+=`<div class="lane">${esc(g)}</div>`;inner+=arr.map(card).join("")}
+    return `<div class="col"><h3>${l}<span>${cs.length}</span></h3>${inner||'<div class="lane">暂无</div>'}</div>`}).join("");
+  return head+`<div class="board">${cols}</div>`;
+}
+function card(i){return `<div class="card"><div>${esc(i.t)}</div><div class="meta">${chip(i.sub)}<span class="proj">${esc(PROJECTS[i.p])}</span><span style="margin-left:auto">${av(i.owner)}</span></div>${i.use?`<div class="bar ${i.q==="估算"?"est":""}"><i style="width:${Math.min(i.use,100)}%"></i></div><div class="barlab">额度 ${i.use}% · ${i.q}</div>`:""}</div>`}
+function bindBoard(){document.querySelectorAll("[data-dim]").forEach(b=>b.onclick=()=>{state.dim=b.dataset.dim;render()});document.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{state.filter=state.filter===b.dataset.f?null:b.dataset.f;render()})}
+
+function ganttHTML(){
+  const pct=d=>(d/SPAN*100).toFixed(2)+"%";
+  const rows=GANTT.map(g=>{const i=items.find(x=>x.id===g.id);if(!i||!visible(i))return"";
+    if(!g.plan)return `<div>${esc(i.t)}<br><span class="chip">未排期</span></div><div class="gtrack"></div>`;
+    const late=g.est>g.plan[1];
+    return `<div style="min-width:0">${esc(i.t)}<br>${late?'<span class="chip warn">预计延期 '+(g.est-g.plan[1])+' 天</span>':chip(i.sub)}</div>
+     <div class="gtrack"><span class="plan" style="left:${pct(g.plan[0])};width:${pct(g.plan[1]-g.plan[0])}"></span>
+     <span class="est" style="left:${pct(g.plan[0])};width:${pct(g.est-g.plan[0])}"></span>
+     ${g.act?`<span class="act" style="left:${pct(g.act[0])};width:${pct((g.act[1]??TODAY)-g.act[0])}"></span>`:""}<span class="today" style="left:${pct(TODAY)}"></span></div>`}).join("");
+  const days=[0,2,4,6,8,10,12,14].map(d=>`<span>10/${20+d}</span>`).join("");
+  return `<div class="legend"><span>细线 = 计划</span><span>虚线 = 预计（晚于计划只标出，不改计划）</span><span>实心 = 实际</span><span>红线 = 今天</span></div>
+  <div class="gwrap"><div class="gantt"><div></div><div class="gscale">${days}</div>${rows}</div></div>`;
+}
+
+function inboxHTML(){
+  if(!decisions.length)return `<p>没有需要你决定的事。</p>`;
+  return `<div class="dlist">${decisions.map(d=>{
+   if(d.k==="stage")return `<article class="dcard"><header><span class="chip warn">阶段确认</span><span class="mono">计划 v${d.ver}</span><h4>${esc(d.title)}</h4></header>
+    <dl><dt>目标</dt><dd>${esc(d.goal)}</dd><dt>范围</dt><dd>${esc(d.scope)}</dd><dt>验收</dt><dd>${esc(d.accept)}</dd><dt>权限</dt><dd>${esc(d.mode)}</dd><dt>额度</dt><dd>${esc(d.budget)}</dd></dl>
+    <div class="acts"><button class="btn pri" data-a="ok" data-id="${d.id}">确认第 ${d.ver} 版</button><button class="btn" data-a="edit" data-id="${d.id}">修改</button></div></article>`;
+   if(d.k==="action")return `<article class="dcard"><header><span class="chip info">动作批准</span><h4>${esc(d.title)}</h4></header>
+    <dl><dt>命令</dt><dd class="mono">${esc(d.what)}</dd><dt>原因</dt><dd>${esc(d.why)}</dd><dt>影响</dt><dd>${esc(d.scope)}</dd></dl>
+    <div class="acts"><button class="btn pri" data-a="ok" data-id="${d.id}">允许这一次</button><button class="btn" data-a="no" data-id="${d.id}">拒绝</button></div></article>`;
+   return `<article class="dcard"><header><span class="chip ok">交付接受</span><h4>${esc(d.title)}</h4></header>
+    <dl><dt>证据</dt><dd>${esc(d.evidence)}</dd><dt>遗留</dt><dd>${esc(d.left)}</dd><dt>终点</dt><dd>${esc(d.endpoint)}</dd></dl>
+    <div class="acts"><button class="btn pri" data-a="ok" data-id="${d.id}">接受</button><button class="btn" data-a="merge" data-id="${d.id}">接受并合入</button><button class="btn" data-a="more" data-id="${d.id}">继续修改</button><button class="btn" data-a="later" data-id="${d.id}">稍后</button></div></article>`;
+  }).join("")}</div>`;
+}
+function bindInbox(){document.querySelectorAll(".dcard [data-a]").forEach(b=>b.onclick=()=>{const d=decisions.find(x=>x.id===b.dataset.id);const a=b.dataset.a;const i=items.find(x=>x.id===d.wi);
+  if(a==="later"){toast("已保留在收件箱");return}
+  decisions=decisions.filter(x=>x!==d);
+  if(d.k==="stage"&&a==="ok"){i.st="ready";i.sub="queued";toast("已确认第 "+d.ver+" 版。卡片移到“待执行”")}
+  else if(d.k==="stage"){toast("已退回修改，计划会生成第 "+(d.ver+1)+" 版")}
+  else if(d.k==="action"){toast(a==="ok"?"已允许一次":"已拒绝，Agent 会收到原因")}
+  else if(a==="ok"){i.sub="awaiting-accept";i.sub="integrating";i.st="testing";toast("已接受。接受不等于合入：合入需要单独授权")}
+  else if(a==="merge"){i.sub="integrating";toast("已接受，正在合入；合入完成并有 commit 证据后才会显示“已完成 · 已合并”")}
+  else {i.st="running";i.sub="reworking";toast("已退回返工（第 2/3 轮）")}
+  render()})}
+
+const SCEN=[
+ ["E1","远端停止未确认","停止命令发出后，执行端没有回执",()=>{const i=items.find(x=>x.id==="wi_10");i.sub="unknown";state.v="board";syncNav();render();toast("已发出停止 · 对方未确认（12 秒）→ 状态未知。不会显示“已停止”")}],
+ ["E2","额度耗尽","项目本周执行额度用完",()=>{decisions.unshift({k:"action",id:"dec_b",wi:"wi_6",title:"AhaStudio 本周执行额度已用完",what:"追加额度 / 等下周期（10/27 08:00）",why:"迁移任务暂停在“执行中 · 暂停（额度）”",scope:"不会自动换用更便宜的模型"});state.v="inbox";syncNav();render()}],
+ ["E3","复核无法判断","独立复核跑不了 e2e 测试",()=>{state.v="board";state.filter="me";syncNav();render();toast("测试中 · 复核未决：必验项无法运行，不能显示完成")}],
+ ["E4","语音项目歧义","说“把筛选改一下”，但筛选全部项目",()=>{state.v="meet";syncNav();state.feed.push({who:"me",txt:"把那个筛选改一下。",ref:"看板 › 全部项目"},{who:"host",txt:"你说的筛选是 AhaStudio 的看板筛选，还是 Orca 调研里的版本筛选？我先记下这句话，确认后再安排。"});render()}],
+ ["E5","旧批准","在离线设备上确认了旧版本计划",()=>{toast("这个计划已经更新到第 3 版，你确认的是第 2 版，未生效。");}],
+ ["E6","风险直报","测试专家发现要删除 migrations 目录",()=>{state.v="meet";syncNav();const i=items.find(x=>x.id==="wi_6");i.sub="risk";const m={who:"qa",txt:"打断一下：迁移任务准备删除 migrations 目录，超出了计划范围。我已经暂停这个任务，其他任务继续。",urgent:true};state.feed.push(m);state.speaking=m;render()}],
+ ["E7","文档接管","你要亲自改计划文档",()=>{toast("你正在编辑，Agent 已暂停对这份文档的写入。交还后，Agent 会先列出你的 3 处修改再继续。")}],
+ ["E8","识别失败","录音后 ASR 失败",()=>{state.v="meet";syncNav();state.pending=true;render()}],
+];
+function scenHTML(){return `<p style="max-width:65ch;color:var(--muted)">每个按钮触发一个规格里的异常场景。看的是界面怎么诚实地表达状态，而不是把未知说成成功。</p><div class="scen">${SCEN.map((s,ix)=>`<button data-s="${ix}"><b>${s[0]} · ${esc(s[1])}</b><small>${esc(s[2])}</small></button>`).join("")}</div>`}
+function bindScen(){document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>SCEN[+b.dataset.s][3]())}
+render();
+</script>

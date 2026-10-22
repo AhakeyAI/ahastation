@@ -2,13 +2,38 @@
 
 日期：2026-10-22。作者：Claude，接续 Codex 同日的交接包。本目录 `docs/c0/` 是**当前唯一有效的 C0 进度入口**。Codex 原交接包原样保存在 `handoff-2026-10-22/` 作为来源，与本文冲突的地方以本文为准，逐条更正见 `handoff-2026-10-22/CORRECTIONS.md`。
 
+## 0. 2026-10-23 更新：设计包已完成，等待用户输入
+
+在 N5095 上继续推进，C0 剩余的调研与设计已全部成文。**新增文档**（阅读顺序）：
+
+| 文档 | 内容 |
+| --- | --- |
+| `plan/cards.csv` | 全部实施卡与切片的清单（卡号、WBS、门、规模、人日、依赖、设计依据、能否立即开工），可导入 GitHub Project |
+| `plan/README.md` | **从这里开始**：C0 收尾状态、门 A 首批 13 张实施卡（约 35–50 人日）、关键路径、项目管理方案、开工前置清单、风险表 |
+| `research/upstream-2026-10-22.md` | Orca / Paseo / Multica 当日版本与许可复核；Paseo 新增 connected hosts 与 usage；集成 / 复刻决策表 |
+| `b03-contract/README.md` | 领域契约：对象身份、事件信封 v2、命令→事件样例、五阶段与细分状态、15 种旧状态映射、迁移 |
+| `b04-runtime/README.md` | 运行底座对照：候选、10 个场景、一票否决规则、预算与授权 |
+| `b06-quota/WIRING.md` | 用量接线方案；**更正** README 中「预算永远不会触发」的说法 |
+| `design/meeting-mode.md` | 会议模式：按键状态机、发言权、专家唤起、VoiceProvider、进程划分 |
+| `design/remote-control.md` | 跨设备：密钥与可信设备、加密信封与停止回执、主持租约、GitHub 交接、传输两候选 |
+| `b07-ux/README.md` + `prototype.html` | UX 方案与可点击原型（会议、五阶段看板、甘特图、三类决定卡片、8 个异常场景） |
+| `design/later-gates.md` | 门 B → F 其余工作包的技术方案概要（插件宿主、额度账本、复核、集成、浏览器 / 文档 / 外部应用、记忆、RSI、安装更新、发布） |
+| `../adr/` | 架构决策记录：0001 项目稳定 ID、0002 libsodium、0003 保留 MeetingRepository 外套信封 |
+
+**新发现**：
+
+1. **main 的 CI 一直是红的**（最近 5 次全部失败）。Windows：33 个测试失败，集中在进程观察（`ps` 解析读不到 `ppid`）、Kimi 会话解析、Qoder tailer（`fs.watch` EPERM）。macOS / Ubuntu：测试全过，但 CI 要求上传 `release/*.dmg`，构建没有产出，上传步骤失败。**Windows 是首发主平台，B02 在 Windows 上没有关闭。**
+2. 现有看板把 `failed`、`interrupted` 与 `done` 放在同一列，与规格冲突（`b07-ux` §1）。
+3. 项目 ID 按路径计算（`sha1(realpath(cwd))`），无法跨设备识别同一项目（`b03-contract` §1）。
+4. **N5095 本地语音只够做离线兜底**（`b05-voice/README.md`「N5095 实测结果」）：ASR 最好 RTF 0.67（未达 0.5 通过线）；aishell3 TTS 要 4 线程才达标（0.41），并且会占满 4 核；Kokoro 最好 5.9，排除。建议 N5095 联网时用在线 ASR/TTS，离线时降级。**需要你确认**（见第 6 节第 2 项）。
+
 ## 1. 代码基线（更正）
 
 | 项 | 正确事实 | 原交接写法 |
 | --- | --- | --- |
 | 主程序仓库 | `ShawnyinsGit/ahastation-internal`，私有 | 同 |
 | 基线 | **main `c134de2`**（GitHub 上的 main 与本地一致；2026-10-04 合入 PR #46 / M0） | `Documents/Claude/AhaStation @ bb76522` |
-| 默认测试 | **922 项：921 通过、0 失败、1 跳过**（跳过的是 win32 专用用例） | 888 项：871 通过、16 失败 |
+| 默认测试 | macOS / Linux：**922 项：921 通过、0 失败、1 跳过**（跳过的是 win32 专用用例）。**Windows：887 通过、33 失败**（CI run #98，2026-10-23 补充，见 §0） | 888 项：871 通过、16 失败 |
 | 16 个失败 | 都是 `bb76522` 上的旧问题：4 个是 Kimi fixture 没入库（`a746051` 已修），其余是路由回归（`f5d88aa` 已修） | 作为待修回归 |
 
 `Documents/Claude/AhaStation` 是停在旧分支 `fix/ahabar-hover-drag` 上的旧检出。它的「用户对 lock 文件的修改」只是根 `version` 字段从 0.17.8 改成 0.18.1，另外是一些未跟踪的工作资产；没有 main 缺少的产品代码。**不要在那里开发，也不要清理它。**
@@ -76,6 +101,11 @@ powershell -ExecutionPolicy Bypass -File docs\c0\run-n5095.ps1 -RunBaseline
 3. 是否授权一次小额真实冒烟（Claude、Codex 各一个短任务），采集用量事件做 B06 的测试样本。
 4. 是否认可 `f5d88aa` 的路由语义：任务中显式指定的 backend 保留为任务级偏好。
 5. 首个验收 Issue（「看板记住最近项目筛选」）由你创建，链接补到这里。
+6. （10-23 新增）走查 B07 原型（`b07-ux/prototype.html`），确认 `b07-ux` §6 的 4 个交互问题。
+7. （10-23 新增）B04 对照：授权预算（约 100–200 万 token，按订阅额度）、Claude / Codex 账号、是否允许本机安装 Paseo 0.12.0。可与第 3 项合并为一次授权。
+8. （10-23 新增）是否把 Paseo connected hosts 纳入跨设备传输候选（`research/upstream-2026-10-22.md` §5）。
+9. （10-23 新增）是否允许在用户仓库写 `.ahastudio/project.json`，用于跨设备识别同一项目（`b03-contract` §7 Q2）。
+10. （10-23 新增）非主持设备上的批准是否有效（`design/remote-control.md` §10 Q1）。建议：动作批准可以，阶段确认只在主持设备上。
 
 ## 7. 下一位接手者的顺序
 

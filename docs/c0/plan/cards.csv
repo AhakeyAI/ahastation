@@ -1,0 +1,29 @@
+card,title,wbs,gate,size,estimate_pd,depends_on,design_ref,can_start_now
+A-00,Windows 测试归零 + CI 变绿,B02,C0,S,2-4,,docs/c0/plan/README.md §2,yes
+A-01,领域 schema：事件信封 v2、五阶段与细分状态、旧状态映射,B03/B08,A,M,2-3,B03 评审,docs/c0/b03-contract/README.md §3 §5,after-review
+A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0001-stable-project-identity.md,no
+A-03,旧日志只读迁移投影,B08,A,L,3-5,A-01;A-02,docs/c0/b03-contract/README.md §6,no
+A-04,ConfirmStagePlan 命令与旧确认拒绝,B18,A,M,2-3,A-01,docs/c0/b03-contract/README.md §4.1,no
+A-05,看板五列 + 细分状态徽标 + 需关注过滤,B15,A,M,2-3,A-01;B07 冻结,docs/c0/b07-ux/README.md §3.2,no
+A-06,自举需求：看板记住最近项目筛选（保留给 A/B 闭环）,首个验收 Issue,A/B,S,0.5-1,用户建 Issue,13 确认单第二组,no
+A-07,决定卡片三类分开,B18/B23,A,M,2-3,A-04,docs/c0/b07-ux/README.md §3.4,no
+A-08,VoiceProvider + WebAudio 播放 + 角色音色（系统音色与在线 TTS）,B13,A,M,3-4,,docs/c0/design/meeting-mode.md §7,yes
+A-09,InputController 短按/长按 + ContextLock + 待发送,B11,A,M,3-4,A-01,docs/c0/design/meeting-mode.md §4,no
+A-10,B06 用量接线（usage 信号与结算）,B06,B,M,2-3,,docs/c0/b06-quota/WIRING.md,yes
+A-11,sherpa-onnx utilityProcess 离线兜底推理,B05/B11,A,M,3-5,B05 选项确认,docs/c0/design/meeting-mode.md M2,no
+A-12,设备密钥 + 可信设备签名链,B27,X,M,3-4,,docs/c0/design/remote-control.md §4,yes
+A-13,SyncEnvelope + 回执状态机 + 补取（假传输）,B28,X,L,4-6,A-01;A-12,docs/c0/design/remote-control.md §5,no
+M4,FloorController + 专家唤起 + 发言事件,B13,A,L,5-8,A-08;A-09;B12,docs/c0/design/meeting-mode.md §5,no
+M5,实体语音键（Windows 低级钩子 / HID，macOS 同等）,B11/B39,H,M,3-6,样机,docs/c0/design/meeting-mode.md §4,no
+M6,真机回声、延迟、CPU 验证,B05,A,M,2-3,A-08;A-11,docs/c0/design/meeting-mode.md §9,no
+X3,主持租约 + fencing,B30,X,M,3-4,A-13,docs/c0/design/remote-control.md §5.4,no
+X4,GitHub 检查点分支交接,B29,X,M,3-4,B14,docs/c0/design/remote-control.md §6,no
+X5,L2 传输（自建或 Paseo）,B28,X,L-XL,5-15,B04,docs/c0/design/remote-control.md §7,no
+X6,恢复凭据与加密备份,B27,X,M,3-5,ADR 0002 接受,docs/c0/design/remote-control.md §4,no
+X7,试用计时与到期,B37,X,S,1-2,官方服务,docs/c0/design/remote-control.md §8,no
+X8,双机故障测试,B31,X,L,4-6,X3;X5,docs/c0/design/remote-control.md §9,no
+B04-RUN,运行底座对照执行,B04,C0,L,3,用户授权预算,docs/c0/b04-runtime/README.md,no
+L-01,账本切片①：单项目单服务池预留与结算,B19,B,L,5-8,A-01;A-10,docs/c0/design/later-gates.md B19,no
+L-02,账本切片②：多服务池与单位,B19,B,M,3-5,L-01,docs/c0/design/later-gates.md B19,no
+L-03,账本切片③：跨项目优先级,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
+L-04,账本切片④：周期刷新与订阅窗口对齐,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
