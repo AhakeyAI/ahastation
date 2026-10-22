@@ -7,7 +7,7 @@
 
 | 包 | 状态 | 证据 / 产物 | 收尾还差 |
 | --- | --- | --- | --- |
-| B01 | macOS 通过；**Windows N5095 部分通过（2026-10-23 前台重跑，Node 22.23.4 / npm 10.9.9）：`npm ci` exit 0（607 s），`npm run typecheck` 两端 exit 0（336 s）；`build` 与 `test` 未跑（额度用尽）**。此前一次后台运行： |2026-10-23 在 N5095 上用 Node 22.23.4 运行，`npm ci` 阶段因系统内存不足被 Claude Code 停止（不是脚本错误）。Windows 测试结果暂以 CI run #98（windows-latest、Node 22）为证据 | `../evidence/`；CI run 37176224639 | 关闭其他程序后在 N5095 上重跑 `run-n5095.ps1 -SkipBench -RunBaseline`（先把 PATH 指向 `%USERPROFILE%\aha-c0\node22\node-v22.23.4-win-x64`） |
+| B01 | macOS 通过；**Windows N5095 通过（2026-10-23，Node 22.23.4 / npm 10.9.9）：`npm ci`、`typecheck`、`build` 均 exit 0；`test` 922 项 883 通过、34 失败、5 跳过**（`../evidence/2026-10-23-c0-b01-windows-n5095.json`）。可重复安装已证实，测试失败归入 B02 / A-00。此前一次后台运行： |2026-10-23 在 N5095 上用 Node 22.23.4 运行，`npm ci` 阶段因系统内存不足被 Claude Code 停止（不是脚本错误）。Windows 测试结果暂以 CI run #98（windows-latest、Node 22）为证据 | `../evidence/`；CI run 37176224639 | 关闭其他程序后在 N5095 上重跑 `run-n5095.ps1 -SkipBench -RunBaseline`（先把 PATH 指向 `%USERPROFILE%\aha-c0\node22\node-v22.23.4-win-x64`） |
 | B02 | macOS / Linux 默认套件 0 失败；**Windows 33 失败（CI #98）** | 同上；CI run 37176224639 | **修 Windows 33 个失败（实施卡 A-00）**；修 CI 的 dmg 上传条件；`npm audit` 分级；f5d88aa 语义确认（用户） |
 | B03 | **契约草案完成** | `../b03-contract/README.md` | 评审 → 写成 zod schema（实施卡 A-01） |
 | B04 | **方案完成，未执行** | `../b04-runtime/README.md` | **用户授权预算与账号** → 执行约 1 周 |
@@ -24,7 +24,7 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 
 | 卡 | 标题 | WBS | 设计依据 | 估算 | 前置 | 验收（摘要） |
 | --- | --- | --- | --- | --- | --- | --- |
-| **A-00** | **Windows 测试归零 + CI 变绿**：33 个失败（observe `ps`/lsof 解析、Kimi 解析、Qoder tailer `fs.watch`）；`release/*.dmg` 上传只在实际打包的 job 上执行 | B02 | README §0 | 2–4 | 无 | `build-matrix` 在 macOS / Windows / Ubuntu 三个 job 全绿；Unix 专用用例在 Windows 上显式 skip 并写明原因，不静默删除。**已定位的根因之一**：仓库没有 `.gitattributes`，Windows 检出（`core.autocrlf=true`，GitHub runner 默认相同）把 `tests/fixtures/observe/ps-sample.txt` 转成 CRLF；`parsePsOutput`（`electron/observe/process/darwin.ts:38`）按 `'\n'` 切行，行尾残留 `\r` 使正则 `(.*)$` 不匹配，整行被丢弃 → `ppid` undefined。修法：加 `.gitattributes`（`tests/fixtures/** -text`）并让解析器按 `/\r?\n/` 切行。**根因之二**（Kimi 8 项）：`tests/observe-kimi.test.mjs:43-44` 用 `replaceAll` 把 `join(home, …)` 得到的 Windows 路径（含反斜杠）原样写进 JSONL，反斜杠成为非法 JSON 转义，索引解析失败 → `parseKimiSession` 返回 null。修法：写入前 `JSON.stringify(path).slice(1, -1)`。Qoder tailer 的 `fs.watch` EPERM（6 项）需另查，疑似 Windows 上监视正被删除的临时目录 |
+| **A-00** | **Windows 测试归零 + CI 变绿**：33 个失败（observe `ps`/lsof 解析、Kimi 解析、Qoder tailer `fs.watch`）；`release/*.dmg` 上传只在实际打包的 job 上执行 | B02 | README §0 | 2–4 | 无 | `build-matrix` 在 macOS / Windows / Ubuntu 三个 job 全绿；Unix 专用用例在 Windows 上显式 skip 并写明原因，不静默删除。**已定位的根因之一**：仓库没有 `.gitattributes`，Windows 检出（`core.autocrlf=true`，GitHub runner 默认相同）把 `tests/fixtures/observe/ps-sample.txt` 转成 CRLF；`parsePsOutput`（`electron/observe/process/darwin.ts:38`）按 `'\n'` 切行，行尾残留 `\r` 使正则 `(.*)$` 不匹配，整行被丢弃 → `ppid` undefined。修法：加 `.gitattributes`（`tests/fixtures/** -text`）并让解析器按 `/\r?\n/` 切行。**根因之二**（Kimi 8 项）：`tests/observe-kimi.test.mjs:43-44` 用 `replaceAll` 把 `join(home, …)` 得到的 Windows 路径（含反斜杠）原样写进 JSONL，反斜杠成为非法 JSON 转义，索引解析失败 → `parseKimiSession` 返回 null。修法：写入前 `JSON.stringify(path).slice(1, -1)`。Qoder tailer 的 `fs.watch` EPERM（6 项）需另查，疑似 Windows 上监视正被删除的临时目录。**本机额外 1 项**（#639 符号链接）：普通用户无开发者模式时无权创建 symlink，CI 以管理员运行所以不出现；测试应在 EPERM 时 skip |
 | A-01 | 领域 schema：`DomainEventV2` 信封、阶段/细分状态、旧状态映射 | B03→B08 | b03 §3、§5 | 2–3 | B03 评审 | 15 种旧状态映射单测全覆盖；`accepted` 无用户接受事件时映射为待接受；revision 断档检测 |
 | A-02 | 项目稳定身份 + `ProjectMount` + `legacyIds` | B08 | b03 §2、§6 | 2–3 | A-01 | 同一仓库两个路径合并为一个项目；旧 transcript 能通过 legacyId 读到 |
 | A-03 | 旧日志只读迁移投影（会议→项目、任务→WorkItem+Run、grant→legacy Decision） | B08 | b03 §6 | 3–5 | A-01、A-02 | 迁移幂等；回退 = 删投影；旧目录未被修改（hash 比对） |
@@ -136,7 +136,7 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 
 | # | 项 | 状态 | 负责 |
 | --- | --- | --- | --- |
-| P1 | Windows 与 macOS 干净安装基线 | macOS ✅；Windows 运行中 | 技术 |
+| P1 | Windows 与 macOS 干净安装基线 | macOS ✅；Windows ✅（安装 / 类型检查 / 构建通过；测试 34 失败由 A-00 处理） | 技术 |
 | P2 | Node 22 固定（CI 与本地一致） | macOS ✅；Windows 便携 Node 22.23.4 已就绪（`%USERPROFILE%\aha-c0\node22`） | 技术 |
 | P3 | CI：Windows + macOS 双平台 typecheck + test | ❓ 需要核对现有 GitHub Actions | 技术 |
 | P4 | B03 契约评审 | ⏳ 待评审 | 技术负责人 |
