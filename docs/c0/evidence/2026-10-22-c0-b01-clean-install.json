@@ -1,0 +1,25 @@
+{
+  "asOf": "2026-10-22",
+  "wbs": ["B01", "B02"],
+  "repo": "ShawnyinsGit/ahastation-internal (local: /Users/heartline/orca/projects/ahastudio)",
+  "sourceSha": "c134de22efed4fbf17bb5af1c727f6f7c36a15f6",
+  "sourceRelation": "c134de2 = main = local origin/main; includes PR #46 (M0): 05520dc He-0917 squash, a746051 kimi fixtures (git add -f), f5d88aa route-preference fix. bb76522 (Codex baseline) is an ancestor.",
+  "trackedLockSha256": "805928d94f14826c88b04518e896592eaa5aaf50177aa5fbfc9b6318547fb672",
+  "env": { "os": "Darwin arm64", "node": "v22.23.4 (npx cache, same major as CI build-matrix.yml node-version: 22)", "npm": "11.20.0 (homebrew; NOT the npm bundled with Node 22)" },
+  "method": "git clone --no-hardlinks from local repo into fresh scratch dir; git checkout c134de2; working tree clean; ELECTRON_MIRROR=npmmirror; npm ci; npm run typecheck; npm run build; npm test",
+  "results": {
+    "npmCi": { "exitCode": 0, "packages": 547, "logSha256": "12dbed3f3789555919aef1ae4c2612a3185fcab8cf4592e5615aa3596aac7844" },
+    "typecheck": { "exitCode": 0, "logSha256": "f7232b68ec8a64ec23e7bd1b61c80dcbe32dbf4b684f2582da3aebf45701e593" },
+    "build": { "exitCode": 0, "logSha256": "8a8cb1a3b17f61c101b144c3505c30aa7a13e1e8c4f40eb8f18570772f186d07" },
+    "tests": { "exitCode": 0, "tests": 922, "pass": 921, "fail": 0, "skipped": 1, "skippedReason": "MSYS drive paths ... normalize on win32 — win32-only", "logSha256": "edd88baa44d323396031d469adc5f9822d7dee3b08ccfdba0eb28dc7f056f230" }
+  },
+  "findings": [
+    "Codex 2026-10-19/10-22 audits ran on bb76522 (old checkout on branch fix/ahabar-hover-drag); their 16 failures do not exist on main c134de2.",
+    "npm 11.20 install-script policy skipped postinstall for 6 deps: @qoder-ai/qoder-agent-sdk, @qoder-ai/qodercli, electron-winstaller, esbuild, fsevents, protobufjs. Root postinstall (electron/install.js) ran; Electron.app present. Build/tests unaffected; qoder runtime and Windows packaging may be affected. CI (npm 10 bundled with Node 22) behaves differently — pin npm or add allowScripts.",
+    "Tracked package-lock.json root version is 0.17.8 while package.json is 0.18.4 (npm ci tolerates). The old checkout's 'user lock modification' is only this version field (0.17.8 -> 0.18.1).",
+    "npm audit: 35 vulnerabilities (9 moderate, 25 high, 1 critical) — not triaged."
+  ],
+  "b01Status": "pass on macOS arm64 except: npm version not CI-identical; Windows x64 clean install not run",
+  "b02Status": "default suite 0 failures on main; remaining B02 scope = confirm f5d88aa route-preference semantics with product owner, spot-check profile/authority persist-before-spawn ordering, Windows run",
+  "notVerified": ["Windows x64 / N5095", "npm bundled with Node 22", "real paid Workers", "app runtime interaction", "DMG / installer"]
+}

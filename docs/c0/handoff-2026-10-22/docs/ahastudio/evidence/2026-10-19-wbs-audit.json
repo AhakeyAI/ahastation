@@ -1,0 +1,268 @@
+{
+  "asOf": "2026-10-19",
+  "sourceCsvSha256": "72d5b220c7ba8e4db464fd6cd17d0ef8b07de4a26a00cf6a665d982e23911094",
+  "markdownCsvEqual": true,
+  "dependencyDagValid": true,
+  "versions": {
+    "R1": {
+      "packages": 35,
+      "personDays": 132
+    },
+    "R1H": {
+      "packages": 3,
+      "personDays": 11
+    },
+    "R2": {
+      "packages": 4,
+      "personDays": 17
+    },
+    "R3": {
+      "packages": 5,
+      "personDays": 32
+    },
+    "R4": {
+      "packages": 4,
+      "personDays": 34
+    }
+  },
+  "r1RoleDays": {
+    "Core": 39,
+    "Runtime": 52,
+    "Desktop": 30,
+    "QA": 11
+  },
+  "r1CriticalPathDays": 68,
+  "r1CriticalPath": [
+    "B01",
+    "B02",
+    "B03",
+    "T02",
+    "T03",
+    "T05",
+    "C02",
+    "C03",
+    "C04",
+    "D01",
+    "D02",
+    "V01",
+    "V02",
+    "V04",
+    "U01",
+    "P03",
+    "P04"
+  ],
+  "resourceScheduleMethod": "earliest feasible start; WBS row order breaks ties; one full-time person per developer role; QA half-time; finish-to-start dependencies; no holidays or external waits; feasible example, not optimality proof",
+  "r1ResourceScheduleDays": 88,
+  "r1ResourceSchedule": [
+    {
+      "id": "B01",
+      "role": "Core",
+      "startDay": 1,
+      "endDay": 2
+    },
+    {
+      "id": "B02",
+      "role": "Runtime",
+      "startDay": 3,
+      "endDay": 5
+    },
+    {
+      "id": "B04",
+      "role": "QA",
+      "startDay": 3,
+      "endDay": 6
+    },
+    {
+      "id": "T01",
+      "role": "Core",
+      "startDay": 3,
+      "endDay": 5
+    },
+    {
+      "id": "B03",
+      "role": "Runtime",
+      "startDay": 6,
+      "endDay": 10
+    },
+    {
+      "id": "C01",
+      "role": "Core",
+      "startDay": 6,
+      "endDay": 8
+    },
+    {
+      "id": "T04",
+      "role": "Desktop",
+      "startDay": 7,
+      "endDay": 9
+    },
+    {
+      "id": "T02",
+      "role": "Core",
+      "startDay": 11,
+      "endDay": 14
+    },
+    {
+      "id": "A01",
+      "role": "Runtime",
+      "startDay": 11,
+      "endDay": 15
+    },
+    {
+      "id": "T03",
+      "role": "Core",
+      "startDay": 15,
+      "endDay": 18
+    },
+    {
+      "id": "P01",
+      "role": "Desktop",
+      "startDay": 15,
+      "endDay": 17
+    },
+    {
+      "id": "T05",
+      "role": "Desktop",
+      "startDay": 19,
+      "endDay": 22
+    },
+    {
+      "id": "C02",
+      "role": "Desktop",
+      "startDay": 23,
+      "endDay": 26
+    },
+    {
+      "id": "C03",
+      "role": "Runtime",
+      "startDay": 27,
+      "endDay": 30
+    },
+    {
+      "id": "A02",
+      "role": "Desktop",
+      "startDay": 27,
+      "endDay": 29
+    },
+    {
+      "id": "C04",
+      "role": "Core",
+      "startDay": 31,
+      "endDay": 35
+    },
+    {
+      "id": "R01",
+      "role": "Runtime",
+      "startDay": 31,
+      "endDay": 34
+    },
+    {
+      "id": "R02",
+      "role": "Runtime",
+      "startDay": 35,
+      "endDay": 38
+    },
+    {
+      "id": "D01",
+      "role": "Core",
+      "startDay": 36,
+      "endDay": 39
+    },
+    {
+      "id": "R03",
+      "role": "Runtime",
+      "startDay": 39,
+      "endDay": 43
+    },
+    {
+      "id": "A03",
+      "role": "Core",
+      "startDay": 40,
+      "endDay": 43
+    },
+    {
+      "id": "R04",
+      "role": "Runtime",
+      "startDay": 44,
+      "endDay": 46
+    },
+    {
+      "id": "D02",
+      "role": "Runtime",
+      "startDay": 47,
+      "endDay": 50
+    },
+    {
+      "id": "D03",
+      "role": "Desktop",
+      "startDay": 51,
+      "endDay": 54
+    },
+    {
+      "id": "D05",
+      "role": "Runtime",
+      "startDay": 51,
+      "endDay": 54
+    },
+    {
+      "id": "V01",
+      "role": "Core",
+      "startDay": 51,
+      "endDay": 54
+    },
+    {
+      "id": "D04",
+      "role": "Core",
+      "startDay": 55,
+      "endDay": 57
+    },
+    {
+      "id": "V02",
+      "role": "Runtime",
+      "startDay": 55,
+      "endDay": 58
+    },
+    {
+      "id": "V03",
+      "role": "Runtime",
+      "startDay": 59,
+      "endDay": 62
+    },
+    {
+      "id": "V04",
+      "role": "Desktop",
+      "startDay": 59,
+      "endDay": 62
+    },
+    {
+      "id": "U01",
+      "role": "Core",
+      "startDay": 63,
+      "endDay": 65
+    },
+    {
+      "id": "U02",
+      "role": "Runtime",
+      "startDay": 63,
+      "endDay": 65
+    },
+    {
+      "id": "P02",
+      "role": "QA",
+      "startDay": 66,
+      "endDay": 73
+    },
+    {
+      "id": "P03",
+      "role": "QA",
+      "startDay": 74,
+      "endDay": 83
+    },
+    {
+      "id": "P04",
+      "role": "Desktop",
+      "startDay": 84,
+      "endDay": 88
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "asOf": "2026-10-19",
+  "repo": "/Users/heartline/orca/projects/ahastudio",
+  "sourceSha": "c134de22efed4fbf17bb5af1c727f6f7c36a15f6",
+  "originMainLocal": "c134de22efed4fbf17bb5af1c727f6f7c36a15f6",
+  "packageVersion": "0.18.4",
+  "nodeVersion": "v25.9.0",
+  "method": "git archive HEAD to scratchpad; symlink node_modules from /Users/heartline/Documents/Claude/AhaStation (package.json and package-lock.json identical between bb76522 and c134de2); npm run typecheck; npm test",
+  "results": {
+    "typecheck": { "exitCode": 0 },
+    "tests": { "exitCode": 0, "tests": 922, "pass": 921, "fail": 0, "skipped": 1, "logSha256": "d9c92be9202222c2e1009f01da7f888b9ecc95dd5237da19f5d8965e8ba7dd7a" }
+  },
+  "relationToCodexAudit": "Codex audit (community evidence/2026-10-19-baseline-audit.json) ran on bb76522, an ancestor of c134de2. Its 16 failures are the set fixed by a746051 (kimi fixtures) and f5d88aa (route preference).",
+  "notVerified": ["npm ci from clean checkout", "real paid Workers", "app runtime interaction", "DMG"]
+}
