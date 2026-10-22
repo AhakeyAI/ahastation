@@ -1,0 +1,10 @@
+{
+  "name": "aha-b04-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "B04 runtime comparison fixture. Copy this folder to a scratch location and `git init` it before each run; never run scenarios inside the AhaStation repo.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}

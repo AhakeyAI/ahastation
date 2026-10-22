@@ -8,6 +8,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| `DECISIONS-NEEDED.md` | **需要你决定或在场的事，一页**（D1–D12、T1–T3），每项带建议，可以只回「全部按建议」 |
 | `plan/cards.csv` | 全部实施卡与切片的清单（卡号、WBS、门、规模、人日、依赖、设计依据、能否立即开工），可导入 GitHub Project |
 | `plan/README.md` | **从这里开始**：C0 收尾状态、门 A 首批 13 张实施卡（约 35–50 人日）、关键路径、项目管理方案、开工前置清单、风险表 |
 | `research/upstream-2026-10-22.md` | Orca / Paseo / Multica 当日版本与许可复核；Paseo 新增 connected hosts 与 usage；集成 / 复刻决策表 |

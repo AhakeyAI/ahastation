@@ -64,6 +64,12 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 - **需要用户授权**：用哪个 Claude、Codex 账号；是否允许消耗上述额度；是否允许在本机安装 Paseo 0.12.0（会安装一个后台 daemon）。
 - S9 的真实用量事件可以同时作为 B06 的脱敏 fixture（`../b06-quota/WIRING.md` §3），所以 B04 和「小额真实冒烟」可以合并成一次授权。
 
+## 6b. 已备好的执行材料（2026-10-23）
+
+- `fixture-repo/`：测试仓库。已验证：原样 `npm test` 为 1 过 1 失败；修好 `src/sum.js` 后 2 项全过。每次运行前复制到临时目录并 `git init`，不要在 AhaStation 仓库里直接跑。
+- `scenarios.json`：S1–S10 的步骤、通过条件、对应门、一票否决标记，以及结果记录模板。
+- 授权到位后剩下的工作是写两个 `RuntimeDriver`（约 2 人日，它们就是 B10 的雏形）。
+
 ## 7. 执行工具
 
 写一个 `scripts/b04/run-scenarios.mjs`：每个候选一个驱动（C-A 驱动直接 import 现有 adapter；C-P 驱动用 `@getpaseo/client`），场景脚本共用。驱动接口：
