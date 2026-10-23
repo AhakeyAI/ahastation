@@ -87,6 +87,21 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 | F7 | Paseo 公开 SDK 的 Agent 句柄**没有中断方法**（只有 internal `cancelAgent` 与 CLI `paseo stop`）；live 订阅在探针中只送达第一次状态变化，需要轮询 `refresh()` | C-P 的停止只能走 CLI | S6 中如实记录 |
 | F8 | Paseo × Codex 只有 `auto`（`on-request` + `workspace-write`）/ `auto-review` / `full-access` 三种模式；`auto` 下沙箱内命令不询问宿主，沙箱写失败时才请求越出 | 宿主看不到大部分操作 | S3 中如实记录 |
 
+| F9 | **Claude 就绪握手超时固定 15 秒**（`claude-session.ts:273`）。N5095 在内存紧张时启动 bundled claude.exe 超过 15 秒，C-A × Claude 第一个场景直接失败；且该 rejection 无人 await，会成为未处理异常 | 目标硬件上 Claude worker 偶发起不来；未处理异常可能拖垮主进程 | 新卡 **A-18**：超时按设备性能放宽或改为可配置，失败时走正常的 failed 信号而不是未处理 rejection |
+
+### 矩阵运行状态（2026-10-23 第一次运行）
+
+第一次运行在系统内存不足时被 Claude Code 停止（这台 16 GB 的 N5095 同时开着多个 Claude Code 会话，每个 300–400 MB）。已完成：
+
+| 候选 × provider | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 | S10 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C-A × Claude | fail（F9 握手超时，整个进程退出） | — | — | — | — | — | — | — | — | — |
+| C-A2 × Codex（实验） | **pass**（232 s，会话 ID 稳定，测试 2/2） | — | **pass**（9 个请求全部到达宿主，8 个命令批准，结构化数据） | — | — | — | — | — | not-supported（B06 缺口） | **pass** |
+| C-P × Claude | 未运行 | | | | | | | | | |
+| C-P × Codex | 未运行 | | | | | | | | | |
+
+执行器已修复为按场景记录失败、不再整体退出。**重跑需要用户确认**（按规则，被系统因内存回收的任务不自动重启），建议先关闭不用的 Claude Code 会话再跑。
+
 用量基线（矩阵运行前，Paseo `listUsage`）：Claude 5 小时窗口已用 61%、周已用 37%；Codex 周已用 32%，credits 0。样本见 `../b06-quota/fixtures/paseo-listUsage-2026-10-23-before-b04.json`。
 
 ## 7. 执行工具
