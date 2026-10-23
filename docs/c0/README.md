@@ -103,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File docs\c0\run-n5095.ps1 -RunBaseline
 2. 「每专家独立音色」：只要求同一设备上专家之间可以区分，还是同一专家跨设备也必须是同一个声音？
 3. 是否授权一次小额真实冒烟（Claude、Codex 各一个短任务），采集用量事件做 B06 的测试样本。
 4. 是否认可 `f5d88aa` 的路由语义：任务中显式指定的 backend 保留为任务级偏好。
-5. 首个验收 Issue（「看板记住最近项目筛选」）由你创建，链接补到这里。
+5. 首个验收 Issue：[#48](https://github.com/ShawnyinsGit/ahastation-internal/issues/48)（已创建）。
 6. （10-23 新增）走查 B07 原型（`b07-ux/prototype.html`），确认 `b07-ux` §6 的 4 个交互问题。
 7. （10-23 新增）B04 对照：授权预算（约 100–200 万 token，按订阅额度）、Claude / Codex 账号、是否允许本机安装 Paseo 0.12.0。可与第 3 项合并为一次授权。
 8. （10-23 新增）是否把 Paseo connected hosts 纳入跨设备传输候选（`research/upstream-2026-10-22.md` §5）。

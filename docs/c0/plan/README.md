@@ -158,7 +158,7 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 | P6 | B04 / 真实冒烟预算与账号授权 | ⏳ | **用户** |
 | P7 | 独立音色是否跨设备一致 | ⏳ | **用户** |
 | P8 | f5d88aa 路由语义确认 | ⏳ | **用户** |
-| P9 | 首个验收 Issue 链接 | ⏳ | **用户** |
+| P9 | 首个验收 Issue 链接 | ✅ [#48](https://github.com/ShawnyinsGit/ahastation-internal/issues/48) | — |
 | P10 | 是否把 Paseo 纳入跨设备传输候选 | ⏳ | **用户** |
 | P11 | 是否允许在用户仓库写 `.ahastudio/project.json`（跨设备识别项目） | ⏳ | **用户** |
 | P12 | `docs/adr/` 目录与首条 ADR（项目身份） | 可立即做 | 技术 |

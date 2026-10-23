@@ -1,0 +1,48 @@
+{
+  "asOf": "2026-10-23 18:14:48",
+  "host": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "node": "AhaStation"
+  },
+  "mode": "echo-only",
+  "aec": "none (raw device baseline)",
+  "silenceDb": -25.0,
+  "runs": [
+    {
+      "wav": "vits-aishell3-t4-sid10.wav",
+      "playbackSeconds": 6.36,
+      "micDb": -27.3,
+      "echoOverSilenceDb": -2.2,
+      "asrText": "",
+      "asrHeardSomething": false
+    },
+    {
+      "wav": "vits-aishell3-t4-sid150.wav",
+      "playbackSeconds": 7.58,
+      "micDb": -28.5,
+      "echoOverSilenceDb": -3.5,
+      "asrText": "看一下这个项目的说明和内地转直销的报警",
+      "asrHeardSomething": true
+    },
+    {
+      "wav": "vits-aishell3-t4-sid33.wav",
+      "playbackSeconds": 7.88,
+      "micDb": -29.5,
+      "echoOverSilenceDb": -4.4,
+      "asrText": "",
+      "asrHeardSomething": false
+    },
+    {
+      "wav": "vits-aishell3-t4-sid99.wav",
+      "playbackSeconds": 5.6,
+      "micDb": -30.7,
+      "echoOverSilenceDb": -5.7,
+      "asrText": "",
+      "asrHeardSomething": false
+    }
+  ],
+  "summary": {
+    "samples": 4,
+    "asrLeakageRate": 0.25
+  }
+}
