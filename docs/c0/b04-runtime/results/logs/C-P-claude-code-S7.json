@@ -1,0 +1,64 @@
+{
+  "events": [
+    {
+      "at": 2724,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 30143,
+      "kind": "permission-request",
+      "tool": "Bash",
+      "detail": "  "
+    },
+    {
+      "at": 46747,
+      "kind": "permission-request",
+      "tool": "Edit",
+      "detail": "  C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S7-cA2iSw\\repo\\src\\sum.js"
+    },
+    {
+      "at": 54300,
+      "kind": "permission-request",
+      "tool": "Bash",
+      "detail": "  "
+    },
+    {
+      "at": 67918,
+      "kind": "status",
+      "status": "idle"
+    }
+  ],
+  "permissions": [
+    {
+      "at": 30143,
+      "toolName": "Bash",
+      "toolDetail": "",
+      "allow": true,
+      "why": "npm test is granted"
+    },
+    {
+      "at": 46747,
+      "toolName": "Edit",
+      "toolDetail": "C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S7-cA2iSw\\repo\\src\\sum.js",
+      "allow": true,
+      "why": "write under src/ is granted"
+    },
+    {
+      "at": 54300,
+      "toolName": "Bash",
+      "toolDetail": "",
+      "allow": true,
+      "why": "npm test is granted"
+    }
+  ],
+  "reconnect": {
+    "pendingAtReconnect": 1,
+    "statusAfter": "running",
+    "entries": 3,
+    "entriesDuringGap": 1,
+    "gap": false,
+    "staleCursor": false,
+    "reset": false
+  }
+}

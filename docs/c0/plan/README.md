@@ -10,7 +10,7 @@
 | B01 | macOS 通过；**Windows N5095 通过（2026-10-23，Node 22.23.4 / npm 10.9.9）：`npm ci`、`typecheck`、`build` 均 exit 0；`test` 922 项 883 通过、34 失败、5 跳过**（`../evidence/2026-10-23-c0-b01-windows-n5095.json`）。可重复安装已证实，测试失败归入 B02 / A-00。此前一次后台运行： |2026-10-23 在 N5095 上用 Node 22.23.4 运行，`npm ci` 阶段因系统内存不足被 Claude Code 停止（不是脚本错误）。Windows 测试结果暂以 CI run #98（windows-latest、Node 22）为证据 | `../evidence/`；CI run 37176224639 | 关闭其他程序后在 N5095 上重跑 `run-n5095.ps1 -SkipBench -RunBaseline`（先把 PATH 指向 `%USERPROFILE%\aha-c0\node22\node-v22.23.4-win-x64`） |
 | B02 | macOS / Linux 默认套件 0 失败；Windows 33 失败（CI #98）→ **A-00 已修复：N5095 上 923 项 917 过、0 失败、6 跳过**；草稿 PR [#47](https://github.com/ShawnyinsGit/ahastation-internal/pull/47)（分支 `fix/c0-windows-tests`） 。**PR #47 CI 三平台全绿**（run 39839895671，macOS 第 2 次尝试通过） | 同上；CI run 37176224639；PR #47 | 由你决定合并 PR #47；**偶发失败**：`tests/task-budget.test.mjs:134`（#804）在 CI macOS 上第 1 次超时，`waitFor` 固定 3 秒期限偏紧，建议放宽到 10 秒或改为等待事件，列为 A-00 的后续小修；修 CI 的 dmg 上传条件；`npm audit` 分级；f5d88aa 语义确认（用户） |
 | B03 | **契约草案完成** | `../b03-contract/README.md` | 评审 → 写成 zod schema（实施卡 A-01） |
-| B04 | **方案完成，未执行** | `../b04-runtime/README.md` | **用户授权预算与账号** → 执行约 1 周 |
+| B04 | **已执行完成（2026-10-23）**：4 个组合 × 10 个场景全部跑完；**选定 C-A（现有 adapter）为唯一运行底座**，不引入 Paseo 执行层 | `../b04-runtime/README.md`「完整矩阵」「结论」；ADR 0004；`../b04-runtime/results/` | 产品负责人确认 ADR 0004；先完成 A-14–A-20 再进入门 B |
 | B05 | **N5095 实测完成**：本地语音只够做离线兜底 | `../b05-voice/README.md`、`../results/*-voice.json` | 用户确认选项 A（在线为主、本地兜底）；试听样本；回声 / 打断真机补测；在线 TTS 供应商比较 |
 | B06 | 能力矩阵 + **接线方案** | `../b06-quota/README.md`、`WIRING.md` | 真实事件样本（与 B04 同一次授权） |
 | B07 | **UX 方案 + 可点击原型** | `../b07-ux/README.md`、`prototype.html` | 用户走查 → 冻结 v1 |
@@ -39,7 +39,21 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 | A-12 | 设备密钥 + 可信设备签名链（X1） | B27 | remote-control §4 | 3–4 | 无 | 私钥只在 safeStorage；签名链加入 / 撤销的验证单测 |
 | A-13 | SyncEnvelope + 回执状态机 + 补取（进程内假传输，X2） | B28 | remote-control §5 | 4–6 | A-01、A-12 | 「只有 applied 才显示已停止」；过期 revision 返回 stale；乱序 / 重复 / 缺页测试 |
 
-合计约 **35–50 人日**。按 2 人并行约 4–5 周；按 1 人 + Agent 协作约 5–7 周。**这不是发布日期**；B04 结论出来后，B10、B19、B21 的估算再补上。
+### B04 实测新增的卡（门 B 前必须完成，详见 `../b04-runtime/README.md` F1–F11）
+
+| 卡 | 标题 | WBS | 估算 | 验收（摘要） |
+| --- | --- | --- | --- | --- |
+| **A-14** | **升级 Codex 固定版本**（0.144.1 对 ChatGPT 账号已不可用）：重新生成 app-server 协议类型；版本门改为「已验证区间」；**重新设计 Codex 授权映射**（`untrusted` 已被 0.156.1 弃用：改为 `on-request` + 沙箱，越出沙箱请求由宿主按 grant 裁决） | B10 | 3–5 | 用当前 Codex + 账号可用模型跑通 B04 的 S1–S6；adapter 测试通过；授权映射有单测 |
+| **A-15** | Claude 默认模型失效（`claude-sonnet-4-20250514` → `model_not_found`）：更新默认值，改为从 SDK / 账号动态取可用模型 | B10 | 1–2 | 未配置模型的新用户能直接启动 Claude worker |
+| **A-16** | Codex 写入批准缺路径：adapter 缓存 `item/started` 的 fileChange 条目，按 `itemId` 关联路径后再交给 `task-authority` | B10、B18 | 1–2 | Windows 沙箱写失败后的越出请求能按路径正确批准 / 拒绝 |
+| **A-17** | 用户级 hooks（如 AhaKey `PermissionRequest`）可绕过宿主授权：AhaKey 批准也要落在宿主 grant 范围内（hook 只转发、不直接 allow），或 worker 会话排除 user 级 hooks（**需产品确认 AhaKey 定位**） | B18 | 2–3 | 越出 grant 的请求即使 AhaKey 按下允许也被拒 |
+| **A-18** | Claude 就绪握手 15 秒超时在 N5095 上不够，且 rejection 无人处理：超时可配置 / 按设备放宽，失败走正常 `failed` 信号 | B10 | 1 | N5095 内存紧张时 Claude worker 仍能启动或明确失败，不出现未处理异常 |
+| **A-19** | 中断后双终止信号（`ended:interrupted` 后又 `failed` + `ended:completed`）：adapter 去重，只保留一次终止 | B10 | 1 | 中断只产生一次终止事件；scheduler 不把用户停止当失败 |
+| **A-20** | 停止后已批准未执行的命令仍会执行：停止时拒绝 / 撤销所有排队中的批准；未确认安静前 UI 显示「停止中」 | B10、B31 | 2–3 | B04 S6 对 Codex 由 partial 变 pass |
+
+这 7 张卡合计约 11–17 人日，加上首批 14 张卡，合计约 **46–67 人日**。
+
+首批 14 张卡合计约 **35–50 人日**。按 2 人并行约 4–5 周；按 1 人 + Agent 协作约 5–7 周。**这不是发布日期**；B04 结论出来后，B10、B19、B21 的估算再补上。
 
 ### 并行分组（避免同一文件多人改）
 

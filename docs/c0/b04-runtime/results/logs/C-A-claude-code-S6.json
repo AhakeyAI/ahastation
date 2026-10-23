@@ -1,0 +1,43 @@
+{
+  "events": [
+    {
+      "at": 15522,
+      "kind": "tool",
+      "tool": "Read",
+      "phase": "started"
+    },
+    {
+      "at": 15828,
+      "kind": "ended",
+      "reason": "interrupted"
+    },
+    {
+      "at": 16136,
+      "kind": "tool",
+      "tool": "Read",
+      "phase": "failed"
+    },
+    {
+      "at": 16140,
+      "kind": "progress",
+      "text": "[Request interrupted by user]"
+    },
+    {
+      "at": 16150,
+      "kind": "failed",
+      "code": "claude-turn-failed",
+      "message": "Claude worker turn failed"
+    },
+    {
+      "at": 16150,
+      "kind": "ended",
+      "reason": "completed"
+    }
+  ],
+  "permissions": [],
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 53,
+    "eventsDuringStop": 1
+  }
+}

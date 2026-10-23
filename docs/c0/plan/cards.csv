@@ -1,5 +1,5 @@
 card,title,wbs,gate,size,estimate_pd,depends_on,design_ref,can_start_now
-A-00,Windows 测试归零 + CI 变绿,B02,C0,S,2-4,,docs/c0/plan/README.md §2,yes
+A-00,Windows 测试归零 + CI 变绿（已合并 PR #47）,B02,C0,S,2-4,,docs/c0/plan/README.md §2,done
 A-01,领域 schema：事件信封 v2、五阶段与细分状态、旧状态映射,B03/B08,A,M,2-3,B03 评审,docs/c0/b03-contract/README.md §3 §5,after-review
 A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0001-stable-project-identity.md,no
 A-03,旧日志只读迁移投影,B08,A,L,3-5,A-01;A-02,docs/c0/b03-contract/README.md §6,no
@@ -18,12 +18,19 @@ M5,实体语音键（Windows 低级钩子 / HID，macOS 同等）,B11/B39,H,M,3-
 M6,真机回声、延迟、CPU 验证,B05,A,M,2-3,A-08;A-11,docs/c0/design/meeting-mode.md §9,no
 X3,主持租约 + fencing,B30,X,M,3-4,A-13,docs/c0/design/remote-control.md §5.4,no
 X4,GitHub 检查点分支交接,B29,X,M,3-4,B14,docs/c0/design/remote-control.md §6,no
-X5,L2 传输（自建或 Paseo）,B28,X,L-XL,5-15,B04,docs/c0/design/remote-control.md §7,no
+X5,L2 传输（B04 结论：自建）,B28,X,XL,10-15,A-13,docs/c0/design/remote-control.md §7,no
 X6,恢复凭据与加密备份,B27,X,M,3-5,ADR 0002 接受,docs/c0/design/remote-control.md §4,no
 X7,试用计时与到期,B37,X,S,1-2,官方服务,docs/c0/design/remote-control.md §8,no
 X8,双机故障测试,B31,X,L,4-6,X3;X5,docs/c0/design/remote-control.md §9,no
-B04-RUN,运行底座对照执行,B04,C0,L,3,用户授权预算,docs/c0/b04-runtime/README.md,no
+B04-RUN,运行底座对照执行（已完成 2026-10-23，选定 C-A）,B04,C0,L,3,,docs/c0/b04-runtime/README.md,done
 L-01,账本切片①：单项目单服务池预留与结算,B19,B,L,5-8,A-01;A-10,docs/c0/design/later-gates.md B19,no
 L-02,账本切片②：多服务池与单位,B19,B,M,3-5,L-01,docs/c0/design/later-gates.md B19,no
 L-03,账本切片③：跨项目优先级,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
 L-04,账本切片④：周期刷新与订阅窗口对齐,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
+A-14,升级 Codex 固定版本 + 重新设计 Codex 授权映射,B10,B,M,3-5,,docs/c0/b04-runtime/README.md F1 F2 F5,yes
+A-15,Claude 默认模型失效：动态取可用模型,B10,B,S,1-2,,docs/c0/b04-runtime/README.md F3,yes
+A-16,Codex 写入批准按 itemId 关联路径,B10/B18,B,S,1-2,,docs/c0/b04-runtime/README.md F4,yes
+A-17,用户级 hooks（AhaKey）不得绕过宿主授权,B18,B,M,2-3,AhaKey 定位确认,docs/c0/b04-runtime/README.md F6,no
+A-18,Claude 就绪超时可配置 + 失败走 failed 信号,B10,B,S,1,,docs/c0/b04-runtime/README.md F9,yes
+A-19,中断双终止信号去重,B10,B,S,1,,docs/c0/b04-runtime/README.md F10,yes
+A-20,停止时撤销已批准未执行的命令,B10/B31,B,M,2-3,,docs/c0/b04-runtime/README.md F11,yes

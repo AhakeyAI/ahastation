@@ -21,6 +21,8 @@
 | `design/later-gates.md` | 门 B → F 其余工作包的技术方案概要（插件宿主、额度账本、复核、集成、浏览器 / 文档 / 外部应用、记忆、RSI、安装更新、发布） |
 | `../adr/` | 架构决策记录：0001 项目稳定 ID、0002 libsodium、0003 保留 MeetingRepository 外套信封 |
 
+**B04 已执行完成（2026-10-23，用户授权）**：选定**现有 adapter 为唯一运行底座**，不引入 Paseo（ADR 0004）。实测还发现 11 个问题（`b04-runtime/README.md` F1–F11），其中最严重的是：**应用固定的 Codex 0.144.1 对 ChatGPT 账号已完全不可用**，Claude 默认模型也已失效——现在的应用里两个首发 worker 对新用户都起不来。已列为门 B 前必须完成的 A-14–A-20。PR #47 已合并，main CI 三平台全绿。
+
 **新发现**：
 
 1. **main 的 CI 一直是红的**（最近 5 次全部失败）。Windows：33 个测试失败，集中在进程观察（`ps` 解析读不到 `ppid`）、Kimi 会话解析、Qoder tailer（`fs.watch` EPERM）。macOS / Ubuntu：测试全过，但 CI 要求上传 `release/*.dmg`，构建没有产出，上传步骤失败。**Windows 是首发主平台，B02 在 Windows 上没有关闭。**

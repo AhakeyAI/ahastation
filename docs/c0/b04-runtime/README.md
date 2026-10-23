@@ -102,6 +102,38 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 
 执行器已修复为按场景记录失败、不再整体退出。**重跑需要用户确认**（按规则，被系统因内存回收的任务不自动重启），建议先关闭不用的 Claude Code 会话再跑。
 
+### 完整矩阵（2026-10-23 第二次运行，前台逐场景执行，全部完成）
+
+| 候选 × provider | S1 创建 | S2 追问 | S3 批准 | S4 拒绝 ⛔ | S5 越界 ⛔ | S6 停止 ⛔ | S7 断线补历史 | S8 宿主重启 | S9 用量 | S10 证据 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C-A × Claude（bundled 2.1.150 / SDK 0.3.150） | pass | pass | pass | pass | pass | pass | n/a | pass | n/s | pass |
+| C-A2 × Codex（实验：版本门改为 0.156.1） | pass | pass | pass | pass | pass | partial | n/a | pass | n/s | pass |
+| C-P × Claude（Paseo 0.12.0 / 全局 2.1.309） | pass | partial | pass | pass | pass | pass | pass | pass | pass | pass |
+| C-P × Codex（Paseo 0.12.0 / 全局 0.156.1，`auto`） | pass | pass | not-exercised | **fail** | pass | pass | **fail** | pass | pass | pass |
+| C-A × Codex（固定 0.144.1） | 全部 **blocked**：F1 + F2，账号下无可用模型且新版本被版本门拒绝 | | | | | | | | | |
+
+⛔ = 一票否决项。n/a：C-A 的 adapter 在宿主进程内，没有客户端与 daemon 之间的链路可断（宿主丢失由 S8 覆盖）。n/s：adapter 没有输出用量（B06 缺口）。每格的原始记录在 `results/<候选>-<provider>-<场景>.json`，事件日志在 `results/logs/`。
+
+**关键观察**
+
+- **C-P × Codex S4 失败**：Paseo 的 Codex `auto` 模式是 `on-request` + `workspace-write`，Agent 直接改了 `test/sum.test.js`，宿主一个请求都没收到。宿主无法按目录限制写入。S3 同因：命令在沙箱内直接执行，宿主看不到。
+- **C-P × Codex S7 失败**：重连后立即拉取时间线返回 0 条（Agent 已运行 30 秒）；任务本身最终完成。同样操作在 Claude 上能补回断线期间的条目。
+- **C-P × Claude S2 partial**：Paseo 0.12 把追问当作 steer 插入正在进行的 turn，注释加上了，原本的修复丢了（测试 1/1）。
+- **C-A2 × Codex S6 partial（F11）**：停止在 3.1 秒内确认，但停止前已批准、尚未执行的 3 条命令在确认之后仍然执行完。本次都是只读命令；若是写命令，停止后文件仍会被改。
+- **F10**：C-A × Claude 中断后先发出 `ended: interrupted`，接着又发出 `failed: claude-turn-failed` 和 `ended: completed`，同一次中断有两个矛盾的终止信号。
+- **Paseo 在断线期间保留待批准请求**（不自动放行、不丢弃），重连后可继续回复；任务在 daemon 中独立于宿主存活（S8）。这是值得借鉴的设计。
+- **用量**：Claude 周窗口 37% → 45%，Codex 周窗口 32% → 45%（运行期间用户自己的其他会话也在消耗，这是上限）。C-P 每次运行都能给出 token 与估算美元（Claude 约 0.05–0.06 美元/次）；C-A 给不出。
+
+### 结论（按 §5 判定规则）
+
+1. **一票否决**：C-P × Codex 的 S4 失败 → Paseo 不能作为 Codex 的受控执行底座。C-A（含 C-A2）通过全部否决项（S6 partial 非 fail）。
+2. **规则 3**：C-P 在 S8、S9 上优于 C-A，但在 Codex 的 S3、S4 上更差 → 不满足「S3–S6 不差于基线」。
+3. **选定：C-A（现有 AhaStation adapter）为唯一运行底座。** 不引入 Paseo 作为执行层。从 Paseo 借鉴并自己实现：① 任务在独立后台进程中运行、宿主重启不丢（B10 / B30）；② 断线期间待批准请求保留在执行端；③ 订阅窗口读取（B06 已有方案，`listUsage` 的数据结构可作为参考 fixture）。
+4. **跨设备传输（X5）**：Paseo connected hosts 的远端执行面同样受 Codex `auto` 语义影响，不满足宿主授权要求 → 改为自建（`../design/remote-control.md` §7 方案 A）。
+5. C-A 投入生产前必须完成：A-14（升级 Codex 固定版本 + 重新设计 Codex 授权映射）、A-15、A-16、A-17、A-18，以及新增 A-19（F10 终止信号去重）、A-20（F11 停止时取消已批准未执行的命令，未确认安静前显示「停止中」）。
+
+决策记录：`../../adr/0004-runtime-base-keep-adapters.md`。
+
 用量基线（矩阵运行前，Paseo `listUsage`）：Claude 5 小时窗口已用 61%、周已用 37%；Codex 周已用 32%，credits 0。样本见 `../b06-quota/fixtures/paseo-listUsage-2026-10-23-before-b04.json`。
 
 ## 7. 执行工具

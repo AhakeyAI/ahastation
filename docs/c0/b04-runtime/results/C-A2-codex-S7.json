@@ -1,0 +1,13 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S7",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T06:18:21.611Z",
+  "result": "not-applicable",
+  "observed": "C-A runs the adapter in the host process: there is no client/daemon link to drop. Host loss is covered by S8."
+}

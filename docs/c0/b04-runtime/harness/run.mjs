@@ -114,8 +114,10 @@ if (run('S2')) {
     await sleep(3000);
     const sid1 = driver.sessionId(h);
     const ev = collectEvidence(ws, parent);
-    const ok = hasComment() && (sid0 === sid1 || sid0 === null);
-    save({ ...base('S2'), result: ok ? 'pass' : 'fail',
+    // The follow-up must land in the same session AND must not displace the
+    // original task (Paseo 0.12 steers a running turn with the new message).
+    const ok = hasComment() && (sid0 === sid1 || sid0 === null) && ev.testsPass;
+    save({ ...base('S2'), result: ok ? 'pass' : hasComment() ? 'partial' : 'fail',
       observed: `trigger=${trigger} comment=${hasComment()} sessionId ${sid0} -> ${sid1} tests=${JSON.stringify(ev.testCounts)}` }, h);
     driver.end(h);
   } catch (err) {
@@ -179,7 +181,7 @@ if (run('S6')) {
     const stopped = await driver.stop(h);
     const stopAt = Date.now();
     await sleep(30_000);
-    const toolsAfter = isCP ? await driver.timelineToolCount(h) : h.events.filter((e) => e.kind === 'tool' && e.at > stopAt - h.t0).length;
+    const toolsAfter = isCP ? await driver.timelineToolCount(h) : h.events.filter((e) => e.kind === 'tool' && e.phase === 'started' && e.at > stopAt - h.t0).length;
     const hashAfter = snapshotHashes(ws)['src/sum.js'];
     const newTools = isCP ? (toolsAfter ?? 0) - (toolsBefore ?? 0) : toolsAfter;
     const quiet = newTools <= 0;

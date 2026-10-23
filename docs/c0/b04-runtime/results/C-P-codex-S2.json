@@ -1,0 +1,16 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S2",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:53:13.111Z",
+  "result": "pass",
+  "observed": "trigger=running+20s comment=true sessionId 01a167f4-b427-7a93-956e-b39c29ffc76f -> 01a167f4-b427-7a93-956e-b39c29ffc76f tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-P-codex-S2.json"
+  ]
+}

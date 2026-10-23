@@ -78,6 +78,7 @@ export async function start({ provider, ws, task, policy }) {
       handle.ended = { at, reason: status === 'idle' ? 'completed' : status };
     }
   };
+  handle.onUpdate = onUpdate;
   handle.unsubscribe = handle.agent.subscribe(onUpdate);
   onUpdate(handle.agent.current?.() ?? {});
   // The live subscription delivered only the first status change in the
@@ -167,16 +168,19 @@ export async function reconnect(handle, gapMs) {
     const t = Date.parse(e.timestamp ?? '');
     return Number.isFinite(t) && t >= lostAt && t <= Date.now();
   });
-  // Resume polling for completion.
+  // Re-attach the full update handler (status AND pending permissions).
+  // Requests raised while disconnected stay pending in the daemon.
+  const pendingAtReconnect = (refreshed?.agent?.pendingPermissions ?? []).length;
+  handle.unsubscribe = handle.agent.subscribe(handle.onUpdate);
+  handle.onUpdate(refreshed?.agent ?? {});
   handle.poll = setInterval(async () => {
     try {
       const r = await handle.agent.refresh();
-      const st = r?.agent?.status;
-      if (st && st !== handle.lastStatus) { handle.events.push({ at: Date.now() - handle.t0, kind: 'status', status: st }); handle.lastStatus = st; }
-      if ((st === 'idle' || st === 'error') && !handle.ended) handle.ended = { at: Date.now() - handle.t0, reason: st === 'idle' ? 'completed' : 'error' };
+      handle.onUpdate(r?.agent ?? handle.agent.current?.() ?? {});
     } catch { /* keep polling */ }
   }, 1500);
   return {
+    pendingAtReconnect,
     statusAfter: refreshed?.agent?.status ?? null,
     entries: entries.length,
     entriesDuringGap: inGap.length,

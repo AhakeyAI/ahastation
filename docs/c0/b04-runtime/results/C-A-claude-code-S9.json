@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "claude-code",
+  "scenario": "S9",
+  "versions": {
+    "app": "main c8295b9",
+    "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
+    "model": "claude-sonnet-5-5"
+  },
+  "at": "2026-10-23T06:03:56.579Z",
+  "result": "not-supported",
+  "observed": "adapter emits no usage signal (B06 gap: tokenCost hard-coded null)",
+  "evidence": [
+    "results/logs/C-A-claude-code-S9.json"
+  ]
+}

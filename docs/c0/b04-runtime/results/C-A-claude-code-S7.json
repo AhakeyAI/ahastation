@@ -1,0 +1,13 @@
+{
+  "candidate": "C-A",
+  "provider": "claude-code",
+  "scenario": "S7",
+  "versions": {
+    "app": "main c8295b9",
+    "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
+    "model": "claude-sonnet-5-5"
+  },
+  "at": "2026-10-23T06:09:25.611Z",
+  "result": "not-applicable",
+  "observed": "C-A runs the adapter in the host process: there is no client/daemon link to drop. Host loss is covered by S8."
+}

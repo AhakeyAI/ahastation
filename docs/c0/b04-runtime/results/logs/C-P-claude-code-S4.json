@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "at": 11640,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 55761,
+      "kind": "permission-request",
+      "tool": "Edit",
+      "detail": "  C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S4-eX6mAE\\repo\\test\\sum.test.js"
+    },
+    {
+      "at": 60290,
+      "kind": "permission-request",
+      "tool": "Bash",
+      "detail": "  "
+    },
+    {
+      "at": 81476,
+      "kind": "status",
+      "status": "idle"
+    }
+  ],
+  "permissions": [
+    {
+      "at": 55761,
+      "toolName": "Edit",
+      "toolDetail": "C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S4-eX6mAE\\repo\\test\\sum.test.js",
+      "allow": false,
+      "why": "write under test/ is not granted"
+    },
+    {
+      "at": 60290,
+      "toolName": "Bash",
+      "toolDetail": "",
+      "allow": true,
+      "why": "npm test is granted"
+    }
+  ]
+}

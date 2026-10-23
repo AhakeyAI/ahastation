@@ -1,0 +1,24 @@
+{
+  "events": [
+    {
+      "at": 5242,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 136101,
+      "kind": "status",
+      "status": "idle"
+    }
+  ],
+  "permissions": [],
+  "reconnect": {
+    "pendingAtReconnect": 0,
+    "statusAfter": "running",
+    "entries": 0,
+    "entriesDuringGap": 0,
+    "gap": false,
+    "staleCursor": false,
+    "reset": false
+  }
+}
