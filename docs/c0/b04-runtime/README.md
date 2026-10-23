@@ -70,6 +70,25 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 - `scenarios.json`：S1–S10 的步骤、通过条件、对应门、一票否决标记，以及结果记录模板。
 - 授权到位后剩下的工作是写两个 `RuntimeDriver`（约 2 人日，它们就是 B10 的雏形）。
 
+## 6c. 执行记录（2026-10-23，用户已授权 D1）
+
+环境：N5095 / Windows 11；Node 22.23.4；本机已登录 Claude（Pro）与 Codex（ChatGPT prolite）；Paseo 0.12.0 装在 `%USERPROFILE%\aha-c0\paseo`，daemon 用隔离 home `%USERPROFILE%\aha-c0\paseo-home`，只监听 127.0.0.1:6767，relay 关闭。测试框架在 `harness/`（驱动、权限代理及其 17 个单测、场景执行器）。
+
+### 探针阶段的发现（在跑矩阵之前就已确定）
+
+| # | 发现 | 影响 | 处理 |
+| --- | --- | --- | --- |
+| F1 | **固定版本 Codex 0.144.1 对 ChatGPT 账号已完全不可用**：配置的 `gpt-6-sol` 被拒绝；`gpt-5.4`、`gpt-5.5` 连全局 0.156.1 也被拒绝（已下线）。全局 0.156.1 + `gpt-6-sol` 正常 | 现在的应用里 Codex worker 对这类用户**无法工作** | 新卡 **A-14**：升级 Codex 固定版本，重新生成 app-server 协议类型，复跑 adapter 测试。矩阵中用 **C-A2**（仅把版本常量改为 0.156.1 的临时构建，标记为实验）评估 adapter 语义 |
+| F2 | 应用对 0.156.1 有硬性版本门：`Unsupported Codex app-server runtime 0.156.1; AhaStation requires 0.144.1` | F1 + F2 叠加，用户没有可用路径 | 同 A-14；版本门应改为「已验证区间」而不是单一版本 |
+| F3 | **Claude 默认模型 `claude-sonnet-4-20250514` 返回 `model_not_found`** | 用户没手动设模型时 Claude worker 一启动就失败 | 新卡 **A-15**：更新默认模型，并改为从 SDK / 账号动态取可用模型 |
+| F4 | Codex 文件修改批准（`item/fileChange/requestApproval`）**不带路径**（只有 `{reason, grantRoot:null}`）。应用的 `task-authority.ts:697` 对无路径写入一律拒绝（安全）。在 Windows 上 Codex 沙箱内写失败时会请求越出沙箱写入，于是**必然被拒，任务无法完成**（C-A2 探针复现） | Windows 上 Codex worker 可能改不了文件 | 新卡 **A-16**：adapter 缓存 `item/started` 的 fileChange 条目，按 `itemId` 关联出路径再交给授权（测试框架已用同样方法验证可行） |
+| F5 | **Codex 0.156.1 不再支持 `approval_policy = "untrusted"`**（`no longer supported; remove this setting`）。C-A2 通过 app-server `thread/start` 参数传入时仍可用，经 Paseo 配置传入则直接失败 | 应用 worker 依赖 `untrusted` 做逐命令批准，升级 Codex 后会失去这一层 | A-14 必须同时重新设计 Codex 的授权映射（`on-request` + 沙箱 + 宿主对越界请求的裁决） |
+| F6 | **用户级 Claude hooks 参与权限决定**：你的 `~/.claude/settings.json` 有 AhaKey 的 `PermissionRequest` hook。C-A 与 C-P 都加载用户设置（`settingSources` 含 `user`）。C-P 探针中 hook 直接放行，宿主没有收到任何请求 | 宿主授权不是唯一裁决者；与规格「授权在模型之外强制执行」冲突。**两个候选共有**，不是差异 | 新卡 **A-17**：AhaKey 批准也要经过宿主授权范围检查（hook 只能把请求转给宿主，不能直接 allow）；或 worker 会话排除 user 级 hooks。需产品确认 AhaKey 的定位 |
+| F7 | Paseo 公开 SDK 的 Agent 句柄**没有中断方法**（只有 internal `cancelAgent` 与 CLI `paseo stop`）；live 订阅在探针中只送达第一次状态变化，需要轮询 `refresh()` | C-P 的停止只能走 CLI | S6 中如实记录 |
+| F8 | Paseo × Codex 只有 `auto`（`on-request` + `workspace-write`）/ `auto-review` / `full-access` 三种模式；`auto` 下沙箱内命令不询问宿主，沙箱写失败时才请求越出 | 宿主看不到大部分操作 | S3 中如实记录 |
+
+用量基线（矩阵运行前，Paseo `listUsage`）：Claude 5 小时窗口已用 61%、周已用 37%；Codex 周已用 32%，credits 0。样本见 `../b06-quota/fixtures/paseo-listUsage-2026-10-23-before-b04.json`。
+
 ## 7. 执行工具
 
 写一个 `scripts/b04/run-scenarios.mjs`：每个候选一个驱动（C-A 驱动直接 import 现有 adapter；C-P 驱动用 `@getpaseo/client`），场景脚本共用。驱动接口：
