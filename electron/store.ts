@@ -396,7 +396,14 @@ async function persist(next: Settings): Promise<void> {
 }
 
 export function getSettings(): Settings {
-  return { ...load() };
+  const state=load();
+  // Static imports may read settings before Electron's secure storage is
+  // ready. Rehydrate the collaboration credential when it becomes available.
+  if(state.remoteControl?.controlTokenEnc&&!state.remoteControl.controlToken&&remoteCredentialStorageAvailable()) {
+    const token=tryDecryptKey(state.remoteControl.controlTokenEnc);
+    if(token!==null)state.remoteControl={...state.remoteControl,controlToken:token};
+  }
+  return { ...state };
 }
 
 /** Remote-only atomic edits share the existing settings write queue. */

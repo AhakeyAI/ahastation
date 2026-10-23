@@ -58,6 +58,15 @@ jobs:
       - name: npm install
         run: npm ci
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build bundled Station receiver
+        run: |
+          python -m pip install -r services/remote/requirements-station-native.txt
+          python scripts/build-station-native.py
+
       - name: Prebuild - speaker model
         run: node scripts/fetch-speaker-model.mjs
 
@@ -126,7 +135,8 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git curl ca-certificates xz-utils python3 make g++ libfuse2
+            git curl ca-certificates xz-utils python3 make g++ libfuse2 \
+            libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev
 
       - uses: actions/checkout@v4
 
@@ -152,6 +162,20 @@ jobs:
 
       - name: Test suite
         run: npm test
+
+      - name: Build bundled receiver on Debian 11 ABI
+        shell: bash
+        run: |
+          mkdir -p .tools/python-source
+          curl --fail --location https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tar.xz -o .tools/python-source/python.tar.xz
+          tar -xJf .tools/python-source/python.tar.xz -C .tools/python-source
+          cd .tools/python-source/Python-3.13.5
+          ./configure --prefix=/opt/station-python --with-ensurepip=install --enable-shared LDFLAGS="-Wl,-rpath=/opt/station-python/lib"
+          make -j2
+          make install
+          cd "$GITHUB_WORKSPACE"
+          /opt/station-python/bin/python3.13 -m pip install -r services/remote/requirements-station-native.txt
+          /opt/station-python/bin/python3.13 scripts/build-station-native.py
 
       - name: Package (Linux arm64 AppImage + deb)
         # Built inside debian:11; the smoke step below installs and launches

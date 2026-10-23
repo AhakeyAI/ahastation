@@ -9,6 +9,30 @@ import {
 import { FileContent, ViewState, basename } from './FileViewer';
 import { DeliveryDiffView } from './DeliveryDiffView';
 import { useAutoScroll } from '../hooks/useAutoScroll';
+import type {SharedEntity} from '../../electron/collaboration/production-types';
+import {sharedRequest} from '../lib/unified-meeting-store';
+import {perform} from './UnifiedMeetingParts';
+
+export function SharedDeliveryViewer({task}:{task:SharedEntity}){
+  const [tab,setTab]=useState('summary');
+  const [preview,setPreview]=useState<{text?:string;image?:string}>({});
+  const generation=useRef(0);
+  const delivery=task.delivery as {summary?:string;files?:string[];commit?:string;branch?:string;prUrl?:string;report?:{taskId:string;attemptId:string;exitConfirmed:boolean;tests:Array<{argv:string[];exitCode:number|null;output:string}>;unresolved:string[]}}|undefined;
+  const report=delivery?.report;const current=report?.taskId===task.id&&report.attemptId===task.attemptId;
+  useEffect(()=>{generation.current++;setPreview({});return()=>{generation.current++;};},[task.id,task.attemptId,delivery?.commit,tab]);
+  const load=async(file:string)=>{
+    const ticket=++generation.current;
+    const value=await sharedRequest('delivery.preview',{taskId:task.id,attemptId:task.attemptId,commit:delivery?.commit,path:file,diff:tab==='diff'});
+    if(ticket===generation.current)setPreview(value as {text?:string;image?:string});
+  };
+  return <section className="delivery-viewer unified-delivery">
+    <nav>{[['summary','摘要'],['files','文件'],['diff','Diff'],['tests','实际测试'],['history','历史']].map(([id,label])=><button key={id} onClick={()=>setTab(id)} aria-pressed={tab===id}>{label}</button>)}</nav>
+    {tab==='summary'&&<><p>{delivery?.summary??'尚未产出可获取成果'}</p><p>提交 {delivery?.commit||'无 Git 提交'} · 分支 {delivery?.branch||'无分支'}</p>{delivery?.prUrl&&<a href={delivery.prUrl} target="_blank" rel="noreferrer">打开成果 PR</a>}<p>执行退出：{task.exitConfirmed?'已确认':'待核对'} · 会议检查：{String(task.integration??'未完成')}</p>{delivery?.commit&&<button onClick={()=>perform(sharedRequest('delivery.fetch',{taskId:task.id}))}>获取准确成果副本</button>}</>}
+    {(tab==='files'||tab==='diff')&&<>{(delivery?.files??[]).map(file=><button key={file} onClick={()=>perform(load(file))}>{file}</button>)}{preview.image?<img alt="本次准确提交中的选定成果" src={preview.image} style={{maxWidth:'100%',maxHeight:480,objectFit:'contain'}}/>:<pre>{preview.text||'选择文件后，使用本机授权仓库读取该准确提交；不会读取远端绝对路径。'}</pre>}</>}
+    {tab==='tests'&&<>{current&&report!.tests.length?report!.tests.map((test,i)=><article key={i}><strong>{test.argv.join(' ')} · {test.exitCode===0?'实际通过':test.exitCode===null?'未确认退出':'失败（'+test.exitCode+'）'}</strong><pre>{test.output}</pre></article>):<p>尚无 Station 执行并核验的结构化测试证据；模型文字说明不计为测试通过。</p>}{current&&report!.unresolved.map((item,i)=><p key={i}>{item}</p>)}</>}
+    {tab==='history'&&<p>保留的历史尝试：{((task.evidence??[]) as unknown[]).length}；当前成果只对应本次 attempt。</p>}
+  </section>;
+}
 
 interface DeliveryViewerProps {
   delivery: DeliverySnapshot;

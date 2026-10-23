@@ -1,5 +1,7 @@
 # 微信云托管：ahastation-hub 源码云端构建
 
+> 2026-10-21：下文早期部署记录保留当时现场。现有 Hub 地址已核实可访问，可以复用；当前候选版、迁移和测试部署边界见文末“协作候选版协议2”。历史记录中的未确认地址或待授权描述不代表必须另换公网服务。
+
 本指南对应 [微信云托管控制台](https://cloud.weixin.qq.com/)；不是通用 CloudBase，未使用 tcb CLI、微信专属 SDK、callContainer/connectContainer 或腾讯 CloudBase 菜单替代桌面验收。本机不代用户部署/购买/修改 DNS，也不改动 `https://ahakey.com/`。2026-10-12 用户确认平台已构建并推送镜像，但源码权限导致容器启动失败；这不是运行验收通过。
 
 ## 部署前需核实
@@ -10,7 +12,7 @@
 
 ## 独立 MySQL 与初始化
 
-在微信云托管本环境 MySQL 管理和账号管理确认版本（要求兼容 MySQL 8/InnoDB，utf8mb4）、内网 host/port、独立库创建能力、连接配额、备份恢复入口。只在获得具体授权后创建 `station_hub`，不得改其他业务库。
+在微信云托管本环境 MySQL 管理和账号管理确认版本、InnoDB／utf8mb4、内网 host/port、连接配额及备份恢复入口。已用官方 MySQL 5.7.18 和 8.4.13 做本机真实迁移／生产接口核验，不要求先升级到 MySQL 8；腾讯云定制内核和实际参数仍需预检。已有 `station_hub` 应保留并增量迁移，不重复建库；具体 Navicat 流程见 [MySQL 5.7 复用升级说明](../../../docs/collaboration/MYSQL57_HUB_UPGRADE.md)。只在确有新库需求且已获授权时创建库，不得改其他业务库。
 
 用管理权限建立独立 schema 和迁移账号；SQL 示例由运营者在 MySQL 管理工具执行，密码自行生成并保密：
 
@@ -23,7 +25,7 @@ CREATE DATABASE station_hub CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 -- 初始化后 station_hub_app 只授予 station_hub.* SELECT/INSERT/UPDATE/DELETE。
 ```
 
-执行包内 `deploy/schema-v1.sql`（仅在空 station_hub）或使用迁移凭证运行 `python deploy/migrate.py migrate`。`check` 只读 schema版本，启动不自动建表/降级；`ddl` 可审查生成 SQL。版本1没有后续ALTER，未来迁移先备份、逐版执行，不对未知version自动覆写。应用username=root会被拒绝。长期应用账号不授予全局库权/DDL/账号管理。
+空库可审查包内 `deploy/schema-v2.sql`；已有版本1使用迁移凭证运行 `python deploy/migrate.py migrate`，新增四张 `collab_*` 表并把版本升到2，保留原账号、凭证、配对、任务和反馈。`check` 只读检查版本和 InnoDB；启动不自动建表或降级，`ddl` 可导出审查 SQL。先备份，不对未知版本覆写。应用 username=root 会被拒绝。长期应用账号不授予全局库权、DDL 或账号管理。
 
 只把实际内网 MySQL 地址和 `station_hub_app` 密码设置在 Hub 服务环境：`MYSQL_HOST/PORT/DATABASE/USER/PASSWORD`，兼容微信官方模板的 `MYSQL_ADDRESS/MYSQL_USERNAME`。数据库凭证不发给 Station/Bridge。随机生成并离线安全备份 `HUB_SECRET`（至少32字符，建议 `python -c "import secrets; print(secrets.token_urlsafe(48))"` 在可信运维机）；换 secret 会使所有凭证/配对/恢复码校验失效，需要新身份恢复或配对，不能当作普通滚动配置。
 
@@ -62,3 +64,17 @@ CREATE DATABASE station_hub CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 Hub Dockerfile在USER hub前将/app目录规范为0755、普通文件0644，兼容上传解压后的权限变化。源码继续root所有、hub只读；不改数据库、认证、端口、启动命令或健康检查。未凭 `/app/cert/initenv.sh` 生命周期报错推断另一个故障，不改成root运行。
 
 本次包位于 `runtime/source-permissions-2026-10-12/ahastation-hub-source.zip`。重新上传时填写：**端口8787、目标目录`.`、Dockerfile名称`Dockerfile`**；ZIP根目录就是构建上下文，无额外顶层文件夹。根Dockerfile与deploy/Dockerfile字节一致。保留当前数据库/密钥配置，核对云端新构建日志和启动日志，再检查health/ready。本机无Docker，未执行容器构建或hub用户容器内读取/启动验收；修复后平台运行结果待用户重新上传验证，不代发布。
+
+## 2026-10-21 协作候选版协议2
+
+现有微信云托管 Hub 可以复用。旧材料中的 `prod` 是环境显示名，不是不能使用的技术限制。本轮只读核实了 `https://ahastation-hub-220629-6-1398334410.sh.run.tcloudbase.com` 的 `/health`、`/ready` 返回200；新增 `/api/collaboration/v2/snapshot` 仍返回404，说明新协作路由尚未部署。没有修改云端配置或业务数据，也没有把这一地址当作已经通过新功能联调的默认入口。
+
+候选 Hub 新增 HTTPS `/api/collaboration/v2/commands`、`snapshot`、`events`、`history` 和 WSS `/ws/station?protocol=2`。Station 使用独立 station 凭证；协作账号登录、恢复和旧 Bridge 路由继续保留。设备注册回执中的凭证在数据库内加密，设备端使用系统安全存储。数据库密码和 HUB_SECRET 不下发给 Station。
+
+部署前在独立库备份基础上演练 `python deploy/migrate.py migrate` 与 `check`。本轮已用本机独立 MySQL 8.4.13/InnoDB 验证版本1迁到2保留旧账号、有效凭证和设备，并运行生产 HTTP/WSS、事件、任务及两 Station 重连测试；这不代表云端镜像或云数据库已经验收。临时 MySQL 没有注册系统服务，数据和账号只属于本机测试目录。
+
+仍须保持一个实例、一个 worker、一个版本接收100%流量。`HUB_MAINTENANCE=1` 暂停新派发、未接收任务和继续执行，已接收执行核对、停止和审批入口保留。WSS 只有变化提示；唯一业务状态、请求去重、账号游标和事件在 MySQL 事务中持久保存。发布断开连接后由 Station 补拉快照与事件，不重新启动已记录的 Agent。
+
+候选包导出命令在仓库根执行：`python services/remote/scripts/package_hub.py --output runtime/collaboration-2026-10-21/deploy`。检查 ZIP 的 SOURCE-MANIFEST、源码0644/目录0755、两份合同、两张新接口模块、schema-v2和迁移程序。云端沿用原数据库和 HUB_SECRET，禁止清库。发布后核对 `/ready`、未登录新快照401、已登录快照/事件、WSS鉴权与心跳，再在同账号两 Station 上验证接单和恢复。
+
+版本2数据库不能直接回退给只接受版本1的旧 Hub。应用回滚应选兼容 schema2 的版本；确需恢复备份时使用独立恢复库并保留新记录的核对材料，不能只改版本数字。迁移后仍须用普通控制台登录完成云端构建和部署验证。本实施任务不包含正式生产发布或最终 PR 合并。

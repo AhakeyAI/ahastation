@@ -11,6 +11,7 @@ import os
 import secrets
 import time
 import uuid
+import threading
 from contextlib import contextmanager
 from sqlalchemy import (create_engine, MetaData, Table, Column, String, Text, Integer,
                         Float, UniqueConstraint, select, update, delete, func, text, inspect)
@@ -61,6 +62,7 @@ class HubStore:
     def __init__(self, engine, secret: str):
         if len(secret) < 32: raise RuntimeError('HUB_SECRET must have at least 32 random characters')
         self.engine, self.secret = engine, secret.encode()
+        self.collaboration_lock=threading.RLock()
 
     @classmethod
     def production(cls):
@@ -85,22 +87,26 @@ class HubStore:
     def migrate(self):
         if inspect(self.engine).has_table(schema.name):
             with self.engine.connect() as conn:
-                if conn.execute(select(schema.c.version).where(schema.c.id==1)).scalar() not in {None,1}:
+                if conn.execute(select(schema.c.version).where(schema.c.id==1)).scalar() not in {None,1,2}:
                     raise RuntimeError('Unknown Hub schema version; no DDL was applied')
         metadata.create_all(self.engine)  # Explicit migration command, never automatic fallback.
+        from collaboration_store import metadata as collaboration_metadata
+        collaboration_metadata.create_all(self.engine)
         with self.engine.begin() as conn:
             version = conn.execute(select(schema.c.version).where(schema.c.id == 1)).scalar()
-            if version is None: conn.execute(schema.insert().values(id=1, version=1))
-            elif version != 1: raise RuntimeError('Unknown Hub schema version')
+            if version is None: conn.execute(schema.insert().values(id=1, version=2))
+            elif version == 1: conn.execute(update(schema).where(schema.c.id==1,schema.c.version==1).values(version=2))
+            elif version != 2: raise RuntimeError('Unknown Hub schema version')
 
     def ready(self):
         with self.engine.connect() as conn:
-            if conn.execute(select(schema.c.version).where(schema.c.id == 1)).scalar() != 1:
+            if conn.execute(select(schema.c.version).where(schema.c.id == 1)).scalar() != 2:
                 raise RuntimeError('Run the explicit Hub database migration first')
             if conn.dialect.name=='mysql':
                 rows=conn.execute(text('SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=:db'),{'db':conn.engine.url.database})
                 engines={name:engine for name,engine in rows}
-                if any(engines.get(table.name,'').lower()!='innodb' for table in metadata.tables.values()):
+                from collaboration_store import metadata as collaboration_metadata
+                if any(engines.get(table.name,'').lower()!='innodb' for table in [*metadata.tables.values(),*collaboration_metadata.tables.values()]):
                     raise RuntimeError('Hub tables must use InnoDB transactions; startup refused')
 
     def digest(self, value: str):

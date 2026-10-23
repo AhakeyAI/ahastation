@@ -4,6 +4,7 @@ import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
 import type { BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
+import {SharedMeetingEntry} from './SharedMeetingEntry';
 
 interface LobbyProps {
   lastError?: string | null;
@@ -314,6 +315,7 @@ export function Lobby({ lastError, onEnterBoard, onEnterMeeting, onReplayOnboard
   return (
     <div className="join-screen">
       <div className="join-card lobby-card">
+        <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={()=>onEnterMeeting?.()}/>
         <div className="join-brand">
           <div className="join-logo">
             <img src="icon-96.png" alt="AhaStation" className="join-logo-img" />

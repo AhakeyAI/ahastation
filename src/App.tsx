@@ -21,6 +21,9 @@ import { remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../electron/backends/
 import { browserStore, requestHideBrowser } from './lib/browser-store';
 import { toast } from './lib/toast';
 import { Lobby } from './components/Lobby';
+import { UnifiedMeetingFrame } from './components/UnifiedMeetingFrame';
+import {SharedApprovals} from './components/UnifiedMeetingParts';
+import {useUnifiedMeeting,projectShared,selectSharedMeeting,sendShared,sharedMentionBackends,sharedRequest} from './lib/unified-meeting-store';
 import { Onboarding, ONBOARDED_STORAGE_KEY, type OnboardingMode } from './components/Onboarding';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
@@ -69,6 +72,9 @@ function selectFirstPendingPermission(s: MeetingState): PendingPermission | null
 
 export function App() {
   const workers = useWorkers();
+  const sharedState=useUnifiedMeeting();
+  const sharedModel=useMemo(()=>sharedState.view&&sharedState.activeId?projectShared(sharedState.view,sharedState.activeId):undefined,[sharedState]);
+  const [sharedInterrupt,setSharedInterrupt]=useState(false);
   const {
     restartSession, sendText, sendImage, sendAttachments, publishDroppedFiles,
     onDroppedFiles, resolvePermission, interrupt, setSpeakCallback,
@@ -89,14 +95,14 @@ export function App() {
   const activeTab = useMemo(() => tabs.find((t) => t.isActive) ?? null, [tabs]);
   const meetingGate = meetingAvailability(activeTab, running);
   const hasTabs = tabs.length > 0;
-  const hasLiveTab = !!(activeTab && !activeTab.placeholder);
+  const hasLiveTab = !!sharedModel||!!(activeTab && !activeTab.placeholder);
   const activeOpenedAt = activeTab?.openedAt ?? null;
 
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [ttsOn, setTtsOn] = useState(true);
   const [muted, setMuted] = useState(false);
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
-  const [multiAgent, setMultiAgent] = useState(false);
+  const [multiAgent, setMultiAgent] = useState(true);
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>('direct');
   const [view, setView] = useState<MeetingView>('meeting');
   // P3 agent 详情面板（右侧滑出）：'user' 忽略，hostId/workerId 打开详情
@@ -375,10 +381,14 @@ export function App() {
     }
   }, [workers.savedDocuments, stageWindows]);
 
-  const micEnabled = !visualFixture && (hasLiveTab || voiceLock.enrollmentActive);
+  const micEnabled = !visualFixture && ((!showLobby&&hasLiveTab) || voiceLock.enrollmentActive);
 
   const onVoiceFinal = useCallback(async (text: string) => {
     const id = meetingStore.getActiveId();
+    if(sharedModel){
+      const mentionBackends=sharedMentionBackends(sharedModel,backends);
+      await handleVoiceFinal(text,{polish:voicePrefs.voicePolishEnabled?(v)=>window.vibeMeet.polishAsrText(v):undefined,skills,backends:mentionBackends,activeBackendIds:new Set(mentionBackends.map(b=>b.id)),hosts:sharedModel.members.map(m=>({id:m.id,remoteTarget:{title:m.label}})),send:v=>sendShared(sharedModel,v),notify:message=>toast.error(message)});return;
+    }
     if (!id) {
       console.warn('[voice] dropped — no active session');
       return;
@@ -389,7 +399,7 @@ export function App() {
       send: (value) => sendWithModeRef.current(value),
       notify: (message) => { toast.error(message); },
     });
-  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds, workers.hostGroups]);
+  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds, workers.hostGroups,sharedModel]);
 
   const onBargeIn = useCallback(() => {
     if (speakingRef.current) {
@@ -471,6 +481,7 @@ export function App() {
 
   const goHome = useCallback(() => {
     meetingStore.dismissRestoreHydration();
+    selectSharedMeeting(null);
     setShowLobby(true);
   }, []);
 
@@ -499,8 +510,13 @@ export function App() {
     const dataUrl = captureFrame();
     if (!dataUrl) return;
     const caption = `Here is the current view of "${share.sourceName ?? 'my screen'}". Take a look and let me know what you see.`;
+    if(sharedModel){
+      const projectId=String(sharedModel.meeting.mainProjectId??'');
+      const base64=dataUrl.split(',')[1];
+      try{const ref=await sharedRequest('files.stage',{projectId,files:[{name:'screen-'+Date.now()+'.png',dataBase64:base64,sizeBytes:Math.floor(base64.length*3/4)-(base64.endsWith('==')?2:base64.endsWith('=')?1:0)}]});if(!(ref as {cancelled?:boolean}).cancelled)await sendShared(sharedModel,caption,undefined,[ref]);}catch(error){toast.error(String(error));}return;
+    }
     await sendImage(dataUrl, caption);
-  }, [captureFrame, sendImage, share.sourceName]);
+  }, [captureFrame, sendImage, share.sourceName,sharedModel]);
 
   // Stable callbacks for memoized children — inline arrows in JSX would
   // create fresh references every render and silently defeat React.memo.
@@ -656,7 +672,7 @@ export function App() {
     }
     const directive = dispatchMode === 'plan'
       ? buildPlanDirective(trimmed)
-      : buildDirectDirective(trimmed);
+      : trimmed;
     // Chat shows only the user's words; the model still gets the full directive.
     await sendText(directive, { displayText: trimmed });
   }, [dispatchMode, multiAgent, sendText, workers.hostGroups]);
@@ -674,7 +690,7 @@ export function App() {
       }
       const directive = dispatchMode === 'plan'
         ? buildPlanAttachmentDirective(trimmed)
-        : buildDirectAttachmentDirective(trimmed);
+        : trimmed;
       return sendAttachments(staged, directive, {
         displayText: trimmed.length > 0 ? trimmed : undefined,
       });
@@ -732,6 +748,35 @@ export function App() {
       onToggleMultiAgent={toggleMultiAgent}
     />
   ) : undefined), [handheld, autoApproveScope, multiAgent, toggleMultiAgent]);
+
+  useEffect(()=>sharedModel&&!showLobby?requestHideBrowser():undefined,[sharedModel?.meeting.id,showLobby]);
+
+  const toolbar=(<BottomToolbar
+        muted={muted}
+        onToggleMute={toggleMute}
+        micSupported={micSupported}
+        listening={effectiveListening}
+        asrMode={asrMode}
+        micStatus={micStatus}
+        micRetryable={micRetryable}
+        onRetryMic={retryMic}
+        ttsOn={ttsOn}
+        onToggleTts={toggleTts}
+        sharing={share.active}
+        onToggleShare={toggleShare}
+        snapshotEnabled={share.active && (running||!!sharedModel)}
+        onSnapshot={handleSnapshot}
+        onInterrupt={sharedModel?()=>setSharedInterrupt(true):interrupt}
+        chatOpen={drawerOpen}
+        onToggleChat={toggleChat}
+        onLeave={sharedModel?goHome:leave}
+        onToggleCompanion={toggleCompanion}
+        handheld={handheld}
+        permissionCount={sharedModel?(sharedModel.view.snapshot.entities.approval??[]).filter(a=>a.status==='pending'&&sharedModel.tasks.some(t=>t.id===a.taskId&&t.attemptId===a.attemptId)).length:permissionCount}
+        onOpenPermission={openPermissionModal}
+        controlsSlot={sharedModel?undefined:controlsSlot}
+      />);
+  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view={view} onView={setView} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={drawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
 
   if (showLobby || (!hasTabs && !boardOnly)) {
     return (
@@ -896,31 +941,7 @@ export function App() {
         />
       )}
 
-      <BottomToolbar
-        muted={muted}
-        onToggleMute={toggleMute}
-        micSupported={micSupported}
-        listening={effectiveListening}
-        asrMode={asrMode}
-        micStatus={micStatus}
-        micRetryable={micRetryable}
-        onRetryMic={retryMic}
-        ttsOn={ttsOn}
-        onToggleTts={toggleTts}
-        sharing={share.active}
-        onToggleShare={toggleShare}
-        snapshotEnabled={share.active && running}
-        onSnapshot={handleSnapshot}
-        onInterrupt={interrupt}
-        chatOpen={drawerOpen}
-        onToggleChat={toggleChat}
-        onLeave={leave}
-        onToggleCompanion={toggleCompanion}
-        handheld={handheld}
-        permissionCount={permissionCount}
-        onOpenPermission={openPermissionModal}
-        controlsSlot={controlsSlot}
-      />
+      {toolbar}
 
       {!handheld && (
         <StatusBar
@@ -989,7 +1010,7 @@ export function App() {
         tasks={workers.pendingPlan ?? []}
         backends={backends}
         onReject={() => workers.decidePendingPlan(false)}
-        onSubmit={(tasks) => workers.decidePendingPlan(true, tasks)}
+        onSubmit={(tasks,brief) => workers.decidePendingPlan(true, tasks,brief)}
       />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}

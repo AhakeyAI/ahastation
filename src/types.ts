@@ -1265,6 +1265,7 @@ export interface XfyunAsrCredentials {
 
 export interface VibeMeetApi {
   remoteControl: { request: (action: string, payload?: Record<string, unknown>) => Promise<import('../electron/remote-control-types').RemoteControlReply>; onChanged: (cb: () => void) => () => void };
+  collaboration: {request(action:string,payload?:Record<string,unknown>):Promise<{ok:boolean;value?:unknown;error?:string}>;onChanged(cb:()=>void):()=>void};
   sessions: SessionsApi;
   sendUserText: (sessionId: string | null, text: string) => Promise<{ ok: boolean; error?: string }>;
   sendUserImage: (sessionId: string | null, dataUrl: string, caption: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1288,6 +1289,7 @@ export interface VibeMeetApi {
     sessionId: string | null,
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ) => Promise<{ ok: boolean; error?: string }>;
   acceptDelivery: (
     sessionId: string | null,
@@ -1699,6 +1701,7 @@ export interface MeetingPlanBrief {
 /** Renderer-side input for the manual Plan Meeting flow. The main process
  * validates the same shape before installing it into the scheduler. */
 export interface PlanMeetingTaskInput {
+  sharedTarget?:{deviceId:string;agentId:string;resource:'text'|'directory'|'repository'|'native';permission:'read-only'|'workspace-write'|'full-access';projectId?:string;baseCommit?:string;nativeSessionId?:string;parentTaskId?:string;inputs?:Array<{repository:string;commit:string;paths:string[]}>};
   id: string;
   title: string;
   prompt: string;

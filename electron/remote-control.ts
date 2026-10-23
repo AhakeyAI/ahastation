@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { getSettings, updateRemoteControlFields, getBackendAuth, remoteCredentialStorageAvailable } from './store.js';
 import type { BackendAuthConfig } from './backends/cli-backend.js';
 import type { RemoteControlReply, RemoteControlSettings, RemoteControlView } from './remote-control-types.js';
+import { collaborationFetch } from './collaboration/network.js';
 
 function broadcastRemoteChange(): void {
   for (const wc of webContents.getAllWebContents()) {
@@ -77,7 +78,7 @@ async function boundedJson(response: Response): Promise<Record<string, unknown>>
 }
 
 export async function remoteRequest(path: string, method = 'GET', body?: unknown, authenticated = true,
-  fetchImpl: typeof fetch = fetch): Promise<Record<string, unknown>> {
+  fetchImpl: typeof fetch = collaborationFetch): Promise<Record<string, unknown>> {
   const state = getRemoteControlSettings();
   if (!state.serviceUrl) throw new Error('远端服务尚未部署或配置，请先设置有效的服务地址');
   const base = validateRemoteServiceUrl(state.serviceUrl);
@@ -113,6 +114,10 @@ export async function remoteControlAction(action: string, payload: Record<string
       if (typeof payload.enabled !== 'boolean' || !['public', 'legacy'].includes(String(payload.mode))) throw new Error('远端设置参数无效');
       const serviceUrl = payload.serviceUrl ? validateRemoteServiceUrl(payload.serviceUrl) : '';
       const changed = state.serviceUrl !== serviceUrl;
+      if (changed || state.enabled && !payload.enabled || state.mode !== payload.mode) {
+        const { stationService } = await import('./collaboration/station-service.js');
+        if (stationService() && !await stationService()!.shutdown()) throw new Error('原账号本机执行退出未确认，请核对后再更换服务或停用协作');
+      }
       await updateRemoteControlFields((current) => ({ ...(current ?? state), enabled: payload.enabled as boolean, mode: payload.mode as 'public' | 'legacy', serviceUrl,
         ...(changed ? { controlToken: undefined, controlTokenEnc: undefined, ownerId: undefined, login: undefined } : {}) }));
       return { ok: true, settings: remoteControlView() };
@@ -122,6 +127,10 @@ export async function remoteControlAction(action: string, payload: Record<string
       if (typeof payload.login !== 'string' || typeof payload.password !== 'string') throw new Error('请输入账号和密码');
       const data = await request(`/v2/auth/${action}`, 'POST', { login: payload.login, password: payload.password, recovery_code: payload.recoveryCode }, false);
       if (typeof data.control_token !== 'string' || typeof data.owner_id !== 'string' || typeof data.login !== 'string') throw new Error('远端身份响应无效');
+      if (state.ownerId && state.ownerId !== data.owner_id) {
+        const { stationService } = await import('./collaboration/station-service.js');
+        if (stationService() && !await stationService()!.shutdown()) throw new Error('原账号本机执行退出未确认，请核对后再切换账号');
+      }
       await updateRemoteControlFields((current) => {
         if (current && (current.serviceUrl !== state.serviceUrl || current.mode !== 'public')) throw new Error('连接设置已变化，请重试登录');
         return { ...(current ?? state), enabled: true, controlToken: data.control_token as string, controlTokenEnc: undefined,
@@ -170,6 +179,8 @@ export async function remoteControlAction(action: string, payload: Record<string
       return { ok: true }; // The task's later result, not this response, proves exit.
     }
     if (action === 'logout') {
+      const { stationService } = await import('./collaboration/station-service.js');
+      if (stationService() && !await stationService()!.shutdown()) throw new Error('本机 Station 任务退出未确认，请核对原任务后再退出协作账号');
       await request('/v2/logout', 'POST', { all: payload.all === true });
       await updateRemoteControlFields((current) => current?.controlToken === state.controlToken
         ? { ...(current ?? state), controlToken: undefined, controlTokenEnc: undefined, credentialInvalid: false } : current ?? state);
@@ -186,6 +197,10 @@ export function registerRemoteControlIpc(): void {
     }
     const result = await remoteControlAction(action, payload as Record<string, unknown> | undefined);
     if (result.ok && result.settings && action !== 'status') broadcastRemoteChange();
+    if (result.ok && ['register','login','recover'].includes(action)) {
+      const { stationService } = await import('./collaboration/station-service.js');
+      void stationService()?.action('connect').catch(() => {});
+    }
     return result;
   });
 }

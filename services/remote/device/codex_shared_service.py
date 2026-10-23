@@ -131,6 +131,7 @@ class Gateway:
         self.generation=generation; self.admission=Admission(directory()/'active-turns.json',generation)
         self.desktop_peers=0; self.tasks={}; self.desktop_connections={}; self.thread_connections={}; self.settings={}; self.reconciling={}
         self.reconcile_interval=2.;self.reconcile_timeout=3.;self.next_desktop_check={}
+        self.station_approvals={}
 
     def native_rpc(self, name='ahastation_shared_bridge'):
         return RPC(self.native_url,name,{'Authorization':'Bearer '+self.native_token})
@@ -233,6 +234,12 @@ class Gateway:
                         await client.send(json.dumps({'id':request_id,'error':{'code':-32001,'message':str(exc)}}))
                     return
                 owner='desktop' if desktop else 'external:'+str(id(client))
+                if not method and 'id' in message:
+                    match=next((a for a in self.station_approvals.values() if a['connection'] is connection and a['native_id']==request_id),None)
+                    if match:
+                        if match.get('decided'): return
+                        choice=(message.get('result') or {}).get('decision')
+                        match.update(decided=True,decision='allow' if choice in ('accept','approved','acceptForSession') else 'deny')
                 reservation=None; thread=params.get('threadId')
                 try:
                     active=self.admission.active.get(thread)
@@ -249,7 +256,15 @@ class Gateway:
                                 reservation['connection']=connection;self.thread_connections[thread]=connection
                             pending[request_id]=(thread,reservation)
                     elif method in ('turn/interrupt','turn/steer'):
-                        self.admission.authorize_control(thread,params.get('turnId') or params.get('expectedTurnId'),owner)
+                        # The original local Desktop may stop the exact Station
+                        # turn running through its own connection. This never
+                        # permits steering or a different Desktop connection.
+                        desktop_stop=(method=='turn/interrupt' and desktop and active and
+                            active['owner'].startswith('bridge:') and active.get('turn')==params.get('turnId') and
+                            active.get('generation')==self.generation and not active.get('identity_unconfirmed') and
+                            not active.get('finished') and self.thread_connections.get(thread) is connection)
+                        if not desktop_stop:
+                            self.admission.authorize_control(thread,params.get('turnId') or params.get('expectedTurnId'),owner)
                         if method=='turn/interrupt' and owner=='desktop':
                             # Preserve the Desktop's own stop action, while
                             # preventing this build's foreground-shell detach.
@@ -319,6 +334,14 @@ class Gateway:
                         for thread in list(self.admission.active): self.schedule_desktop_check(thread)
                         async with self.admission.condition: self.admission.condition.notify_all()
                     if 'method' in message:
+                        if desktop and 'id' in message:
+                            params=message.get('params') or {}
+                            existing=next((a for a in self.station_approvals.values() if a['connection'] is connection and a['native_id']==message['id']),None)
+                            if not existing:
+                                identity=str(uuid.uuid4())
+                                self.station_approvals[identity]={'id':identity,'native_id':message['id'],'method':message['method'],
+                                    'params':params,'threadId':params.get('threadId'),'turnId':params.get('turnId'),
+                                    'connection':connection,'decided':False}
                         for listener in list(connection['listeners']): await listener.put(message)
                     entry=pending.pop(message.get('id'),None) if 'method' not in message else None
                     if entry:
@@ -358,10 +381,52 @@ class Gateway:
                 self.admission.persist()
 
     async def local_call(self, method, params):
+        if method in ('bridge/approvals','bridge/approval/decide','bridge/native/stop'):
+            from project_policy import authorized_cwd
+            config=params['config']
+            if method=='bridge/approval/decide':
+                approval=self.station_approvals.get(params['approvalId'])
+                if not approval: raise ValueError('审批已处理或过期')
+                thread=approval['threadId']
+            else: thread=params['threadId']
+            async with self.recovery_rpc(thread) as rpc:
+                metadata=(await rpc.call('thread/read',{'threadId':thread,'includeTurns':False}))['thread']
+                cwd=authorized_cwd(metadata['cwd'],config.get('project_policy'))
+                check_permissions(self.settings.get(thread) or {},config,cwd)
+                if method=='bridge/native/stop':
+                    native=params['turnId'];active=self.admission.active.get(thread)
+                    if not active:
+                        saved=await read_native_turn(rpc,thread,native);await verify_exit(rpc,thread,saved)
+                        return {'cleanup_confirmed':True}
+                    if active.get('turn')!=native: raise ValueError('精确原生轮次已变化，请刷新后核对')
+                    await stop_owned_terminals(rpc,thread,native,active.get('commands',{}))
+                    await rpc.call('turn/interrupt',{'threadId':thread,'turnId':native})
+                    saved=await read_native_turn(rpc,thread,native);await verify_exit(rpc,thread,saved,active.get('commands',{}))
+                    return {'cleanup_confirmed':True}
+            if method=='bridge/approvals':
+                return {'approvals':[{'id':a['id'],'tool':a['method'],'turnId':a['turnId'],'decided':a['decided'],'decision':a.get('decision'),
+                    'description':str(a['params'].get('reason') or a['params'].get('command') or a['method'])[:12000],
+                    'supported':a['method'] in ('item/commandExecution/requestApproval','item/fileChange/requestApproval') and not a['params'].get('additionalPermissions')}
+                    for a in self.station_approvals.values() if a['threadId']==thread]}
+            # Metadata verification above yields to the Desktop connection.
+            # Recheck the single decision gate after that await, before send.
+            if approval['decided']:return {'decided':True,'decision':approval['decision']}
+            if params['decision'] not in ('allow','deny'): raise ValueError('无效审批决定')
+            if approval['method'] not in ('item/commandExecution/requestApproval','item/fileChange/requestApproval') or approval['params'].get('additionalPermissions'):
+                raise ValueError('此原生交互或权限扩展需在桌面本机处理')
+            for key in ('cwd','grantRoot'):
+                if approval['params'].get(key): authorized_cwd(approval['params'][key],config.get('project_policy'))
+            active=self.admission.active.get(thread)
+            if not active or approval.get('turnId') and active.get('turn')!=approval['turnId']: raise ValueError('审批属于旧轮次')
+            approval.update(decided=True,decision=params['decision'])
+            await approval['connection']['ws'].send(json.dumps({'id':approval['native_id'],'result':{'decision':'accept' if params['decision']=='allow' else 'decline'}}))
+            return {'decided':True,'decision':params['decision']}
         if method=='bridge/status':
             thread=params.get('threadId')
             self.schedule_desktop_check(thread)
             return {'generation':self.generation,'desktop_connected':bool(self.desktop_connections),
+                'native_turn_id':(self.admission.active.get(thread) or {}).get('turn'),
+                'reservation_owner':(self.admission.active.get(thread) or {}).get('owner'),
                 'execution_status':self.admission.status(params.get('threadId'))[0],
                 'detail':self.admission.status(params.get('threadId'))[1],
                 'configuration':{key:value for key,value in self.settings.get(params.get('threadId'),{}).items()
@@ -381,16 +446,24 @@ class Gateway:
                 if not self.desktop_connections: raise RuntimeError('桌面尚未通过联动入口连接共享服务')
                 self.tasks[journal.task_id]=asyncio.create_task(self.execute(journal,params['config']))
             return {'accepted':True}
+        if method=='bridge/task/state':
+            from task_journal import TaskJournal
+            journal=TaskJournal(str(uuid.UUID(params['taskId'])),'codex')
+            task=self.tasks.get(journal.task_id)
+            mapping=read_json(journal.path/'shared.json') or {}
+            return {'known':bool(task and not task.done()),'generation':self.generation,
+                'status':read_json(journal.path/'status.json',{}).get('status','unknown'),
+                'threadId':mapping.get('thread_id'),'turnId':mapping.get('turn_id'),'result':journal.result()}
         if method=='bridge/task/reconcile':
             from task_journal import TaskJournal
             journal=TaskJournal(str(uuid.UUID(params['taskId'])),'codex')
             mapping=read_json(journal.path/'shared.json') or {}
             result=journal.result()
             if result and result.get('cleanup_confirmed'): return {'confirmed':True}
+            task=self.tasks.get(journal.task_id)
+            if task and not task.done(): return {'confirmed':False,'known':True}
             if mapping.get('generation')!=self.generation or not mapping.get('turn_id'):
                 raise RuntimeError('原生实例或 turn ID 无法核对，停止未确认；本次未重新执行')
-            task=self.tasks.get(journal.task_id)
-            if task and not task.done(): return {'confirmed':False}
             thread=mapping['thread_id']; native=mapping['turn_id']
             async with self.recovery_rpc(thread) as rpc:
                 if (journal.path/'cancel.json').exists():
@@ -413,9 +486,9 @@ class Gateway:
             if active and active['owner']=='bridge:'+journal.task_id:
                 await self.admission.abandon(thread,active)
             text='\n'.join(item.get('text','') for item in saved.get('items',[]) if item.get('type')=='agentMessage')
-            stopped=(journal.path/'cancel.json').exists() or saved['status']=='interrupted'
+            stopped=saved['status']=='interrupted'
             journal.finish({'ok':saved['status']=='completed' and not stopped,'cancelled':stopped,
-                'cleanup_confirmed':True,'json':{'last_message':text},
+                'turnOutcome':saved['status'],'cleanup_confirmed':True,'json':{'last_message':text},
                 'error':str(saved.get('error') or '') if saved['status']=='failed' else ('' if not stopped else '原生任务已中断')})
             return {'confirmed':True}
         raise ValueError('Unsupported local method')
@@ -444,6 +517,11 @@ class Gateway:
             write_json(journal.path/'status.json',{'status':'waiting'})
             reservation=await self.admission.reserve(thread,'bridge:'+journal.task_id,cancel,
                 ready=lambda:self.desktop_connection(thread) is not None)
+            if config.get('station_slot_file'):
+                write_json(journal.path/'status.json',{'status':'waiting-slot'})
+                while not (journal.path/'slot.json').exists():
+                    if cancel():raise InterruptedError('等待名额的接续已停止，未发送原生指令')
+                    await asyncio.sleep(.1)
             async with self.desktop_rpc(thread) as rpc:
                 metadata=(await rpc.call('thread/read',{'threadId':thread,'includeTurns':False}))['thread']
                 if metadata['id']!=thread or not Path(metadata['cwd']).samefile(cwd): raise ValueError('原生会话或项目目录不匹配')
@@ -498,8 +576,8 @@ class Gateway:
                 saved=await read_native_turn(rpc,thread,native)
                 await verify_exit(rpc,thread,saved,reservation.get('commands',{}))
                 text='\n'.join(item.get('text','') for item in saved.get('items',[]) if item.get('type')=='agentMessage')
-                result={'ok':saved['status']=='completed' and not interrupted,'cancelled':cancel(),
-                    'cleanup_confirmed':True,'json':{'last_message':text},
+                result={'ok':saved['status']=='completed','cancelled':saved['status']=='interrupted',
+                    'turnOutcome':saved['status'],'cleanup_confirmed':True,'json':{'last_message':text},
                     'error':str(saved.get('error') or '') if saved['status']=='failed' else ('' if not interrupted else '原生任务已中断')}
                 mapping.update(phase='finished'); write_json(journal.path/'shared.json',mapping)
         except InterruptedError as exc:
@@ -562,7 +640,8 @@ def check_permissions(resumed, config, cwd):
     sandbox=resumed.get('sandbox') or {}
     kind=sandbox.get('type')
     allowed=config.get('desktop_permission','read-only')
-    if kind not in ('readOnly','workspaceWrite') or (allowed=='read-only' and kind!='readOnly'):
+    full=allowed=='full-access' and config.get('full_access_confirmed') is True
+    if kind not in ('readOnly','workspaceWrite','dangerFullAccess') or (kind=='dangerFullAccess' and not full) or (allowed=='read-only' and kind!='readOnly'):
         raise ValueError('原桌面会话执行权限超过 Bridge 授权，请在桌面调整会话权限或在 Bridge 确认相应授权；本次未执行')
     if kind=='workspaceWrite':
         from project_policy import authorized_cwd

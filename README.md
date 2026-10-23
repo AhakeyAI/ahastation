@@ -1,6 +1,6 @@
 # AhaStation
 
-多设备开发交接：先阅读 [源码基线与启动检查](docs/collaboration/BASELINE.md)，再阅读 [整体需求、方案与分工](docs/collaboration/MULTI_DEVICE_COLLABORATION_HANDOFF.md)。已有 Hub／原生会话兼容源码位于 [services/remote](services/remote/README.md)；Station 原生多设备协作仍按交接方案继续开发。
+当前 `etrnal-dev` 包含 **0.19.0-collaboration.5 开发快照**，尚非全部验收通过的正式版本。先阅读 [快照状态、启动与已知问题](docs/collaboration/DEV_SNAPSHOT_2026-10-24.md)，其中记录旧任务发布风险和实测的 Codex 讨论恢复失败。源码基线历史见 [BASELINE.md](docs/collaboration/BASELINE.md)，整体需求见 [FIRST_RELEASE_SPEC.md](docs/collaboration/FIRST_RELEASE_SPEC.md)，Hub／原生会话源码位于 [services/remote](services/remote/README.md)。
 
 **语音会议式 AI 编程协作客户端** — 多个 CLI coding agent（Claude Code / Codex / Kimi / OpenCode / Qoder）以「数字员工参会者」身份加入你的视频会议：你说话，它们听、看、写代码、跑命令，并把进展讲给你听。
 

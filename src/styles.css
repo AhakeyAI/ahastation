@@ -13003,3 +13003,35 @@ html.ahabar-view #root {
 }
 .meeting-resume-banner > div { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
 .meeting-navigation { padding: 4px 20px; }
+/* Shared collaboration stays independent of local meeting view lifecycle. */
+.collaboration-launch { position: fixed; right: 18px; bottom: 18px; z-index: 120; padding: 10px 18px; border-radius: 12px; background: #2854d9; color: white; border: 0; cursor: pointer; }
+.collaboration-overlay { position: fixed; inset: 32px 20px 20px; z-index: 500; border: 1px solid #72809b; border-radius: 16px; background: var(--bg-primary, #181d29); color: var(--text-primary, #edf1fa); padding: 20px; overflow: auto; box-shadow: 0 16px 80px #0008; }
+.collaboration-overlay header { display: flex; justify-content: space-between; align-items: center; }
+.collaboration-columns { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 4fr); gap: 24px; }
+.collaboration-columns aside { display: flex; flex-direction: column; gap: 8px; }
+.collaboration-overlay input:not([type=checkbox]), .collaboration-overlay textarea, .collaboration-overlay select, .collaboration-settings input:not([type=checkbox]) { box-sizing: border-box; display: block; width: 100%; padding: 9px; margin: 8px 0; border: 1px solid #687386; border-radius: 7px; background: transparent; color: inherit; }
+.collaboration-overlay button, .collaboration-settings button { padding: 7px 10px; margin: 4px 2px; cursor: pointer; }
+.collaboration-overlay label, .collaboration-settings label { display: block; margin: 10px 0; }
+.collaboration-settings { padding: 18px; margin: 16px 0; border: 1px solid #8290aa66; border-radius: 12px; }
+.collaboration-settings small { display: block; opacity: .75; margin: 6px 0; }
+.collaboration-settings article, .collaboration-task { padding: 12px; margin: 12px 0; border: 1px solid #8290aa55; border-radius: 8px; }
+.collaboration-chat { max-height: 35vh; overflow: auto; margin: 12px 0; padding: 12px; background: #8290aa12; border-radius: 8px; }
+.collaboration-overlay pre, .collaboration-overlay p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .collaboration-overlay { inset: 10px; padding: 12px; } .collaboration-columns { grid-template-columns: 1fr; } }
+
+/* Unified meeting variants use the original stage, chat and task components. */
+.unified-meeting .unified-plan-bar {display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;border-bottom:1px solid var(--border,#394252)}
+.unified-stage {display:grid!important;grid-template-rows:auto minmax(0,1fr);overflow:hidden;min-width:0}
+.unified-workspace {overflow:auto;min-height:0;padding:20px}.unified-participants .tiles-gallery-scroll {display:flex;gap:12px;padding:12px;overflow:auto}
+.unified-member {min-width:200px;max-width:300px;padding:14px;border:1px solid var(--border,#394252);border-radius:12px;background:var(--bg-panel,#1d2230)}
+.unified-member button {display:block;text-align:left;margin:6px 0}.unified-meeting button,.unified-entry button {cursor:pointer}
+.unified-task-list table {width:100%;border-collapse:collapse}.unified-task-list th,.unified-task-list td {padding:12px;text-align:left;border-bottom:1px solid var(--border,#394252)}
+.unified-inspector,.unified-delivery {padding:16px;overflow:auto}.unified-inspector nav,.unified-delivery nav {display:flex;gap:12px;margin:12px 0;flex-wrap:wrap}
+.unified-inspector pre,.unified-delivery pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:48vh;overflow:auto}
+.unified-dialog {max-width:560px;margin:auto;padding:24px;background:var(--bg-panel,#1d2230);border:1px solid var(--border,#394252);border-radius:16px}.unified-dialog button{display:block;margin:12px 0}
+.unified-task-link {display:flex;gap:8px;align-items:center;flex-basis:100%;font-size:12px}.unified-task-link select{min-width:0;flex:1}
+.unified-entry {margin:16px 0;padding:18px;border:1px solid var(--border,#394252);border-radius:12px}.unified-entry label,.unified-settings label{display:block;margin:10px 0}
+.unified-entry input,.unified-entry select,.unified-settings select,.unified-settings textarea{box-sizing:border-box;width:100%;background:transparent;color:inherit;border:1px solid #687386;border-radius:6px;padding:8px}
+.unified-materials {padding:8px 20px}.unified-materials[open]{max-height:25vh;overflow:auto}.unified-alert{color:var(--danger,#ff8c80);padding:6px 20px}
+.unified-invitation {padding:12px}.unified-invitation label {display:block;margin:10px 0}.unified-settings>details{padding:14px 0;border-bottom:1px solid var(--border,#394252)}
+@media(max-width:800px){.unified-meeting .mtg-main{grid-template-columns:minmax(0,1fr)}.unified-meeting .drawer{max-width:100%}.unified-task-list{overflow:auto}.unified-member{min-width:170px}}

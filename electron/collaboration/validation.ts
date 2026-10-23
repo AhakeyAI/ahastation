@@ -26,7 +26,7 @@ const names: Array<keyof ContractTypes> = [
 const validators = Object.fromEntries(names.map(name => [name, ajv.compile({ $ref: schema.$id + '#/$defs/' + name })]));
 
 /** Reject non-JSON values and bound work before invoking schema validation. No normalization/coercion. */
-function checkJson(value: unknown, depth = 0, count = { value: 0 }, seen = new Set<object>()): void {
+export function checkJson(value: unknown, depth = 0, count = { value: 0 }, seen = new Set<object>()): void {
   if (++count.value > 20000 || depth > 24) throw new ContractError('INVALID_INPUT', 'JSON complexity limit exceeded');
   if (typeof value === 'string') {
     if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)) {

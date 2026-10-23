@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir -r requirements-public.txt && useradd --uid 10001
 COPY device/ ./device/
 COPY web/ ./web/
 COPY deploy/ ./deploy/
+COPY contracts/ ./contracts/
 # Normalize copied upload modes before dropping privileges; keep sources
 # root-owned and read-only for the runtime user, with traversable directories.
 RUN find /app -type d -exec chmod 0755 {} + \

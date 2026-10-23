@@ -31,6 +31,19 @@ import { TaskProfilePanel } from './TaskProfilePanel';
 import { TaskReviewPanel } from './TaskReviewPanel';
 import { TerminalTurnConfirmBar } from './TerminalTurnConfirmBar';
 import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
+import type {UnifiedModel} from '../lib/unified-meeting-store';
+import {sharedCommand,sharedRequest,sharedPhase} from '../lib/unified-meeting-store';
+import {SharedTaskMailbox} from './TaskMailboxPanel';
+import {SharedDeliveryViewer} from './DeliveryViewer';
+import {perform,SharedExecutionReconciliation} from './UnifiedMeetingParts';
+
+export function SharedTaskInspector({model,taskId,onClose}:{model:UnifiedModel;taskId:string;onClose:()=>void}){
+  const [tab,setTab]=useState('overview');const task=model.tasks.find(t=>t.id===taskId);if(!task)return <p>此任务不属于当前会议。</p>;
+  const coordinator=model.meeting.coordinatorDeviceId===model.view.deviceId;
+  const control=(operation:string)=>perform(sharedCommand('task.control',{taskId:task.id,attemptId:task.attemptId,operation}));
+  const review=()=>{const evidence=window.prompt('记录对本次成果内容的实际人工检查（结构化失败测试不会因该说明变为通过）');if(evidence)perform(sharedRequest('delivery.review',{taskId:task.id,evidence}));};
+  return <section className="task-inspector unified-inspector"><header><h2>{String(task.title)}</h2><button onClick={onClose}>关闭详情</button></header><nav>{[['overview','概览'],['messages','补充／继续'],['activity','执行记录'],['delivery','成果与测试']].map(([id,label])=><button key={id} aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>{tab==='overview'&&<><p>{String(task.objective)}</p><p>{String(model.view.snapshot.entities.device?.find(d=>d.id===task.targetDeviceId)?.name)} · {String(task.agentId)} · {sharedPhase(task)}</p>{!coordinator&&task.status==='delivered'&&<p>成果核验由原协调设备负责；本机可提交成果和查看状态。</p>}<SharedExecutionReconciliation model={model} task={task}/><p>依赖：{((task.dependencies??[]) as string[]).map(id=>String(model.tasks.find(t=>t.id===id)?.title??id)).join('、')||'无'}</p><button disabled={task.status==='accepted'||task.status==='stopped'} onClick={()=>control('stop')}>只停止此任务</button>{task.status==='delivery-pending'&&<button onClick={()=>control('retry-delivery')}>重试上传，沿用原执行成果</button>}{task.status==='delivered'&&task.resource==='repository'&&<button disabled={!coordinator} title={coordinator?'':'请在原协调设备检查成果；本机仍可提交和查看'} onClick={()=>perform(sharedRequest('delivery.integrate',{taskId:task.id}))}>检查准确成果并运行组合验证</button>}{task.status==='delivered'&&task.resource!=='repository'&&<button disabled={!coordinator} title={coordinator?'':'请在原协调设备检查成果；本机仍可提交和查看'} onClick={review}>检查结构化报告并记录人工验收</button>}{task.status==='delivered'&&<button disabled={task.integration!=='verified'} onClick={()=>control('accept')}>最终验收此任务</button>}</>}{tab==='messages'&&<SharedTaskMailbox key={String(task.attemptId)} task={task}/>} {tab==='activity'&&<><p>来源：{task.targetDeviceId===model.view.deviceId?'本机任务接收运行时':'远端设备同步记录'}，不使用本机终端模拟。</p><pre>{Array.isArray(task.output)?task.output.join('\n'):String(task.output??'尚无执行输出')}</pre></>}{tab==='delivery'&&<SharedDeliveryViewer key={String(task.attemptId)} task={task}/>}</section>;
+}
 
 const TASK_INSPECTOR_TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },

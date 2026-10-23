@@ -175,6 +175,13 @@ const DEFAULT_HOST_ID = 'default';
 const DEFAULT_BACKEND_ID = 'claude-code';
 
 interface OrchestratorOpts {
+  /** Shared meetings retain this Orchestrator as their sole planning authority.
+   * These hooks replace local execution, never mirror it. */
+  sharedExecution?: {
+    propose(tasks:PlanMeetingTaskInput[],brief:MeetingPlanBrief):Promise<void>;
+    consult(memberId:string,text:string):Promise<unknown>;
+    control(taskId:string,operation:string,text?:string):Promise<unknown>;
+  };
   emit: (e: OrchestratorEvent) => void;
   cwd: string;
   autoApproveScope?: AutoApproveScope;
@@ -232,6 +239,8 @@ interface OrchestratorOpts {
 }
 
 export class Orchestrator implements OrchestratorBridge {
+  private sharedExecution?:OrchestratorOpts['sharedExecution'];
+  private autoApprovePlans=false;
   /** All host groups in this meeting. Always has at least 'default'. */
   private hostGroups = new Map<string, HostGroup>();
   /**
@@ -343,6 +352,7 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   constructor(opts: OrchestratorOpts) {
+    this.sharedExecution=opts.sharedExecution;
     this.emit = opts.emit;
     this.cwd = opts.cwd;
     this.autoApproveScope = opts.autoApproveScope ?? 'off';
@@ -1010,6 +1020,14 @@ export class Orchestrator implements OrchestratorBridge {
     });
     if (!authorized.ok) return authorized;
     const command = authorized.command;
+    if(this.sharedExecution && command.kind!=='propose-plan') {
+      try {
+        if(command.kind==='ask-host')return {ok:true,value:await this.sharedExecution.consult(command.hostId,command.question)};
+        if(command.kind==='send-task-message'||command.kind==='follow-up-task'||command.kind==='steer-task')return {ok:true,value:await this.sharedExecution.control(command.taskId,'supplement',command.message)};
+        if(command.kind==='interrupt-task')return {ok:true,value:await this.sharedExecution.control(command.taskId,'stop')};
+        return {ok:false,code:'forbidden',error:'Shared tasks require a visible revised plan or an exact task action; local scheduling is disabled.'};
+      }catch(error){return {ok:false,code:'execution-failed',error:String(error)};}
+    }
     try {
       switch (command.kind) {
         case 'propose-plan': {
@@ -1697,7 +1715,7 @@ export class Orchestrator implements OrchestratorBridge {
       allTranscripts.push(...hg.getTranscript());
     }
 
-    this.recapHandle = startRecap({
+    this.recapHandle = this.sharedExecution?null:startRecap({
       transcript: allTranscripts,
       cwd: this.cwd,
       env: this.workerEnv,
@@ -1764,6 +1782,7 @@ export class Orchestrator implements OrchestratorBridge {
 
   /** Manual entry point: renderer-side "Plan meeting" button. */
   async installPlan(tasks: PlanMeetingTaskInput[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    if(this.sharedExecution)return this.proposePlan(tasks);
     let normalized: PlanMeetingTask[];
     try {
       normalized = normalizePlanMeetingTasks(
@@ -1850,6 +1869,10 @@ export class Orchestrator implements OrchestratorBridge {
     tasks: PlanMeetingTaskInput[],
     briefInput?: MeetingPlanBriefInput,
   ): Promise<{ ok: true; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    if(this.sharedExecution) {
+      try {await this.sharedExecution.propose(tasks,normalizeMeetingPlanBrief(briefInput,tasks));return {ok:true};}
+      catch(error){return {ok:false,error:error instanceof Error?error.message:String(error)};}
+    }
     let normalized: PlanMeetingTask[];
     let appliedDefaults: AppliedTaskDefaults[];
     try {
@@ -1868,7 +1891,7 @@ export class Orchestrator implements OrchestratorBridge {
     if (backendError) return { ok: false, error: backendError };
     const brief = normalizeMeetingPlanBrief(briefInput, normalized);
     const applied = appliedDefaults.length > 0 ? { appliedDefaults } : {};
-    if (!this.autoOrchestration) {
+    if (!this.autoApprovePlans) {
       this.pendingPlan = normalized.map((task) => ({ ...task, deps: [...(task.deps ?? [])] }));
       this.pendingPlanBrief = brief;
       this.safeEmit({
@@ -1896,9 +1919,17 @@ export class Orchestrator implements OrchestratorBridge {
     void this.repository.append('orchestration-mode-changed', { enabled });
   }
 
+  setAutoApprovePlans(enabled:boolean):void {this.autoApprovePlans=enabled;}
+
+  /** Only the coordinator talker; accepted Workers remain owned by their task. */
+  async interruptHostReply():Promise<void> {await this.defaultHost().getHost()?.interrupt();}
+
+  hostSessionSnapshot():BackendSessionSnapshot|undefined {return this.defaultHost().getHost()?.snapshot?.()??undefined;}
+
   async approvePendingPlan(
     approved: boolean,
     revisedTasks?: PlanMeetingTaskInput[],
+    revisedBrief?:MeetingPlanBriefInput,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     let tasks: PlanMeetingTask[] | null = this.pendingPlan;
     if (revisedTasks) {
@@ -1915,6 +1946,7 @@ export class Orchestrator implements OrchestratorBridge {
       const backendError = await this.validateExecutionBackends(tasks);
       if (backendError) return { ok: false, error: backendError };
     }
+    if(approved&&tasks)await this.repository.append('plan-document-approved',{brief:normalizeMeetingPlanBrief(revisedBrief??this.pendingPlanBrief??undefined,tasks)});
     this.pendingPlan = null;
     this.pendingPlanBrief = null;
     if (!tasks) return { ok: false, error: 'no pending plan' };
@@ -2012,6 +2044,7 @@ export class Orchestrator implements OrchestratorBridge {
       }
     | { ok: false; error: string }
   > {
+    if(this.sharedExecution)return {ok:false,error:'共享派活必须提交明确设备与 Agent 的完整计划；请使用 plan_meeting / propose-plan'};
     const request = typeof input === 'string' ? { description: input } : input;
     const description = request.description.trim();
     if (!description) return { ok: false, error: 'description is required' };
@@ -2065,7 +2098,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId,
         specialty,
         reused: false,
-        status: this.autoOrchestration ? 'installed' : 'proposed',
+        status: this.autoApprovePlans ? 'installed' : 'proposed',
         ...(notes?.length ? { appliedDefaults: notes } : {}),
       };
     }

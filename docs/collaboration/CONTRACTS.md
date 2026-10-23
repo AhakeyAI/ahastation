@@ -1,3 +1,5 @@
+当前 collaboration.3 增量协议、认证错误及恢复约定见本文末尾；下方 v1 章节保留原基础契约的历史边界。
+
 # 四项公共契约与开发调用说明
 
 版本：collaboration v1，2026-10-21。适用分支：etrnal-dev。
@@ -264,3 +266,10 @@ React 端只导入这些文件中的 type，并通过受限 IPC 获取共享 DTO
 无需把 Navicat 连接、MySQL root、HUB_SECRET、Git／模型凭证交给新成员。开发本次基础只需源码与公开依赖；公网联调再提供维护者确认的测试服务地址和独立协作测试身份。
 
 详细本轮实测结果见 [CONTRACT_CHECKS.json](CONTRACT_CHECKS.json)。手动 CI 只定义在 [collaboration-contracts.yml](../../.github/workflows/collaboration-contracts.yml)，本机 Windows 结果不能代替尚未运行的 Linux/macOS 原生验收。
+# collaboration.3 增量契约
+
+2026-10-22 R1–R4 修复沿用协议 2；命令与实体仍由 contracts/collaboration/v2.schema.json 同源校验。新增 message.retry={messageId}，仅允许 failed+exitConfirmed+notStarted 的原 Host 输入，按 retryOf 去重；message.event／wireMessage 增加 preparing 和 failed。原输入与错误保留，failed 不是 completed，不允许迟到进度覆盖。
+
+HTTP 错误响应约定为 `{"detail":{"code":"FORBIDDEN","message":"具体操作权限原因"}}`（403）或 `{"detail":{"code":"AUTH_INVALID","message":"认证失败原因"}}`（401）。旧字符串 detail 继续可读；旧无分类 403 用同凭证快照验证区分认证与业务拒绝。认证后的 GET /api/collaboration/v2/identity 返回 ownerId/deviceId，用于安全恢复旧误标；X-Station-Device 必须与 token 的设备身份相符。WSS 4401 仅认证失败，1013 暂不可用，4406 协议不兼容。
+
+capabilities 增加 unified-review-fixes-v1，新客户端同时声明 unified-meeting-v1,unified-review-fixes-v1；缺少新状态支持的旧客户端遇到 preparing/failed/retryOf 快照返回 426。依赖基线修订继续用原 plan.review，准确 SHA 和全部获准字段保持同一严格校验；只允许修改未分发任务，旧批准版本留在追加事件中，不需要新增 DDL。具体兼容与恢复说明见 [升级说明](../../services/remote/docs/COLLABORATION_3_UPGRADE.md)。

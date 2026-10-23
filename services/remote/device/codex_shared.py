@@ -171,6 +171,31 @@ async def scan_async(config=None):
                 seen.add(cursor)
     return list(rows.values())
 
+async def scan_page(config,cursor=None):
+    """Metadata-only, bounded pages; no silent first-100 catalogue cutoff."""
+    from codex_desktop import SOURCE_KINDS,reference
+    from project_policy import authorized_cwd
+    shared=endpoint();position=cursor or {'archived':False,'cursor':None}
+    async with RPC(shared['url']) as rpc:
+        status=await rpc.call('bridge/status',{})
+        if not status['desktop_connected']:raise RuntimeError('桌面未连接同一个执行服务，不能接续')
+        page=await rpc.call('thread/list',{'sourceKinds':SOURCE_KINDS,'useStateDbOnly':True,'archived':position['archived'],'limit':32,'cursor':position['cursor']})
+        rows=[]
+        for item in page.get('data',[]):
+            try:
+                if item.get('cwd'):authorized_cwd(item['cwd'],config['project_policy'])
+                full=(await rpc.call('thread/read',{'threadId':item['id'],'includeTurns':False}))['thread']
+                authorized_cwd(full['cwd'],config['project_policy'])
+            except ValueError:continue
+            live=await rpc.call('bridge/status',{'threadId':item['id']})
+            row=reference({**full,'archived':position['archived'],'status':{'type':'notLoaded'}},rpc.info['codexHome'],True)
+            row.update(execution_status=live['execution_status'],error=row['error'] or live['detail'])
+            rows.append(row)
+        next_cursor=page.get('nextCursor')
+        if next_cursor==position['cursor'] and next_cursor:raise RuntimeError('原生目录游标未前进，请核对桌面状态')
+        continuation={'archived':position['archived'],'cursor':next_cursor} if next_cursor else {'archived':True,'cursor':None} if not position['archived'] else None
+        return rows,continuation
+
 
 async def run_task(config,msg,on_state=None):
     shared=endpoint(); journal=TaskJournal(msg['task_id'],'codex')

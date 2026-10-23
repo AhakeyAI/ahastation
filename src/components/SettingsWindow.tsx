@@ -11,7 +11,7 @@ import { VoiceLockPanel } from './VoiceLockPanel';
 import { SkillManagerPanel } from './SkillManagerPanel';
 import { UpcomingSettingsPanel } from './UpcomingSettingsPanel';
 import { BackendSettings } from './BackendSettings';
-import { RemoteControlSettings } from './RemoteControlSettings';
+import { UnifiedCollaborationSettings } from './UnifiedCollaborationSettings';
 import { IDEManagerPanel } from './IDEManagerPanel';
 import { VoiceGuideModal } from './VoiceGuideModal';
 import { SPEAKER_MODEL_ID } from '../lib/speaker-embedding';
@@ -109,7 +109,7 @@ function SettingsWindowInner() {
         )}
       </div>
       <div className="settings-window-body">
-        <RemoteControlSettings />
+        <UnifiedCollaborationSettings />
         <BackendSettings />
         <IDEManagerPanel />
         <MemoryPanel />

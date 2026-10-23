@@ -115,17 +115,17 @@ Linux 端选择目标时只需要传 `--agent codex-current` 或 `--agent claude
 
 ## 8. 直接 HTTP API
 
-Linux 小软件不想调用 `tools/pva.py` 时，可以直接走 HTTP：
+Linux 小软件不想调用 `tools/pva.py` 时，可以直接走 HTTP。先在本机设置实际使用的 `POCKET_VIBE_TOOL_TOKEN` 环境变量；示例不内嵌令牌：
 
 ```bash
-curl -H 'Authorization: Bearer change-me-tool-token' \
+curl -H "Authorization: Bearer ${POCKET_VIBE_TOOL_TOKEN}" \
   http://127.0.0.1:8787/v1/agents
 
-curl -H 'Authorization: Bearer change-me-tool-token' \
+curl -H "Authorization: Bearer ${POCKET_VIBE_TOOL_TOKEN}" \
   'http://127.0.0.1:8787/v1/sessions?provider=claude'
 
 curl -X POST http://127.0.0.1:8787/v1/turns \
-  -H 'Authorization: Bearer change-me-tool-token' \
+  -H "Authorization: Bearer ${POCKET_VIBE_TOOL_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{"provider":"claude","prompt":"继续解释当前项目","session_id":"CLAUDE_SESSION_ID_IF_NEEDED"}'
 ```

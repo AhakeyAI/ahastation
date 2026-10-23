@@ -162,3 +162,15 @@ export function TaskMailboxPanel({
     </div>
   );
 }
+import type {SharedEntity} from '../../electron/collaboration/production-types';
+import {sharedCommand} from '../lib/unified-meeting-store';
+import {perform} from './UnifiedMeetingParts';
+
+export function SharedTaskMailbox({task}:{task:SharedEntity}){
+  const [text,setText]=useState('');
+  const canContinue=task.status==='stopped'||task.stopRequested===true&&task.exitConfirmed===true&&['executed','delivery-pending','delivered'].includes(String(task.status));
+  const pending=(task.pendingFollowups??[]) as Array<{id:string;text:string;delivered:boolean;ignored?:boolean}>;
+  const [decisions,setDecisions]=useState<Record<string,'include'|'ignore'>>({});
+  const [edits,setEdits]=useState<Record<string,string>>({});
+  return <section><h3>此任务的补充与继续</h3><p>先保存，到交付边界再投递；停止后需核对并明确继续。</p>{pending.map(f=><p key={f.id}>{!f.delivered&&!f.ignored&&canContinue?<textarea value={edits[f.id]??f.text} onChange={e=>setEdits({...edits,[f.id]:e.target.value})}/>:f.text} · {f.delivered?'已投递':f.ignored?'已忽略':'已保存，尚未执行'}{!f.delivered&&!f.ignored&&<select value={decisions[f.id]??'include'} onChange={e=>setDecisions({...decisions,[f.id]:e.target.value as 'include'|'ignore'})}><option value="include">纳入继续</option><option value="ignore">忽略</option></select>}</p>)}<textarea value={text} onChange={e=>setText(e.target.value)} placeholder="只补充此项完整任务"/><button disabled={!text.trim()||task.status==='accepted'} onClick={()=>{perform(sharedCommand('task.control',{taskId:task.id,attemptId:task.attemptId,operation:'supplement',text}));setText('');}}>保存此任务补充</button>{canContinue&&<button onClick={()=>perform(sharedCommand('task.control',{taskId:task.id,attemptId:task.attemptId,operation:'continue',text:String(task.objective),followups:pending.filter(f=>!f.delivered&&!f.ignored).map(f=>({id:f.id,action:decisions[f.id]??'include',text:edits[f.id]??f.text}))}))}>核对后继续原任务</button>}</section>;
+}

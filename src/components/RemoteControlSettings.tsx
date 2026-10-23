@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { RemoteControlView, RemoteDeviceView, RemoteTaskView } from '../../electron/remote-control-types';
 
 /** Identity and pairing are separate from model authentication. No long-term secret enters this panel. */
-export function RemoteControlSettings() {
+export function RemoteControlSettings({compact=false,onAuthenticated}:{compact?:boolean;onAuthenticated?:()=>Promise<unknown>}={}) {
   const [settings, setSettings] = useState<RemoteControlView>();
   const [url, setUrl] = useState('');
   const [login, setLogin] = useState('');
@@ -19,6 +19,7 @@ export function RemoteControlSettings() {
   async function request(action: string, payload?: Record<string, unknown>) {
     setBusy(true); setMessage('');
     try {
+      if(compact&&['login','register','recover'].includes(action)){const configured=await window.vibeMeet.remoteControl.request('configure',{enabled:true,mode:'public',serviceUrl:url||settings?.serviceUrl});if(!configured.ok)throw new Error(configured.error);}
       const reply = await window.vibeMeet.remoteControl.request(action, payload);
       if (!reply.ok) { setMessage(reply.error ?? '请求失败'); return; }
       if (reply.settings) { setSettings(reply.settings); setUrl(reply.settings.serviceUrl); setLogin(reply.settings.login ?? ''); }
@@ -27,10 +28,12 @@ export function RemoteControlSettings() {
       if (reply.pair_code) { setPair(reply.pair_code); setMessage(`配对码 ${reply.expires_in ?? 600} 秒内单次有效，请在 Bridge 中输入。`); }
       else if (action !== 'status') setMessage(action === 'cancel' ? '取消请求已记录；等待进程退出确认后才算结束。' : '操作成功');
       if (['login', 'register', 'recover'].includes(action)) { setPassword(''); setRecovery(''); }
+      if(compact&&['login','register','recover'].includes(action))await onAuthenticated?.();
     } catch (error) { setMessage(String(error)); } finally { setBusy(false); }
   }
   useEffect(() => { void request('status'); }, []);
   const configure = (enabled: boolean, mode = settings?.mode ?? 'public') => request('configure', { enabled, mode, serviceUrl: url });
+  if(compact)return <div className="unified-account">{settings?.loggedIn?<p>Station 已登录：{settings.login} <button disabled={busy} onClick={()=>void request('logout')}>退出登录</button></p>:<><label>Station 账号<input autoComplete="username" value={login} onChange={e=>setLogin(e.target.value)}/></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={busy||!login||!password} onClick={()=>void request('login',{login,password})}>登录并接入本机</button><button disabled={busy||!login||!password} onClick={()=>void request('register',{login,password})}>创建账号并接入本机</button></>}{message&&<p role="status">{message}</p>}<details><summary>高级账号恢复、撤销与旧连接</summary><RemoteControlSettings/></details></div>;
   return <section id="remote-control-settings" className="backend-settings-panel">
     <h2>远端控制（可选）</h2>
     <p>配对自己的电脑，选择已有 Codex / Claude 会话。项目、模型及 CLI 登录保留在远端电脑。</p>

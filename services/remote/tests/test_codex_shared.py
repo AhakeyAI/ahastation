@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
 from websockets.asyncio.server import serve
@@ -28,6 +29,8 @@ class Native:
         self.backgrounds=[]; self.hold_interrupt=False; self.fail_start=False
         self.terminal_stops=[];self.subscriptions={};self.notifications=[];self.requests=[]
         self.query_gates={};self.query_started={};self.hide_turns=set();self.query_snapshots={}
+        self.catalog_rows=[]
+        self.metadata={}
 
     async def event(self,method,params):
         delivered=0
@@ -51,7 +54,11 @@ class Native:
                 self.requests.append((method,p))
                 if method=='initialized': continue
                 if method=='initialize': result={'codexHome':self.cwd}
-                elif method=='thread/read': result={'thread':{'id':thread,'cwd':self.cwd,'turns':self.turns.get(thread,[])}}
+                elif method=='thread/read': result={'thread':{'id':thread,'cwd':self.cwd,'turns':self.turns.get(thread,[]),**self.metadata.get(thread,{})}}
+                elif method=='account/read':result={'requiresOpenaiAuth':False,'account':{'type':'fixture'}}
+                elif method=='thread/list':
+                    offset=int(p.get('cursor') or 0);rows=[] if p.get('archived') else self.catalog_rows;limit=p.get('limit',32)
+                    result={'data':rows[offset:offset+limit],'nextCursor':str(offset+limit) if offset+limit<len(rows) else None}
                 elif method=='thread/resume':
                     self.subscriptions[ws].add(thread)
                     result={'thread':{'id':thread,'cwd':self.cwd},'sandbox':{'type':'readOnly'},'approvalPolicy':'never','model':'original-model'}
@@ -156,6 +163,59 @@ class SharedTest(unittest.IsolatedAsyncioTestCase):
         self.runners.append(runner)
         await self.until(lambda:self.gateway.admission.waiting.get(self.thread)==1)
         return runner
+
+    async def test_station_slot_wait_and_readonly_reattach_never_resubmit(self):
+        import station_native
+        journal=self.journal();self.config['station_slot_file']=str(journal.path/'slot.json')
+        await self.submit(journal)
+        await self.until(lambda:read_json(journal.path/'status.json',{}).get('status')=='waiting-slot')
+        self.assertEqual(len(self.native.starts),0)
+        known=await self.bridge.call('bridge/task/state',{'taskId':journal.task_id})
+        self.assertTrue(known['known']);self.assertIsNone(known['turnId'])
+        request={'operation':'attach','executionId':journal.task_id,'sessionId':self.thread,'objective':'must never replace original',
+            'grants':[{'root':str(self.folder),'projectId':'p','confirmed':True,'permission':'read-only'}]}
+        observer=asyncio.create_task(station_native.execute(request));self.runners.append(observer)
+        await asyncio.sleep(.2);self.assertFalse(observer.done());self.assertEqual(len(self.native.starts),0)
+        with self.assertRaises(RuntimeError):await station_native.execute({'operation':'grant-slot','executionId':journal.task_id,'generation':'old'})
+        await station_native.execute({'operation':'grant-slot','executionId':journal.task_id,'generation':'generation-a'})
+        await self.until(lambda:len(self.native.starts)==1)
+        await self.native.finish(self.thread);result=await asyncio.wait_for(observer,5)
+        self.assertTrue(result['cleanup_confirmed']);self.assertEqual(len(self.native.starts),1)
+        self.assertEqual(self.native.starts[0]['input'][0]['text'],'station')
+
+    async def test_full_access_requires_explicit_matching_local_grant(self):
+        settings={'sandbox':{'type':'dangerFullAccess'},'approvalPolicy':'never','model':'original'}
+        with self.assertRaises(ValueError):check_permissions(settings,{**self.config,'desktop_permission':'full-access'},self.folder)
+        check_permissions(settings,{**self.config,'desktop_permission':'full-access','full_access_confirmed':True},self.folder)
+
+    async def test_station_catalogue_pages_more_than_one_hundred_without_reading_unselected_bodies(self):
+        self.native.catalog_rows=[{'id':str(uuid.uuid4()),'cwd':str(self.folder)} for _ in range(130)]
+        cursor=None;rows=[]
+        for _ in range(10):
+            page,cursor=await codex_shared.scan_page(self.config,cursor);rows+=page
+            if cursor is None:break
+        self.assertEqual(len(rows),130);self.assertEqual(len({r['session_id'] for r in rows}),130)
+        self.assertFalse(any(p.get('includeTurns') for method,p in self.native.requests if method=='thread/read'))
+        self.assertEqual(self.native.starts,[])
+
+    async def test_desktop_approval_wins_during_station_metadata_await_without_second_response(self):
+        identity=str(uuid.uuid4());entered=asyncio.Event();release=asyncio.Event();sent=[]
+        class Sender:
+            async def send(self,message):sent.append(message)
+        approval={'id':identity,'threadId':self.thread,'turnId':'current','decided':False,'native_id':77,
+            'method':'item/fileChange/requestApproval','params':{},'connection':{'ws':Sender()}}
+        self.gateway.station_approvals[identity]=approval
+        folder=str(self.folder);thread=self.thread
+        class Metadata:
+            async def call(self,*args,**kwargs):
+                entered.set();await release.wait();return {'thread':{'id':thread,'cwd':folder}}
+        @asynccontextmanager
+        async def recovery(_):yield Metadata()
+        with patch.object(self.gateway,'recovery_rpc',recovery):
+            decision=asyncio.create_task(self.gateway.local_call('bridge/approval/decide',{'approvalId':identity,'decision':'allow','config':self.config}))
+            await entered.wait();approval.update(decided=True,decision='deny');release.set()
+            result=await decision
+        self.assertEqual(result,{'decided':True,'decision':'deny'});self.assertEqual(sent,[])
 
     async def test_desktop_completion_lost_during_disconnect_reconnect_continues_waiter(self):
         original=await self.desktop_start();journal=self.journal();await self.submit(journal)
@@ -380,9 +440,14 @@ class SharedTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(journal.result());mapping=read_json(journal.path/'shared.json')
         self.assertEqual(self.native.interrupts[0],{'threadId':self.thread,'turnId':mapping['turn_id']})
         with self.assertRaisesRegex(RuntimeError,'另一端'):
-            await self.desktop.call('turn/interrupt',self.native.interrupts[0])
+            await self.desktop.call('turn/interrupt',{'threadId':self.thread,'turnId':'wrong-turn'})
         with self.assertRaisesRegex(RuntimeError,'另一端'):
             await self.desktop.call('turn/steer',{'threadId':self.thread,'expectedTurnId':mapping['turn_id'],'input':[]})
+        async with RPC(self.url,'another_desktop') as other:
+            with self.assertRaisesRegex(RuntimeError,'另一端'):
+                await other.call('turn/interrupt',self.native.interrupts[0])
+        await self.desktop.call('turn/interrupt',self.native.interrupts[0])
+        self.assertIsNone(journal.result())  # Desktop ACK is still not exit proof.
         await self.native.finish(self.thread,'interrupted');await self.until(journal.result)
         self.assertTrue(journal.result()['cleanup_confirmed'])
         next_journal=self.journal();await self.submit(next_journal);await self.until(lambda:len(self.native.starts)==2)

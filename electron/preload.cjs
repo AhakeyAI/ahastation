@@ -5,6 +5,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 // back to the currently-active slot — used by legacy callsites that haven't
 // been threaded for tabs yet.
 const api = {
+  collaboration: {
+    request: (action, payload) => ipcRenderer.invoke('collaboration:request', action, payload),
+    onChanged: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('collaboration:changed', listener);
+      return () => ipcRenderer.removeListener('collaboration:changed', listener);
+    },
+  },
   remoteControl: {
     request: (action, payload) => ipcRenderer.invoke('remote-control:request', action, payload),
     onChanged: (cb) => {
@@ -50,8 +58,8 @@ const api = {
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
   setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}) }),
+  approvePlan: (sessionId, approved, tasks,brief) =>
+    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}),...(brief?{brief}:{}) }),
   acceptDelivery: (sessionId, deliveryId, candidateId) =>
     ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
   returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>

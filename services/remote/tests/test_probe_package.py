@@ -36,6 +36,36 @@ class ProbeTest(unittest.IsolatedAsyncioTestCase):
         finally: server.should_exit=True; await task; listener.close()
 
 class PackageTest(unittest.TestCase):
+    def test_exported_hub_import_startup_and_new_route_authentication(self):
+        import subprocess
+        with tempfile.TemporaryDirectory(prefix='hub-startup-') as directory:
+            output = Path(directory) / 'archives'
+            subprocess.run([sys.executable, str(ROOT/'scripts'/'package_hub.py'),
+                            '--output', str(output)], check=True, capture_output=True)
+            extracted = Path(directory) / 'app'
+            with zipfile.ZipFile(output/'ahastation-hub-source.zip') as stream:
+                stream.extractall(extracted)
+            code = (
+                "import sys; from pathlib import Path; sys.path.insert(0,'device'); "
+                "import collaboration_store; import public_hub; "
+                "assert Path(collaboration_store.__file__).resolve()==Path('device/collaboration_store.py').resolve(); "
+                "from hub_store import HubStore; from sqlalchemy import create_engine; "
+                "from fastapi.testclient import TestClient; "
+                "store=HubStore(create_engine('sqlite:///'+str(Path('fixture.sqlite').resolve())),"
+                "'owned-export-startup-check-secret-at-least-32'); store.migrate(); "
+                "client=TestClient(public_hub.create_app(store)); "
+                "client.__enter__(); "
+                "assert client.get('/health').status_code==200; "
+                "assert client.get('/ready').status_code==200; "
+                "assert client.get('/api/collaboration/v2/snapshot').status_code==401; "
+                "client.__exit__(None,None,None); store.engine.dispose(); "
+                "print('Exported Hub startup and route authentication passed')"
+            )
+            result = subprocess.run([sys.executable, '-c', code], cwd=extracted,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('Exported Hub startup', result.stdout)
+
     def test_source_zip_unix_permissions_and_compression(self):
         import subprocess
         with tempfile.TemporaryDirectory(prefix='hub-permissions-') as directory:

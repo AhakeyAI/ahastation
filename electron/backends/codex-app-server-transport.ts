@@ -135,6 +135,9 @@ export class CodexAppServerTransport {
     await this.request('turn/interrupt', { threadId, turnId });
   }
 
+  /** Trusted runtime inspection; a stop ACK alone never proves execution exit. */
+  call<T = unknown>(method: string, params?: unknown): Promise<T> { return this.request<T>(method, params); }
+
   close(): void {
     if (this.closing) return;
     this.closing = true;

@@ -1,4 +1,4 @@
-import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen } from 'electron';
+import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen, Tray, Menu } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -47,6 +47,8 @@ const __dirname = dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let initializationComplete = false;
+let sharedRuntime: import('./collaboration/station-service.js').StationService | undefined;
+let stationTray: Tray | undefined;
 let focusRequested = false;
 // Multi-tab session store. Each slot owns one Orchestrator (= one Talker +
 // scheduler) tied to a single cwd. Replaces the prior global `orchestrator`
@@ -201,6 +203,9 @@ function createWindow() {
   }) as () => void);
 
   mainWindow.on('close', (event) => {
+    if (!isQuitting && sharedRuntime?.hasBackgroundResponsibility()) {
+      event.preventDefault(); mainWindow?.hide(); return;
+    }
     if (suppressNextClose) {
       suppressNextClose = false;
       return;
@@ -627,6 +632,9 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
   registerCompanionIpc(ctx);
   // Register custom backends from settings so they appear in the backend list
   registerCustomBackends();
+  const { initializeStationCollaboration, stationService } = await import('./collaboration/station-service.js');
+  await initializeStationCollaboration();
+  sharedRuntime = stationService();
 }
 
 // ---- App lifecycle ----------------------------------------------------------
@@ -685,6 +693,15 @@ if (!hasSingleInstanceLock) {
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   registerAppProtocol();
+  if (process.platform === 'win32' || process.platform === 'linux') {
+    stationTray = new Tray(join(app.getAppPath(), 'dist', 'icon-96.png'));
+    stationTray.setToolTip('AhaStation');
+    stationTray.setContextMenu(Menu.buildFromTemplate([
+      { label: '打开 AhaStation', click: () => focusMainWindow(liveWindow, createWindow) },
+      { label: '退出 AhaStation', click: () => app.quit() },
+    ]));
+    stationTray.on('double-click', () => focusMainWindow(liveWindow, createWindow));
+  }
   // Dynamic-import IPC modules so their transitive deps (orchestrator,
   // claude-session, ASR, etc.) don't block the app-ready event.
   // IPC handlers must be registered before createWindow() so the renderer
@@ -937,8 +954,14 @@ app.on('before-quit', (event) => {
       .catch(() => { /* ignore */ });
 
     try {
+      if (sharedRuntime && !await sharedRuntime.shutdown()) {
+        const choice = await dialog.showMessageBox({type:'warning',buttons:['继续等待并保留 Station','强制退出'],defaultId:0,cancelId:0,
+          message:'本机 Station 任务实际退出尚未确认',detail:'强制退出会保留核对记录；下次启动不会自动重新执行。Codex 桌面不会被关闭。'});
+        if(choice.response!==1) {isQuitting=false;observeService.start();return;}
+      }
       await Promise.race([shutdownAllSlots(), sleepMs(5000)]);
     } finally {
+      if (!isQuitting) return;
       if (_flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
       await flushSettingsWrites();
       app.exit(0);

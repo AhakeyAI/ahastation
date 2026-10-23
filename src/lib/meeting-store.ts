@@ -3219,12 +3219,13 @@ class MeetingStore {
   async decidePendingPlan(
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.effectiveSessionId();
     if (!id) return { ok: false, error: 'No active session' };
     const slot = this.slots.get(id);
     if (!slot?.state.pendingPlan) return { ok: false, error: 'No pending plan' };
-    const result = await window.vibeMeet.approvePlan(id, approved, tasks);
+    const result = await window.vibeMeet.approvePlan(id, approved, tasks,brief);
     if (result.ok) {
       this.mutateSlot(id, (state) => ({
         ...state,

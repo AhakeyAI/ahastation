@@ -11,17 +11,34 @@ import time
 import uuid
 from session_runtime import state_dir
 
+def native_path(path):
+    """Atomic suffixes may exceed MAX_PATH even when the journal itself fits."""
+    value=os.path.abspath(path)
+    if os.name=='nt' and not value.startswith('\\\\?\\'):
+        value='\\\\?\\UNC\\'+value[2:] if value.startswith('\\\\') else '\\\\?\\'+value
+    return Path(value)
+
 def write_json(path,value):
-    path=Path(path); path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    path=native_path(path); path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     temp=path.with_name(path.name+f'.{os.getpid()}.{uuid.uuid4().hex}.tmp')
     fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,'w',encoding='utf-8') as stream:
         json.dump(value,stream,ensure_ascii=False); stream.flush(); os.fsync(stream.fileno())
-    os.replace(temp,path)
+    for attempt in range(10):
+        try:os.replace(temp,path);break
+        except PermissionError:
+            if os.name!='nt' or attempt==9:raise
+            time.sleep(min(.05*(attempt+1),.25))
 
 def read_json(path,default=None):
-    try: return json.loads(Path(path).read_text(encoding='utf-8'))
-    except FileNotFoundError: return default
+    for attempt in range(10):
+        try:return json.loads(native_path(path).read_text(encoding='utf-8'))
+        except FileNotFoundError:return default
+        except PermissionError:
+            # A transient Windows file-share/scanner lock is neither absence
+            # nor proof that execution has ended. Exhaustion remains an error.
+            if os.name!='nt' or attempt==9:raise
+            time.sleep(min(.05*(attempt+1),.25))
 
 def cancelled(spec):
     directory=spec.get('_journal_dir')
@@ -37,7 +54,7 @@ def feedback(result):
     error=result.get('error','')
     if not error and isinstance(parsed,dict) and parsed.get('desktop_session'):
         error=parsed.get('error','')  # Preserve desktop resume/writer errors in durable feedback.
-    return {**{key:result[key] for key in ('ok','cancelled','cleanup_confirmed','exit_code') if key in result},
+    return {**{key:result[key] for key in ('ok','cancelled','cleanup_confirmed','exit_code','exitCode','turnOutcome','not_started') if key in result},
             'error':str(error)[:1000],'json':{'last_message':last},'stderr':str(result.get('stderr',''))[:2000]}
 
 def save_result(spec,result):
@@ -47,7 +64,7 @@ class TaskJournal:
     def __init__(self,task_id,provider):
         task_id=str(uuid.UUID(task_id))
         if provider not in {'codex','claude'}: raise ValueError('Invalid task provider')
-        self.path=state_dir()/'remote'/'tasks'/provider/task_id
+        self.path=native_path(state_dir()/'remote'/'tasks'/provider/task_id)
         self.path.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.task_id=task_id
 
@@ -74,7 +91,7 @@ class TaskJournal:
     def finish(self,result): write_json(self.path/'result.json',feedback(result))
     def ack(self):
         result=self.result() or {}
-        proof={key:result[key] for key in ('ok','cancelled','cleanup_confirmed','error') if key in result}
+        proof={key:result[key] for key in ('ok','cancelled','cleanup_confirmed','error','turnOutcome','exitCode','not_started') if key in result}
         write_json(self.path/'ack.json',{'acked_at':time.time(),'proof':proof})
     def payload(self): return read_json(self.path/'payload.json')
 

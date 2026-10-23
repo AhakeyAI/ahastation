@@ -1,0 +1,262 @@
+"""Production routes with file-backed storage and real loopback HTTP/WSS.
+
+No model, external account or cloud database is used by this fixture.
+"""
+import asyncio
+import json
+import os
+import socket
+import sys
+import tempfile
+import unittest
+import uuid
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'device'))
+import httpx
+import uvicorn
+import websockets
+from sqlalchemy import create_engine, select, update
+from hub_store import HubStore, schema, users,metadata as old_metadata
+from public_hub import create_app
+from collaboration_store import CollaborationStore, entities, events,requests,metadata as new_metadata
+from sqlalchemy.engine import URL
+
+class StationCollaborationTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp=tempfile.TemporaryDirectory(prefix='station-collaboration-')
+        if os.getenv('COLLABORATION_TEST_MYSQL_FILE'):
+            config=json.loads(Path(os.environ['COLLABORATION_TEST_MYSQL_FILE']).read_text(encoding='utf-8'))
+            if config.get('fixture')!='owned-local-mysql' or config['host']!='127.0.0.1' or not config['database'].startswith('station_fixture_'):raise RuntimeError('Only the owned isolated local database may be used')
+            self.engine=create_engine(URL.create('mysql+pymysql',username=config['user'],password=config['password'],host=config['host'],port=config['port'],database=config['database'],query={'charset':'utf8mb4'}),pool_pre_ping=True)
+            new_metadata.drop_all(self.engine);old_metadata.drop_all(self.engine)
+        else:self.engine=create_engine('sqlite:///'+str(Path(self.temp.name)/'hub.sqlite'),connect_args={'timeout':15})
+        self.store=HubStore(self.engine,'test-only-collaboration-secret-at-least-32'); self.store.migrate()
+        self.account=self.store.identity('station-test','test-password-123',register=True)
+        self.other=self.store.identity('other-test','test-password-123',register=True)
+        self.app=create_app(self.store); self.socket=socket.socket(); self.socket.bind(('127.0.0.1',0))
+        self.url=f'http://127.0.0.1:{self.socket.getsockname()[1]}'
+        self.server=uvicorn.Server(uvicorn.Config(self.app,log_level='critical',lifespan='on'))
+        self.serving=asyncio.create_task(self.server.serve(sockets=[self.socket]))
+        for _ in range(500):
+            if self.server.started: break
+            await asyncio.sleep(.01)
+        self.http=httpx.AsyncClient(base_url=self.url,trust_env=False,timeout=10)
+        self.a=await self.register('A'); self.b=await self.register('B'); self.sockets=[]
+
+    async def asyncTearDown(self):
+        for ws in self.sockets: await ws.close()
+        await self.http.aclose(); self.server.should_exit=True
+        await asyncio.wait_for(self.serving,15); self.socket.close(); self.engine.dispose(); self.temp.cleanup()
+
+    async def command(self,token,action,payload,identity=None,expected=200):
+        response=await self.http.post('/api/collaboration/v2/commands',headers={'Authorization':'Bearer '+token},
+            json={'protocol':2,'requestId':identity or str(uuid.uuid4()),'action':action,'payload':payload})
+        self.assertEqual(response.status_code,expected,response.text)
+        return response.json().get('value')
+
+    async def register(self,name):
+        identity=str(uuid.uuid4())
+        config={'name':name,'platform':'windows','acceptingTasks':True,'maxConcurrency':1,
+            'agents':[{'agentId':'fixture','backendId':'fixture','available':True,'executionModes':['worker']}]}
+        result=await self.command(self.account['control_token'],'device.register',{'deviceId':identity,'config':config})
+        return {'id':identity,'token':result['deviceToken'],'config':config}
+
+    async def connect(self,device):
+        ws=await websockets.connect(self.url.replace('http:','ws:')+'/ws/station?protocol=2',additional_headers={'Authorization':'Bearer '+device['token']})
+        self.sockets.append(ws); ready=json.loads(await ws.recv()); self.assertEqual(ready['type'],'ready')
+        return ws,ready['generation']
+
+    async def prepare(self):
+        await self.connect(self.a); await self.connect(self.b)
+        meeting=await self.command(self.a['token'],'meeting.create',{'title':'Complete delivery','members':[self.b['id']],'autoApprovePlan':False,'autoAssign':False})
+        payload={'meetingId':meeting['id'],'title':'Whole task','objective':'write and test two files','targetDeviceId':self.b['id'],
+            'agentId':'fixture','resource':'text','permission':'read-only','dependencies':[],'inputs':[]}
+        planned=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[payload]})
+        await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'approved':True,'expectedRevision':planned['revision']})
+        return meeting,payload
+
+    async def test_durable_receipt_idempotency_owner_isolation_and_approval_race(self):
+        meeting,payload=await self.prepare(); request=str(uuid.uuid4())
+        task=await self.command(self.a['token'],'task.create',payload,request)
+        self.assertEqual(task['status'],'offered')
+        self.assertEqual(task,await self.command(self.a['token'],'task.create',payload,request))
+        await self.command(self.a['token'],'task.create',{**payload,'title':'changed'},request,409)
+        base={'taskId':task['id'],'attemptId':task['attemptId']}
+        await self.command(self.b['token'],'task.event',{**base,'status':'running'},expected=409)
+        await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':0})
+        approval={**base,'approvalId':str(uuid.uuid4()),'tool':'file-write','description':'write output','supported':True}
+        await self.command(self.b['token'],'approval.request',approval)
+        await self.command(self.a['token'],'approval.decide',{'approvalId':approval['approvalId'],'decision':'allow'})
+        await self.command(self.b['token'],'approval.decide',{'approvalId':approval['approvalId'],'decision':'deny'},expected=409)
+        outsider=await self.http.get('/api/collaboration/v2/snapshot',headers={'Authorization':'Bearer '+self.other['control_token']})
+        self.assertEqual(outsider.status_code,401)
+        outside=await self.command(self.other['control_token'],'device.register',{'deviceId':str(uuid.uuid4()),'config':self.a['config']})
+        snapshot=(await self.http.get('/api/collaboration/v2/snapshot',headers={'Authorization':'Bearer '+outside['deviceToken']})).json()
+        self.assertEqual(snapshot['entities']['meeting'],[]);self.assertEqual(snapshot['entities']['task'],[])
+        await self.command(outside['deviceToken'],'task.control',{**base,'operation':'stop'},expected=404)
+        await self.command(self.other['control_token'],'device.register',{'deviceId':self.a['id'],'config':self.a['config']},expected=403)
+        registration=str(uuid.uuid4());third={'deviceId':str(uuid.uuid4()),'config':self.a['config']}
+        first=await self.command(self.account['control_token'],'device.register',third,registration)
+        self.assertEqual(first,await self.command(self.account['control_token'],'device.register',third,registration))
+        with self.engine.connect() as c:
+            stored=c.execute(select(requests.c.result).where(requests.c.id==registration)).scalar()
+            self.assertNotIn(first['deviceToken'],stored);self.assertIn('sealed',stored)
+        before=CollaborationStore(self.store).snapshot(self.account['owner_id'])
+        reopened=HubStore(create_engine(self.engine.url),'test-only-collaboration-secret-at-least-32')
+        self.assertEqual(before,CollaborationStore(reopened).snapshot(self.account['owner_id'])); reopened.engine.dispose()
+        replay=CollaborationStore(self.store).replay(self.account['owner_id'],0)
+        self.assertEqual(list(range(1,replay['cursor']+1)),[e['seq'] for e in replay['events']])
+
+    async def test_stop_exit_evidence_obsolete_attempt_and_coordinator_offline(self):
+        meeting,payload=await self.prepare(); task=await self.command(self.a['token'],'task.create',payload)
+        base={'taskId':task['id'],'attemptId':task['attemptId']}
+        await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':0})
+        await self.command(self.a['token'],'task.control',{**base,'operation':'stop'})
+        await self.command(self.b['token'],'task.event',{**base,'status':'stopped'},expected=409)
+        await self.command(self.b['token'],'task.event',{**base,'status':'stopped','exitConfirmed':True})
+        current=await self.command(self.a['token'],'task.control',{**base,'operation':'continue','text':'continue remaining work'})
+        self.assertNotEqual(current['attemptId'],task['attemptId'])
+        await self.command(self.b['token'],'task.event',{**base,'status':'executed'},expected=409)
+        service=CollaborationStore(self.store); service.connection(self.account['owner_id'],self.a['id'],False)
+        await self.command(self.a['token'],'task.create',payload,expected=409)
+        # Stop remains possible while the coordinator is offline.
+        await self.command(self.b['token'],'task.control',{'taskId':current['id'],'attemptId':current['attemptId'],'operation':'stop'})
+
+    async def test_generation_snapshot_boundary_wss_and_protocol_rejection(self):
+        old,g1=await self.connect(self.a); current,g2=await self.connect(self.a)
+        self.assertGreater(g2,g1)
+        response=await self.http.post('/api/collaboration/v2/commands',headers={'Authorization':'Bearer '+self.a['token'],'X-Station-Generation':str(g1)},json={'protocol':2,'requestId':str(uuid.uuid4()),'action':'device.update','payload':{'config':self.a['config'],'expectedRevision':0}})
+        self.assertEqual(response.status_code,409)
+        service=CollaborationStore(self.store); service.connection(self.account['owner_id'],self.a['id'],False,g1)
+        self.assertTrue(next(d for d in service.snapshot(self.account['owner_id'])['entities']['device'] if d['id']==self.a['id'])['online'])
+        snapshot=service.snapshot(self.account['owner_id'])
+        await self.command(self.a['token'],'meeting.create',{'title':'Realtime','members':[],'autoApprovePlan':False,'autoAssign':False})
+        notice=json.loads(await asyncio.wait_for(current.recv(),5)); self.assertEqual(notice['type'],'changed')
+        replay=service.replay(self.account['owner_id'],snapshot['cursor'])
+        self.assertEqual(replay['events'][0]['seq'],snapshot['cursor']+1)
+        response=await self.http.post('/api/collaboration/v2/commands',json={'protocol':999})
+        self.assertEqual(response.status_code,426)
+        await self.command(self.a['token'],'message.send',{'meetingId':'missing','text':'hello','cwd':'C:/unauthorized'},expected=400)
+
+    async def test_non_destructive_migration_preserves_existing_identity(self):
+        with self.engine.begin() as c: c.execute(update(schema).where(schema.c.id==1).values(version=1))
+        self.store.migrate(); self.store.ready()
+        with self.engine.connect() as c:
+            self.assertEqual(c.execute(select(schema.c.version)).scalar(),2)
+            self.assertIsNotNone(c.execute(select(users.c.id).where(users.c.id==self.account['owner_id'])).scalar())
+
+    async def test_revoke_keeps_cleanup_path_until_real_exit_then_reactivation_preserves_identity(self):
+        _,payload=await self.prepare();task=await self.command(self.a['token'],'task.create',payload)
+        base={'taskId':task['id'],'attemptId':task['attemptId']}
+        await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':0})
+        await self.command(self.b['token'],'task.event',{**base,'status':'running'})
+        revoked=await self.command(self.a['token'],'device.revoke',{'deviceId':self.b['id']});self.assertTrue(revoked['draining'])
+        await self.command(self.b['token'],'meeting.create',{'title':'forbidden','members':[],'autoApprovePlan':False,'autoAssign':False},expected=403)
+        await self.command(self.b['token'],'task.event',{**base,'status':'stopped','exitConfirmed':True})
+        denied=await self.http.get('/api/collaboration/v2/snapshot',headers={'Authorization':'Bearer '+self.b['token']});self.assertEqual(denied.status_code,401)
+        await self.command(self.account['control_token'],'device.register',{'deviceId':self.b['id'],'config':self.b['config']},expected=409)
+        result=await self.command(self.account['control_token'],'device.register',{'deviceId':self.b['id'],'config':self.b['config'],'reactivate':True})
+        self.assertEqual(result['device']['id'],self.b['id']);self.assertFalse(result['device']['acceptingTasks']);self.assertNotEqual(result['deviceToken'],self.b['token'])
+
+    async def test_selected_native_history_pages_and_free_chat_approval_have_no_business_task(self):
+        await self.connect(self.a);await self.connect(self.b)
+        project=await self.command(self.b['token'],'project.create',{'config':{'name':'Authorized native directory','resourceKind':'directory'}})
+        await self.command(self.b['token'],'binding.report',{'schemaVersion':1,'projectId':project['id'],'deviceId':self.b['id'],'state':'ready','bindingRevision':1})
+        session={'sessionId':str(uuid.uuid4()),'title':'Original native context','projectId':project['id'],'status':'idle','permission':'read-only'}
+        await self.command(self.b['token'],'native.catalog',{'sessions':[session]})
+        await self.command(self.b['token'],'native.history',{'sessionId':session['sessionId'],'messages':[]},expected=403)
+        meeting=await self.command(self.a['token'],'meeting.create',{'title':'Shared native','members':[self.b['id']],'autoApprovePlan':False,'autoAssign':False})
+        await self.command(self.a['token'],'native.bind',{'meetingId':meeting['id'],'deviceId':self.b['id'],'sessionId':session['sessionId'],'operation':'bind'})
+        for offset in range(0,80,20):
+            messages=[{'id':f'item-{i}','source':'desktop' if i%2 else 'station','role':'user','text':'完整历史😀'*100} for i in range(offset,offset+20)]
+            await self.command(self.b['token'],'native.history',{'sessionId':session['sessionId'],'messages':messages})
+        collected=[];cursor=0
+        while True:
+            page=(await self.http.get('/api/collaboration/v2/history',params={'device':self.b['id'],'session':session['sessionId'],'after':cursor},headers={'Authorization':'Bearer '+self.a['token']})).json()
+            collected+=page['messages'];cursor=page['cursor']
+            if not page['hasMore']:break
+        self.assertEqual(len(collected),80);self.assertEqual(len({m['nativeMessageId'] for m in collected}),80)
+        message=await self.command(self.a['token'],'message.send',{'meetingId':meeting['id'],'text':'Free exchange','nativeSessionId':session['sessionId'],'targetDeviceId':self.b['id']})
+        await self.command(self.b['token'],'message.receipt',{'messageId':message['id'],'nativeSessionId':session['sessionId'],'bindingRevision':1})
+        approval={'messageId':message['id'],'approvalId':str(uuid.uuid4()),'tool':'fileChange','description':'Original native approval','supported':True}
+        await self.command(self.b['token'],'approval.request',approval)
+        await self.command(self.a['token'],'approval.decide',{'approvalId':approval['approvalId'],'decision':'allow'})
+        # The actual Desktop response won before the remote intent was applied.
+        observed=await self.command(self.b['token'],'approval.observed',{'approvalId':approval['approvalId'],'decision':'deny'})
+        self.assertEqual(observed['effectiveDecision'],'deny')
+        await self.command(self.a['token'],'approval.decide',{'approvalId':approval['approvalId'],'decision':'allow'},expected=409)
+        await self.command(self.a['token'],'message.stop',{'messageId':message['id']})
+        await self.command(self.b['token'],'message.event',{'messageId':message['id'],'status':'stopped','exitConfirmed':True})
+        await self.command(self.b['token'],'message.event',{'messageId':message['id'],'status':'completed','exitConfirmed':True},expected=409)
+        snapshot=CollaborationStore(self.store).snapshot(self.account['owner_id']);self.assertEqual(snapshot['entities']['task'],[]);self.assertEqual(snapshot['entities']['history'],[])
+        await self.command(self.b['token'],'native.catalog',{'sessions':[]})
+        native=CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['native'][0];self.assertEqual(native['status'],'unavailable')
+        catalogue=str(uuid.uuid4());other={**session,'sessionId':str(uuid.uuid4())}
+        await self.command(self.b['token'],'native.catalog',{'sessions':[session],'catalogId':catalogue,'complete':False})
+        await self.command(self.b['token'],'native.catalog',{'sessions':[other],'catalogId':catalogue,'complete':True})
+        self.assertEqual(sum(n['status']=='idle' for n in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['native']),2)
+
+    async def test_predecessor_rework_requires_dependent_revalidation_and_accepted_followup_link(self):
+        meeting,payload=await self.prepare()
+        async def dispatch(body):
+            planned=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[body]})
+            await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'approved':True,'expectedRevision':planned['revision']})
+            return await self.command(self.a['token'],'task.create',body)
+        async def finish(task):
+            base={'taskId':task['id'],'attemptId':task['attemptId']}
+            await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':0})
+            await self.command(self.b['token'],'task.event',{**base,'status':'delivered','exitConfirmed':True})
+            await self.command(self.a['token'],'task.control',{**base,'operation':'review','evidence':'protocol fixture review'})
+            return await self.command(self.a['token'],'task.control',{**base,'operation':'integrate','evidence':'protocol fixture verified checks'})
+        first=await dispatch(payload);await finish(first)
+        second=await dispatch({**payload,'title':'Dependent complete delivery','dependencies':[first['id']]});await finish(second)
+        first_base={'taskId':first['id'],'attemptId':first['attemptId']}
+        await self.command(self.a['token'],'task.control',{**first_base,'operation':'stop'})
+        await self.command(self.b['token'],'task.event',{**first_base,'status':'stopped','exitConfirmed':True})
+        rework=await self.command(self.a['token'],'task.control',{**first_base,'operation':'continue','text':'Rework same complete delivery'})
+        dependent=next(t for t in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['task'] if t['id']==second['id'])
+        self.assertEqual(dependent['integration'],'revalidation-required');self.assertGreaterEqual(len(dependent['evidence']),2)
+        second_base={'taskId':second['id'],'attemptId':second['attemptId']}
+        await self.command(self.a['token'],'task.control',{**second_base,'operation':'integrate','evidence':'must not release stale dependency'},expected=409)
+        await finish(rework)
+        await self.command(self.a['token'],'task.control',{**second_base,'operation':'integrate','evidence':'fresh combination verification'})
+        await self.command(self.a['token'],'task.control',{'taskId':rework['id'],'attemptId':rework['attemptId'],'operation':'accept'})
+        await self.command(self.a['token'],'task.control',{**second_base,'operation':'accept'})
+        extra={**payload,'title':'After final acceptance'}
+        planned=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[extra]})
+        await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'approved':True,'expectedRevision':planned['revision']})
+        await self.command(self.a['token'],'task.create',extra,expected=409)
+        # Follow-up association must itself be in the visible approved plan.
+        extra={**extra,'parentTaskId':first['id']}
+        planned=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[extra]})
+        await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'approved':True,'expectedRevision':planned['revision']})
+        followup=await self.command(self.a['token'],'task.create',extra);self.assertEqual(followup['parentTaskId'],first['id'])
+
+    async def test_shared_material_references_require_receiver_authorization_and_revocation_stops_consumers(self):
+        meeting,payload=await self.prepare();repository='https://github.com/fixture/materials'
+        project=await self.command(self.a['token'],'project.create',{'config':{'name':'Selected materials','repository':{'provider':'github','canonicalUrl':repository}}})
+        reference={'repository':repository,'commit':'a'*40,'paths':['selected.txt']}
+        message=await self.command(self.b['token'],'message.send',{'meetingId':meeting['id'],'text':'Published input metadata','attachments':[reference]})
+        self.assertEqual(message['attachments'],[reference])
+        payload={**payload,'inputs':[reference]};plan=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[payload]})
+        await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'approved':True,'expectedRevision':plan['revision']})
+        await self.command(self.a['token'],'task.create',payload,expected=409)
+        binding={'schemaVersion':1,'projectId':project['id'],'deviceId':self.b['id'],'state':'ready','bindingRevision':1}
+        await self.command(self.b['token'],'binding.report',binding);task=await self.command(self.a['token'],'task.create',payload)
+        base={'taskId':task['id'],'attemptId':task['attemptId']};await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':0})
+        await self.command(self.b['token'],'binding.report',{**binding,'state':'unbound','bindingRevision':2,'reasonCode':'REVOKED'})
+        current=next(t for t in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['task'] if t['id']==task['id'])
+        self.assertTrue(current['stopRequested']);self.assertFalse(current['continueAllowed'])
+        await self.command(self.b['token'],'task.event',{**base,'status':'stopped','exitConfirmed':True})
+        await self.command(self.a['token'],'task.control',{**base,'operation':'continue'},expected=409)
+        await self.command(self.b['token'],'binding.report',{**binding,'bindingRevision':3})
+        continued=await self.command(self.a['token'],'task.control',{**base,'operation':'continue','text':'Continue with reauthorized exact materials'})
+        self.assertNotEqual(continued['attemptId'],task['attemptId'])
+        next_base={'taskId':task['id'],'attemptId':continued['attemptId']}
+        saved=await self.command(self.a['token'],'task.control',{**next_base,'operation':'supplement','text':'Same goal with one more exact input','inputs':[{**reference,'commit':'b'*40}]})
+        await self.command(self.a['token'],'task.control',{**next_base,'operation':'stop'})
+        await self.command(self.b['token'],'task.event',{**next_base,'status':'stopped','exitConfirmed':True})
+        final=await self.command(self.a['token'],'task.control',{**next_base,'operation':'continue','followups':[{'id':saved['pendingFollowups'][-1]['id'],'action':'include','text':'Edited supplemental requirement'}]})
+        self.assertEqual(final['id'],task['id']);self.assertEqual({ref['commit'] for ref in final['inputs']},{'a'*40,'b'*40})
+
+if __name__=='__main__': unittest.main()

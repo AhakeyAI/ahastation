@@ -9,9 +9,11 @@ ROOT=Path(__file__).resolve().parents[1]
 parser=argparse.ArgumentParser(); parser.add_argument('--output',type=Path,default=ROOT/'runtime'/'deploy'); args=parser.parse_args()
 output=args.output.resolve(); output.mkdir(parents=True,exist_ok=True)
 hub=['device/public_hub.py','device/hub_store.py','device/device_hub.py','device/protocol.py','device/qwen_router.py',
-     'requirements-public.txt','deploy/Dockerfile','deploy/Dockerfile.dockerignore','deploy/migrate.py','deploy/schema-v1.sql','deploy/hub.env.example','deploy/compose.yaml',
-     'docs/WEIXIN_CLOUD_DEPLOY.md','docs/PUBLIC_REMOTE_CONTROL.md','docs/BRIDGE_PRODUCT.md','docs/ACCEPTANCE_PUBLIC.md']
+     'device/collaboration_store.py','device/collaboration_routes.py',
+     'requirements-public.txt','deploy/Dockerfile','deploy/Dockerfile.dockerignore','deploy/migrate.py','deploy/schema-v1.sql','deploy/schema-v2.sql','deploy/hub.env.example','deploy/compose.yaml',
+     'docs/WEIXIN_CLOUD_DEPLOY.md','docs/UNIFIED_MEETING_UPGRADE.md','docs/COLLABORATION_3_UPGRADE.md','docs/COLLABORATION_4_UPGRADE.md','docs/COLLABORATION_5_UPGRADE.md','docs/PUBLIC_REMOTE_CONTROL.md','docs/BRIDGE_PRODUCT.md','docs/ACCEPTANCE_PUBLIC.md']
 hub += [str(path.relative_to(ROOT)).replace('\\','/') for path in (ROOT/'web').rglob('*') if path.is_file()]
+hub += [str(path.relative_to(ROOT)).replace('\\','/') for path in sorted((ROOT/'deploy/mysql57-upgrade').glob('*.sql'))]
 probe=['probe/app.py','probe/client.py','probe/requirements.txt','probe/README.md']
 def write_entry(stream,name,data):
     entry=zipfile.ZipInfo(name)
@@ -27,8 +29,13 @@ def package(name,files,docker,ignore):
     if archive.exists(): raise SystemExit('Output already exists: '+str(archive))
     hashes={}
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as stream:
-        for source,target in [(file,file) for file in files]+[(docker,'Dockerfile'),(ignore,'.dockerignore')]:
-            data=(ROOT/source).read_bytes(); write_entry(stream,target,data); hashes[target]=hashlib.sha256(data).hexdigest()
+        sources=[(ROOT/file,file) for file in files]+[(ROOT/docker,'Dockerfile'),(ROOT/ignore,'.dockerignore')]
+        if name=='ahastation-hub-source.zip':
+            sources.append((ROOT.parents[1]/'docs/collaboration/MYSQL57_HUB_UPGRADE.md','docs/MYSQL57_HUB_UPGRADE.md'))
+            for schema in ('v1.schema.json','v2.schema.json'):
+                sources.append((ROOT.parents[1]/'contracts/collaboration'/schema,'contracts/collaboration/'+schema))
+        for source,target in sources:
+            data=source.read_bytes(); write_entry(stream,target,data); hashes[target]=hashlib.sha256(data).hexdigest()
         write_entry(stream,'SOURCE-MANIFEST.json',json.dumps({'format':1,'files':hashes},indent=2))
     print(json.dumps({'archive':str(archive),'files':len(hashes),'sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
 package('ahastation-hub-source.zip',hub,'deploy/Dockerfile','deploy/.dockerignore')

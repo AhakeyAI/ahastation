@@ -10,7 +10,7 @@ import type { AutoApproveScope } from '../auto-approve-policy.js';
 import type { IpcContext } from './context.js';
 import { saveImageToMaterials } from '../materials.js';
 import { z } from 'zod';
-import { planMeetingTaskSchema } from '../meeting-tools.js';
+import { planMeetingTaskSchema,meetingPlanBriefInputSchema } from '../meeting-tools.js';
 
 const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan'] as const);
 type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
@@ -70,7 +70,9 @@ export function registerSessionIpc(ctx: IpcContext): void {
     }
     const slot = ctx.registry.resolve(pickSessionId(payload));
     if (!slot) return { ok: false, error: 'No active session' };
-    return slot.orchestrator.approvePendingPlan(approved, revisedTasks);
+    const brief=meetingPlanBriefInputSchema.safeParse((payload as Record<string,unknown>).brief??{});
+    if(!brief.success)return {ok:false,error:'Invalid readable plan'};
+    return slot.orchestrator.approvePendingPlan(approved, revisedTasks,brief.data);
   });
 
   ipcMain.handle('session:accept-delivery', async (_e, payload: unknown) => {

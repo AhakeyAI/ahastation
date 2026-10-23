@@ -57,6 +57,7 @@ export interface UseWorkersResult {
   decidePendingPlan: (
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ) => Promise<{ ok: boolean; error?: string }>;
   toggleHostGroupCollapsed: (hostId: string) => void;
   addHostGroup: (backendId: string, remoteTarget?: PocketVibeRemoteTarget) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
@@ -119,8 +120,8 @@ export function useWorkers(): UseWorkersResult {
     [],
   );
   const decidePendingPlan = useCallback(
-    (approved: boolean, tasks?: PlanMeetingTaskInput[]) =>
-      meetingStore.decidePendingPlan(approved, tasks),
+    (approved: boolean, tasks?: PlanMeetingTaskInput[],brief?:MeetingPlanBrief) =>
+      meetingStore.decidePendingPlan(approved, tasks,brief),
     [],
   );
   const toggleHostGroupCollapsed = useCallback(

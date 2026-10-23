@@ -144,6 +144,8 @@ def create_app(store=None):
     app.add_middleware(Limits)
     app.state.connections=connections
     app.state.store=lambda:database
+    from collaboration_routes import install
+    install(app,db,principal)
 
     @app.exception_handler(SQLAlchemyError)
     async def unavailable(_,exc): return JSONResponse({'detail':'Hub database is unavailable'},503)
