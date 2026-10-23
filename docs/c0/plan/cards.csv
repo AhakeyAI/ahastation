@@ -4,7 +4,7 @@ A-01,领域 schema：事件信封 v2、五阶段与细分状态、旧状态映�
 A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0001-stable-project-identity.md,no
 A-03,旧日志只读迁移投影,B08,A,L,3-5,A-01;A-02,docs/c0/b03-contract/README.md §6,no
 A-04,ConfirmStagePlan 命令与旧确认拒绝,B18,A,M,2-3,A-01,docs/c0/b03-contract/README.md §4.1,no
-A-05,看板五列 + 细分状态徽标 + 需关注过滤,B15,A,M,2-3,A-01;B07 冻结,docs/c0/b07-ux/README.md §3.2,no
+A-05,看板五列 + 细分状态徽标 + 需关注过滤,B15,A,M,2-3,A-01,docs/c0/b07-ux/README.md §3.2,no
 A-06,自举需求：看板记住最近项目筛选（保留给 A/B 闭环）,首个验收 Issue,A/B,S,0.5-1,用户建 Issue,13 确认单第二组,no
 A-07,决定卡片三类分开,B18/B23,A,M,2-3,A-04,docs/c0/b07-ux/README.md §3.4,no
 A-08,VoiceProvider + WebAudio 播放 + 角色音色（系统音色与在线 TTS）,B13,A,M,3-4,,docs/c0/design/meeting-mode.md §7,yes
