@@ -18,7 +18,7 @@
 // (fs-level proxy for its updatedAt) so the newest session in a shared
 // workDir wins the association.
 
-import { join, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type {
   KimiTailSignals,
   ObservedFileSignal,
@@ -73,10 +73,12 @@ export async function loadKimiSessionIndex(homeDir: string): Promise<KimiIndexEn
     const parsed = asRecord(parseJsonLine(raw));
     if (!parsed) continue;
     const sessionId = asString(parsed.sessionId);
-    const sessionDir = asString(parsed.sessionDir);
-    if (!sessionId || !sessionDir) continue;
+    const rawSessionDir = asString(parsed.sessionDir);
+    if (!sessionId || !rawSessionDir) continue;
     // Containment: the index is external input; never read state files
-    // outside ~/.kimi-code/sessions/.
+    // outside ~/.kimi-code/sessions/. Resolve first so `..` segments and
+    // mixed separators (Windows) cannot slip past the prefix check.
+    const sessionDir = resolve(rawSessionDir);
     if (!sessionDir.startsWith(sessionsRoot + sep)) continue;
     // delete+set re-inserts at the tail: the newest occurrence wins.
     byId.delete(sessionId);

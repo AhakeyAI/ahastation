@@ -579,7 +579,15 @@ export class TerminalCliSession implements BackendSession {
 
   private startTurnEventWatcher(): void {
     try {
-      this.watcher = watch(this.eventsPath, () => this.drainTurnEvents());
+      const watcher = watch(this.eventsPath, () => this.drainTurnEvents());
+      // An FSWatcher 'error' with no listener is an uncaught exception that
+      // takes down the main process. Windows raises EPERM when the watched
+      // file's directory is removed, so degrade exactly like a failed start.
+      watcher.on('error', () => {
+        try { watcher.close(); } catch { /* already closed */ }
+        if (this.watcher === watcher) this.watcher = null;
+      });
+      this.watcher = watcher;
     } catch {
       // Watcher failure degrades to "no turn-ended signal" — the terminal
       // stays fully usable; the user just confirms without the marker.
