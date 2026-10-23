@@ -42,9 +42,32 @@ button.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--fg)}
 .banner.info{background:var(--info-bg);color:var(--info)} .banner.warn{background:var(--warn-bg);color:var(--warn)} .banner.crit{background:var(--crit-bg);color:var(--crit)}
 .btn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 10px;font-size:13px}
 .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-/* meeting */
-.meet{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:16px;height:100%}
-.convo{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-height:0}
+/* meeting: Feishu-style — participant tiles on top, shared stage below,
+   chat drawer opened from the bottom toolbar; tiles and chat collapsible,
+   stage can go fullscreen. */
+.meet{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;height:100%;min-height:520px}
+.meet.full{position:fixed;inset:0;z-index:20;background:var(--bg);padding:env(safe-area-inset-top,0px) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(12px,env(safe-area-inset-left,0px))}
+.tiles{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.tile{flex:0 0 148px;height:96px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;position:relative;font-size:12px}
+.tile.speaking{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.tile .nm{font-weight:500}
+.tile .sub{color:var(--muted);font-size:11px}
+.tile .st{position:absolute;top:6px;left:6px}
+.tile .vc{position:absolute;bottom:6px;right:8px;font-size:10px;color:var(--muted);font-family:var(--f-mono)}
+.tile.dim{opacity:.6}
+.tile.add{border-style:dashed;color:var(--muted);cursor:pointer;background:transparent}
+.tiles-collapsed{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.mid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;min-height:0}
+.drawer{width:min(380px,92vw);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-height:0}
+.drawer .tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--line);align-items:center}
+.drawer .tabs .sp{flex:1}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 12px}
+.toolbar .grp{display:flex;gap:6px;align-items:center}
+.toolbar .sp{flex:1}
+.tb{border:1px solid var(--line);background:var(--sunk);border-radius:8px;padding:6px 10px;font-size:13px;display:inline-flex;gap:6px;align-items:center}
+.tb[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tb.danger{color:var(--crit)}
+.convo{display:flex;flex-direction:column;min-height:0;flex:1}
 .members{display:flex;flex-wrap:wrap;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
 .members .grp{display:flex;gap:6px;align-items:center}
 .av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:700;color:#fff;position:relative;flex:none}
@@ -58,8 +81,8 @@ button.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--fg)}
 .msg .body{min-width:0}
 .ref{font-family:var(--f-mono);font-size:11px;color:var(--muted);background:var(--sunk);padding:1px 6px;border-radius:4px;display:inline-block;margin-top:2px}
 .sys{font-size:12px;color:var(--muted);text-align:center}
-.voice{border-top:1px solid var(--line);padding:12px;display:flex;gap:12px;align-items:center}
-.ptt{width:64px;height:64px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;flex:none;touch-action:none;user-select:none}
+.voice{display:flex;gap:12px;align-items:center}
+.ptt{width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;flex:none;touch-action:none;user-select:none}
 .ptt.rec{background:var(--crit);color:#fff}
 .vstate{font-size:13px;min-width:0}
 .vstate small{display:block;color:var(--muted)}
@@ -107,8 +130,9 @@ button.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--fg)}
 @media (max-width:760px){
   .app{grid-template-columns:1fr;grid-template-rows:1fr auto}
   .rail{flex-direction:row;order:2;border-right:0;border-top:1px solid var(--line);justify-content:space-around;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px))}
-  .meet{grid-template-columns:1fr;height:auto}
-  .convo{min-height:480px}
+  .mid{grid-template-columns:1fr}
+  .drawer{width:100%;min-height:360px}
+  .tile{flex-basis:112px;height:80px}
 }
 </style>
 
@@ -165,7 +189,14 @@ let decisions=[
  {k:"action",id:"dec_2",wi:"wi_5",title:"许宁 想运行一条命令",what:"npm test -- tests/worker-protocol.test.mjs",why:"验证 usage 信号的 schema",scope:"只读测试，不写文件"},
  {k:"accept",id:"dec_3",wi:"wi_8",title:"接受交付：Paseo 0.12 对照驱动",evidence:"10 个场景脚本；独立复核通过 8 项、2 项不适用",left:"S6 停止：Paseo 文档无中断接口，标记为待实测",endpoint:"约定终点：已合并"}
 ];
-let state={v:"meet",proj:"all",dim:"need",filter:null,meetLocked:false,rec:false,recMode:null,pressAt:0,feed:null,stopTimer:null};
+const GROUP=[
+ {who:"host",t:"09:12",txt:"今日汇总：B06 用量接线进行中；迁移任务因额度暂停，等你决定追加或等新周期。"},
+ {who:"qa",t:"10:40",txt:"N5095 TTS 实测：本地 aishell3 需 4 线程才实时，建议在线音色为主。复核未决：缺试听结论。"},
+ {who:"pm",t:"11:05",txt:"Paseo 对照驱动已交付，等你接受。S6 停止项标记为待实测。"},
+];
+let state={v:"meet",proj:"all",dim:"need",filter:null,meetLocked:false,rec:false,recMode:null,pressAt:0,feed:null,stopTimer:null,
+  tilesOpen:true,chatOpen:false,chatTab:"meeting",full:false};
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&state.full){state.full=false;render()}});
 try{const s=localStorage.getItem("aha.proj");if(s&&(s==="all"||PROJECTS[s]))state.proj=s;}catch(e){}
 
 const $=s=>document.querySelector(s);
@@ -206,24 +237,55 @@ function meetHTML(){
   const feed=state.feed.map(m=>m.sys?`<div class="sys">${esc(m.sys)}</div>`:
    `<div class="msg">${av(m.who,speaking===m&&!state.rec?"speaking":"")}<div class="body"><div class="who"><b>${esc((PEOPLE[m.who].role?PEOPLE[m.who].role+" · ":"")+PEOPLE[m.who].n)}</b>${PEOPLE[m.who].voice?` · 音色 ${esc(PEOPLE[m.who].voice)}`:""}${m.cut?` · <span class="chip warn">未播完</span>`:""}${m.urgent?` · <span class="chip crit">风险直报</span>`:""}</div><div>${esc(m.txt)}</div>${m.ref?`<span class="ref">关于：${esc(m.ref)}</span>`:""}</div></div>`).join("");
   const vs=state.rec?(state.recMode==="hold"?["录音中","松开发送"]:["录音中","再按一次发送"]):(state.pending?["识别失败，已保留","点“重试”或“丢弃”，不会自动重发"]:["待命","短按开始 · 长按说话"]);
-  return `<div class="meet">
-   <section class="convo" aria-label="对话">
-    <div class="members"><span class="grp">在会 ${av("host")}${av("fe")}</span><span class="grp">已审阅 ${av("pm")}</span><span class="grp">可邀请 ${av("qa")}</span></div>
-    <div class="feed" id="feed">${feed}</div>
+  const tileOf=(k,tag,extra="")=>{const p=PEOPLE[k];const sp=speaking&&speaking.who===k&&!state.rec;
+    return `<div class="tile ${sp?"speaking":""} ${extra}">${tag?`<span class="chip st ${tag[1]}">${tag[0]}</span>`:""}${av(k,sp?"speaking":"")}<span class="nm">${esc(p.role?p.role+" · "+p.n:p.n)}</span>${p.voice?`<span class="vc">${esc(p.voice)}</span>`:""}</div>`};
+  const meTag=state.rec?["录音中","crit"]:null;
+  const tiles=state.tilesOpen
+    ?`<div class="tiles" aria-label="参会人">${tileOf("me",meTag)}${tileOf("host",["主持","info"])}${tileOf("fe",["在会",""])}${tileOf("pm",["已审阅",""],"dim")}<button class="tile add" id="invite"><span class="nm">+ 邀请专家</span><span class="sub">测试 · 许宁</span></button></div>`
+    :`<div class="tiles-collapsed">参会人已收起：${av("me")}${av("host")}${av("fe")} <button class="btn" id="tilesOpen2">展开</button></div>`;
+  const group=`<div class="feed">${GROUP.map(m=>`<div class="msg">${av(m.who)}<div class="body"><div class="who"><b>${esc(PEOPLE[m.who].role+" · "+PEOPLE[m.who].n)}</b> · ${esc(m.t)}</div><div>${esc(m.txt)}</div></div></div>`).join("")}</div>`;
+  const drawer=state.chatOpen?`<aside class="drawer" aria-label="聊天">
+     <div class="tabs"><button class="chip" data-tab="meeting" aria-pressed="${state.chatTab==="meeting"}">会议对话</button><button class="chip" data-tab="group" aria-pressed="${state.chatTab==="group"}">群聊 · ${esc(PROJECTS[state.proj]||"全部项目")}</button><span class="sp"></span><button class="btn" id="chatClose" aria-label="收起聊天">收起</button></div>
+     ${state.chatTab==="meeting"?`<div class="convo"><div class="feed" id="feed">${feed}</div></div>`:group}
+    </aside>`:"";
+  return `<div class="meet ${state.full?"full":""}">
+   ${state.full?"":tiles}
+   <div class="mid" style="${state.chatOpen&&!state.full?"":"grid-template-columns:minmax(0,1fr)"}">
+    <section class="shared ${state.rec?"locked":""}" aria-label="共享区">
+     ${state.rec?`<span class="chip crit lockbadge">已锁定：看板 › ${esc(PROJECTS[state.proj]||"全部项目")}</span>`:""}
+     ${state.suggest?`<div class="banner info">助理想展示：甘特图 <button class="btn pri" id="sgo">切换</button><button class="btn" id="sno">保持当前</button></div>`:""}
+     ${speaking&&!state.chatOpen?`<div class="banner info">${esc((PEOPLE[speaking.who].role?PEOPLE[speaking.who].role+" · ":"")+PEOPLE[speaking.who].n)}：${esc(speaking.txt.slice(0,60))}${speaking.txt.length>60?"…":""}</div>`:""}
+     <div class="legend"><span>共享屏幕 · 看板</span><button class="btn" id="askSwitch">模拟：助理请求切换展示</button></div>
+     ${boardHTML(true)}
+    </section>
+    ${state.full?"":drawer}
+   </div>
+   <div class="toolbar" role="toolbar" aria-label="会议工具栏">
     <div class="voice">
      <button class="ptt ${state.rec?"rec":""}" id="ptt" aria-label="语音键">${state.rec?"● REC":"按住"}</button>
      <div class="vstate"><b>${vs[0]}</b><small>${vs[1]}</small>${state.pending?` <button class="btn" id="retry">重试</button> <button class="btn" id="drop">丢弃</button>`:""}</div>
     </div>
-   </section>
-   <section class="shared ${state.rec?"locked":""}" aria-label="共享区">
-    ${state.rec?`<span class="chip crit lockbadge">已锁定：看板 › ${esc(PROJECTS[state.proj]||"全部项目")}</span>`:""}
-    ${state.suggest?`<div class="banner info">助理想展示：甘特图 <button class="btn pri" id="sgo">切换</button><button class="btn" id="sno">保持当前</button></div>`:""}
-    <div class="legend"><span>共享区默认看板</span><button class="btn" id="askSwitch">模拟：助理请求切换展示</button><button class="btn" id="endMeet">结束会议</button></div>
-    ${boardHTML(true)}
-   </section></div>`;
+    <span class="sp"></span>
+    <div class="grp">
+     <button class="tb" id="tChat" aria-pressed="${state.chatOpen&&state.chatTab==="meeting"}">💬 聊天</button>
+     <button class="tb" id="tGroup" aria-pressed="${state.chatOpen&&state.chatTab==="group"}">👥 群聊</button>
+     <button class="tb" id="tTiles" aria-pressed="${!state.tilesOpen}">${state.tilesOpen?"收起参会人":"展开参会人"}</button>
+     <button class="tb" id="tFull" aria-pressed="${state.full}">${state.full?"退出全屏":"⛶ 共享区全屏"}</button>
+     <button class="tb danger" id="endMeet">结束会议</button>
+    </div>
+   </div></div>`;
 }
 function bindMeet(){
-  const f=$("#feed");f.scrollTop=f.scrollHeight;
+  const f=$("#feed");if(f)f.scrollTop=f.scrollHeight;
+  const tog=(id,fn)=>{const el=$(id);if(el)el.onclick=()=>{fn();render()}};
+  tog("#tChat",()=>{state.chatOpen=!(state.chatOpen&&state.chatTab==="meeting");state.chatTab="meeting"});
+  tog("#tGroup",()=>{state.chatOpen=!(state.chatOpen&&state.chatTab==="group");state.chatTab="group"});
+  tog("#chatClose",()=>{state.chatOpen=false});
+  tog("#tTiles",()=>{state.tilesOpen=!state.tilesOpen});
+  tog("#tilesOpen2",()=>{state.tilesOpen=true});
+  tog("#tFull",()=>{state.full=!state.full});
+  tog("#invite",()=>{state.feed.push({sys:"助理邀请 测试 · 许宁 入会（附议题、目标、约束与引用）"});toast("已发出邀请；你也可以阻止或点名专家")});
+  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{state.chatTab=b.dataset.tab;render()});
   const b=$("#ptt");
   const down=()=>{state.pressAt=Date.now();interrupt();if(state.rec&&state.recMode==="toggle"){send();return}state.rec=true;state.recMode="pending";render();};
   const up=()=>{if(!state.rec)return;const held=Date.now()-state.pressAt;if(state.recMode==="pending"){if(held>=350){state.recMode="hold";send()}else{state.recMode="toggle";render()}}};
