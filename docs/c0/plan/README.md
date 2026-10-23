@@ -46,7 +46,7 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 | **A-14** | **升级 Codex 固定版本**（0.144.1 对 ChatGPT 账号已不可用）：重新生成 app-server 协议类型；版本门改为「已验证区间」；**重新设计 Codex 授权映射**（`untrusted` 已被 0.156.1 弃用：改为 `on-request` + 沙箱，越出沙箱请求由宿主按 grant 裁决） | B10 | 3–5 | 用当前 Codex + 账号可用模型跑通 B04 的 S1–S6；adapter 测试通过；授权映射有单测 |
 | **A-15** | Claude 默认模型失效（`claude-sonnet-4-20250514` → `model_not_found`）：更新默认值，改为从 SDK / 账号动态取可用模型 | B10 | 1–2 | 未配置模型的新用户能直接启动 Claude worker |
 | **A-16** | Codex 写入批准缺路径：adapter 缓存 `item/started` 的 fileChange 条目，按 `itemId` 关联路径后再交给 `task-authority` | B10、B18 | 1–2 | Windows 沙箱写失败后的越出请求能按路径正确批准 / 拒绝 |
-| **A-17** | 用户级 hooks（如 AhaKey `PermissionRequest`）可绕过宿主授权：AhaKey 批准也要落在宿主 grant 范围内（hook 只转发、不直接 allow），或 worker 会话排除 user 级 hooks（**需产品确认 AhaKey 定位**） | B18 | 2–3 | 越出 grant 的请求即使 AhaKey 按下允许也被拒 |
+| **A-17** | 用户级 hooks（如 AhaKey `PermissionRequest`）可绕过宿主授权。**已定（D13）**：AhaKey 只是批准入口，hook 把请求转给宿主、由宿主按 grant 裁决，不直接 allow | B18 | 2–3 | 越出 grant 的请求即使 AhaKey 按下允许也被拒 |
 | **A-18** | Claude 就绪握手 15 秒超时在 N5095 上不够，且 rejection 无人处理：超时可配置 / 按设备放宽，失败走正常 `failed` 信号 | B10 | 1 | N5095 内存紧张时 Claude worker 仍能启动或明确失败，不出现未处理异常 |
 | **A-19** | 中断后双终止信号（`ended:interrupted` 后又 `failed` + `ended:completed`）：adapter 去重，只保留一次终止 | B10 | 1 | 中断只产生一次终止事件；scheduler 不把用户停止当失败 |
 | **A-20** | 停止后已批准未执行的命令仍会执行：停止时拒绝 / 撤销所有排队中的批准；未确认安静前 UI 显示「停止中」 | B10、B31 | 2–3 | B04 S6 对 Codex 由 partial 变 pass |

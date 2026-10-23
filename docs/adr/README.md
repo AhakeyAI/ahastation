@@ -4,10 +4,10 @@
 
 | # | 标题 | 状态 | 日期 |
 | --- | --- | --- | --- |
-| [0001](0001-stable-project-identity.md) | 项目使用稳定 ID，路径只是设备挂载 | 提议 | 2026-10-23 |
+| [0001](0001-stable-project-identity.md) | 项目使用稳定 ID，路径只是设备挂载 | 已接受 | 2026-10-23 |
 | [0002](0002-libsodium-for-device-crypto.md) | 设备间加密使用 libsodium，不自创协议 | 提议 | 2026-10-23 |
 | [0003](0003-keep-meeting-repository-wrap-envelope.md) | 保留 MeetingRepository，外套事件信封 v2 | 提议 | 2026-10-23 |
-| [0004](0004-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | 提议（B04 证据完整） | 2026-10-23 |
+| [0004](0004-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | 已接受 | 2026-10-23 |
 
 模板：
 

@@ -30,7 +30,7 @@ L-04,账本切片④：周期刷新与订阅窗口对齐,B19,B,M,3-5,L-02,docs/c
 A-14,升级 Codex 固定版本 + 重新设计 Codex 授权映射,B10,B,M,3-5,,docs/c0/b04-runtime/README.md F1 F2 F5,yes
 A-15,Claude 默认模型失效：动态取可用模型,B10,B,S,1-2,,docs/c0/b04-runtime/README.md F3,yes
 A-16,Codex 写入批准按 itemId 关联路径,B10/B18,B,S,1-2,,docs/c0/b04-runtime/README.md F4,yes
-A-17,用户级 hooks（AhaKey）不得绕过宿主授权,B18,B,M,2-3,AhaKey 定位确认,docs/c0/b04-runtime/README.md F6,no
+A-17,用户级 hooks（AhaKey）不得绕过宿主授权（D13 已定）,B18,B,M,2-3,,docs/c0/b04-runtime/README.md F6,yes
 A-18,Claude 就绪超时可配置 + 失败走 failed 信号,B10,B,S,1,,docs/c0/b04-runtime/README.md F9,yes
 A-19,中断双终止信号去重,B10,B,S,1,,docs/c0/b04-runtime/README.md F10,yes
 A-20,停止时撤销已批准未执行的命令,B10/B31,B,M,2-3,,docs/c0/b04-runtime/README.md F11,yes
