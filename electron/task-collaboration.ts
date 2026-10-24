@@ -168,6 +168,7 @@ export const taskMessageSchema = z.object({
     'interrupt',
     'status-request',
     'progress',
+    'report',
     'question',
     'approval-request',
     'approval-response',

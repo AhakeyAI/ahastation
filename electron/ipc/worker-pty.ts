@@ -149,28 +149,30 @@ export function registerWorkerPtyIpc(ctx: IpcContext): void {
     },
   });
 
-  // Terminal workers have no machine-readable report channel: the user
-  // decides the outcome. 「标记完成」 synthesizes a minimal WorkReport and
-  // rides the normal delivery pipeline (verify → review → acceptance);
-  // 「标记失败」 rides the normal failed-signal path.
+  // Explicit user readiness releases the retained startup prompt.
+  handleSecure('worker-pty:ready', {
+    schema: z.object({ sessionId: z.string().nullable().optional(), workerId: z.string().regex(WORKER_ID_RE) }).strict(),
+    authorize: mainOnly,
+    authorizeError: mainOnlyError,
+    handler: (payload) => ({ ok: ctx.getOrchestrator(payload.sessionId)?.resumeTerminalInput(payload.workerId) === true }),
+  });
+
   handleSecure('scheduler:confirm-terminal-task', {
     schema: confirmTerminalTaskSchema,
     authorize: mainOnly,
     authorizeError: mainOnlyError,
-    handler: (payload) => {
+    handler: async (payload) => {
       const orchestrator = ctx.getOrchestrator(payload.sessionId);
       if (!orchestrator) return { ok: false, error: 'No active meeting session' };
       if (payload.outcome === 'failed') {
         return orchestrator.failWorkerFromUser(payload.workerId, payload.summary);
       }
-      orchestrator.submitWorkerReport(payload.workerId, {
-        status: 'completed',
-        summary: payload.summary,
-        files: [],
-        tests: [],
-        unresolved: [],
-      });
-      return { ok: true };
+      try {
+        await orchestrator.confirmTerminalReport(payload.workerId, payload.summary);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
     },
   });
 }

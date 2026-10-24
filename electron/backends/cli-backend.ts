@@ -234,6 +234,7 @@ export interface BackendSession {
   setPermissionMode?(mode: string): Promise<void>;
   /** Durable native handle used for interrupted recovery. */
   snapshot?(): BackendSessionSnapshot | null;
+  resumePendingInput?(): boolean;
 }
 
 // ── CLI backend factory ────────────────────────────────────────────────────────

@@ -275,10 +275,11 @@ async function existingCandidate(
   };
 }
 
-async function changedWorkspacePaths(workspace: string): Promise<string[]> {
+export async function changedWorkspacePaths(workspace: string): Promise<string[]> {
   const tracked = await git(workspace, [
     'diff',
     '--name-only',
+    '-z',
     '--no-renames',
     'HEAD',
     '--',
@@ -287,6 +288,7 @@ async function changedWorkspacePaths(workspace: string): Promise<string[]> {
     'diff',
     '--cached',
     '--name-only',
+    '-z',
     '--no-renames',
     'HEAD',
     '--',
@@ -295,12 +297,12 @@ async function changedWorkspacePaths(workspace: string): Promise<string[]> {
     'ls-files',
     '--others',
     '--exclude-standard',
+    '-z',
     '--',
   ]);
   const paths = [...new Set(
     [tracked, staged, untracked]
-      .flatMap((output) => output.split(/\r?\n/u))
-      .map((path) => path.trim().split('\\').join('/'))
+      .flatMap((output) => output.split('\0'))
       .filter(Boolean)
       .filter((path) => !isEphemeralDeliveryPath(path)),
   )].sort();
@@ -354,11 +356,12 @@ async function stagedWorkspacePaths(workspace: string): Promise<string[]> {
       'diff',
       '--cached',
       '--name-only',
+      '-z',
       '--no-renames',
       'HEAD',
       '--',
     ])
-  ).split(/\r?\n/u).map((path) => path.trim()).filter(Boolean).sort();
+  ).split('\0').filter(Boolean).sort();
 }
 
 function normalizeRelativePath(workspace: string, path: string): string {
@@ -393,7 +396,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
     maxBuffer: GIT_OUTPUT_LIMIT,
     windowsHide: true,
   });
-  return stdout.trim();
+  return args.includes('-z') ? stdout : stdout.trim();
 }
 
 function sha256(value: string): string {

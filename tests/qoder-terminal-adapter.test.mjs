@@ -210,7 +210,7 @@ test('stripAnsi removes CSI/OSC sequences and normalizes carriage returns', () =
   assert.equal(stripAnsi(`\x1b[200~pasted\x1b[201~`), 'pasted');
 });
 
-test('login-gate output fails fast with auth-required and blocks further input', async (t) => {
+test('login gate retains input until explicit user readiness', async (t) => {
   const { backend, spawned } = createFixture(t);
   const cwd = await createWorkspace(t);
   const events = [];
@@ -232,11 +232,9 @@ test('login-gate output fails fast with auth-required and blocks further input',
     + 'WelcometoQoderCLI\nSignintogetstarted,orexittheapplication.\n'
     + '❯1.Signintocontinue   2.Exittheapplication\n',
   );
-  const failures = events.filter((e) => e.signal?.kind === 'failed');
-  assert.equal(failures.length, 1);
-  assert.equal(failures[0].signal.code, 'auth-required');
-  assert.equal(failures[0].signal.retryable, false);
-  assert.ok(failures[0].signal.message.includes('qodercli'));
+  const pending = events.filter((e) => e.signal?.message?.startsWith('[terminal-input-pending]'));
+  assert.equal(pending.length, 1);
+  assert.ok(pending[0].signal.message.includes('qodercli'));
 
   // Further input is dropped — paste + \r must not reach the login menu.
   session.sendUserText('后续输入');
@@ -244,7 +242,10 @@ test('login-gate output fails fast with auth-required and blocks further input',
 
   // Idempotent: repeated login-gate frames do not re-emit the failure.
   spawned[0].pty.emitData('No Login PlaseAuth');
-  assert.equal(events.filter((e) => e.signal?.kind === 'failed').length, 1);
+  assert.equal(events.filter((e) => e.signal?.message?.startsWith('[terminal-input-pending]')).length, 1);
+  assert.equal(session.resumePendingInput(), true);
+  assert.equal(spawned[0].pty.writes.length, 6);
+  assert.equal(session.resumePendingInput(), false);
   session.end();
 });
 
@@ -283,7 +284,7 @@ test('prompt waits for the input-box pattern, not the boot frame', async (t) => 
   session.end();
 });
 
-test('ready fallback still pastes when the pattern never appears (quiet TUI)', async (t) => {
+test('ready deadline retains the prompt instead of pasting blindly', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { backend, spawned } = createFixture(t, { timersEnabled: true });
   const cwd = await createWorkspace(t);
@@ -298,6 +299,8 @@ test('ready fallback still pastes when the pattern never appears (quiet TUI)', a
   t.mock.timers.tick(29_999);
   assert.equal(spawned[0].pty.writes.length, 0);
   t.mock.timers.tick(2); // READY_FALLBACK_PATTERN_MS = 30s
+  assert.equal(spawned[0].pty.writes.length, 0);
+  assert.equal(session.resumePendingInput(), true);
   assert.equal(spawned[0].pty.writes.length, 1);
   t.mock.timers.tick(400);
   assert.deepEqual(spawned[0].pty.writes.slice(1), ['\x1b[?2004l', '\r']);

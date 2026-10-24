@@ -34,6 +34,7 @@ import {
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
+import { workerCliEnvironment } from '../worker-cli-bridge.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
 import { compileBackendTaskProfile, type BackendRuntime } from './task-profile.js';
 import {
@@ -280,12 +281,11 @@ export interface TerminalCliProfile {
    *  credentials are missing. Without this, the task prompt is pasted onto
    *  the login menu and silently swallowed — the worker hangs forever with
    *  zero events. When the (ANSI-stripped) pty output matches `pattern`
-   *  within AUTH_WALL_WINDOW_MS of spawn, the session fails fast with code
-   *  'auth-required' and stops injecting input. Omit for CLIs that handle
-   *  auth non-modally. */
+   *  within AUTH_WALL_WINDOW_MS of spawn, input is retained until the user
+   *  resolves login and confirms readiness. */
   authWall?: {
     pattern: RegExp;
-    /** Failure message surfaced through the worker-failed signal. */
+    /** Explanation shown with the pending-input action. */
     message: string;
   };
   /** Gate the first paste on this pattern appearing in (ANSI-stripped) pty
@@ -319,7 +319,6 @@ export interface TerminalCliProfile {
 
 const READY_FALLBACK_MS = 5_000;
 const READY_FALLBACK_PATTERN_MS = 30_000;
-const READY_AFTER_FIRST_OUTPUT_MS = 1_600;
 const READY_QUIESCE_MS = 2_500;
 const READY_BUFFER_MAX = 8 * 1024;
 const SUBMIT_DELAY_MS = 400;
@@ -383,7 +382,6 @@ export class TerminalCliSession implements BackendSession {
     { ownerId: string; trusted: boolean }
   >();
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
-  private firstOutputSeen = false;
   private unsubscribeData: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
 
@@ -401,7 +399,8 @@ export class TerminalCliSession implements BackendSession {
     this.workerId = typeof extraWorkerId === 'string' && extraWorkerId.trim()
       ? extraWorkerId.trim()
       : `terminal-${randomUUID()}`;
-    this.ahaDir = join(config.cwd, '.aha');
+    this.ahaDir = typeof config.extra?.workerRuntimeDir === 'string'
+      ? config.extra.workerRuntimeDir : join(config.cwd, '.aha');
     this.suffix = this.workerId.replace(/[^a-zA-Z0-9._-]/g, '_');
     this.hookScriptPath = join(this.ahaDir, `terminal-stop-hook-${this.suffix}.cjs`);
     this.eventsPath = join(this.ahaDir, `terminal-turn-events-${this.suffix}.jsonl`);
@@ -454,23 +453,18 @@ export class TerminalCliSession implements BackendSession {
       ...(hookReg?.cliArgs ?? []),
       ...(this.profile.buildCliArgs?.(this.config) ?? []),
     ];
-    // .cmd/.bat shims (npm global install on Windows) are not directly
-    // spawnable by ConPTY — route them through cmd.exe.
-    const isWinShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binary);
-    const file = isWinShim ? 'cmd.exe' : binary;
-    const args = isWinShim ? ['/d', '/s', '/c', binary, ...cliArgs] : cliArgs;
-
     const processId = this.deps.host.spawn(this.workerId, {
-      file,
-      args,
+      file: binary,
+      args: cliArgs,
       cwd: this.config.cwd,
-      env,
+      env: workerCliEnvironment(env),
     });
 
     this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;
     this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
       this.scanForAuthWall(data);
       if (this.closed || this.ready) return;
+      if (this.authWallEmitted) return;
       if (this.profile.readyPattern) {
         // Pattern-gated: boot frames (token refresh, trust dialogs) are not
         // proof the input box exists — only the pattern is. But the pattern
@@ -484,20 +478,13 @@ export class TerminalCliSession implements BackendSession {
         this.scheduleReady(READY_QUIESCE_MS);
         return;
       }
-      if (this.firstOutputSeen) return;
-      this.firstOutputSeen = true;
-      // The TUI draws its input box shortly after the first frame; give it a
-      // beat before pasting so the prompt is not swallowed mid-init.
-      this.scheduleReady(READY_AFTER_FIRST_OUTPUT_MS);
+      // Without a captured CLI-specific marker, let the user confirm readiness.
     });
     this.unsubscribeExit = this.deps.host.onExit(this.workerId, () => {
       if (this.closed) return;
       this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
     });
-    // Fallback: paste anyway if the TUI stays quiet (e.g. output buffered).
-    // Pattern-gated profiles get a longer leash: their boot phase (auth
-    // token refresh) legitimately takes seconds before the input box is
-    // drawn, and a 5s fallback would fire mid-boot and swallow the prompt.
+    // A readiness deadline asks for user confirmation; it never injects input.
     this.scheduleReady(
       this.profile.readyPattern ? READY_FALLBACK_PATTERN_MS : READY_FALLBACK_MS,
       true,
@@ -514,12 +501,15 @@ export class TerminalCliSession implements BackendSession {
   private scheduleReady(delayMs: number, fallback = false): void {
     if (this.ready || this.closed) return;
     if (this.readyTimer && !fallback) clearTimeout(this.readyTimer);
-    else if (this.readyTimer && fallback) return; // first-output timer wins
+    else if (this.readyTimer && fallback) return; // A detected readiness signal takes precedence.
     if (this.deps.timersEnabled === false) {
       this.markReady();
       return;
     }
-    this.readyTimer = setTimeout(() => this.markReady(), delayMs);
+    this.readyTimer = setTimeout(() => {
+      if (fallback) this.holdPendingInput('尚未确认终端已就绪。完成初始化后，点击“发送待发任务”。');
+      else this.markReady();
+    }, delayMs);
     this.readyTimer.unref?.();
   }
 
@@ -533,11 +523,23 @@ export class TerminalCliSession implements BackendSession {
     for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
   }
 
-  /** Fail fast when the pty shows the CLI's login gate. Runs before the
-   *  first-output handler so detection is independent of the ready/paste
-   *  path. Best-effort by design: a missed match degrades to the old silent
-   *  behaviour, while a match converts an infinite hang into an actionable
-   *  auth-required failure. */
+  /** Retain the prompt while the user resolves login or uncertain startup. */
+  private holdPendingInput(message: string): void {
+    this.ready = false;
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.readyTimer = null;
+    this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: `[terminal-input-pending] ${message}` } });
+  }
+
+  resumePendingInput(): boolean {
+    if (this.closed || this.ready || this.pendingTexts.length === 0) return false;
+    this.authWallEmitted = false;
+    this.authWallBuffer = '';
+    this.markReady();
+    this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: '已发送待发任务。' } });
+    return true;
+  }
+
   private scanForAuthWall(data: string): void {
     const wall = this.profile.authWall;
     if (!wall || this.authWallEmitted || this.closed) return;
@@ -545,15 +547,7 @@ export class TerminalCliSession implements BackendSession {
     this.authWallBuffer = (this.authWallBuffer + stripAnsi(data)).slice(-AUTH_WALL_BUFFER_MAX);
     if (!wall.pattern.test(this.authWallBuffer)) return;
     this.authWallEmitted = true;
-    this.emit({
-      kind: 'worker-signal',
-      signal: {
-        kind: 'failed',
-        code: 'auth-required',
-        message: wall.message,
-        retryable: false,
-      },
-    });
+    this.holdPendingInput(wall.message);
   }
 
   private pasteIntoTui(text: string): void {
@@ -562,6 +556,7 @@ export class TerminalCliSession implements BackendSession {
     this.deps.host.write(this.workerId, buildPasteFrame(text));
     const submitSeq = this.profile.submitSequence ?? '\r';
     const submit = () => {
+      if (this.closed || this.authWallEmitted) return;
       if (this.profile.beforeSubmitSequence) {
         this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence);
       }
@@ -580,6 +575,10 @@ export class TerminalCliSession implements BackendSession {
   private startTurnEventWatcher(): void {
     try {
       this.watcher = watch(this.eventsPath, () => this.drainTurnEvents());
+      this.watcher.on('error', () => {
+        this.watcher?.close();
+        this.watcher = null;
+      });
     } catch {
       // Watcher failure degrades to "no turn-ended signal" — the terminal
       // stays fully usable; the user just confirms without the marker.
@@ -765,11 +764,9 @@ export class TerminalCliSession implements BackendSession {
   }
 
   sendUserText(text: string): void {
-    // Once the login gate was detected, injecting more text is pointless
-    // (it lands on the auth menu) and its \r submit can even arm the
-    // sign-in flow. Drop input; the scheduler disposes us via the failure.
-    if (this.closed || this.authWallEmitted || !text) return;
-    if (!this.ready) {
+    // Keep input queued while login or startup needs user attention.
+    if (this.closed || !text) return;
+    if (!this.ready || this.authWallEmitted) {
       this.pendingTexts.push(text);
       return;
     }
