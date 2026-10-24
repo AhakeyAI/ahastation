@@ -1,5 +1,12 @@
 export type AutoApproveScope = 'off' | 'read' | 'all';
 
+export interface LocalCliInfo {
+  id: string;
+  label: string;
+  command: string;
+  binaryPath: string;
+}
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -244,6 +251,7 @@ export interface TaskMessage {
     | 'interrupt'
     | 'status-request'
     | 'progress'
+    | 'report'
     | 'question'
     | 'approval-request'
     | 'approval-response';
@@ -1434,6 +1442,7 @@ export interface VibeMeetApi {
   /** Terminal-mode worker PTY bridge (main window). Attach mirrors the
    *  pty ring buffer + live output; input takes over the TUI keyboard. */
   workerPty: {
+    ready: (sessionId: string, workerId: string) => Promise<{ ok: boolean }>;
     attach: (workerId: string) => Promise<{ ok: boolean; error?: string; replay?: string }>;
     input: (workerId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
     resize: (workerId: string, rows: number, cols: number) => Promise<{ ok: boolean; error?: string }>;
@@ -1449,18 +1458,23 @@ export interface VibeMeetApi {
   };
   /** Main-window bottom-drawer shell PTY. Renderer owns lifecycle (create/kill). */
   shellPty: {
+    listClis: () => Promise<{ ok: true; clis: LocalCliInfo[] } | { ok: false; error: string }>;
+    listShells: () => Promise<{ ok: true; shells: LocalCliInfo[]; defaultCwd: string } | { ok: false; error: string }>;
     create: (opts?: {
       cwd?: string;
       cols?: number;
       rows?: number;
+      cliId?: string;
+      shellId?: string;
+      terminalId?: string;
     }) => Promise<
-      | { ok: true; ptyId: string; replay: string }
+      | { ok: true; ptyId: string; replay: string; sequence: number; exited?: boolean; exitCode?: number | null }
       | { ok: false; error?: string }
     >;
     input: (ptyId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
     resize: (ptyId: string, rows: number, cols: number) => Promise<{ ok: boolean; error?: string }>;
     kill: (ptyId: string) => Promise<{ ok: boolean; error?: string }>;
-    onData: (cb: (e: { ptyId: string; data: string }) => void) => () => void;
+    onData: (cb: (e: { ptyId: string; data: string; sequence: number }) => void) => () => void;
     onExit: (cb: (e: { ptyId: string; exitCode: number | null }) => void) => () => void;
   };
   /** Editor-window live panel state. Only exposed by the narrow editor
