@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -41,7 +41,8 @@ function makeKimiHome() {
   cpSync(join(KIMI_HOME, 'sessions'), join(home, '.kimi-code', 'sessions'), { recursive: true });
   cpSync(join(KIMI_HOME, 'workspaces.json'), join(home, '.kimi-code', 'workspaces.json'));
   const index = readFileSync(join(KIMI_HOME, 'session_index.jsonl'), 'utf8')
-    .replaceAll('/Users/test/.kimi-code', join(home, '.kimi-code'));
+    // JSON-escape the replacement: Windows paths carry backslashes.
+    .replaceAll('/Users/test/.kimi-code', JSON.stringify(join(home, '.kimi-code')).slice(1, -1));
   writeFileSync(join(home, '.kimi-code', 'session_index.jsonl'), index);
   // Deterministic order: b1's state.json is the newest (sort key).
   const stateB1 = join(
@@ -79,6 +80,20 @@ test('kimi index: containment rejects sessionDirs outside ~/.kimi-code/sessions'
   // the fixture home, so every line is refused (fail-closed).
   const entries = await loadKimiSessionIndex(HOME);
   assert.equal(entries.length, 0);
+});
+
+test('kimi index: containment rejects `..` traversal out of the sessions root', async () => {
+  const home = makeKimiHome();
+  const sessionsRoot = join(home, '.kimi-code', 'sessions');
+  // Build the string by hand: join() would normalize the `..` away.
+  const escape = [sessionsRoot, 'wd_x', '..', '..', '..', 'outside'].join(sep);
+  assert.ok(escape.startsWith(sessionsRoot + sep), 'raw string must pass a naive prefix check');
+  writeFileSync(
+    join(home, '.kimi-code', 'session_index.jsonl'),
+    `${JSON.stringify({ sessionId: 'escape', sessionDir: escape, workDir: '/tmp' })}\n`,
+  );
+  const entries = await loadKimiSessionIndex(home);
+  assert.deepEqual(entries.map((entry) => entry.sessionId), []);
 });
 
 test('listKimiSessions: dedupe, corrupt lines skipped, missing state.json skipped', async () => {
