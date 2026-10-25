@@ -141,7 +141,12 @@ class ClaudeCodeSession implements BackendSession {
   private readonly isWorker: boolean;
   private readonly workerTools = new Map<string, string>();
   private workerTurnTerminal = false;
-  private pendingSteerInterrupts = 0;
+  // Counts intentional interrupts whose native error result must be swallowed.
+  // Steer: the wrapper emits nothing (session continues on the next turn).
+  // User/shutdown: the wrapper already emitted ended:interrupted itself, so
+  // the CLI's own failed+completed pair would otherwise double-terminate the
+  // same turn (F10).
+  private pendingInterruptResults = 0;
   private closed = false;
   private readonly emit: (event: BackendSessionEvent) => void;
 
@@ -150,6 +155,7 @@ class ClaudeCodeSession implements BackendSession {
     emit: (e: BackendSessionEvent) => void,
     confirmDestructive?: ConfirmDestructive,
     queryFactory?: ClaudeCliQueryFactory,
+    onModels?: (models: string[]) => void,
   ) {
     this.emit = emit;
     this.isWorker = config.executionRole === 'worker';
@@ -165,18 +171,18 @@ class ClaudeCodeSession implements BackendSession {
         if (this.closed) return;
         if (event.kind === 'message') {
           const message = (event.message ?? {}) as Record<string, unknown>;
-          const expectedSteerBoundary = this.pendingSteerInterrupts > 0;
+          const expectedInterruptResult = this.pendingInterruptResults > 0;
           const isTurnResult = message.type === 'result';
           for (const signal of mapClaudeMessageToWorkerSignals(
             event.message,
             this.workerTools,
-            { suppressExpectedSteerBoundary: expectedSteerBoundary },
+            { suppressExpectedSteerBoundary: expectedInterruptResult },
           )) {
             if (signal.kind === 'ended') this.workerTurnTerminal = true;
             emit({ kind: 'worker-signal', signal });
           }
-          if (expectedSteerBoundary && isTurnResult) {
-            this.pendingSteerInterrupts -= 1;
+          if (expectedInterruptResult && isTurnResult) {
+            this.pendingInterruptResults -= 1;
           }
         } else if (event.kind === 'auth-required') {
           emit({
@@ -215,6 +221,7 @@ class ClaudeCodeSession implements BackendSession {
       envOverride: config.env,
       confirmDestructive,
       queryFactory,
+      onModels,
     });
   }
 
@@ -247,21 +254,27 @@ class ClaudeCodeSession implements BackendSession {
   }
 
   async interrupt(reason: 'steer' | 'user' | 'shutdown' = 'user'): Promise<void> {
-    if (reason === 'steer' && this.isWorker && !this.closed) {
-      // Claude's SDK represents an intentional turn interruption as an error
-      // result. Keep that provider-native boundary out of the canonical Worker
-      // failure protocol: Scheduler immediately delivers the queued steering
-      // message and the same persistent session continues on its next turn.
-      this.pendingSteerInterrupts += 1;
+    if (this.isWorker && !this.closed) {
+      if (reason === 'steer') {
+        // Claude's SDK represents an intentional turn interruption as an error
+        // result. Keep that provider-native boundary out of the canonical Worker
+        // failure protocol: Scheduler immediately delivers the queued steering
+        // message and the same persistent session continues on its next turn.
+        this.pendingInterruptResults += 1;
+      } else if (!this.workerTurnTerminal) {
+        this.workerTurnTerminal = true;
+        // The wrapper owns this semantic turn boundary; ClaudeSession's native
+        // interrupt only stops the SDK turn and does not close the session.
+        // Scheduler uses this to preserve interrupted recovery state. The
+        // interrupted turn still produces its own native error result — count
+        // it BEFORE interrupting so even a synchronously delivered result is
+        // swallowed instead of emitting a second, contradictory failed+completed
+        // terminal pair (F10).
+        this.pendingInterruptResults += 1;
+        this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
+      }
     }
     await this.inner.interrupt();
-    if (reason !== 'steer' && this.isWorker && !this.workerTurnTerminal && !this.closed) {
-      this.workerTurnTerminal = true;
-      // The wrapper owns this semantic turn boundary; ClaudeSession's native
-      // interrupt only stops the SDK turn and does not close the session.
-      // Scheduler uses this to preserve interrupted recovery state.
-      this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
-    }
   }
 
   setAutoApproveScope(scope: AutoApproveScope): void {
@@ -285,7 +298,9 @@ function buildClaudeSessionOptions(config: BackendSessionConfig): Record<string,
   if (config.systemPrompt !== undefined && extra.systemPrompt === undefined) {
     extra.systemPrompt = config.systemPrompt;
   }
-  if (config.model !== undefined) extra.model = config.model;
+  // 'auto' is the compiled-profile sentinel for "no explicit model": leave
+  // the flag out entirely so the CLI uses the account's own default model.
+  if (config.model !== undefined && config.model !== 'auto') extra.model = config.model;
   if (config.mcpServers !== undefined) extra.mcpServers = config.mcpServers;
   if (config.skills !== undefined) extra.skills = config.skills;
   if (config.resumeSessionId !== undefined) extra.resume = config.resumeSessionId;
@@ -324,11 +339,15 @@ const CLAUDE_CODE_CAPABILITIES: BackendCapabilities = {
   systemPrompt: true,
   skills: true,
   interrupt: true,
-  defaultModel: 'claude-sonnet-4-20250514',
+  // No pinned defaultModel: an unset model means the CLI uses the account's
+  // own default, so a retired model id can never block session startup.
+  // The list below only feeds UI suggestions; aliases track the latest
+  // releases instead of expiring like dated model ids. The concrete list is
+  // replaced with the account's actual models after the first session init.
   models: [
-    'claude-sonnet-4-20250514',
-    'claude-haiku-4-5-20251001',
-    'claude-opus-4-20250514',
+    'sonnet',
+    'opus',
+    'haiku',
     'glm-5.2',
   ],
   npmPackage: '@anthropic-ai/claude-code',
@@ -337,7 +356,7 @@ const CLAUDE_CODE_CAPABILITIES: BackendCapabilities = {
 
 export class ClaudeCodeBackend implements CliBackend {
   readonly id = 'claude-code';
-  readonly capabilities = CLAUDE_CODE_CAPABILITIES;
+  readonly capabilities: BackendCapabilities = { ...CLAUDE_CODE_CAPABILITIES };
   private confirmDestructive?: ConfirmDestructive;
   private readonly deps: {
     resolveBinary?: () => string | null;
@@ -362,8 +381,9 @@ export class ClaudeCodeBackend implements CliBackend {
     return compileClaudeTaskProfile(
       requested,
       runtime,
-      this.capabilities.defaultModel!,
-      this.capabilities.models ?? [],
+      'auto',
+      // The account's model catalog is discovered at session init, so a
+      // static list must not veto an explicit modelPreference here.
     );
   }
 
@@ -377,7 +397,15 @@ export class ClaudeCodeBackend implements CliBackend {
     config: BackendSessionConfig,
     emit: (e: BackendSessionEvent) => void,
   ): BackendSession {
-    return new ClaudeCodeSession(config, emit, this.confirmDestructive, this.deps.queryFactory);
+    return new ClaudeCodeSession(
+      config,
+      emit,
+      this.confirmDestructive,
+      this.deps.queryFactory,
+      (models) => {
+        if (models.length > 0) this.capabilities.models = models;
+      },
+    );
   }
 
   resolveBinary(): string | null {

@@ -211,7 +211,7 @@ function codexModelOverride(model: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-/** OAuth entry point for the bundled Codex 0.144.x command contract. */
+/** OAuth entry point for the bundled Codex 0.156.x command contract. */
 export function codexLoginArgs(): string[] {
   return ['login'];
 }
@@ -237,6 +237,7 @@ async function loadCodexSdk(): Promise<CodexSdk | null> {
 
 export function mapCodexApprovalRequest(
   request: CodexAppServerRequest,
+  lookupFileChangePaths?: (itemId: string) => string[] | undefined,
 ): { toolName: string; input: Record<string, unknown>; toolUseID: string } | null {
   const params = isRecord(request.params) ? request.params : {};
   const toolUseID = String(params.itemId ?? params.callId ?? request.id);
@@ -253,15 +254,23 @@ export function mapCodexApprovalRequest(
         },
         toolUseID,
       };
-    case 'item/fileChange/requestApproval':
+    case 'item/fileChange/requestApproval': {
+      // A-16: the approval itself carries no path ({reason, grantRoot} only).
+      // The paths live on the item/started fileChange entry with the same
+      // itemId; without them task-authority must deny every such write (F4).
+      const paths = typeof params.itemId === 'string'
+        ? lookupFileChangePaths?.(params.itemId)
+        : undefined;
       return {
         toolName: 'Write',
         input: {
           reason: params.reason ?? null,
           grantRoot: params.grantRoot ?? null,
+          ...(paths && paths.length > 0 ? { paths } : {}),
         },
         toolUseID,
       };
+    }
     case 'item/permissions/requestApproval':
       return {
         toolName: 'RequestPermissions',
@@ -349,6 +358,13 @@ class CodexAppServerSession implements BackendSession {
     request: CodexAppServerRequest;
     resolve: (value: unknown) => void;
   }>();
+  // A-16: itemId → file paths, captured from item/started|updated|completed
+  // fileChange entries so the path-less fileChange approval can be authorized
+  // against real targets. Bounded FIFO to avoid unbounded growth.
+  private fileChangePaths = new Map<string, string[]>();
+  // Set on any non-steer interrupt: approvals are revoked and new ones are
+  // auto-declined (A-20). Steer deliberately keeps the approval channel open.
+  private stopping = false;
 
   constructor(
     private readonly binaryPath: string | null,
@@ -397,7 +413,12 @@ class CodexAppServerSession implements BackendSession {
       this.backendVersion = extractCodexRuntimeVersion(ready.userAgent) ?? undefined;
       const options: Record<string, unknown> = {
         cwd: this.config.cwd,
-        approvalPolicy: this.config.executionRole === 'worker' ? 'untrusted' : 'never',
+        // A-14: 0.156 removed approvalPolicy 'untrusted'. Workers now run
+        // 'on-request' + 'workspace-write': in-sandbox commands execute
+        // without host involvement, and the CLI escalates to the host only
+        // when it needs to leave the sandbox. Host-side authority over those
+        // escalations stays with task-authority (see A-16 for fileChange).
+        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
         sandbox: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
         developerInstructions: this.config.systemPrompt,
         experimentalRawEvents: false,
@@ -418,9 +439,15 @@ class CodexAppServerSession implements BackendSession {
   }
 
   private onRequest(request: CodexAppServerRequest): Promise<unknown> {
-    const mapped = mapCodexApprovalRequest(request);
+    const mapped = mapCodexApprovalRequest(request, (itemId) => this.fileChangePaths.get(itemId));
     if (!mapped) {
       return Promise.reject(new Error(`Unsupported Codex app-server request: ${request.method}`));
+    }
+    if (this.stopping || this.closed) {
+      // A-20: once a non-steer stop begins, no new approval may authorize
+      // further execution — decline at the adapter boundary instead of
+      // surfacing a request the host is already tearing down.
+      return Promise.resolve(codexApprovalResponse(request, 'deny'));
     }
     const id = `codex:${++this.permissionSequence}:${String(request.id)}`;
     return new Promise((resolve) => {
@@ -497,8 +524,19 @@ class CodexAppServerSession implements BackendSession {
         || notification.method === 'item/completed')
       && isRecord(notification.params.item)
     ) {
+      const item = notification.params.item;
+      if ((item.type === 'fileChange' || item.type === 'file_change') && typeof item.id === 'string') {
+        const changes = Array.isArray(item.changes) ? item.changes : [];
+        const paths = changes.filter(isRecord)
+          .map((change) => String(change.path ?? ''))
+          .filter(Boolean);
+        this.fileChangePaths.set(item.id, paths);
+        if (this.fileChangePaths.size > 500) {
+          const oldest = this.fileChangePaths.keys().next().value;
+          if (oldest !== undefined) this.fileChangePaths.delete(oldest);
+        }
+      }
       if (this.isWorker) {
-        const item = notification.params.item;
         if (notification.method === 'item/completed' && item.type === 'agentMessage' && typeof item.text === 'string') {
           this.workerText.push(item.text);
         }
@@ -632,6 +670,13 @@ class CodexAppServerSession implements BackendSession {
   }
 
   async interrupt(reason: 'steer' | 'user' | 'shutdown' = 'user'): Promise<void> {
+    if (reason !== 'steer') {
+      // A-20: revoke every approval the host has not answered yet BEFORE the
+      // native interrupt, so no queued approval can authorize execution while
+      // the stop is in flight. New requests are declined in onRequest().
+      this.stopping = true;
+      this.cancelPendingPermissions();
+    }
     if (!this.transport || !this.threadId || !this.currentTurnId) return;
     const turnId = this.currentTurnId;
     if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
@@ -766,7 +811,7 @@ class CodexSession implements BackendSession {
         workingDirectory: this.config.cwd,
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
-        approvalPolicy: this.config.executionRole === 'worker' ? 'untrusted' : 'never',
+        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
         sandboxMode: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
         skipGitRepoCheck: true,
       } as const;

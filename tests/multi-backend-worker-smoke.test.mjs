@@ -19,7 +19,7 @@ import { WorkerScheduler } from '../dist-electron/worker-scheduler.js';
 const BACKENDS = ['claude-code', 'codex', 'kimi', 'opencode'];
 const EXACT_RUNTIME_VERSIONS = {
   'claude-code': '2.1.150',
-  codex: '0.144.1',
+  codex: '0.156.1',
   kimi: '0.24.1',
   opencode: '1.18.3',
 };

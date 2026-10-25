@@ -87,6 +87,10 @@ export interface SessionOptions {
   effort?: string;
   thinking?: ThinkingConfig;
   permissionMode?: PermissionMode;
+  /** Readiness handshake budget in milliseconds (default 60_000). */
+  initializationTimeoutMs?: number;
+  /** Path to a per-session --settings JSON file. */
+  settingsPath?: string;
   [key: string]: unknown;
 }
 

@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   CodexAppServerTransport,
   extractCodexRuntimeVersion,
+  isSupportedCodexAppServerVersion,
 } from '../dist-electron/backends/codex-app-server-transport.js';
 
 function fakeAppServer() {
@@ -24,7 +25,7 @@ function fakeAppServer() {
         queueMicrotask(() => {
           if (message.method === 'initialize') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
-              userAgent: 'Codex/0.144.1', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+              userAgent: 'Codex/0.156.1', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
             } })}\n`);
           } else if (message.method === 'account/read') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
@@ -53,7 +54,7 @@ test('app-server readiness uses initialize and account/read without a model turn
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
   const ready = await transport.start();
-  assert.equal(ready.userAgent, 'Codex/0.144.1');
+  assert.equal(ready.userAgent, 'Codex/0.156.1');
   assert.equal(ready.account.type, 'chatgpt');
   assert.deepEqual(fake.methods, ['initialize', 'initialized', 'account/read']);
   transport.close();
@@ -177,13 +178,24 @@ test('app-server rejects a runtime that does not match its locked schema', async
   const transport = new CodexAppServerTransport({
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
-  await assert.rejects(transport.start(), /requires 0\.144\.1/);
+  await assert.rejects(transport.start(), /supports >=0\.156\.1 <0\.157\.0/);
   transport.close();
 });
 
 test('Codex runtime version is extracted from the real desktop user agent shape', () => {
   assert.equal(
-    extractCodexRuntimeVersion('Codex Desktop/0.144.1 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
-    '0.144.1',
+    extractCodexRuntimeVersion('Codex Desktop/0.156.1 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
+    '0.156.1',
   );
+});
+
+
+test('Codex app-server version gate accepts the verified interval only (A-14)', () => {
+  assert.equal(isSupportedCodexAppServerVersion('0.156.1'), true);
+  assert.equal(isSupportedCodexAppServerVersion('0.156.9'), true);
+  assert.equal(isSupportedCodexAppServerVersion('0.144.1'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.155.9'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.157.0'), false);
+  assert.equal(isSupportedCodexAppServerVersion('1.0.0'), false);
+  assert.equal(isSupportedCodexAppServerVersion(null), false);
 });

@@ -136,7 +136,7 @@ export function compileClaudeTaskProfile(
   requested: TaskExecutionProfile,
   runtime: BackendRuntime,
   defaultModel: string,
-  models: readonly string[],
+  models?: readonly string[],
 ): BackendEffectiveProfile {
   const effort = {
     fast: 'low',

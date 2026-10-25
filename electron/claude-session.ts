@@ -14,10 +14,33 @@ import { mergedSubprocessEnv } from './settings-loader.js';
 import { errorMessage, redactSecrets } from './format-error.js';
 import { classifyToolRisk, type AutoApproveScope } from './auto-approve-policy.js';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { WorkerAdapterSignal } from './worker-protocol.js';
 
 function isClaudeAuthError(message: string): boolean {
   return /authentication[_\s-]?failed|unauthorized|\b401\b|please (?:log|sign) in|auth(?:entication)? required/i.test(message);
+}
+
+/** Normalize the initialize response's model catalog to plain model ids.
+ *  Tolerates both string entries and object entries ({ value } / { id } /
+ *  { name }) since the CLI owns the authoritative schema. */
+export function extractClaudeModels(initialization: { models?: unknown }): string[] {
+  if (!Array.isArray(initialization.models)) return [];
+  const models: string[] = [];
+  for (const entry of initialization.models) {
+    if (typeof entry === 'string' && entry.trim()) {
+      models.push(entry.trim());
+      continue;
+    }
+    if (entry && typeof entry === 'object') {
+      const record = entry as Record<string, unknown>;
+      const id = record.value ?? record.id ?? record.name;
+      if (typeof id === 'string' && id.trim()) models.push(id.trim());
+    }
+  }
+  return Array.from(new Set(models));
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -95,6 +118,8 @@ export class ClaudeSession {
   private authRequiredEmitted = false;
   private queryFactory: ClaudeCliQueryFactory;
   private sessionId: string | null = null;
+  private readonly onModels: ((models: string[]) => void) | undefined;
+  private settingsDir: string | null = null;
 
   constructor(opts: {
     emit: (e: SessionEvent) => void;
@@ -113,6 +138,9 @@ export class ClaudeSession {
     confirmDestructive?: ConfirmDestructive;
     /** Test/runtime seam for the CLI query constructor. */
     queryFactory?: ClaudeCliQueryFactory;
+    /** Called once after a successful initialize with the account's available
+     *  model ids (empty when the CLI does not report a catalog). */
+    onModels?: (models: string[]) => void;
   }) {
     this.emit = opts.emit;
     this.cwd = opts.cwd;
@@ -121,6 +149,7 @@ export class ClaudeSession {
     this.envOverride = opts.envOverride;
     this.confirmDestructive = opts.confirmDestructive;
     this.queryFactory = opts.queryFactory ?? defaultQuery;
+    this.onModels = opts.onModels;
   }
 
   /** Toggle auto-approve scope live. Affects subsequent canUseTool calls only. */
@@ -173,6 +202,20 @@ export class ClaudeSession {
       });
     };
 
+    // A-17: hooks loaded from user/project settings must never become an
+    // authorization authority of their own — a PermissionRequest hook can
+    // approve tool calls without the host broker ever seeing them. Every
+    // session therefore runs with hooks disabled; permission decisions flow
+    // only through canUseTool → host broker. Login state, subagents and MCP
+    // servers from the user's settings tree are unaffected.
+    if (!this.sessionOptions.settingsPath) {
+      this.settingsDir = mkdtempSync(join(tmpdir(), 'aha-claude-settings-'));
+      writeFileSync(
+        join(this.settingsDir, 'settings.json'),
+        JSON.stringify({ disableAllHooks: true }),
+      );
+    }
+
     try {
       // The driver resolves the user's local claude CLI itself and throws
       // synchronously when it is missing — the catch below reports that the
@@ -183,6 +226,7 @@ export class ClaudeSession {
           cwd: this.cwd,
           canUseTool,
           permissionMode: 'default',
+          settingsPath: this.settingsDir ? join(this.settingsDir, 'settings.json') : undefined,
           env: this.envOverride ?? mergedSubprocessEnv(),
           stderr: (data: string) => {
             // Redact at the source so the ring, the derived errorDetail, and
@@ -194,9 +238,9 @@ export class ClaudeSession {
             console.error('[claude-cli:stderr]', safe);
           },
           // Load user/project/local settings so the worker picks up the
-          // developer's installed subagents (~/.claude/agents/*.md), hooks
-          // (~/.claude/settings.json → hooks), and MCP servers — and, above
-          // all, the user's own ~/.claude login state.
+          // developer's installed subagents (~/.claude/agents/*.md) and MCP
+          // servers — and, above all, the user's own ~/.claude login state.
+          // Hooks from these sources are disabled via settingsPath above.
           settingSources: ['user', 'project', 'local'],
           // Skills are NOT auto-enabled by settingSources — omitting `skills`
           // means "CLI defaults apply", which in embedded stream-json mode is
@@ -212,6 +256,7 @@ export class ClaudeSession {
       if (isClaudeAuthError(detail)) this.emitAuthRequired();
       else this.emit({ kind: 'error', error: `claude CLI init failed: ${detail}` });
       this.emit({ kind: 'ended' });
+      this.cleanupSettings();
       throw err;
     }
 
@@ -270,7 +315,7 @@ export class ClaudeSession {
 
     try {
       const initialization = await withTimeout(
-        this.q.initializationResult(), 15_000, 'Claude CLI readiness handshake timed out',
+        this.q.initializationResult(), this.readyTimeoutMs(), 'Claude CLI readiness handshake timed out',
       );
       const account = initialization.account;
       if (
@@ -283,11 +328,13 @@ export class ClaudeSession {
         this.emitAuthRequired();
         throw new Error('Claude authentication required');
       }
+      this.onModels?.(extractClaudeModels(initialization));
     } catch (err) {
       const detail = errorMessage(err);
       if (isClaudeAuthError(detail)) this.emitAuthRequired();
       else if (!this.closed) this.emit({ kind: 'error', error: detail });
       await this.q?.interrupt().catch(() => undefined);
+      this.cleanupSettings();
       throw err;
     }
   }
@@ -296,6 +343,23 @@ export class ClaudeSession {
     if (this.authRequiredEmitted) return;
     this.authRequiredEmitted = true;
     this.emit({ kind: 'auth-required', error: 'Claude 登录已失效，请完成重新认证后重连 Host。' });
+  }
+
+  private cleanupSettings(): void {
+    if (!this.settingsDir) return;
+    try { rmSync(this.settingsDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    this.settingsDir = null;
+  }
+
+  private readyTimeoutMs(): number {
+    // 15s was too short for slow devices (N5095 under memory pressure could
+    // not even finish spawning the CLI in that window). Default to 60s and
+    // allow per-session tuning via sessionOptions.initializationTimeoutMs.
+    const configured = this.sessionOptions.initializationTimeoutMs;
+    if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+      return configured;
+    }
+    return 60_000;
   }
 
   sendUserText(text: string, priority: InputPriority = 'normal') {
@@ -346,6 +410,7 @@ export class ClaudeSession {
   end() {
     if (this.closed) return;
     this.closed = true;
+    this.cleanupSettings();
 
     // Resolve any in-flight permission requests as deny+interrupt so the SDK's
     // CanUseTool promise never hangs (which would orphan the subprocess).
