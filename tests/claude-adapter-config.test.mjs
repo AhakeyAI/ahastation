@@ -278,7 +278,8 @@ test('Claude discovers the account model catalog at session init (A-15)', async 
   session.end();
 });
 
-test('Claude user interrupt emits exactly one terminal signal (A-19)', async () => {
+test('Claude user interrupt emits exactly one terminal signal and closes the CLI (A-19/A-20)', async () => {
+  let closeCalls = 0;
   const pending = [];
   const buffered = [];
   const push = (value) => {
@@ -310,6 +311,7 @@ test('Claude user interrupt emits exactly one terminal signal (A-19)', async () 
       });
     },
     async setPermissionMode() {},
+    close() { closeCalls += 1; },
   };
   const events = [];
   const backend = new ClaudeCodeBackend({ queryFactory: () => fakeQuery });
@@ -321,6 +323,7 @@ test('Claude user interrupt emits exactly one terminal signal (A-19)', async () 
   await session.start();
   await session.interrupt('user');
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closeCalls, 1);
   assert.deepEqual(events, [
     { kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } },
   ]);

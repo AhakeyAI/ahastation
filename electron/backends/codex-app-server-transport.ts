@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { terminateProcessTree } from './process-tree.js';
 
 export interface CodexAppServerNotification {
   method: string;
@@ -49,6 +50,7 @@ export function hasCodexApiKeyCredentials(env: NodeJS.ProcessEnv | undefined): b
 }
 
 interface AppServerProcess {
+  readonly pid?: number;
   stdin: { write(data: string): unknown; end?(): unknown };
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -166,7 +168,7 @@ export class CodexAppServerTransport {
     }
     this.pending.clear();
     this.process?.stdin.end?.();
-    this.process?.kill('SIGTERM');
+    if (this.process) terminateProcessTree(this.process);
     this.process = null;
   }
 

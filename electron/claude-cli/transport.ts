@@ -7,6 +7,7 @@
 // line stays buffered until the rest arrives.
 
 import { spawn } from 'node:child_process';
+import { terminateProcessTree } from '../backends/process-tree.js';
 
 export interface SpawnSpec {
   file: string;
@@ -18,6 +19,7 @@ export interface SpawnSpec {
 /** Minimal child-process surface the transport relies on. Tests inject fakes
  *  through the `spawnProcess` seam; production uses node:child_process. */
 export interface ChildProcessLike {
+  readonly pid?: number;
   stdin: { write(data: string): unknown; end(): void; readonly writableEnded?: boolean } | null;
   stdout: { on(event: 'data', cb: (chunk: Buffer | string) => void): unknown } | null;
   stderr: { on(event: 'data', cb: (chunk: Buffer | string) => void): unknown } | null;
@@ -109,7 +111,7 @@ export function createCliTransport(spec: SpawnSpec, deps: CliTransportDeps): Cli
     close() {
       intentionalClose = true;
       try { proc.stdin?.end(); } catch { /* ignore */ }
-      try { proc.kill(); } catch { /* ignore */ }
+      terminateProcessTree(proc);
       settle(null);
     },
   };

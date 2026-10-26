@@ -413,13 +413,11 @@ class CodexAppServerSession implements BackendSession {
       this.backendVersion = extractCodexRuntimeVersion(ready.userAgent) ?? undefined;
       const options: Record<string, unknown> = {
         cwd: this.config.cwd,
-        // A-14: 0.156 removed approvalPolicy 'untrusted'. Workers now run
-        // 'on-request' + 'workspace-write': in-sandbox commands execute
-        // without host involvement, and the CLI escalates to the host only
-        // when it needs to leave the sandbox. Host-side authority over those
-        // escalations stays with task-authority (see A-16 for fileChange).
+        // Directory-scoped grants cannot be enforced inside workspace-write:
+        // Codex would edit denied sibling paths without asking the host.
+        // Read-only + on-request makes every write escalate with file paths.
         approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
-        sandbox: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
+        sandbox: 'read-only',
         developerInstructions: this.config.systemPrompt,
         experimentalRawEvents: false,
       };
@@ -670,29 +668,32 @@ class CodexAppServerSession implements BackendSession {
   }
 
   async interrupt(reason: 'steer' | 'user' | 'shutdown' = 'user'): Promise<void> {
-    if (reason !== 'steer') {
-      // A-20: revoke every approval the host has not answered yet BEFORE the
-      // native interrupt, so no queued approval can authorize execution while
-      // the stop is in flight. New requests are declined in onRequest().
+    if (reason === 'steer') {
+      if (!this.transport || !this.threadId || !this.currentTurnId) return;
+      const turnId = this.currentTurnId;
+      if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
+      await this.transport.interruptTurn(this.threadId, turnId);
+      return;
+    }
+
+    if (this.isWorker) {
       this.stopping = true;
       this.cancelPendingPermissions();
     }
-    if (!this.transport || !this.threadId || !this.currentTurnId) return;
-    const turnId = this.currentTurnId;
-    if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
-    await this.transport.interruptTurn(this.threadId, turnId);
-    if (reason === 'steer') {
-      // turn/interrupt acknowledgement is the safe handoff boundary for a
-      // steering message. sendUserText() appends the new instruction to this
-      // session's serialized turnQueue, so it cannot start until the native
-      // turn/completed notification releases the current turn. Waiting here
-      // would make slow command cancellation look like a failed delivery and
-      // discard an otherwise durable steering message.
+    if (!this.transport || !this.threadId || !this.currentTurnId) {
+      if (this.isWorker) this.end();
       return;
     }
-    await withCodexTimeout(this.waitForTurn(turnId), 10_000, 'Codex interrupt timed out');
-    if (this.isWorker) {
-      this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
+    const turnId = this.currentTurnId;
+    if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
+    try {
+      await this.transport.interruptTurn(this.threadId, turnId);
+      await withCodexTimeout(this.waitForTurn(turnId), 10_000, 'Codex interrupt timed out');
+      if (this.isWorker) {
+        this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
+      }
+    } finally {
+      if (this.isWorker) this.end();
     }
   }
 
@@ -812,7 +813,7 @@ class CodexSession implements BackendSession {
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
         approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
-        sandboxMode: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
+        sandboxMode: 'read-only',
         skipGitRepoCheck: true,
       } as const;
       this.thread = this.config.resumeSessionId

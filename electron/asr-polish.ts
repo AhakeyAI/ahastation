@@ -52,7 +52,7 @@ function getClientAndModel(): { client: AnthropicClient; model: string } | null 
       apiKey: settings.anthropicApiKey,
       baseURL: settings.anthropicBaseUrl || undefined,
     });
-    const model = settings.anthropicModel || 'claude-sonnet-4-20250514';
+    const model = settings.anthropicModel || 'claude-sonnet-5';
     return { client, model };
   } catch (err) {
     console.warn('[asr-polish] failed to load Anthropic SDK:', err);

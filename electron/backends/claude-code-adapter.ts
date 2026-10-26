@@ -141,12 +141,9 @@ class ClaudeCodeSession implements BackendSession {
   private readonly isWorker: boolean;
   private readonly workerTools = new Map<string, string>();
   private workerTurnTerminal = false;
-  // Counts intentional interrupts whose native error result must be swallowed.
-  // Steer: the wrapper emits nothing (session continues on the next turn).
-  // User/shutdown: the wrapper already emitted ended:interrupted itself, so
-  // the CLI's own failed+completed pair would otherwise double-terminate the
-  // same turn (F10).
-  private pendingInterruptResults = 0;
+  // Steer emits no terminal boundary and continues on the next turn, so its
+  // native error result must be swallowed. User/shutdown closes the session.
+  private pendingSteerInterrupts = 0;
   private closed = false;
   private readonly emit: (event: BackendSessionEvent) => void;
 
@@ -171,7 +168,7 @@ class ClaudeCodeSession implements BackendSession {
         if (this.closed) return;
         if (event.kind === 'message') {
           const message = (event.message ?? {}) as Record<string, unknown>;
-          const expectedInterruptResult = this.pendingInterruptResults > 0;
+          const expectedInterruptResult = this.pendingSteerInterrupts > 0;
           const isTurnResult = message.type === 'result';
           for (const signal of mapClaudeMessageToWorkerSignals(
             event.message,
@@ -182,7 +179,7 @@ class ClaudeCodeSession implements BackendSession {
             emit({ kind: 'worker-signal', signal });
           }
           if (expectedInterruptResult && isTurnResult) {
-            this.pendingInterruptResults -= 1;
+            this.pendingSteerInterrupts -= 1;
           }
         } else if (event.kind === 'auth-required') {
           emit({
@@ -260,21 +257,16 @@ class ClaudeCodeSession implements BackendSession {
         // result. Keep that provider-native boundary out of the canonical Worker
         // failure protocol: Scheduler immediately delivers the queued steering
         // message and the same persistent session continues on its next turn.
-        this.pendingInterruptResults += 1;
+        this.pendingSteerInterrupts += 1;
       } else if (!this.workerTurnTerminal) {
         this.workerTurnTerminal = true;
-        // The wrapper owns this semantic turn boundary; ClaudeSession's native
-        // interrupt only stops the SDK turn and does not close the session.
-        // Scheduler uses this to preserve interrupted recovery state. The
-        // interrupted turn still produces its own native error result — count
-        // it BEFORE interrupting so even a synchronously delivered result is
-        // swallowed instead of emitting a second, contradictory failed+completed
-        // terminal pair (F10).
-        this.pendingInterruptResults += 1;
+        // The wrapper owns the terminal signal. The session then closes and
+        // drops any native error result; scheduler resumes from the snapshot.
         this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
       }
     }
-    await this.inner.interrupt();
+    if (reason === 'steer' || !this.isWorker) await this.inner.interrupt();
+    else this.end();
   }
 
   setAutoApproveScope(scope: AutoApproveScope): void {
