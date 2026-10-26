@@ -37,7 +37,7 @@
 | # | 内容 | 产出 | 写者 |
 | --- | --- | --- | --- |
 | R1 | **2026-10-26 已出报告：`review-etrnal-dev/README.md`（分支 `review/etrnal-dev-2026-10`），建议有条件部分采用，阻断 B1–B3、待裁决 D1–D3**。`etrnal-dev` 评审（G1、G9）：Hub / Station / 接收组件 / v2 契约；一票否决项 = 越界写、停止、**K01 自动发布**；另查 K02 线程恢复、基于 `c134de2` 未合 PR #47 的差距 | 评审报告 + 采用 / 部分采用 / 不采用的建议 | Mac |
-| R2 | **2026-10-26 已出冲突表：`review-etrnal-dev/CONFLICTS.md`，C01–C21（甲 5 项、乙 11 项、丙 5 项），待用户裁决**。Q1–Q112 与 D1–D15 冲突表（G10） | 冲突表，交用户裁决 | Mac |
+| R2 | **2026-10-26 已出冲突表：`review-etrnal-dev/CONFLICTS.md`，C01–C21（甲 5 项、乙 11 项、丙 5 项）；C01、C03、C04、C05 已裁决（均按建议），其余待裁决**。Q1–Q112 与 D1–D15 冲突表（G10） | 冲突表，交用户裁决 | Mac |
 | R3 | C0 B03 契约、remote-control、meeting-mode 按 R1 结论修订；X1–X8 人日重估 | 修订稿 | Mac |
 | R4 | AME 09–13 迁到 `docs/ame/` 并更正：旧基线、准入状态、与 R1/R2 结论对齐（G12） | `docs/ame/` | Mac |
 | R5 | PR #49（Leo Lin）复审：Windows 守护进程测试与打包 smoke 缺失；worker 桥与 A-20 停止语义 | 复审意见，按 G3 顺序合入 | Mac |
