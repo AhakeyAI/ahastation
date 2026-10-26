@@ -4,6 +4,8 @@
 
 ## 1. 当前结论
 
+> **2026-10-26 更正**：准入改为有条件，见 `DECISIONS-2026-10-26.md`（前置修复 P1–P8、`etrnal-dev` 评审 R1）。
+
 **可进入技术开发。** 真实 Claude/Codex 已证明默认模型创建、追问、目录授权、拒绝、严格停止、真实宿主 kill 后恢复和证据链。Codex 的授权方案由实测否决的 `workspace-write` 改为 `read-only + on-request`。最终代码二次回归为 937 tests / 931 pass / 0 fail / 6 skip，typecheck 与完整 build 通过；双 provider 并发复验通过。
 
 “可进入开发”不等于可发布：语音真机 AEC、双机故障、安装包 smoke 和三位用户验收属于对应实施卡的验收，不可能在实现前完成。
