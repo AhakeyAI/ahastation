@@ -132,7 +132,7 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 4. **跨设备传输（X5）**：Paseo connected hosts 的远端执行面同样受 Codex `auto` 语义影响，不满足宿主授权要求 → 改为自建（`../design/remote-control.md` §7 方案 A）。
 5. C-A 投入生产前必须完成：A-14（升级 Codex 固定版本 + 重新设计 Codex 授权映射）、A-15、A-16、A-17、A-18，以及新增 A-19（F10 终止信号去重）、A-20（F11 停止时取消已批准未执行的命令，未确认安静前显示「停止中」）。
 
-决策记录：`../../adr/0004-runtime-base-keep-adapters.md`。
+决策记录：`../../adr/0016-runtime-base-keep-adapters.md`。
 
 用量基线（矩阵运行前，Paseo `listUsage`）：Claude 5 小时窗口已用 61%、周已用 37%；Codex 周已用 32%，credits 0。样本见 `../b06-quota/fixtures/paseo-listUsage-2026-10-23-before-b04.json`。
 

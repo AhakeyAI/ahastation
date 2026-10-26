@@ -1,7 +1,7 @@
 card,title,wbs,gate,size,estimate_pd,depends_on,design_ref,can_start_now
 A-00,Windows 测试归零 + CI 变绿（已合并 PR #47）,B02,C0,S,2-4,,docs/c0/plan/README.md §2,done
 A-01,领域 schema：事件信封 v2、五阶段与细分状态、旧状态映射,B03/B08,A,M,2-3,B03 评审,docs/c0/b03-contract/README.md §3 §5,after-review
-A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0001-stable-project-identity.md,no
+A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0013-stable-project-identity.md,no
 A-03,旧日志只读迁移投影,B08,A,L,3-5,A-01;A-02,docs/c0/b03-contract/README.md §6,no
 A-04,ConfirmStagePlan 命令与旧确认拒绝,B18,A,M,2-3,A-01,docs/c0/b03-contract/README.md §4.1,no
 A-05,看板五列 + 细分状态徽标 + 需关注过滤,B15,A,M,2-3,A-01,docs/c0/b07-ux/README.md §3.2,no
@@ -21,7 +21,7 @@ M6,真机回声、延迟、CPU 验证,B05,A,M,2-3,A-08;A-11,docs/c0/design/meeti
 X3,主持租约 + fencing,B30,X,M,3-4,A-13,docs/c0/design/remote-control.md §5.4,no
 X4,GitHub 检查点分支交接,B29,X,M,3-4,B14,docs/c0/design/remote-control.md §6,no
 X5,L2 传输（B04 结论：自建）,B28,X,XL,10-15,A-13,docs/c0/design/remote-control.md §7,no
-X6,恢复凭据与加密备份,B27,X,M,3-5,ADR 0002 接受,docs/c0/design/remote-control.md §4,no
+X6,恢复凭据与加密备份,B27,X,M,3-5,ADR 0014 接受,docs/c0/design/remote-control.md §4,no
 X7,试用计时与到期,B37,X,S,1-2,官方服务,docs/c0/design/remote-control.md §8,no
 X8,双机故障测试,B31,X,L,4-6,X3;X5,docs/c0/design/remote-control.md §9,no
 B04-RUN,运行底座对照执行（已完成 2026-10-23，选定 C-A）,B04,C0,L,3,,docs/c0/b04-runtime/README.md,done

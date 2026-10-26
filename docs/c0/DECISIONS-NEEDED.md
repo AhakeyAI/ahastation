@@ -9,10 +9,10 @@
 | D4 | **b**：同一专家跨设备使用同一声音（两端用同一在线音色） |
 | T3 | **PR #47 已合并**到 main（c8295b9） |
 | B04 | **已执行完成**：选定现有 adapter 为唯一运行底座。D2 由证据回答：Paseo 不纳入跨设备传输 |
-| D14 | **ADR 0004 已接受**（2026-10-23） |
+| D14 | **ADR 0016 已接受**（2026-10-23） |
 | D13 | **AhaKey 只是批准入口**：AhaKey 按下「允许」也必须落在项目授权范围内，hook 只把请求转给宿主，不直接放行（A-17 解除阻塞） |
 | D6 | **认可** f5d88aa：任务中显式指定的 backend 作为任务级偏好保留 |
-| D8 | **允许**在用户仓库写 `.ahastudio/project.json`（ADR 0001 已接受） |
+| D8 | **允许**在用户仓库写 `.ahastudio/project.json`（ADR 0013 已接受） |
 | D9 | 已取消任务**不进五列**，作为过滤项 |
 | D10 | 非主持设备**可以批准动作，不能确认阶段计划** |
 | D5 | 首个验收 Issue **已创建**：[#48](https://github.com/ShawnyinsGit/ahastation-internal/issues/48)（用户改为由 Claude 按已定边界创建） |
@@ -45,7 +45,7 @@
 | D5 | 首个验收 Issue | 请在 GitHub 创建「看板记住最近项目筛选」并贴链接 | — | 确认单 13 第二组；需求边界已定 |
 | D6 | f5d88aa 的路由语义：任务里显式指定的 backend 作为任务级偏好保留 | a) 认可 b) 不认可（说明期望） | **a** | `design/later-gates.md` B20 |
 | D7 | B07 原型走查 | 打开 https://claude.ai/artifact/3KrgyrhophAUuPjJM9xihT ，回复 `b07-ux/README.md` §6 的 4 个问题 | 「需关注」改为过滤芯片；阶段确认允许语音；切换提示用顶部横幅；结束会议文案按原型 | `b07-ux/README.md` |
-| D8 | 是否允许在用户仓库写 `.ahastudio/project.json`（跨设备识别同一项目） | a) 允许 b) 不允许（第二台设备需手动关联） | **a** | ADR 0001 |
+| D8 | 是否允许在用户仓库写 `.ahastudio/project.json`（跨设备识别同一项目） | a) 允许 b) 不允许（第二台设备需手动关联） | **a** | ADR 0013 |
 | D9 | 已取消的任务放哪 | a) 不进五列，作为过滤项 b) 放在已完成列并标「已取消」 | **a**（避免把取消看成完成） | `b03-contract` §7 Q3 |
 
 ## 阻塞门 X（可稍后）

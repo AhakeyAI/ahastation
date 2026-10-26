@@ -1,4 +1,4 @@
-# 0003 保留 MeetingRepository，外套事件信封 v2
+# 0015 保留 MeetingRepository，外套事件信封 v2
 
 - 状态：已接受
 - 契约评审：2026-10-25（补齐命令 journal 与原子事件批次）

@@ -35,11 +35,11 @@
 | A-20 停止撤销与进程树 | 真实通过 | 两 provider S6：30 秒无新工具/文件变化，子进程归零 |
 | S8 真实宿主恢复 | 真实通过 | 两 provider 均 taskkill 进程树后按同一原生 session 恢复，测试 2/2 |
 | 双 provider 并发与资源样本 | 通过 | 两任务均 2/2；Claude RSS 峰值约 222 MiB，Codex 约 165 MiB；`results/ahastation-20261025-concurrent-runtime.json` |
-| B03 领域契约 | 设计完成 | 增加 command journal、`batchId/Index/Count` 原子提交、崩溃幂等；ADR 0003 已接受 |
+| B03 领域契约 | 设计完成 | 增加 command journal、`batchId/Index/Count` 原子提交、崩溃幂等；ADR 0015 已接受 |
 | B05 语音路线与成本 | 设计完成 | D3/D4 已决定；在线主路径、本地兜底；成本模型与硬预算见运行时验证文档 |
 | B06 用量协议 | 设计完成，A-10 待实施 | 两 provider 真实样本；Codex `last` 为单次调用增量、`total` 为累计；Claude 含窗口与列表价 |
 | B07 UX | 已冻结 | D7/D15 与原型 v2 |
-| 跨设备协议与 ADR | 设计完成 | keyId、算法版本、规范 CBOR、一次性配对、安全码、fencing、停止 applied；ADR 0002 已接受 |
+| 跨设备协议与 ADR | 设计完成 | keyId、算法版本、规范 CBOR、一次性配对、安全码、fencing、停止 applied；ADR 0014 已接受 |
 | WBS 与 PR #49 拆分 | 设计完成 | B12 5–8、B14 3–5、M4 5–8、M6 2–3 人日；PR #49 四线拆分 |
 | 依赖漏洞 | 1 项发布前专项 | 已从 31 项降至 1 high；仅剩 PDF.js 5→6 大版本迁移，列入 B25/发布前，不强行跨版本 |
 
@@ -69,4 +69,4 @@
 - 严格 harness：`b04-runtime/harness/`（真实写任务停止、独立子进程宿主 kill、进程树与全文件 hash）。
 - 运行时修复与语音调研：`docs/plans/2026-10-25-runtime-repair-verification.md`（修复分支）。
 - 用量 fixture：`b06-quota/fixtures/*2026-10-25.json`；接线设计：`b06-quota/WIRING.md`。
-- 契约：`b03-contract/README.md`；跨设备：`design/remote-control.md`；安全决定：`../adr/0002-libsodium-for-device-crypto.md`。
+- 契约：`b03-contract/README.md`；跨设备：`design/remote-control.md`；安全决定：`../adr/0014-libsodium-for-device-crypto.md`。

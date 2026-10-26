@@ -12,7 +12,7 @@
 | G4 | Codex 获批命令在沙箱外运行 | **标注 + 事后检测**：批准卡片写明「该命令以完整权限运行」；宿主在每条获批命令前后对授权范围外的文件做 hash 比对，发现越界写入即停止 Run 并报告；B04 增加对应场景 |
 | G5 | A-08 在线语音首轮实测 | **讯飞、豆包、Azure 三家都测**，语音 API 预算上限 **100 元**，与 Claude/Codex 额度分开计量 |
 | G6 | N5095 并发 worker 上限 | **默认 2 个**，可在设置里调；M6 实测后再决定是否放宽 |
-| G7 | ADR 编号冲突 | C0 的 ADR 0001–0004 改为 **0012–0015**；main 的 0001 与 `etrnal-dev` 的 0002–0011 保持原号；建统一索引 |
+| G7 | ADR 编号冲突 | C0 的 ADR 排在已有编号之后、建统一索引；main 的 0001 与 `etrnal-dev` 的编号保持原号。**执行更正（2026-10-26）**：`etrnal-dev` 实际占用 0002–0012（Claude 起初误数为 0002–0011），因此 C0 的 0001–0004 改为 **0013–0016**，新 ADR 从 **0017** 起，见 `../adr/README.md` |
 | G8 | Codex CLI 版本策略 | **已验证区间 + 每周兼容检查**：版本门放开到已验证区间；CI 每周用最新版跑握手和 adapter 契约测试，通过后扩大区间，失败则开卡 |
 | G9 | 评审 `etrnal-dev` 的运行方式 | **只在本机隔离环境**：本机起 Hub 与临时仓库，不连公网 Hub、不开真实 PR、不调用付费模型 |
 | G10 | Q1–Q100（`etrnal-dev`）与 D1–D15（C0）冲突 | **Claude 列冲突表，用户逐条裁决**，不按日期或线路自动取舍 |
@@ -23,14 +23,14 @@
 
 | # | 内容 | 依据 | 写者 / 分支 |
 | --- | --- | --- | --- |
-| P1 | PDF.js 5 → 6.x | GHSA-hq66-cqwq-w95j（打开恶意 PDF 可执行任意 JS）；主进程解析用户附件 `electron/attachments/parse.ts:147`，只有这一处使用 | Mac / `fix/security-baseline` |
-| P2 | Electron 42 → 45 | 45.0.0 于 2026-10-21 发布，Electron 只维护最新 3 个大版本（43–45）；42.11.18 与 45.0.0 同日发布，大概率是 42 的最后一版。需重建 node-pty 等原生模块并跑 macOS / Windows smoke | Mac / `fix/security-baseline` |
-| P3 | CI Node 22 → 24 | Electron 42 内置 Node 24.19.0，测试却在 22 上跑。已验证：修复分支在 Node 26.12.1 下 937 项、935 通过、0 失败，Node 22 下同样无真实失败 | Mac / `fix/security-baseline` |
+| P1 | PDF.js 5 → 6.x（PR #53 草稿） | GHSA-hq66-cqwq-w95j（打开恶意 PDF 可执行任意 JS）；主进程解析用户附件 `electron/attachments/parse.ts:147`，只有这一处使用 | Mac / `fix/security-baseline` |
+| P2 | Electron 42 → 45（PR #53 草稿） | 45.0.0 于 2026-10-21 发布，Electron 只维护最新 3 个大版本（43–45）；42.11.18 与 45.0.0 同日发布，大概率是 42 的最后一版。需重建 node-pty 等原生模块并跑 macOS / Windows smoke | Mac / `fix/security-baseline` |
+| P3 | CI Node 22 → 24（PR #53 草稿） | Electron 42 内置 Node 24.19.0，测试却在 22 上跑。已验证：修复分支在 Node 26.12.1 下 937 项、935 通过、0 失败，Node 22 下同样无真实失败 | Mac / `fix/security-baseline` |
 | P4 | 运行时修复开 PR 并合入 | 准入文档 §5 第 1 步；目前只有分支、没有 PR | N5095 / `fix/runtime-a14-a20` |
 | P5 | 命令越界：B04 新场景 + 宿主 hash 比对（G4） | `read-only + on-request` 下获批命令在沙箱外运行，例如允许改 `src/` 加批准 `npm test`，被改的源码可在测试时写 `test/` | N5095 / `fix/runtime-a14-a20` |
 | P6 | Codex 版本门改为已验证区间 + 每周 CI 检查（G8） | F1：固定版本因模型下线失效 | N5095 / `fix/runtime-a14-a20` |
 | P7 | 小修：`electron/asr-polish.ts:55` 写死 `claude-sonnet-5`（改为从模型列表取）；`tests/kimi-adapter.test.mjs:66` 只等 1 秒，全量并发时偶发失败（Mac 复跑 1 次失败、单独 3/3 通过）；`task-budget` 偶发失败 | 与 F3 同类隐患；测试不稳 | N5095 / `fix/runtime-a14-a20` |
-| P8 | 文档治理：C0 README §3–§7 过时；ADR 改号（G7）与统一索引；本文接入阅读顺序 | 与准入文档冲突 | Mac / `docs/c0-handoff-2026-10-22` |
+| P8 | 文档治理：C0 README §3–§7 过时；ADR 改号（G7）与统一索引；本文接入阅读顺序。**2026-10-26 已完成** | 与准入文档冲突 | Mac / `docs/c0-handoff-2026-10-22` |
 
 ## 3. 设计对齐（分析协作者进展后细化）
 
