@@ -13,9 +13,9 @@
 | **B1** | 阻断（一票否决） | K01：缺少 `turnOutcome` 的旧记录被当作正常完成，会自动提交、推送、开 PR | 作者修复并补回归 |
 | **B2** | 阻断 | 接收组件写死 Codex app-server **0.144.1**（`services/remote/device/station_codex.py:142`）。B04 F1 已证明该版本对 ChatGPT 账号不可用，运行时修复分支已升到 0.156.1 | 改为与 G8 一致的已验证版本区间，并在 0.156.1 上重新验收 |
 | **B3** | 阻断 | 基于 `c134de2`，没有包含 PR #47 和运行时修复（A-14–A-20） | rebase 到 main，在运行时修复合入之后 |
-| **D1** | 待裁决 | 信任模型：Hub 是**受信任的中转**，能看到会议和任务明文，可以向已配对设备下发任务；C0 的 ADR 0014 要求端到端加密、Hub 不受信任 | 列入 R2 冲突表第一项 |
-| **D2** | 待裁决 | 远端 Codex 任务用 `sandbox: workspace-write` + `approvalPolicy: untrusted`；运行时修复（A-14）经 B04 实测，已改用 `read-only + on-request` | 列入 R2；无论怎么裁决，都要在 N5095 上补 B04 S4/S5 场景 |
-| **D3** | 待裁决 | 执行端只支持 Windows（Job 对象）和 Linux（subreaper），macOS 会拒绝执行。Mac 只能当 Host | 与 C0「Mac + N5095 双机」的验收计划冲突，列入 R2 |
+| **D1** | 待裁决 | 信任模型：Hub 是**受信任的中转**，能看到会议和任务明文，可以向已配对设备下发任务；C0 的 ADR 0014 要求端到端加密、Hub 不受信任 | 见 [冲突表](CONFLICTS.md) C01 |
+| **D2** | 待裁决 | 远端 Codex 任务用 `sandbox: workspace-write` + `approvalPolicy: untrusted`；运行时修复（A-14）经 B04 实测，已改用 `read-only + on-request` | 见冲突表 C03；无论怎么裁决，都要在 N5095 上补 B04 S4/S5 场景 |
+| **D3** | 待裁决 | 执行端只支持 Windows（Job 对象）和 Linux（subreaper），macOS 会拒绝执行。Mac 只能当 Host | 与 C0「Mac + N5095 双机」的验收计划冲突，见冲突表 C05 |
 
 ## 2. 阻断项详情
 
@@ -61,7 +61,7 @@ if not version or version[1]!='0.144.1':raise RuntimeError('Codex app-server pro
 2. 本分支 rebase；
 3. 按作者回复中的拆分方案（契约 → Hub → Station → UI → 构建 → 文档）分批开 PR。
 
-## 3. 设计冲突（交 R2 裁决）
+## 3. 设计冲突（交 R2 裁决，见 [CONFLICTS.md](CONFLICTS.md)）
 
 ### D1 信任模型
 
