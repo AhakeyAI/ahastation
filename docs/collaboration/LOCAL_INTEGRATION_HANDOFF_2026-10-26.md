@@ -2,6 +2,8 @@
 
 本轮只在实施 worktree 完成本地源码、提交整理和隔离验收。未推送、创建真实 PR、移动本地 main、生产部署、连接公网 Hub、调用模型或写用户原 Codex 对话。既有 .5/.6/.7 冻结包不覆盖；它们不包含本次 K01 修复，不能据此宣称可发布。源码版本保留 0.19.0-collaboration.7，以本地提交和构建清单区分。
 
+完成于2026-10-27：[实际验证结果与提交组](LOCAL_INTEGRATION_VALIDATION_2026-10-27.md)。
+
 ## 来源与恢复点
 
 | 项目 | 准确来源 |
@@ -30,13 +32,13 @@ rebase 无文本冲突。新 checkout 因系统 core.autocrlf=true 留下 18 个
 | e 构建/CI/脚本 | 锁文件、固定 Playwright、native/载荷检查、串行运行器、原缺陷探针 | a–d | npm ci、typecheck、build、test:collaboration、npm test |
 | f 文档 | 既有需求/历史报告、当前交接、冲突和证据索引 | a–e | diff 检查、整理前后 tree 对照 |
 
-这是有依赖的评审组，不声称每个中间提交可独立打包。类型及必要测试随功能提交，没有第二套协议。ADR0001–0012 原号保留，0013–0016 从 C0 原文同步；本次无需新增 ADR，下一个编号仍为 0017。
+这是有依赖的六个评审组；e、f各有后续验证提交，不声称每个中间提交可独立打包。类型及必要测试随功能提交，没有第二套协议。ADR0001–0012 原号保留，0013–0016 从 C0 原文同步；本次无需新增 ADR，下一个编号仍为 0017。
 
 [Q/D 冲突表](INTEGRATION_CONFLICTS_2026-10-26.md) 列出双方原文、代码影响和建议，待负责人裁决。未自行合入 C0 的加密、布局、项目落盘或新批准规则；安全升级及版本区间仍属其原分支的未完成前置工作。
 
 ## K01 / K02
 
-K01 根因：门禁允许缺失 outcome，执行、恢复和上报又用退出/ok 默认补成 completed。现复用 TurnOutcome、本机 journal、authorizeDelivery、原收据/错误/重试和 Hub task.event，原 attempt 的明确正常完成与实际退出分别成立才允许新增发布。选定文件创建提交前也核验；停止后不启动新增发布或验证。没有新队列、全局锁、数据库字段或第二套成果身份。
+K01 根因：门禁允许缺失 outcome，执行、恢复和上报又用退出/ok 默认补成 completed。现复用 TurnOutcome、本机 journal、authorizeDelivery、原收据/错误/重试和 Hub task.event，原 attempt 的明确正常完成与实际退出分别成立才允许新增发布。选定文件创建提交前也核验；停止后不启动新增发布或验证。没有新队列、全局锁、数据库字段或第二套成果身份。本机结果/ack只透传既有executionId以核对原attempt，字段过滤复用同一RESULT_FIELDS；无原证据不补completed。
 
 删除了三处“ok/退出即 completed”推断、最终上报的 completed 默认值及缺字段门禁放行。executionOutcome 供适配器和恢复共用；FileTest 和直接 Codex 在真正正常结束时明确报告。恢复核对 executionId，保留原正文/文件/错误；缺失或损坏证据不重跑模型。Hub 与 Station 均需同步更新；本次没有新增数据库迁移，既有合法交付/验收历史不重写。
 
@@ -71,6 +73,10 @@ git diff --check
 本机真实 Hub/MySQL5.7：复用现有演练工具，将 mysql-base 替换为本机官方 MySQL5.7 发行目录：
 
 ```powershell
+$env:COLLABORATION_PYTHON=(Resolve-Path .venv/Scripts/python.exe).Path
+$env:AHASTATION_BUILD_PYTHON=$env:COLLABORATION_PYTHON
+npm run build:electron
+npm run prebuild:native
 .venv/Scripts/python.exe scripts/rehearse-collaboration-mysql.py --mysql-base 'D:/tools/mysql-5.7.18-winx64' --output runtime/local-mysql57
 ```
 
