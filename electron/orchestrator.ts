@@ -2808,6 +2808,14 @@ export class Orchestrator implements OrchestratorBridge {
     this.meetingScheduler.submitWorkerReport(workerId, report, sourceAttempt);
   }
 
+  async confirmTerminalReport(workerId: string, summary: string): Promise<unknown> {
+    return this.meetingScheduler.confirmTerminalReport(workerId, summary);
+  }
+
+  resumeTerminalInput(workerId: string): boolean {
+    return this.meetingScheduler.resumeTerminalInput(workerId);
+  }
+
   /** Renderer confirm bar for terminal-mode workers: mark the running
    *  attempt failed with a user-provided reason. */
   failWorkerFromUser(workerId: string, message: string): { ok: true } | { ok: false; error: string } {

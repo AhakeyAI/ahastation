@@ -89,9 +89,12 @@ import type { DeliveryHarness, DeliveryView } from './delivery-harness.js';
 import { reopenFrozenDeliveryCandidateForRework } from './delivery-candidate.js';
 import { TERMINAL_WORKER_COMPLETION_INSTRUCTION } from './backends/claude-terminal-adapter.js';
 import { isTerminalWorkerBackend } from './backends/terminal-cli-adapter.js';
+import { WorkerCliBridge, type WorkerCliBinding } from './worker-cli-bridge.js';
+import { terminalReportFiles, validateTerminalReportFiles } from './worker-report-files.js';
 import {
   parseWorkerAdapterSignal,
   reworkRequestSchema,
+  workReportSchema,
   type AcceptanceCriterion,
   type ReworkRequest,
   type WorkReport,
@@ -527,6 +530,9 @@ const ASSISTANT_CONDENSE_CHARS = 140;
 const ASSISTANT_DESCRIBE_MAX = 200;
 
 export class WorkerScheduler {
+  private cliBridge: WorkerCliBridge | undefined;
+  private readonly cliBindings = new Map<string, WorkerCliBinding>();
+  private readonly cliReportRequests = new Map<string, Promise<unknown>>();
   private workers: Map<string, WorkerHandle> = new Map();
   private recentEdits: Map<string, RecentFileEdit> = new Map();
   private workerIdSeq = 0;
@@ -1882,6 +1888,73 @@ export class WorkerScheduler {
     void this.handleWorkerSignal(handle, { kind: 'delivery', report });
   }
 
+  private cliWorker(workerId: string, attempt: number): WorkerHandle {
+    const handle = this.workers.get(workerId);
+    if (!handle || handle.attempt !== attempt || this.opts.isClosed()) {
+      throw new Error('Worker attempt is no longer active');
+    }
+    return handle;
+  }
+
+  resumeTerminalInput(workerId: string): boolean {
+    const handle = this.workers.get(workerId);
+    return handle?.status === 'running' && handle.session?.resumePendingInput?.() === true;
+  }
+
+  async receiveTerminalReport(workerId: string, attempt: number, value: WorkReport): Promise<unknown> {
+    const handle = this.cliWorker(workerId, attempt);
+    const report = workReportSchema.parse(value);
+    const mailbox = this.requireTaskMailbox();
+    const id = `terminal-report-${workerId}-${attempt}`;
+    const hash = hashVisibleContextValue(report);
+    const existing = mailbox.get(workerId, id);
+    if (existing) {
+      if ((existing.payload as { hash: string }).hash !== hash) throw new Error('This attempt already submitted a different report');
+      return { reportId: id, status: 'received', duplicate: true };
+    }
+    const pending = this.cliReportRequests.get(id);
+    if (pending) {
+      await pending;
+      return this.receiveTerminalReport(workerId, attempt, report);
+    }
+    const receive = (async () => {
+      if (handle.status !== 'running' || !handle.workspace || handle.report) throw new Error('Worker is not accepting reports');
+      if (!handle.deliveryId || !this.opts.deliveryHarness) throw new Error('Worker delivery is unavailable');
+      await validateTerminalReportFiles(handle.workspace, report);
+      if (this.cliWorker(workerId, attempt) !== handle || handle.status !== 'running') throw new Error('Worker stopped while inspecting files');
+      await mailbox.enqueue({ id, taskId: workerId, attempt, sender: 'worker', kind: 'report', payload: { hash, report } });
+      // The journal receipt precedes verification; a crash leaves the report in the task mailbox.
+      if (handle.attempt === attempt && handle.status === 'running' && !this.opts.isClosed()) {
+        void this.handleWorkerSignal(handle, { kind: 'delivery', report }).catch((error) => {
+          console.error('[worker-cli] delivery processing failed:', error);
+        });
+      }
+      return { reportId: id, status: 'received', duplicate: false };
+    })();
+    this.cliReportRequests.set(id, receive);
+    try { return await receive; } finally { this.cliReportRequests.delete(id); }
+  }
+
+  async confirmTerminalReport(workerId: string, summary: string): Promise<unknown> {
+    const handle = this.workers.get(workerId);
+    if (!handle?.workspace) throw new Error('Worker workspace is unavailable');
+    const attempt = handle.attempt;
+    const files = await terminalReportFiles(handle.workspace);
+    return this.receiveTerminalReport(workerId, attempt, {
+      status: 'completed', summary, files, tests: [], unresolved: [],
+    });
+  }
+
+  private async readTerminalInbox(workerId: string, attempt: number, after: number): Promise<unknown> {
+    const handle = this.cliWorker(workerId, attempt);
+    if (handle.status !== 'running') throw new Error('Worker is not running');
+    const mailbox = this.requireTaskMailbox();
+    const messages = mailbox.list(workerId, after).filter((message) =>
+      message.attempt === attempt && message.sender !== 'worker');
+    for (const message of messages) await mailbox.markDelivered(workerId, message.id);
+    return { messages, cursor: messages.at(-1)?.seq ?? after };
+  }
+
   /** User-driven failure for terminal-mode workers: the TUI has no report
    *  channel, so the renderer confirm bar marks the attempt failed here and
    *  the normal failed-signal path (dispose + cascade) takes over. */
@@ -1936,6 +2009,8 @@ export class WorkerScheduler {
       this.disposeWorker(handle, finalStatus, handle.summary);
     }
     this.workers.clear();
+    this.cliBridge?.close();
+    this.cliBridge = undefined;
   }
 
   // ---------------------------------------------------------------------------
@@ -2790,9 +2865,9 @@ export class WorkerScheduler {
     }
 
     handle.status = 'verifying';
-    // Delivery no longer needs the Backend session: free the concurrency slot
-    // while verification / coordinator review / user acceptance run.
-    this.releaseWorkerSession(handle);
+    // Terminal report commands need their PTY to receive the receipt. Keep it
+    // inspectable until acceptance; parked states already release scheduler capacity.
+    if (!this.hasTerminalReportReceipt(handle)) this.releaseWorkerSession(handle);
     this.emitPlanUpdate();
     this.spawnReadyWorkers();
     // #5: capture the delivery identity before the long settle await so a
@@ -2930,9 +3005,8 @@ export class WorkerScheduler {
         handle.parkedSinceTs = Date.now();
         handle.parkedNotified = false;
       }
-      // Parked delivery states never execute tools — drop the Backend session
-      // so capacity is available for independent pending work.
-      if (this.releaseWorkerSession(handle)) {
+      // SDK sessions can end here; terminal sessions stay available for inspection.
+      if (!this.hasTerminalReportReceipt(handle) && this.releaseWorkerSession(handle)) {
         this.spawnReadyWorkers();
       } else if (
         prevStatus !== handle.status
@@ -3486,6 +3560,7 @@ export class WorkerScheduler {
     message: TaskMessage,
   ): Promise<void> {
     if (!this.opts.taskMailbox || !handle.session || handle.status !== 'running') return;
+    if (this.cliBindings.has(handle.id)) return; // Terminal agents read their durable inbox at checkpoints.
     const session = handle.session;
     this.steeringMessageByWorker.set(handle.id, message.id);
     try {
@@ -3518,6 +3593,7 @@ export class WorkerScheduler {
   }
 
   private async deliverNextFollowUp(handle: WorkerHandle): Promise<void> {
+    if (this.cliBindings.has(handle.id)) return;
     if (
       !this.opts.taskMailbox
       || !handle.session
@@ -3908,8 +3984,12 @@ export class WorkerScheduler {
     return active.size;
   }
 
-  /** End a Worker Backend session without terminalizing the handle. Returns
-   *  true when a live session was released (slot may now be free). */
+  private hasTerminalReportReceipt(handle: WorkerHandle): boolean {
+    return this.cliBindings.has(handle.id)
+      && Boolean(this.opts.taskMailbox?.get(handle.id, `terminal-report-${handle.id}-${handle.attempt}`));
+  }
+
+  /** End a Backend session without terminalizing its task. */
   private releaseWorkerSession(handle: WorkerHandle): boolean {
     if (!handle.session) return false;
     const session = handle.session;
@@ -3926,6 +4006,8 @@ export class WorkerScheduler {
     } catch (err) {
       console.warn(`[scheduler] parked worker.end() threw for ${handle.id}:`, err);
     }
+    this.cliBindings.get(handle.id)?.dispose();
+    this.cliBindings.delete(handle.id);
     return true;
   }
 
@@ -4377,10 +4459,27 @@ export class WorkerScheduler {
       const sessionFactory = this.opts.resolveSessionFactory?.(handle.backendId)
         ?? this.opts.sessionFactory;
       const sessionAttempt = handle.attempt;
+      this.cliBindings.get(handle.id)?.dispose();
+      this.cliBindings.delete(handle.id);
+      let cli: WorkerCliBinding | undefined;
+      if (isTerminalWorkerBackend(handle.backendId) && this.opts.taskMailbox) {
+        this.cliBridge ??= new WorkerCliBridge();
+        cli = await this.cliBridge.bind({
+          report: (report) => this.receiveTerminalReport(handle.id, sessionAttempt, report),
+          ask: (question) => this.recordWorkerQuestion(handle.id, question, sessionAttempt),
+          inbox: (after) => this.readTerminalInbox(handle.id, sessionAttempt, after),
+        });
+        // Delivery observation can mark this launching attempt running during bind's I/O.
+        if (this.opts.isClosed() || this.workers.get(handle.id) !== handle
+          || handle.attempt !== sessionAttempt || !['pending', 'running'].includes(handle.status)) {
+          cli.dispose(); return;
+        }
+        this.cliBindings.set(handle.id, cli);
+      }
       handle.session = sessionFactory({
         cwd: workerCwd,
         autoApproveScope: handle.authorityGrant ? 'off' : this.autoApproveScope,
-        envOverride: this.opts.workerEnv,
+        envOverride: { ...this.opts.workerEnv, ...cli?.env },
         confirmDestructive: handle.authorityGrant
           ? undefined
           : this.opts.confirmDestructive,
@@ -4395,6 +4494,7 @@ export class WorkerScheduler {
           // Terminal-mode adapters key their pty on the worker id so the
           // renderer stage terminal can attach; SDK adapters ignore it.
           workerId: handle.id,
+          ...(cli ? { workerRuntimeDir: cli.runtimeDir } : {}),
           ...(handle.backendSession?.sessionId
             ? { resumeSessionId: handle.backendSession.sessionId }
             : {}),
@@ -4439,7 +4539,7 @@ export class WorkerScheduler {
         ? `\n\n(follow-up attempt ${handle.attempt}) ${this.messageText(initialMailboxMessage)}`
         : '';
       const terminalSuffix = isTerminalWorkerBackend(handle.backendId)
-        ? TERMINAL_WORKER_COMPLETION_INSTRUCTION
+        ? cli?.prompt ?? TERMINAL_WORKER_COMPLETION_INSTRUCTION
         : '';
       try {
         session.sendUserText(
@@ -4575,6 +4675,8 @@ export class WorkerScheduler {
         console.warn(`[scheduler] worker.end() threw for ${handle.id}:`, err);
       }
     }
+    this.cliBindings.get(handle.id)?.dispose();
+    this.cliBindings.delete(handle.id);
     handle.bufferedUpdates = [];
     handle.queuedAddenda = [];
     handle.pendingDelegateAck = false;

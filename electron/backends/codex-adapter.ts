@@ -1295,7 +1295,8 @@ export class CodexBackend implements CliBackend {
     if (!binary) return { loggedIn: false };
     try {
       const run = this.deps.execFile ?? ((file: string, args: string[]) =>
-        execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000 }));
+        execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000,
+          stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }));
       // Codex 0.144.x writes both success and failure status messages to stderr.
       // execFileSync returns stdout only, so the command's exit status is the
       // stable machine-readable contract: zero means authenticated; non-zero

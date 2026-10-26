@@ -296,6 +296,7 @@ const api = {
   // lifecycle belongs to the worker adapter; this only mirrors output and
   // forwards user keystrokes for the stage terminal.
   workerPty: {
+    ready: (sessionId, workerId) => ipcRenderer.invoke('worker-pty:ready', { sessionId, workerId }),
     attach: (workerId) => ipcRenderer.invoke('worker-pty:attach', { workerId }),
     input: (workerId, data) => ipcRenderer.invoke('worker-pty:input', { workerId, data }),
     resize: (workerId, rows, cols) =>

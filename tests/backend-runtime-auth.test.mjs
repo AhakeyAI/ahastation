@@ -13,9 +13,11 @@ import { removeBackendAuth, setBackendAuth } from '../dist-electron/store.js';
 test('packaged runtime resolver finds the canonical Kimi Code install directory', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'ahastation-kimi-home-'));
   t.after(() => rm(home, { recursive: true, force: true }));
-  const binary = join(home, '.kimi-code', 'bin', 'kimi');
+  const binary = join(home, '.kimi-code', 'bin', process.platform === 'win32' ? 'kimi.exe' : 'kimi');
   await mkdir(join(home, '.kimi-code', 'bin'), { recursive: true });
-  await writeFile(binary, '#!/bin/sh\nexit 0\n');
+  // This fixture tests path resolution only; Windows requires a native
+  // executable name rather than the Unix installer's Shell script.
+  await writeFile(binary, process.platform === 'win32' ? '' : '#!/bin/sh\nexit 0\n');
   await chmod(binary, 0o755);
 
   const previousHome = process.env.HOME;
