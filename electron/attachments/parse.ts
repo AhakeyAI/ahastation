@@ -172,7 +172,8 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     pages.push(`--- page ${i} ---\n${pageText}`);
   }
   try { await doc.cleanup(); } catch { /* ignore */ }
-  try { await doc.destroy(); } catch { /* ignore */ }
+  // pdfjs 6 dropped PDFDocumentProxy.destroy(); the loading task owns teardown.
+  try { await loadingTask.destroy(); } catch { /* ignore */ }
   return pages.join('\n\n');
 }
 
