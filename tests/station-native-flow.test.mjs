@@ -32,6 +32,14 @@ test('production Station and frozen helper queue native continuation, stop only 
     const third=await send('Desktop may stop this Station round');await until(()=>a.view().snapshot.entities.message.find(m=>m.id===third.id)?.executionStatus==='running','New explicit free exchange starts once');child.stdin.write('interrupt-current\n');await until(()=>a.view().snapshot.entities.message.find(m=>m.id===third.id)?.executionStatus==='stopped','Desktop stop is observed by Station');
     const final=await state();assert.equal(final.starts,3);assert.equal(final.active,false);assert.equal(a.view().snapshot.entities.task.filter(t=>t.resource==='native').length,0);
     await b.action('native.refresh');await b.action('native.refresh');await until(()=>a.view().snapshot.entities.history?.some(h=>h.source==='desktop')&&a.view().snapshot.entities.history?.some(h=>h.source==='station'),'Selected native history retains Desktop and Station source labels');
-  }catch(error){await writeFile(join(process.env.STATION_EVIDENCE_DIR??'runtime/collaboration5-2026-10-23','native-flow-diagnostics.json'),JSON.stringify({error:error.stack,a:a?.view(),b:b?.view(),stderr:errors},null,2));throw error;}
+  } catch(error) {
+    const evidence=process.env.STATION_EVIDENCE_DIR??await mkdtemp(join(tmpdir(),'station-native-diagnostics-'));
+    await mkdir(evidence,{recursive:true});
+    await writeFile(join(evidence,'native-flow-diagnostics.json'),JSON.stringify({
+      error:error.stack,a:a?.view(),b:b?.view(),stderr:errors,
+    },null,2));
+    console.error('Native fixture diagnostics: '+evidence);
+    throw error;
+  }
   finally{await a?.shutdown();await b?.shutdown();for(const service of [a,b])if(service){clearInterval(service.nativeTimer);clearInterval(service.recoveryTimer);service.connection?.stop();}child.stdin.end('\n');if(child.exitCode===null)await new Promise(r=>child.once('exit',r));delete process.env.POCKET_VIBE_STATE_DIR;await rm(root,{recursive:true,force:true});}
 });
