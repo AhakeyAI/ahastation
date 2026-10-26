@@ -53,6 +53,9 @@ interface DomainEventV2<T = unknown> {
   deviceId: string;
   causationId?: string;      // 触发它的命令或事件 ID
   correlationId?: string;    // 同一次用户请求链
+  batchId: string;           // 同一命令产生的事件批次；单事件命令也填写
+  batchIndex: number;        // 从 0 开始，批内稳定顺序
+  batchCount: number;        // 批次事件总数，接收端据此判断完整性
   seq: number;               // 本地日志序号（沿用 MeetingRepository 的 seq）
   ts: number;                // 仅供展示；不能单独用来裁决先后
   payload: T;
@@ -60,12 +63,13 @@ interface DomainEventV2<T = unknown> {
 ```
 
 - **去重**：按 `id`。**乱序 / 缺页**：同一 `aggregateId` 的 `aggregateRevision` 不连续时，暂停应用该聚合并请求补取（多设备场景）。
-- **旧日志兼容**：读取时，没有 `schemaVersion` 的行按 v1 处理，由适配函数包装成 v2：`projectId` 取会议所属项目（见 §6 迁移），`aggregateType = 'meeting'`，`actor.kind = 'system'`，`deviceId = 'legacy-local'`。**不改写旧文件。**
+- **批次原子性**：同一 `batchId` 的事件在本地日志、投影和远端接收端都必须全部提交或完全不应用。缺任意 `batchIndex` 时保持 pending 并补取；批次完整前不得推进任何相关聚合。崩溃重放按 `commandId + batchId` 幂等，不允许出现只有 Decision、没有对应 WorkItem 状态变化的半提交。
+- **旧日志兼容**：读取时，没有 `schemaVersion` 的行按 v1 处理，由适配函数包装成 v2：`projectId` 取会议所属项目（见 §6 迁移），`aggregateType = 'meeting'`，`actor.kind = 'system'`，`deviceId = 'legacy-local'`，每条旧事件包装为独立的单事件批次。**不改写旧文件。**
 - **存放位置**：先沿用每个会议一个目录的布局，项目级事件（不属于任何会议）放 `projects/<projectId>/` 下同样格式的日志。存储引擎由 B08 决定，信封格式不依赖引擎。
 
 ## 4. 命令 → 事件样例
 
-命令由应用服务校验后，产生一个或多个事件。命令本身不持久化，事件通过 `causationId` 指回命令。
+命令先持久化到本地 command journal，再产生一个或多个事件；事件通过 `causationId` 指回命令。命令 journal、完整事件批次与命令结果在同一存储事务中提交；远端 `recorded` 回执以本地 journal 落盘为准，不以内存中创建命令为准。
 
 ### 4.1 用户在会议里确认阶段计划
 

@@ -78,12 +78,14 @@ interface SyncEnvelope {
   projectId: string;
   kind: 'event' | 'command' | 'receipt' | 'fetch' | 'fetch-result';
   cursor?: string;          // 发送方日志游标，用于补取
+  keyId: string;            // 项目内容密钥版本；撤销/轮换时单调递增
+  algorithm: 'secretstream-xchacha20poly1305-ed25519-v1';
   body: Ciphertext;         // 用项目内容密钥加密的 DomainEventV2 / 命令
   sig: Signature;           // 发送设备签名（覆盖除 sig 外全部字段）
 }
 ```
 
-中转只能看到 `from / to / projectId / kind / 大小 / 时间`，看不到内容。`projectId` 是随机 ID，不泄露仓库名。
+中转只能看到 `from / to / projectId / kind / keyId / 大小 / 时间`，看不到内容。`projectId` 是随机 ID，不泄露仓库名。签名输入使用规范 CBOR（不是依赖对象键序的 JSON.stringify）；可信设备链记录 `previousHash + sequence`，签名覆盖完整链事件。每个项目保留受信历史密钥以解密旧事件，撤销后只轮换后续 `keyId`，不重新加密旧日志。配对码短时、一次性，两个设备必须核对安全码后才写入可信链。
 
 ### 5.2 命令与回执（解决 R5、R6）
 
@@ -101,7 +103,7 @@ interface SyncEnvelope {
 | `applied` / `rejected(reason)` | 执行端实际执行结果，例如 Harness 已确认中断 | 「已停止」/「未执行：原因」 |
 | 超时无 `applied` | — | 「状态未知」，提供重试与查看执行端最近状态 |
 
-- **只有 `applied` 才能显示「已停止」**。
+- **只有 `applied` 才能显示「已停止」**。`StopRun.applied` 的签发条件是：未答复与新到的批准均已 decline、Harness 中断已确认、观察窗口内无新工具调用与文件变化、子进程树已退出；此前只显示「停止中」，超时显示「状态未知」。撤销 Grant 是独立事件，只禁止后续动作，不能冒充 Run 已停止。
 - 执行端校验 `basedOn.revision`：版本已过期（例如 Run 已结束、计划已改版），返回 `rejected('stale')`，**旧批准不会重复生效**（验收场景「断网停止与双端决定」）。
 - 普通消息（群聊文本）没有 `basedOn`，恢复后直接补发。
 
@@ -112,10 +114,10 @@ interface SyncEnvelope {
 ### 5.4 主持租约（解决 R2、R4）
 
 - 每个项目有一个 `HostLease {projectId, holderDeviceId, epoch, expiresAt}`，由持有者定期续约（事件广播）。
-- 计划写入命令必须带当前 `epoch`；执行端和其他设备拒绝旧 epoch 的计划写入（fencing token）。
+- 所有改变项目聚合的命令都必须带当前 `epoch`，不只阶段计划；执行端和其他设备持久化已见最大 epoch 并拒绝旧 epoch（fencing token）。网络分区后旧主持恢复连接也不能凭较新的本地时间写回。
 - **接续**：用户在另一台可信设备上明确点「由这台继续主持」→ 新设备发布 `epoch+1`。原持有者上线后看到更高 epoch，自动降为只读。
 - **不自动接管**：租约过期只显示「主持端离线」，不自动转移（规格「首发不自动接管全局助理」）。
-- 执行端已授权的 Run 不依赖租约存活（R4）；需要新增授权时进入 `awaiting-decision`，在任一可信设备上由用户决定。决定的主持语义待产品确认：**非主持设备上的批准是否有效？**建议：动作级批准（Grant）可以在任一可信设备上给出；阶段计划确认只能在主持设备上给出。
+- 执行端已授权的 Run 不依赖租约存活（R4）；需要新增授权时进入 `awaiting-decision`。按已决定的 D10：动作级 Grant 可以在任一可信设备上给出；阶段计划确认只能在主持设备上给出。
 
 ## 6. GitHub 交接（R8）
 

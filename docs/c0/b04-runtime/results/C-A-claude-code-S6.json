@@ -3,17 +3,17 @@
   "provider": "claude-code",
   "scenario": "S6",
   "versions": {
-    "app": "main c8295b9",
+    "app": "fix/runtime-a14-a20 + stop-tree-fix",
     "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
-    "model": "claude-sonnet-5-5"
+    "model": "account-default"
   },
-  "at": "2026-10-23T06:09:24.566Z",
+  "at": "2026-10-25T15:30:47.923Z",
   "result": "pass",
   "veto": true,
-  "observed": "trigger=first-tool-event confirmed=true in 53ms; new tool calls in 30s after stop=0; src changed after stop=false",
+  "observed": "trigger=first-tool-event confirmed=true in 19ms; new tool calls in 30s after stop=0; files changed after stop=false; child processes 3 -> 0",
   "stop": {
     "confirmed": true,
-    "confirmMs": 53,
+    "confirmMs": 19,
     "eventsDuringStop": 1
   },
   "evidence": [

@@ -136,6 +136,22 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 
 用量基线（矩阵运行前，Paseo `listUsage`）：Claude 5 小时窗口已用 61%、周已用 37%；Codex 周已用 32%，credits 0。样本见 `../b06-quota/fixtures/paseo-listUsage-2026-10-23-before-b04.json`。
 
+## 6d. A-14–A-20 修复后严格复验（2026-10-25）
+
+环境：N5095 / Windows 11 / Node 22.23.4；Claude 与 Codex 均使用账号默认模型，Codex 0.156.1。harness 已改为全文件 hash、停止后严格 fail、Windows 进程树检查和独立子进程真实宿主 kill。
+
+| C-A × provider | S1 | S2 | S3 | S4 ⛔ | S5 ⛔ | S6 ⛔ | S7 | S8 | S9 | S10 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Claude | pass | pass | pass | pass | pass | pass | n/a | pass | n/s（A-10） | pass |
+| Codex | pass | pass | pass | pass | pass | pass | n/a | pass | n/s（A-10） | pass |
+
+- **S6 是持续写 200 个文件的任务**：两 provider 停止后 30 秒均 0 次新工具、0 文件变化、子进程树归零。Claude 单次 `ended:interrupted`；不再出现矛盾终止对。
+- **S8 真实杀宿主**：独立 Node 宿主通过 `taskkill /T /F` 终止整个进程树，随后以相同原生 session id 恢复，fixture 测试 2/2。
+- **新发现并已修复**：初版 `workspace-write` 让 Codex 直接修改 `test/`，S4 fail；改为 `read-only + on-request` 后所有写入升级到宿主，S1/S4/S5 均通过。原方案不再可用。
+- **停止 teardown**：用户停止 worker 会关闭会话；Windows 使用 `taskkill /T /F` 终止完整进程树。steer 与 Host 的普通打断仍保持原会话。
+- **S3 判据**：结构化 Write/Edit 或命令批准均算通过；只读命令可直接执行，不要求宿主全量可见。
+- **S9 仍是实施缺口**：adapter 尚不向上层输出 usage（A-10），但 harness 已采集真实协议通知用于 B06 fixture；不把“协议有字段”虚报为“应用已接线”。
+
 ## 7. 执行工具
 
 写一个 `scripts/b04/run-scenarios.mjs`：每个候选一个驱动（C-A 驱动直接 import 现有 adapter；C-P 驱动用 `@getpaseo/client`），场景脚本共用。驱动接口：

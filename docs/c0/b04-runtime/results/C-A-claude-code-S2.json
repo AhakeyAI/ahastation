@@ -3,13 +3,13 @@
   "provider": "claude-code",
   "scenario": "S2",
   "versions": {
-    "app": "main c8295b9",
+    "app": "fix/runtime-a14-a20 4fce212",
     "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
-    "model": "claude-sonnet-5-5"
+    "model": "account-default"
   },
-  "at": "2026-10-23T06:05:18.335Z",
+  "at": "2026-10-25T15:13:44.045Z",
   "result": "pass",
-  "observed": "trigger=first-tool-event comment=true sessionId 34b884eb-f780-424f-aa84-0fda26bf04f4 -> 34b884eb-f780-424f-aa84-0fda26bf04f4 tests={\"pass\":2,\"fail\":0}",
+  "observed": "trigger=first-tool-event comment=true sessionId 681b3492-f691-4c7d-a3f1-1b264b27ed80 -> 681b3492-f691-4c7d-a3f1-1b264b27ed80 tests={\"pass\":2,\"fail\":0}",
   "evidence": [
     "results/logs/C-A-claude-code-S2.json"
   ]

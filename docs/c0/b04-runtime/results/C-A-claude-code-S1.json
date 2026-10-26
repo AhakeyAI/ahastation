@@ -3,14 +3,14 @@
   "provider": "claude-code",
   "scenario": "S1",
   "versions": {
-    "app": "main c8295b9",
+    "app": "fix/runtime-a14-a20 + final-runtime",
     "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
-    "model": "claude-sonnet-5-5"
+    "model": "account-default"
   },
-  "at": "2026-10-23T06:03:56.569Z",
+  "at": "2026-10-26T02:04:51.748Z",
   "result": "pass",
-  "observed": "ended={\"at\":59333,\"reason\":\"completed\"} firstEventMs=18488 sessionIdStable=true tests={\"pass\":2,\"fail\":0}",
-  "durationMs": 59333,
+  "observed": "ended={\"at\":21223,\"reason\":\"completed\"} firstEventMs=10493 sessionIdStable=true tests={\"pass\":2,\"fail\":0}",
+  "durationMs": 21223,
   "evidence": [
     "results/logs/C-A-claude-code-S1.json"
   ]

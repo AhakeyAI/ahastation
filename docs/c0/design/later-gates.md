@@ -33,12 +33,25 @@
 
 ---
 
+## B12 Host、grill 与版本化计划提案
+
+- Host 只用只读调查工具定位项目：稳定 `projectId`、当前挂载、B14 Issue 版本、相关文档与现有 WorkItem；调查阶段没有执行 Grant，不创建 Run。
+- `grill` 收敛顺序固定为「目标复述 → 缺口/歧义 → 用户回答 → TODO 草稿更新」。每次回答追加 Utterance 与计划修订，不改写历史原话； Host 不得把模型推断当成用户确认。
+- `StagePlan {planId, version, contentHash, sourceRefs[], acceptance[], items[]}` 整体不可变。任何 TODO、来源或验收变化都产生 `version+1`；只有当前版本可进入 `ConfirmStagePlan`。
+- 计划确认按 B03 的 command journal + 原子事件批次同时写 Decision 和 WorkItem 状态。确认前始终是 `design/awaiting-confirm`，不派工、不写执行代码；过期 version/hash 与重复确认全部拒绝。
+- 主动收敛只提出剩余问题，不自动批准。Host 会话中断或应用重启后，从草稿版本和未决问题恢复，不重复派工。
+- 估算 5–8 人日，依赖 A-01/A-03 与 B14 的只读关联；验收是「读 Issue → 语音澄清 → TODO → 当前版本确认 → 重启仍一致」，且确认前无任何 Run。
+
+---
+
 ## B14 GitHub Issue 读取关联与可选回写
 
 - 用户的 `gh` 登录或 OAuth 设备流（不内置 GitHub App，首发）。
 - WorkItem 关联 `{repo, issueNumber, nodeId}`；以 `nodeId` 去重。
 - 外部变化：轮询 `updated_at`（首发）→ 有变化时生成「差异提案」，不覆盖执行计划（规格「外部 Issue 变更先展示差异」）。
 - 回写只在项目设置开启后；默认不关 Issue、不为细分任务建 Issue。
+- 首发只请求只读 `repo` 范围内 Issue 内容；凭据留在主进程。读取按 `nodeId + updated_at` 缓存并记录 ETag，限流/离线时保留最后成功版本并明确标记，不伪造最新状态。
+- 估算 3–5 人日，依赖 A-01/A-02；验收为同 Issue 跨路径去重、外部修改只生成差异提案、默认零回写。
 
 ---
 

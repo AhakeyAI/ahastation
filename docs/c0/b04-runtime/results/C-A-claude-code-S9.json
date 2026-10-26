@@ -3,11 +3,11 @@
   "provider": "claude-code",
   "scenario": "S9",
   "versions": {
-    "app": "main c8295b9",
+    "app": "fix/runtime-a14-a20 + final-runtime",
     "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
-    "model": "claude-sonnet-5-5"
+    "model": "account-default"
   },
-  "at": "2026-10-23T06:03:56.579Z",
+  "at": "2026-10-26T02:04:51.758Z",
   "result": "not-supported",
   "observed": "adapter emits no usage signal (B06 gap: tokenCost hard-coded null)",
   "evidence": [

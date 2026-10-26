@@ -12,6 +12,8 @@ const cases = [
   ['codex write src via tool detail', { toolName: 'Write', input: { reason: null, grantRoot: null }, toolDetail: at('src/sum.js') }, true],
   ['codex write test via tool detail', { toolName: 'Write', input: { reason: null, grantRoot: null }, toolDetail: at('test/sum.test.js') }, false],
   ['codex write without any path', { toolName: 'Write', input: { reason: null, grantRoot: null }, toolDetail: '' }, false],
+  ['codex correlated src paths', { toolName: 'Write', input: { reason: null, grantRoot: null, paths: [at('src/sum.js'), at('src/other.js')] } }, true],
+  ['codex correlated mixed paths fail closed', { toolName: 'Write', input: { reason: null, grantRoot: null, paths: [at('src/sum.js'), at('test/sum.test.js')] } }, false],
   ['edit test after an npm test tool event', { toolName: 'Edit', input: { file_path: at('test/sum.test.js') }, toolDetail: 'npm test' }, false],
   ['bash npm test with 2>&1', { toolName: 'Bash', input: { command: 'cd "x" && npm test 2>&1 | tail -30' } }, true],
   ['bash get-content', { toolName: 'Bash', input: { command: "powershell -Command 'Get-Content src/sum.js'" } }, true],

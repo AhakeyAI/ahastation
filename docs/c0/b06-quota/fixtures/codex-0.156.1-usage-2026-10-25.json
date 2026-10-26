@@ -1,0 +1,67 @@
+{
+  "source": "B04 C-A codex S1, Codex CLI 0.156.1, Windows 11",
+  "capturedAt": "2026-10-25",
+  "samples": [
+    {
+      "method": "thread/tokenUsage/updated",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 16851,
+          "inputTokens": 16583,
+          "cachedInputTokens": 11904,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 268,
+          "reasoningOutputTokens": 9
+        },
+        "last": {
+          "totalTokens": 16851,
+          "inputTokens": 16583,
+          "cachedInputTokens": 11904,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 268,
+          "reasoningOutputTokens": 9
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    {
+      "method": "thread/tokenUsage/updated",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 34211,
+          "inputTokens": 33861,
+          "cachedInputTokens": 28288,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 350,
+          "reasoningOutputTokens": 21
+        },
+        "last": {
+          "totalTokens": 17360,
+          "inputTokens": 17278,
+          "cachedInputTokens": 16384,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 82,
+          "reasoningOutputTokens": 12
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    {
+      "method": "account/rateLimits/updated",
+      "rateLimits": {
+        "limitId": "codex",
+        "primary": {
+          "usedPercent": 20,
+          "windowDurationMins": 10080,
+          "resetsAt": 1793518095
+        },
+        "secondary": null,
+        "credits": {
+          "hasCredits": false,
+          "unlimited": false,
+          "balance": "0"
+        }
+      }
+    }
+  ]
+}

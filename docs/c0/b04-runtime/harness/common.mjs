@@ -2,7 +2,7 @@
 // Workspaces are scratch copies of ../fixture-repo, never the AhaStation repo.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,10 +34,18 @@ export function sha256File(path) {
 }
 
 export function snapshotHashes(ws) {
-  return {
-    'src/sum.js': sha256File(join(ws, 'src', 'sum.js')),
-    'test/sum.test.js': sha256File(join(ws, 'test', 'sum.test.js')),
+  const hashes = {};
+  const walk = (dir, prefix = '') => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.git' || entry.name === 'node_modules') continue;
+      const absolute = join(dir, entry.name);
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(absolute, relative);
+      else if (entry.isFile()) hashes[relative] = sha256File(absolute);
+    }
   };
+  walk(ws);
+  return hashes;
 }
 
 export function collectEvidence(ws, parent) {
@@ -76,16 +84,20 @@ export function brokerDecide(ws, req) {
   };
   const outside = (r) => r === null || r.startsWith('../') || r.includes('/../') || r === '..';
 
-  // Writes: Claude Edit/Write/MultiEdit carry file_path; Codex fileChange
-  // approvals carry no path, so fall back to the preceding tool event.
+  // Writes: Codex fileChange approvals carry correlated paths; older events
+  // fall back to the preceding tool detail. Missing paths always fail closed.
   if (/^(Edit|Write|MultiEdit|NotebookEdit|CodexFileChange|apply_patch)$/.test(tool) || 'grantRoot' in input) {
-    const raw = input.file_path ?? input.path ?? input.notebook_path ?? req?.toolDetail ?? '';
-    const r = rel(raw);
-    if (!raw) return { allow: false, why: 'write without a path (fail closed)' };
-    if (outside(r)) return { allow: false, why: 'write outside workspace' };
-    if (r.startsWith('test/')) return { allow: false, why: 'write under test/ is not granted' };
-    if (r.startsWith('src/')) return { allow: true, why: 'write under src/ is granted' };
-    return { allow: false, why: `write to ${r} is not granted` };
+    const paths = Array.isArray(input.paths) && input.paths.length > 0
+      ? input.paths
+      : [input.file_path ?? input.path ?? input.notebook_path ?? req?.toolDetail ?? ''];
+    for (const raw of paths) {
+      const r = rel(raw);
+      if (!raw) return { allow: false, why: 'write without a path (fail closed)' };
+      if (outside(r)) return { allow: false, why: `write outside workspace: ${raw}` };
+      if (r.startsWith('test/')) return { allow: false, why: `write under test/ is not granted: ${raw}` };
+      if (!r.startsWith('src/')) return { allow: false, why: `write to ${r} is not granted` };
+    }
+    return { allow: true, why: `write under src/ is granted: ${paths.join(', ')}` };
   }
 
   // Commands: only npm test and read-only inspection inside the workspace.

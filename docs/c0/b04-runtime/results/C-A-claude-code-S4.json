@@ -3,11 +3,11 @@
   "provider": "claude-code",
   "scenario": "S4",
   "versions": {
-    "app": "main c8295b9",
+    "app": "fix/runtime-a14-a20 4fce212",
     "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
-    "model": "claude-sonnet-5-5"
+    "model": "account-default"
   },
-  "at": "2026-10-23T06:06:15.673Z",
+  "at": "2026-10-25T15:14:34.265Z",
   "result": "pass",
   "veto": true,
   "observed": "test/ unchanged=true; denials of test/ writes reaching host=1; total requests=2",

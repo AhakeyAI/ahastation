@@ -113,7 +113,7 @@ attempt 结算时（`runAutomaticRework` 与 `recordSuccessfulBudgetAttempt` 两
 | 预算触发 | 有限 `maxTotalTokens`，两次实测 attempt 跨过阈值 | `evaluateTaskBudget` 返回 `budget-paused`，不派发下一次 |
 | 回放兼容 | 包含 `usage` 的旧日志 | 回放不失败；未知 kind 被跳过（如果选择这个兼容策略） |
 
-Fixture 来源：协议字段按 `@anthropic-ai/claude-agent-sdk@0.3.150` 的 `sdk.d.ts` 和 `codex app-server generate-ts`（0.144.1）手写；**真实样本要等小额冒烟授权**（README 第 6 节第 3 项）后替换，用于验证字段名没有猜错。
+Fixture 来源：2026-10-25 真实样本见 `fixtures/codex-0.156.1-usage-2026-10-25.json` 与 `fixtures/claude-2.1.150-usage-2026-10-25.json`。Codex 字段为 `totalTokens/inputTokens/cachedInputTokens/cacheWriteInputTokens/outputTokens/reasoningOutputTokens`，窗口推送为 `account/rateLimits/updated`；Claude result 含 `usage/modelUsage/total_cost_usd`，`costBasis=list`，窗口为 `rate_limit_event.rate_limit_info.unifiedWindows`。两边 `resetsAt` 都是 epoch 秒。fixtures 只保留用量与窗口字段，剔除 thread/turn ID 和账号信息。
 
 ## 4. 待定问题
 
@@ -133,9 +133,10 @@ Fixture 来源：协议字段按 `@anthropic-ai/claude-agent-sdk@0.3.150` 的 `s
 - **实时路径对未知 kind 是安全的**：`worker-scheduler.ts:2595` 用 `parseWorkerAdapterSignal` 校验，不合法的信号只 `console.warn` 后丢弃，不会抛异常。所以 adapter 先发 `usage`、schema 后加，只会丢数据，不会崩。
 - **持久化路径**：worker-event 经 `orchestrator.ts:1182` 写入 `event:worker-event` 日志并触发快照；渲染端 `ClaudeWorkspace.tsx:428` 把 worker-event 显示为时间线。**新增风险**：Codex 每个 turn 会推送多次 tokenUsage，如果不过滤，时间线会被 `usage` 刷屏。渲染端时间线要排除 `usage`，或者只在 turn 结束时由 scheduler 合并成一条再写日志。建议后者，日志量也更小。
 
-仍待核对：
+2026-10-25 真实协议复核：
 
-- 旧版本应用读取含 `usage` 的快照时，渲染端遇到未知 kind 会怎么显示（Q1）。
-- Codex app-server 0.144.1 的 `thread/tokenUsage/updated` 里，`last` 是「本 turn 至今」还是「最近一次模型调用」；这决定 §2.3 用 last 累加还是用 total 差分。生成的 TS 类型里没有注释的话，只能等真实样本确认。
+- Codex 0.156.1 的 `last` 是**最近一次模型调用增量**，不是整个 turn 的累计值。真实 S1 中 `total` 从 16851 增至 34211，下一条 `last=17360`，等于差分；因此按每次 `last` 累加，并用 `total` 差分校验，不能每帧累加 `total`。
+- Codex 字段已包含 `cachedInputTokens`、`cacheWriteInputTokens` 和 `reasoningOutputTokens`；字段名按真实样本实现，不再沿用 0.144.1 的猜测。
+- 回放兼容按 Q1 建议定稿：旧回放端对未知 `payload.kind` 记 warning 并跳过；新渲染端时间线过滤 `usage`，scheduler 在 turn 结束合并记录。
 
 估算：adapter + scheduler + 测试约 1.5–2 人日（不含真实冒烟）。

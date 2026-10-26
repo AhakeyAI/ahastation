@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-25",
+  "device": "N5095 / Windows 11",
+  "scenario": "One Claude worker and one Codex worker concurrently complete independent B04 S1 fixture tasks",
+  "result": "pass",
+  "outcomes": {
+    "claude": { "ended": "completed", "tests": "2/2", "durationMs": 25856 },
+    "codex": { "ended": "completed", "tests": "2/2", "durationMs": 74800 }
+  },
+  "sampledPeaks": {
+    "claude.exe": { "workingSetBytes": 232361984, "handleCount": 275 },
+    "codex.exe": { "workingSetBytes": 172785664, "handleCount": 548 },
+    "harnessNodePerProcessApprox": { "workingSetBytes": 72523776, "handleCount": 214 }
+  },
+  "cleanup": "Provider CLI processes absent from the final samples; the pre-existing system Codex sandbox service and the agent host Node process are not counted as leaked B04 children.",
+  "limits": "This is a two-provider concurrency smoke, not a maximum-worker capacity benchmark. CPU field in the source samples is cumulative process time and is not reported as instantaneous utilization. Voice + multi-agent load remains an M6 acceptance test after A-08/A-11."
+}
