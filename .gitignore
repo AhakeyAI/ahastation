@@ -17,3 +17,16 @@ deliveries/
 .vibe-assets/
 .vibe-attachments/
 .vibe-docs/
+
+# Private remote-service configuration and Python runtime artifacts
+.env
+.env.*
+!.env.example
+*.env
+**/.venv/
+**/.venv-contracts/
+**/__pycache__/
+**/*.py[cod]
+services/remote/runtime/
+runtime/
+build/station-native/
