@@ -1,0 +1,237 @@
+{
+  "deviceConfig": {
+    "name": "Windows B",
+    "platform": "windows",
+    "acceptingTasks": true,
+    "maxConcurrency": 2,
+    "agents": [
+      {
+        "agentId": "codex",
+        "backendId": "codex",
+        "available": true,
+        "executionModes": [
+          "worker",
+          "native-session"
+        ]
+      }
+    ]
+  },
+  "device": {
+    "name": "Windows B",
+    "platform": "windows",
+    "acceptingTasks": true,
+    "maxConcurrency": 2,
+    "agents": [
+      {
+        "agentId": "codex",
+        "backendId": "codex",
+        "available": true,
+        "executionModes": [
+          "worker",
+          "native-session"
+        ]
+      }
+    ],
+    "schemaVersion": 1,
+    "deviceId": "device-b",
+    "online": true,
+    "lastSeenAt": 1792500000000,
+    "connectionGeneration": 2,
+    "activeTasks": 0,
+    "revision": 3
+  },
+  "projectConfig": {
+    "name": "Station",
+    "repository": {
+      "provider": "github",
+      "canonicalUrl": "https://github.com/shawnyinsgit/ahastation-internal"
+    },
+    "repoSubdirectory": "station-ctrl"
+  },
+  "project": {
+    "name": "Station",
+    "repository": {
+      "provider": "github",
+      "canonicalUrl": "https://github.com/shawnyinsgit/ahastation-internal"
+    },
+    "repoSubdirectory": "station-ctrl",
+    "schemaVersion": 1,
+    "projectId": "station",
+    "revision": 1
+  },
+  "localBinding": {
+    "schemaVersion": 1,
+    "projectId": "station",
+    "deviceId": "device-b",
+    "localRepoRoot": "D:/working/ahastation",
+    "taskWorkspaceRoot": "D:/working/task-workspaces",
+    "permissionCeiling": "workspace-write",
+    "allowedAgentIds": [
+      "codex"
+    ],
+    "confirmed": true,
+    "revision": 1
+  },
+  "bindingReport": {
+    "schemaVersion": 1,
+    "projectId": "station",
+    "deviceId": "device-b",
+    "state": "ready",
+    "bindingRevision": 1
+  },
+  "bindingSummary": {
+    "schemaVersion": 1,
+    "projectId": "station",
+    "deviceId": "device-b",
+    "state": "ready",
+    "bindingRevision": 1,
+    "revision": 1
+  },
+  "authorizationRequest": {
+    "projectId": "station",
+    "taskId": "task-1",
+    "attemptId": "attempt-1",
+    "agentId": "codex",
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "requiredPermission": "workspace-write",
+    "executionMode": "worker",
+    "expectedBindingRevision": 1
+  },
+  "authorization": {
+    "schemaVersion": 1,
+    "assurance": "simulation",
+    "authorizationRef": "fixture-grant",
+    "projectId": "station",
+    "deviceId": "device-b",
+    "taskId": "task-1",
+    "attemptId": "attempt-1",
+    "agentId": "codex",
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "executionMode": "worker",
+    "permission": "workspace-write",
+    "repoRoot": "D:/working/ahastation",
+    "taskWorkspaceRoot": "D:/working/task-workspaces",
+    "bindingRevision": 1,
+    "expiresAt": 1792500060000
+  },
+  "workspaceRequest": {
+    "authorizationRef": "fixture-grant",
+    "taskId": "task-1",
+    "attemptId": "attempt-1",
+    "workspacePath": "D:/working/task-workspaces/task-1/station-ctrl",
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bindingRevision": 1,
+    "effectiveAgentPermission": "workspace-write"
+  },
+  "workspace": {
+    "schemaVersion": 1,
+    "assurance": "simulation",
+    "authorizationRef": "fixture-grant",
+    "projectId": "station",
+    "deviceId": "device-b",
+    "taskId": "task-1",
+    "attemptId": "attempt-1",
+    "agentId": "codex",
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "cwd": "D:/working/task-workspaces/task-1/station-ctrl",
+    "permission": "workspace-write",
+    "bindingRevision": 1,
+    "expiresAt": 1792500060000
+  },
+  "event": {
+    "schemaVersion": 1,
+    "scope": "account",
+    "type": "device.changed",
+    "eventId": "event-1",
+    "streamId": "device:device-b",
+    "seq": 1,
+    "revision": 3,
+    "occurredAt": 1792500000000,
+    "payload": {
+      "name": "Windows B",
+      "platform": "windows",
+      "acceptingTasks": true,
+      "maxConcurrency": 2,
+      "agents": [
+        {
+          "agentId": "codex",
+          "backendId": "codex",
+          "available": true,
+          "executionModes": [
+            "worker",
+            "native-session"
+          ]
+        }
+      ],
+      "schemaVersion": 1,
+      "deviceId": "device-b",
+      "online": true,
+      "lastSeenAt": 1792500000000,
+      "connectionGeneration": 2,
+      "activeTasks": 0,
+      "revision": 3
+    }
+  },
+  "localAuthorizationEvent": {
+    "schemaVersion": 1,
+    "scope": "local",
+    "type": "project.authorization_changed",
+    "projectId": "station",
+    "deviceId": "device-b",
+    "bindingRevision": 2,
+    "occurredAt": 1792500000000
+  },
+  "snapshot": {
+    "schemaVersion": 1,
+    "cursor": 5,
+    "devices": [
+      {
+        "name": "Windows B",
+        "platform": "windows",
+        "acceptingTasks": true,
+        "maxConcurrency": 2,
+        "agents": [
+          {
+            "agentId": "codex",
+            "backendId": "codex",
+            "available": true,
+            "executionModes": [
+              "worker",
+              "native-session"
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "deviceId": "device-b",
+        "online": true,
+        "lastSeenAt": 1792500000000,
+        "connectionGeneration": 2,
+        "activeTasks": 0,
+        "revision": 3
+      }
+    ],
+    "projects": [
+      {
+        "name": "Station",
+        "repository": {
+          "provider": "github",
+          "canonicalUrl": "https://github.com/shawnyinsgit/ahastation-internal"
+        },
+        "repoSubdirectory": "station-ctrl",
+        "schemaVersion": 1,
+        "projectId": "station",
+        "revision": 1
+      }
+    ],
+    "bindings": [
+      {
+        "schemaVersion": 1,
+        "projectId": "station",
+        "deviceId": "device-b",
+        "state": "ready",
+        "bindingRevision": 1,
+        "revision": 1
+      }
+    ]
+  }
+}
