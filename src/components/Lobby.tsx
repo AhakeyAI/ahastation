@@ -4,11 +4,13 @@ import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
 import type { BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
+import {SharedMeetingEntry} from './SharedMeetingEntry';
 
 interface LobbyProps {
   lastError?: string | null;
   /** Zero-session entry into the main UI, landing on the task board. */
   onEnterBoard?: () => void;
+  onEnterMeeting?: () => void;
   /** Replay the full first-launch onboarding flow. */
   onReplayOnboarding?: () => void;
 }
@@ -71,7 +73,7 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onEnterMeeting, onReplayOnboarding }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
@@ -127,6 +129,8 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
       });
   }, [reloadBackends]);
 
+  useEffect(() => window.vibeMeet.remoteControl.onChanged(() => { void reloadBackends(); }), [reloadBackends]);
+
   // When selected backend changes, prefill inputs from its config
   useEffect(() => {
     const b = backends.find((x) => x.id === selectedBackend);
@@ -148,10 +152,13 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
     try {
       const res = await meetingStore.openSession(cwd);
       if (!res.ok) setOpenError(res.error ?? 'Failed to open meeting');
+      else onEnterMeeting?.();
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : String(error));
     } finally {
       setOpening(false);
     }
-  }, [opening]);
+  }, [opening, onEnterMeeting]);
 
   const pickAndOpen = useCallback(async () => {
     const dir = await pickCwd();
@@ -168,11 +175,13 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
     try {
       const result = await meetingStore.openSession(cwd, '', meeting.meetingId);
       if (!result.ok) setOpenError(result.error ?? 'Failed to recover meeting');
-      else setRecoverable((items) => items.filter((item) => item.meetingId !== meeting.meetingId));
+      else { setRecoverable((items) => items.filter((item) => item.meetingId !== meeting.meetingId)); onEnterMeeting?.(); }
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : String(error));
     } finally {
       setOpening(false);
     }
-  }, [opening]);
+  }, [opening, onEnterMeeting]);
 
   const handleBackendChange = useCallback(async (backendId: string) => {
     const result = await window.vibeMeet.backendAuth.setDefault(backendId);
@@ -306,6 +315,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
   return (
     <div className="join-screen">
       <div className="join-card lobby-card">
+        <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={()=>onEnterMeeting?.()}/>
         <div className="join-brand">
           <div className="join-logo">
             <img src="icon-96.png" alt="AhaStation" className="join-logo-img" />
@@ -405,7 +415,10 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
               )}
 
               {/* Auth fields for selected backend */}
-              {currentBackend?.available ? (
+              {currentBackend?.id === 'pocket-vibe' ? <div className="join-auth-block">
+                <p>远端身份和电脑配对请在远端控制设置管理。公网模式先使用本机 Host 开始会议，再从参与者选择已有远端会话。</p>
+                <button className="join-auth-btn" onClick={() => void window.vibeMeet.settingsWindow.open()}>远端控制设置</button>
+              </div> : currentBackend?.available ? (
                 <>
                   <div className="join-auth-block">
                     <div className="join-auth-block-title">

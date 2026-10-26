@@ -2,13 +2,14 @@ import { useCallback } from 'react';
 import { Plus, RotateCw, X, SquareArrowOutUpRight } from 'lucide-react';
 import { meetingStore, type TabMeta } from '../lib/meeting-store';
 import { usePickCwd } from './DirPickerModal';
+import { toast } from '../lib/toast';
 
 interface TabStripProps {
   tabs: TabMeta[];
 }
 
 function shortPath(cwd: string): string {
-  const parts = cwd.split('/').filter(Boolean);
+  const parts = cwd.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? cwd;
 }
 
@@ -18,12 +19,14 @@ export function TabStrip({ tabs }: TabStripProps) {
   const handleAdd = useCallback(async () => {
     const dir = await pickCwd();
     if (!dir) return;
-    await meetingStore.openSession(dir);
+    const result = await meetingStore.openSession(dir);
+    if (!result.ok) toast.error(result.error ?? '会议启动失败');
   }, [pickCwd]);
 
   const handleSelect = useCallback(async (tab: TabMeta) => {
     if (tab.placeholder) {
-      await meetingStore.resumePlaceholder(tab.id);
+      const result = await meetingStore.resumePlaceholder(tab.id);
+      if (!result.ok) toast.error(result.error ?? '会议恢复失败');
     } else {
       await meetingStore.setActive(tab.id);
     }
@@ -31,17 +34,19 @@ export function TabStrip({ tabs }: TabStripProps) {
 
   const handleClose = useCallback(async (e: React.MouseEvent, tab: TabMeta) => {
     e.stopPropagation();
-    await meetingStore.closeTab(tab.id);
+    try { await meetingStore.closeTab(tab.id); }
+    catch (error) { toast.error(`关闭会议失败：${String(error)}`); }
   }, []);
 
   const handleRetry = useCallback(async (e: React.MouseEvent, tab: TabMeta) => {
     e.stopPropagation();
-    await meetingStore.retryFailedTab(tab.id);
+    const result = await meetingStore.retryFailedTab(tab.id);
+    if (!result.ok) toast.error(result.error ?? '会议恢复失败');
   }, []);
 
   const handlePopout = useCallback((e: React.MouseEvent, tab: TabMeta) => {
     e.stopPropagation();
-    if (window.vibeMeet?.popoutSession) {
+    if (!tab.placeholder && tab.phase === 'ready' && window.vibeMeet?.popoutSession) {
       void window.vibeMeet.popoutSession(tab.id);
     }
   }, []);
@@ -83,7 +88,7 @@ export function TabStrip({ tabs }: TabStripProps) {
                   <RotateCw size={12} aria-hidden="true" />
                 </span>
               )}
-              <span
+              {!tab.placeholder && tab.phase === 'ready' && <span
                 className="tab-strip-popout"
                 role="button"
                 aria-label="Open in new window"
@@ -92,7 +97,7 @@ export function TabStrip({ tabs }: TabStripProps) {
                 title="在新窗口中打开"
               >
                 <SquareArrowOutUpRight size={11} aria-hidden="true" />
-              </span>
+              </span>}
               <span
                 className="tab-strip-close"
                 role="button"

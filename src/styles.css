@@ -2975,7 +2975,7 @@ html.popout-view #root {
   left: 0;
   right: 0;
   margin-bottom: 4px;
-  background: var(--bg-surface, #1a1a2e);
+  background: var(--bg-panel);
   border: 1px solid var(--border-soft, rgba(255,255,255,0.1));
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
@@ -7952,6 +7952,16 @@ html.popout-view #root {
    Matches the drawer-settings vocabulary used elsewhere in SettingsWindow.
    ========================================================================== */
 
+#remote-control-settings { padding: 16px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg-panel); }
+#remote-control-settings h2 { margin: 0 0 12px; font-size: 16px; }
+#remote-control-settings p { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+#remote-control-settings details { margin: 12px 0; }
+#remote-control-settings label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+#remote-control-settings input:not([type="checkbox"]), #remote-control-settings select {
+  padding: 7px 10px; min-width: 180px; max-width: 100%; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--bg-input); color: var(--text-primary);
+}
+#remote-control-settings button { margin: 4px 4px 4px 0; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border-soft); background: var(--bg-input); color: var(--text-primary); cursor: pointer; }
+#remote-control-settings button:disabled { opacity: .5; cursor: default; }
 .backend-settings {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-soft);
@@ -12970,3 +12980,77 @@ html.ahabar-view #root {
   border-radius: 8px;
 }
 .lobby-footer-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+/* Pocket Vibe: a small native-session selector inside the existing drawer. */
+.remote-session-picker { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 20px; border-radius: var(--aha-r-lg); background: var(--aha-bg-raised); color: var(--aha-text-primary); box-shadow: var(--aha-shadow-overlay); }
+.remote-session-header, .remote-session-filters, .remote-session-footer { display: flex; align-items: center; gap: 8px; }
+.remote-session-header { justify-content: space-between; }
+.remote-session-picker p, .remote-session-agent-status { font-size: 12px; line-height: 1.6; opacity: .85; }
+.remote-session-picker button, .remote-session-picker select { padding: 6px 10px; border-radius: var(--aha-r-sm); background: var(--aha-bg-surface); color: inherit; border: 1px solid var(--aha-border-strong); }
+.remote-session-picker select { min-width: 0; flex: 1; }
+.remote-session-picker option { background: var(--aha-bg-raised); }
+.remote-session-picker button:disabled { opacity: .45; }
+.remote-session-list { margin-top: 12px; max-height: 320px; overflow-y: auto; }
+.remote-session-row { display: flex; gap: 10px; padding: 10px; margin-top: 6px; border: 1px solid var(--aha-border-strong); border-radius: var(--aha-r-sm); cursor: pointer; }
+.remote-session-row.selected { border-color: var(--aha-accent); }
+.remote-session-row span { min-width: 0; overflow-wrap: anywhere; }
+.remote-session-row strong { font-size: 13px; }
+.remote-session-row small { display: block; font-size: 11px; opacity: .7; }
+.remote-session-error { color: var(--aha-danger); }
+.remote-session-footer { justify-content: flex-end; }
+:root .meeting-resume-banner {
+  display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  flex-wrap: wrap; border-bottom: 1px solid var(--border, #7774);
+}
+.meeting-resume-banner > div { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
+.meeting-navigation { padding: 4px 20px; }
+/* Shared collaboration stays independent of local meeting view lifecycle. */
+.collaboration-launch { position: fixed; right: 18px; bottom: 18px; z-index: 120; padding: 10px 18px; border-radius: 12px; background: #2854d9; color: white; border: 0; cursor: pointer; }
+.collaboration-overlay { position: fixed; inset: 32px 20px 20px; z-index: 500; border: 1px solid #72809b; border-radius: 16px; background: var(--bg-primary, #181d29); color: var(--text-primary, #edf1fa); padding: 20px; overflow: auto; box-shadow: 0 16px 80px #0008; }
+.collaboration-overlay header { display: flex; justify-content: space-between; align-items: center; }
+.collaboration-columns { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 4fr); gap: 24px; }
+.collaboration-columns aside { display: flex; flex-direction: column; gap: 8px; }
+.collaboration-overlay input:not([type=checkbox]), .collaboration-overlay textarea, .collaboration-overlay select, .collaboration-settings input:not([type=checkbox]) { box-sizing: border-box; display: block; width: 100%; padding: 9px; margin: 8px 0; border: 1px solid #687386; border-radius: 7px; background: transparent; color: inherit; }
+.collaboration-overlay button, .collaboration-settings button { padding: 7px 10px; margin: 4px 2px; cursor: pointer; }
+.collaboration-overlay label, .collaboration-settings label { display: block; margin: 10px 0; }
+.collaboration-settings { padding: 18px; margin: 16px 0; border: 1px solid #8290aa66; border-radius: 12px; }
+.collaboration-settings small { display: block; opacity: .75; margin: 6px 0; }
+.collaboration-settings article, .collaboration-task { padding: 12px; margin: 12px 0; border: 1px solid #8290aa55; border-radius: 8px; }
+.collaboration-chat { max-height: 35vh; overflow: auto; margin: 12px 0; padding: 12px; background: #8290aa12; border-radius: 8px; }
+.collaboration-overlay pre, .collaboration-overlay p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .collaboration-overlay { inset: 10px; padding: 12px; } .collaboration-columns { grid-template-columns: 1fr; } }
+
+/* Unified meeting variants use the original stage, chat and task components. */
+.unified-meeting .unified-plan-bar {display:flex;align-items:center;gap:16px;padding:10px 20px;flex-wrap:wrap;border-bottom:1px solid var(--border,#394252)}
+.unified-stage {display:grid!important;grid-template-rows:auto minmax(0,1fr);overflow:hidden;min-width:0}
+.unified-workspace {overflow:auto;min-height:0;padding:20px}.unified-participants .tiles-gallery-scroll {display:flex;gap:12px;padding:12px;overflow:auto}
+.unified-member {min-width:200px;max-width:300px;padding:14px;border:1px solid var(--border,#394252);border-radius:12px;background:var(--bg-panel,#1d2230)}
+.unified-member button {display:block;text-align:left;margin:6px 0}.unified-meeting button,.unified-entry button {cursor:pointer}
+.unified-task-list table {width:100%;border-collapse:collapse}.unified-task-list th,.unified-task-list td {padding:12px;text-align:left;border-bottom:1px solid var(--border,#394252)}
+.unified-inspector,.unified-delivery {padding:16px;overflow:auto}.unified-inspector nav,.unified-delivery nav {display:flex;gap:12px;margin:12px 0;flex-wrap:wrap}
+.unified-inspector {display:block}
+.unified-delivery {display:block;height:auto;box-sizing:border-box}
+.unified-inspector pre,.unified-delivery pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:48vh;overflow:auto}
+.unified-dialog {max-width:560px;margin:auto;padding:24px;background:var(--bg-panel,#1d2230);border:1px solid var(--border,#394252);border-radius:16px}.unified-dialog button{display:block;margin:12px 0}
+.unified-task-link {display:flex;gap:8px;align-items:center;flex-basis:100%;font-size:12px}.unified-task-link select{min-width:0;flex:1}
+.unified-entry {margin:16px 0;padding:18px;border:1px solid var(--border,#394252);border-radius:12px}.unified-entry label,.unified-settings label{display:block;margin:10px 0}
+.unified-entry input,.unified-entry select,.unified-settings select,.unified-settings textarea{box-sizing:border-box;width:100%;background:transparent;color:inherit;border:1px solid #687386;border-radius:6px;padding:8px}
+.unified-materials {padding:8px 20px}.unified-materials[open]{max-height:25vh;overflow:auto}.unified-alert{color:var(--danger,#ff8c80);padding:6px 20px}
+.unified-invitation {padding:12px}.unified-invitation label {display:block;margin:10px 0}.unified-settings>details{padding:14px 0;border-bottom:1px solid var(--border,#394252)}
+@media(max-width:800px){.unified-meeting .mtg-main{grid-template-columns:minmax(0,1fr)}.unified-meeting .drawer{max-width:100%}.unified-task-list{overflow:auto}.unified-member{min-width:170px}}
+
+/* collaboration.6: the invitation remains reachable at small sizes and zoom. */
+.unified-meeting .drawer-participants {min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.unified-invitation {min-height:0;flex-shrink:0}
+.slash-picker-item-active,.slash-picker-item:hover {background:var(--bg-hover);color:var(--text-primary)}
+
+.unified-review-dialog {max-width:760px;width:min(92vw,760px);max-height:88vh;overflow-y:auto;color:var(--text-primary)}
+.unified-review-dialog textarea {width:100%;min-height:100px;box-sizing:border-box;background:var(--bg-input);color:var(--text-primary)}
+.unified-review-body {white-space:pre-wrap;overflow-wrap:anywhere;max-height:30vh;overflow:auto}
+
+.unified-error-summary {flex:none;max-height:20vh;overflow:hidden;padding:5px 16px;color:var(--text-primary)}
+.unified-error-details {max-height:15vh;overflow:auto;overflow-wrap:anywhere;overscroll-behavior:contain}
+.unified-error-details pre {white-space:pre-wrap;max-height:12vh;overflow:auto}
+.unified-issue-origin {max-height:24vh;overflow:auto;padding:8px 16px}
+.unified-review-dialog fieldset {border:1px solid var(--border);margin:10px 0;min-width:0}
+.unified-review-dialog input:not([type]),.unified-review-dialog input[type="text"],.unified-review-dialog select {max-width:100%;box-sizing:border-box;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);padding:6px}
+.unified-review-dialog input:not([type]) {width:100%}

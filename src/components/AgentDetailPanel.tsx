@@ -2,6 +2,7 @@ import { ExternalLink, FolderOpen, X } from 'lucide-react';
 import type { HostGroupState, WorkerState } from '../lib/meeting-store';
 import type { BackendInfo } from '../types';
 import { BackendAvatar } from './BackendAvatar';
+import { remoteSessionLabel } from '../../electron/backends/pocket-vibe-target';
 
 interface AgentDetailPanelProps {
   /** 解析后的展示对象：host tile 传 talker，worker tile 传 worker。 */
@@ -57,7 +58,8 @@ export function AgentDetailPanel({
   const roleLabel = worker?.role === 'talker'
     ? (hostId === 'default' ? 'Host Agent · Coordinator' : 'Host Agent')
     : 'Worker';
-  const name = worker?.title ?? hostGroup?.backendId ?? 'Agent';
+  const remoteTarget = hostGroup?.remoteTarget;
+  const name = remoteTarget ? remoteSessionLabel(remoteTarget) : worker?.title ?? hostGroup?.backendId ?? 'Agent';
   const recentActivity = (worker?.activity ?? []).slice(-5).reverse();
   const outputFiles = worker?.workReport?.files ?? [];
 
@@ -73,6 +75,12 @@ export function AgentDetailPanel({
           <X size={16} />
         </button>
       </header>
+
+      {remoteTarget && <section className="aha-agent-panel-section">
+        <div className="aha-agent-panel-label">远端项目</div>
+        <div style={{ overflowWrap: 'anywhere' }}>{remoteTarget.cwd}</div>
+        <div>{remoteTarget.agent_id} · {remoteTarget.provider} · {remoteTarget.session_id}</div>
+      </section>}
 
       <section className="aha-agent-panel-section">
         <div className="aha-agent-panel-label">当前任务</div>
@@ -121,7 +129,7 @@ export function AgentDetailPanel({
       )}
 
       <footer className="aha-agent-panel-actions">
-        {onOpenEditor && (
+        {onOpenEditor && !remoteTarget && (
           <button
             type="button"
             className="aha-btn aha-btn-primary aha-agent-panel-main-btn"
@@ -133,7 +141,7 @@ export function AgentDetailPanel({
         <button type="button" className="aha-btn aha-btn-ghost" disabled title="OS 级跳转到对应客户端软件页面（M6-3）">
           在 {backendLabel} 中打开 ↗ <span className="aha-dev-tag">开发中</span>
         </button>
-        {cwd && (
+        {cwd && !remoteTarget && (
           <button
             type="button"
             className="aha-btn aha-btn-ghost"

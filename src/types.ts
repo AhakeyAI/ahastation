@@ -1,3 +1,5 @@
+import type { PocketVibeRemoteTarget, PocketVibeRemoteHost, PocketVibeRemoteDirectory } from '../electron/backends/pocket-vibe-target';
+export type { PocketVibeRemoteTarget, PocketVibeRemoteHost, PocketVibeRemoteDirectory };
 export type AutoApproveScope = 'off' | 'read' | 'all';
 
 export interface FileEntry {
@@ -890,10 +892,10 @@ export type RendererEvent =
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget }
   | { kind: 'host-added'; backendId: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string };
+  | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget };
 
 export interface DesktopSource {
   id: string;
@@ -973,6 +975,8 @@ export interface AuthApi {
 }
 
 export interface BackendInfo {
+  sharedStatus?: string;
+  remoteControlMode?: 'public' | 'legacy';
   id: string;
   displayName: string;
   iconId: string;
@@ -1122,12 +1126,17 @@ export interface RecentCwdMeta {
 export interface OpenTabMeta {
   cwd: string;
   openedAt: number;
+  remoteHosts?: PocketVibeRemoteHost[];
 }
 
 export interface HostMeta {
   id: string;
   backendId: string;
   role: 'coordinator' | 'expert';
+  remoteTarget?: PocketVibeRemoteTarget;
+  ready?: boolean;
+  phase?: 'starting' | 'ready' | 'ended' | 'failed';
+  error?: string;
 }
 
 export interface SessionsApi {
@@ -1136,12 +1145,14 @@ export interface SessionsApi {
     greeting?: string,
     backendId?: string,
     recoveryMeetingId?: string,
+    remoteHosts?: PocketVibeRemoteHost[],
   ) => Promise<
-    | { ok: true; sessionId: string; cwd: string; backendId?: string; recovered?: boolean; status?: 'starting' }
+    | { ok: true; sessionId: string; cwd: string; backendId?: string; recovered?: boolean; status?: 'starting'; remoteHosts?: PocketVibeRemoteHost[] }
     | { ok: false; error: 'duplicate'; sessionId: string; cwd?: string }
     | { ok: false; error: string }
   >;
   close: (id: string) => Promise<{ ok: boolean; activeId?: string | null; error?: string }>;
+  forgetRestored: (cwd: string) => Promise<{ ok: boolean; error?: string; sessionId?: string }>;
   setActive: (id: string) => Promise<{ ok: boolean; error?: string }>;
   list: () => Promise<{ ok: true; sessions: SessionMeta[]; activeId: string | null }>;
   listRestore: () => Promise<{
@@ -1165,7 +1176,9 @@ export interface SessionsApi {
     sessionId: string | null,
     backendId: string,
     hostId?: string,
+    remoteTarget?: PocketVibeRemoteTarget,
   ) => Promise<{ ok: true; hostId: string } | { ok: false; error: string }>;
+  remoteSessions: (refresh?: boolean) => Promise<{ ok: true; directory: PocketVibeRemoteDirectory } | { ok: false; error: string }>;
   removeHost: (
     sessionId: string | null,
     hostId: string,
@@ -1252,6 +1265,8 @@ export interface XfyunAsrCredentials {
 }
 
 export interface VibeMeetApi {
+  remoteControl: { request: (action: string, payload?: Record<string, unknown>) => Promise<import('../electron/remote-control-types').RemoteControlReply>; onChanged: (cb: () => void) => () => void };
+  collaboration: {request(action:string,payload?:Record<string,unknown>):Promise<{ok:boolean;value?:unknown;error?:string}>;onChanged(cb:()=>void):()=>void};
   sessions: SessionsApi;
   sendUserText: (sessionId: string | null, text: string) => Promise<{ ok: boolean; error?: string }>;
   sendUserImage: (sessionId: string | null, dataUrl: string, caption: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1275,6 +1290,7 @@ export interface VibeMeetApi {
     sessionId: string | null,
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ) => Promise<{ ok: boolean; error?: string }>;
   acceptDelivery: (
     sessionId: string | null,
@@ -1686,6 +1702,7 @@ export interface MeetingPlanBrief {
 /** Renderer-side input for the manual Plan Meeting flow. The main process
  * validates the same shape before installing it into the scheduler. */
 export interface PlanMeetingTaskInput {
+  sharedTarget?:{deviceId:string;agentId:string;resource:'text'|'directory'|'repository'|'native';permission:'read-only'|'workspace-write'|'full-access';projectId?:string;baseCommit?:string;nativeSessionId?:string;parentTaskId?:string;inputs?:Array<{repository:string;commit:string;paths:string[]}>};
   id: string;
   title: string;
   prompt: string;

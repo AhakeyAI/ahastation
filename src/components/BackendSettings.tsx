@@ -568,8 +568,9 @@ export function BackendSettings() {
         </div>
       )}
 
+      {activeBackend?.id === 'pocket-vibe' && <p>电脑配对和远端身份请在 <a href="#remote-control-settings">远端控制设置</a> 管理；凭证不是模型 API Key。</p>}
       {/* Active backend detail card */}
-      {activeBackend && (
+      {activeBackend && activeBackend.id !== 'pocket-vibe' && (
         <>
           {activeBackend.id.startsWith('custom-') && (
             <div className="backend-card-remove-row">

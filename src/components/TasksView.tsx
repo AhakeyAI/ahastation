@@ -22,8 +22,11 @@ import type {
   ObservedState,
 } from '../lib/observed-store';
 import type { WorkerStatus } from '../types';
+import type {UnifiedModel} from '../lib/unified-meeting-store';
+import {sharedPhase} from '../lib/unified-meeting-store';
 
 interface TasksViewProps {
+  shared?:UnifiedModel;
   data: CrossProjectTasks;
   /** Focus the owning project and drop the user into its meeting view. */
   onOpenTask: (sessionId: string, taskId: string) => void;
@@ -168,7 +171,9 @@ function ObservedTaskCard({ session }: { session: ObservedSession }) {
  *  single session, so the user sees one meeting's worth of work even though
  *  each project still runs its own Orchestrator underneath. Observed sessions
  *  (external CLI windows) mix into the same columns after orchestrated cards. */
-export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
+export function TasksView(props:TasksViewProps){return props.shared?<SharedTaskBoard model={props.shared} onOpen={id=>props.onOpenTask(props.shared!.meeting.id,id)} onPlan={()=>props.onOpenPlan(props.shared!.meeting.id)}/>:<LocalTasksView {...props}/>;}
+function SharedTaskBoard({model,onOpen,onPlan}:{model:UnifiedModel;onOpen:(id:string)=>void;onPlan:()=>void}){return <main className="tasks-view"><header className="tasks-header"><h2>{String(model.meeting.title)} · 任务</h2>{!model.meeting.planApproved&&<button onClick={onPlan}>审阅当前计划</button>}</header><div className="tasks-board">{[['attention','待批准／待确认'],['active','执行／等待'],['settled','成果／已完成']].map(([column,label])=><section className={'tasks-column tasks-column-'+column} key={column}><header className="tasks-column-head">{label}</header><div className="tasks-column-body">{model.tasks.filter(t=>{const state=t.status==='accepted'||t.status==='delivered'?'settled':t.stopRequested||['stopped','approval','reconcile'].includes(String(t.status))?'attention':'active';return state===column;}).map(t=><button className="tasks-card" key={t.id} onClick={()=>onOpen(t.id)}><strong>{String(t.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</span><span>{sharedPhase(t)}</span></button>)}</div></section>)}</div></main>;}
+function LocalTasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [backendFilter, setBackendFilter] = useState<string>(ALL);
   const [noiseOpen, setNoiseOpen] = useState<Partial<Record<TaskColumnId, boolean>>>({});

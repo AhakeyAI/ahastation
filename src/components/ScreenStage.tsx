@@ -33,6 +33,16 @@ import { ActivityTabContent } from './ActivityTabContent';
 import { DeliveryViewer } from './DeliveryViewer';
 import { TaskInspector } from './TaskInspector';
 import { FinalMeetingDelivery } from './FinalMeetingDelivery';
+import type {UnifiedModel} from '../lib/unified-meeting-store';
+import {SharedParticipants} from './ParticipantPanel';
+import {SharedUserTasksPanel} from './UserTasksPanel';
+import {SharedTaskInspector} from './TaskInspector';
+
+export interface SharedScreenContext {share:ScreenShareState;videoRef:RefObject<HTMLVideoElement>;onStop:()=>void}
+export function SharedScreenStage({model,onInvite,taskId,onTask,onCloseTask,screen}:{model:UnifiedModel;onInvite:()=>void;taskId:string|null;onTask:(id:string)=>void;onCloseTask:()=>void;screen:SharedScreenContext}){
+  return <section className="stage-wrap unified-stage"><SharedParticipants model={model} onInvite={onInvite} onOpenTask={onTask}/><div className="unified-workspace">{screen.share.active&&<section className="unified-screen"><header>{screen.share.sourceName}<button onClick={screen.onStop}>停止屏幕共享</button></header><video ref={screen.videoRef} autoPlay muted playsInline style={{maxHeight:'38vh',maxWidth:'100%'}}/></section>}{taskId?<SharedTaskInspector key={model.meeting.id+':'+taskId} model={model} taskId={taskId} onClose={onCloseTask}/>:<SharedUserTasksPanel model={model} onOpenTask={onTask}/>}</div></section>;
+}
+
 
 interface ScreenStageProps {
   share: ScreenShareState;

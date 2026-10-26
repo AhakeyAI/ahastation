@@ -122,19 +122,7 @@ export const MeetingHeader = memo(function MeetingHeader({
         </div>
       </div>
       <div className="mtg-header-right">
-        <button
-          type="button"
-          className={`mtg-approve-toggle mtg-multi-toggle ${multiAgent ? 'mtg-multi-toggle-on' : ''}`}
-          role="switch"
-          aria-checked={multiAgent}
-          onClick={onToggleMultiAgent}
-          title={multiAgentTitle}
-        >
-          <span className="mtg-approve-toggle-track" aria-hidden="true">
-            <span className="mtg-approve-toggle-knob" />
-          </span>
-          <span className="mtg-approve-toggle-label">多 Agent 并行</span>
-        </button>
+
         <div className="mtg-scope-wrap" ref={pickerRef}>
           <button
             type="button"
