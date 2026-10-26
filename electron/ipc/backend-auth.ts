@@ -37,6 +37,7 @@ import { resolveDefaultWorkerBackendId } from '../worker-backend-default.js';
 import { augmentedPath } from '../backends/subprocess-backend.js';
 import { isolatedSubprocessEnv } from '../backends/backend-environment.js';
 import type { BackendAuthEntry } from '../store.js';
+import { getPocketVibeConnection, getRemoteControlSettings } from '../remote-control.js';
 
 /** One install at a time — prevents double-click races from stacking npm
  *  processes that fight over the same global node_modules lock. */
@@ -166,9 +167,13 @@ export function registerBackendAuthIpc(): void {
     const systemClaudeVersionP = probeVersionCached('claude-code', systemClaudePath);
 
     const result = await Promise.all(registry.listWithStatus().map(async ({ backend, available, binaryPath }) => {
-      const auth = authEntries.find((e) => e.backendId === backend.id);
+      const auth = backend.id === 'pocket-vibe' ? getPocketVibeConnection() : authEntries.find((e) => e.backendId === backend.id);
       const [loggedIn, version] = await Promise.all([
-        available ? checkAuthCached(backend) : Promise.resolve(false),
+        available
+          ? backend.id === 'pocket-vibe'
+            ? Promise.resolve(Boolean(auth?.apiKey?.trim()))
+            : checkAuthCached(backend)
+          : Promise.resolve(false),
         probeVersionCached(backend.id, binaryPath),
       ]);
       const runtime = assessConfiguredWorkerRuntime({
@@ -183,6 +188,7 @@ export function registerBackendAuthIpc(): void {
       });
       return {
         id: backend.id,
+        ...(backend.id === 'pocket-vibe' ? { remoteControlMode: getRemoteControlSettings().mode } : {}),
         displayName: backend.capabilities.displayName,
         iconId: backend.capabilities.iconId,
         available,
@@ -199,8 +205,8 @@ export function registerBackendAuthIpc(): void {
         installHint: backend.capabilities.installHint ?? null,
         supportsMcp: backend.capabilities.mcp,
         supportsPermissions: backend.capabilities.permissions,
-        supportsCoordinator: backend.capabilities.coordinate,
-        supportsWorkers: runtime.state === 'available',
+        supportsCoordinator: backend.capabilities.coordinate && !(backend.id === 'pocket-vibe' && getRemoteControlSettings().mode === 'public'),
+        supportsWorkers: runtime.state === 'available' && !(backend.id === 'pocket-vibe' && getRemoteControlSettings().mode === 'public'),
         workerImplementation: backend.capabilities.executeTasks,
         workerRuntimeState: runtime.state,
         workerRuntimeReason: runtime.reason,
@@ -215,7 +221,7 @@ export function registerBackendAuthIpc(): void {
         systemClaudeVersion: backend.id === 'claude-code' ? await systemClaudeVersionP : null,
         bundledClaudeAvailable: backend.id === 'claude-code' ? bundledClaudePath !== null : null,
         systemClaudeAvailable: backend.id === 'claude-code' ? systemClaudePath !== null : null,
-        customAvatar: auth?.customAvatar ?? null,
+        customAvatar: auth && 'customAvatar' in auth ? auth.customAvatar ?? null : null,
         workerReleaseTier: backend.capabilities.executeTasks
           ? (FIRST_RELEASE_STABLE_WORKERS.has(backend.id) ? 'stable' : 'experimental')
           : 'blocked',

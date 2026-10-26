@@ -24,17 +24,22 @@ import {
   getSettings,
   pushRecentCwd,
   setOpenTabs,
+  forgetRestoredTab,
 } from '../store.js';
 import type { IpcContext } from './context.js';
 import { clearApprovedExternalDirs } from './documents.js';
 import { MeetingRepository } from '../meeting-repository.js';
 import { getBackendRegistry } from '../backends/registry.js';
+import { fetchPocketVibeRemoteSessions } from '../backends/pocket-vibe-adapter.js';
+import { getPocketVibeConnection } from '../remote-control.js';
+import { parsePocketVibeRemoteHosts, parsePocketVibeRemoteTarget, resolveRemoteTarget, type PocketVibeRemoteTarget } from '../backends/pocket-vibe-target.js';
 
 interface OpenPayload {
   cwd?: unknown;
   greeting?: unknown;
   backendId?: unknown;
   recoveryMeetingId?: unknown;
+  remoteHosts?: unknown;
 }
 
 // Coalesce rapid-fire `setOpenTabs` writes (lobby-restore can fire 5+
@@ -50,11 +55,22 @@ const SNAPSHOT_DEBOUNCE_MS = 100;
 const END_TIMEOUT_MS = 15_000;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotPendingCtx: IpcContext | null = null;
+// Lazy references have no registry slot yet. Opening/closing one meeting must
+// not erase the other projects (or their native remote references).
+let retainedRestoreTabs = new Map<string, NonNullable<ReturnType<typeof getSettings>['openTabs']>[number]>();
+let lastActiveReference: string | null = null;
 
 function writeSnapshotNow(ctx: IpcContext): void {
-  const tabs = ctx.registry.list().map((s) => ({ cwd: s.cwd, openedAt: s.openedAt }));
+  const live = ctx.registry.list().map((s) => ({
+    cwd: s.cwd, openedAt: s.openedAt,
+    remoteHosts: parsePocketVibeRemoteHosts(ctx.getOrchestrator(s.id)?.listHosts()),
+  }));
+  for (const tab of live) retainedRestoreTabs.set(tab.cwd, tab);
+  const tabs = [...retainedRestoreTabs.values()].filter((tab) => !live.some((row) => row.cwd === tab.cwd)).concat(live);
   const active = ctx.registry.getActive();
-  void setOpenTabs(tabs, active?.cwd ?? null).catch((err) => {
+  if (active) lastActiveReference = active.cwd;
+  if (!tabs.some((tab) => tab.cwd === lastActiveReference)) lastActiveReference = tabs[0]?.cwd ?? null;
+  void setOpenTabs(tabs, lastActiveReference).catch((err) => {
     console.error('[sessions] failed to persist openTabs:', err);
   });
 }
@@ -84,6 +100,8 @@ export function flushOpenTabsNow(ctx: IpcContext): void {
 }
 
 export function registerSessionsIpc(ctx: IpcContext): void {
+  retainedRestoreTabs = new Map((getSettings().openTabs ?? []).map((tab) => [tab.cwd, tab]));
+  lastActiveReference = getSettings().lastActiveCwd ?? null;
   ipcMain.handle('sessions:open', async (_e, payload: OpenPayload) => {
     try {
       const rawCwd = typeof payload?.cwd === 'string' ? payload.cwd : '';
@@ -164,6 +182,16 @@ export function registerSessionsIpc(ctx: IpcContext): void {
       // custom gateway/model via ANTHROPIC_MODEL we honor it so the talker
       // doesn't request a model the gateway can't serve.
       const talkerModel = workerEnv.ANTHROPIC_MODEL || undefined;
+      let remoteHosts = parsePocketVibeRemoteHosts(recovery
+        ? recovery.state.hosts
+        : payload?.remoteHosts ?? getSettings().openTabs?.find((tab) => tab.cwd === resolvedCwd)?.remoteHosts);
+      if (remoteHosts.some((host) => !host.remoteTarget.device_id)) {
+        const catalog = await fetchPocketVibeRemoteSessions(getPocketVibeConnection(), true);
+        if (catalog.ok) remoteHosts = parsePocketVibeRemoteHosts(remoteHosts.map((host) => {
+          try { return { ...host, remoteTarget: resolveRemoteTarget(host.remoteTarget, catalog.directory) }; }
+          catch { return host; }
+        }));
+      }
 
       // Pre-bind sessionId into the emit closure so every event this
       // orchestrator emits is automatically routed to the right renderer slot.
@@ -195,6 +223,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
                   : [];
               }))
           : undefined,
+        remoteHosts,
         recoveredTasks: recovery && Array.isArray(recovery.state.tasks)
           ? recovery.state.tasks.filter((task): task is Record<string, unknown> => typeof task === 'object' && task !== null)
           : undefined,
@@ -291,6 +320,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         backendId: selectedBackendId,
         recovered: Boolean(recovery),
         status: 'starting' as const,
+        remoteHosts: parsePocketVibeRemoteHosts(orch.listHosts()),
       };
     } catch (err: unknown) {
       const msg = formatError(err);
@@ -302,6 +332,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const id = typeof payload?.id === 'string' ? payload.id : '';
     const slot = ctx.registry.get(id);
     if (!slot) return { ok: false, error: 'not-found' };
+    retainedRestoreTabs.delete(slot.cwd);
     let endTimedOut = false;
     let endTimer: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -354,6 +385,15 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     };
   });
 
+  ipcMain.handle('sessions:forget-restored', async (_e, payload: { cwd?: string }) => {
+    if (typeof payload?.cwd !== 'string' || !path.isAbsolute(payload.cwd)) return { ok: false, error: 'invalid cwd' };
+    const live = ctx.registry.findByCwd(payload.cwd);
+    if (live) return { ok: false, error: 'meeting is already open', sessionId: live.id };
+    retainedRestoreTabs.delete(payload.cwd);
+    await forgetRestoredTab(payload.cwd);
+    return { ok: true };
+  });
+
   ipcMain.handle('sessions:list-recoverable', async () => ({
     ok: true,
     meetings: await MeetingRepository.listRecoverable(),
@@ -387,17 +427,30 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     if (typeof payload !== 'object' || payload === null) {
       return { ok: false, error: 'payload must be an object' };
     }
-    const { sessionId, backendId, hostId } = payload as {
+    const { sessionId, backendId, hostId, remoteTarget } = payload as {
       sessionId?: string;
       backendId?: string;
       hostId?: string;
+      remoteTarget?: PocketVibeRemoteTarget;
     };
     if (typeof backendId !== 'string') {
       return { ok: false, error: 'backendId must be a string' };
     }
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
-    return orch.addHost(backendId, hostId);
+    let target = remoteTarget;
+    if (remoteTarget !== undefined) {
+      const parsed = parsePocketVibeRemoteTarget(remoteTarget);
+      if (backendId !== 'pocket-vibe' || !parsed) return { ok: false, error: '无效的远端会话引用。' };
+      const directory = await fetchPocketVibeRemoteSessions(getPocketVibeConnection(), true);
+      if (!directory.ok) return directory;
+      try { target = resolveRemoteTarget(parsed, directory.directory); }
+      catch (error) { return { ok: false, error: String(error) }; }
+      orch.enrichRemoteTargets(directory.directory);
+    }
+    const result = orch.addHost(backendId, hostId, target);
+    if (result.ok && remoteTarget) snapshotOpenTabs(ctx);
+    return result;
   });
 
   /** Remove a host group from a session. Cannot remove the default host. */
@@ -411,7 +464,9 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     }
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
-    return orch.removeHost(hostId);
+    const result = orch.removeHost(hostId);
+    if (result.ok) snapshotOpenTabs(ctx);
+    return result;
   });
 
   /** List all host groups in a session. */
@@ -422,6 +477,11 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
     return { ok: true, hosts: orch.listHosts() };
+  });
+
+  ipcMain.handle('sessions:remote-sessions', async (_e, payload: { refresh?: boolean } | undefined) => {
+    const auth = getPocketVibeConnection();
+    return fetchPocketVibeRemoteSessions(auth ?? { authMode: 'none' }, payload?.refresh === true);
   });
 
   ipcMain.handle('sessions:set-coordinator', async (_e, payload: unknown) => {

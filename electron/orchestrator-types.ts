@@ -171,7 +171,7 @@ export type OrchestratorOnlyEvent =
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string }
-  | { kind: 'session-ready' }
+  | { kind: 'session-ready'; remoteTarget?: import('./backends/pocket-vibe-target.js').PocketVibeRemoteTarget }
   /** Announced synchronously when a host group is added (live invite or
    *  recovery re-add), before its talker handshake settles. Carries the
    *  backend id so the renderer can seed the participant tile; the hostId
@@ -181,7 +181,7 @@ export type OrchestratorOnlyEvent =
    *  Purely a renderer hint: it names the optimistic "thinking" bubble after
    *  the routed host. hostId travels on the OrchestratorEvent envelope. */
   | { kind: 'user-mentioned-host'; backendId: string; chars: number }
-  | { kind: 'session-start-failed'; error: string }
+  | { kind: 'session-start-failed'; error: string; remoteTarget?: import('./backends/pocket-vibe-target.js').PocketVibeRemoteTarget }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string }
   | {
       kind: 'coordinator-review-stalled';

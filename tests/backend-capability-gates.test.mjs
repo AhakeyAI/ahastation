@@ -81,7 +81,7 @@ test('stable Worker qualification requires every gate and exact real smoke evide
   const mismatched = assessWorkerRelease({
     backendId: 'codex',
     implementationEnabled: true,
-    expectedRuntimeVersion: '0.144.1',
+    expectedRuntimeVersion: '0.164.0',
     evidence: completeStabilityEvidence('codex', '0.144.6'),
   });
   assert.equal(mismatched.tier, 'experimental');
@@ -90,8 +90,8 @@ test('stable Worker qualification requires every gate and exact real smoke evide
   const stable = assessWorkerRelease({
     backendId: 'codex',
     implementationEnabled: true,
-    expectedRuntimeVersion: '0.144.1',
-    evidence: completeStabilityEvidence('codex', '0.144.1'),
+    expectedRuntimeVersion: '0.164.0',
+    evidence: completeStabilityEvidence('codex', '0.164.0'),
   });
   assert.equal(stable.tier, 'stable');
   assert.deepEqual(stable.blockers, []);

@@ -1,5 +1,6 @@
 import { ipcMain, shell, webContents } from 'electron';
 import { getSettings, updateSettings, clearVoicePrint, type Settings, type VoicePrint, type XfyunAsrCredentials } from '../store.js';
+import { registerRemoteControlIpc } from '../remote-control.js';
 
 // Tell every other window that the stored voice config (voiceprint / lock
 // toggle) changed, so their hooks re-fetch instead of running on stale state.
@@ -88,6 +89,7 @@ export function buildVoicePrefUpdate(
 }
 
 export function registerSettingsIpc(): void {
+  registerRemoteControlIpc();
   ipcMain.handle('settings:get-voice-config', async () => {
     const s = getSettings();
     return {

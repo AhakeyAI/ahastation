@@ -58,7 +58,7 @@ function effectiveProfile(model, backendId = 'codex') {
   return {
     schemaVersion: 1,
     backendId,
-    runtimeVersion: '0.144.1',
+    runtimeVersion: '0.164.0',
     model,
     unsupported: [],
     downgraded: [],

@@ -24,7 +24,7 @@ function fakeAppServer() {
         queueMicrotask(() => {
           if (message.method === 'initialize') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
-              userAgent: 'Codex/0.144.1', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+              userAgent: 'Codex/0.164.0', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
             } })}\n`);
           } else if (message.method === 'account/read') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
@@ -53,7 +53,7 @@ test('app-server readiness uses initialize and account/read without a model turn
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
   const ready = await transport.start();
-  assert.equal(ready.userAgent, 'Codex/0.144.1');
+  assert.equal(ready.userAgent, 'Codex/0.164.0');
   assert.equal(ready.account.type, 'chatgpt');
   assert.deepEqual(fake.methods, ['initialize', 'initialized', 'account/read']);
   transport.close();
@@ -177,13 +177,13 @@ test('app-server rejects a runtime that does not match its locked schema', async
   const transport = new CodexAppServerTransport({
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
-  await assert.rejects(transport.start(), /requires 0\.144\.1/);
+  await assert.rejects(transport.start(), /requires 0\.164\.0/);
   transport.close();
 });
 
 test('Codex runtime version is extracted from the real desktop user agent shape', () => {
   assert.equal(
-    extractCodexRuntimeVersion('Codex Desktop/0.144.1 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
-    '0.144.1',
+    extractCodexRuntimeVersion('Codex Desktop/0.164.0 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
+    '0.164.0',
   );
 });

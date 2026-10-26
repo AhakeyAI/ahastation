@@ -5,18 +5,37 @@ const { contextBridge, ipcRenderer } = require('electron');
 // back to the currently-active slot — used by legacy callsites that haven't
 // been threaded for tabs yet.
 const api = {
+  collaboration: {
+    request: (action, payload) => ipcRenderer.invoke('collaboration:request', action, payload),
+    onChanged: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('collaboration:changed', listener);
+      return () => ipcRenderer.removeListener('collaboration:changed', listener);
+    },
+  },
+  remoteControl: {
+    request: (action, payload) => ipcRenderer.invoke('remote-control:request', action, payload),
+    onChanged: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('remote-control:changed', listener);
+      return () => ipcRenderer.removeListener('remote-control:changed', listener);
+    },
+  },
   sessions: {
-    open: (cwd, greeting, backendId, recoveryMeetingId) =>
-      ipcRenderer.invoke('sessions:open', { cwd, greeting, backendId, recoveryMeetingId }),
+    open: (cwd, greeting, backendId, recoveryMeetingId, remoteHosts) =>
+      ipcRenderer.invoke('sessions:open', { cwd, greeting, backendId, recoveryMeetingId, remoteHosts }),
     close: (id) => ipcRenderer.invoke('sessions:close', { id }),
     setActive: (id) => ipcRenderer.invoke('sessions:set-active', { id }),
     list: () => ipcRenderer.invoke('sessions:list'),
     listRestore: () => ipcRenderer.invoke('sessions:list-restore'),
+    forgetRestored: (cwd) => ipcRenderer.invoke('sessions:forget-restored', { cwd }),
     listRecoverable: () => ipcRenderer.invoke('sessions:list-recoverable'),
     resolveRecoveredTask: (sessionId, taskId, action) =>
       ipcRenderer.invoke('sessions:resolve-recovered-task', { sessionId, taskId, action }),
-    addHost: (sessionId, backendId, hostId) =>
-      ipcRenderer.invoke('sessions:add-host', { sessionId, backendId, hostId }),
+    addHost: (sessionId, backendId, hostId, remoteTarget) =>
+      ipcRenderer.invoke('sessions:add-host', { sessionId, backendId, hostId, remoteTarget }),
+    remoteSessions: (refresh = false) =>
+      ipcRenderer.invoke('sessions:remote-sessions', { refresh }),
     removeHost: (sessionId, hostId) =>
       ipcRenderer.invoke('sessions:remove-host', { sessionId, hostId }),
     listHosts: (sessionId) =>
@@ -39,8 +58,8 @@ const api = {
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
   setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}) }),
+  approvePlan: (sessionId, approved, tasks,brief) =>
+    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}),...(brief?{brief}:{}) }),
   acceptDelivery: (sessionId, deliveryId, candidateId) =>
     ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
   returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>

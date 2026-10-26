@@ -20,6 +20,13 @@ import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { promises as fsp } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { normalizeBackendBaseUrl } from './normalize-base-url.js';
+import { parsePocketVibeRemoteHosts, type PocketVibeRemoteHost } from './backends/pocket-vibe-target.js';
+import type { RemoteControlSettings } from './remote-control-types.js';
+
+export function remoteCredentialStorageAvailable(): boolean {
+  if (!safeStorageAvailable()) return false;
+  return process.platform !== 'linux' || ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(safeStorage.getSelectedStorageBackend?.() ?? 'unknown');
+}
 
 export interface VoicePrint {
   // Float32 embedding flattened into a regular number[] for JSON.
@@ -39,6 +46,7 @@ export interface RecentCwdEntry {
 export interface OpenTabEntry {
   cwd: string;
   openedAt: number;
+  remoteHosts?: PocketVibeRemoteHost[];
 }
 
 export interface BackendAuthEntry {
@@ -77,6 +85,7 @@ export interface XfyunAsrCredentials {
 }
 
 export interface Settings {
+  remoteControl?: RemoteControlSettings;
   /** @deprecated Migrated into recentCwds + lastActiveCwd at first load. Kept
    *  in the type so JSON files written by old versions parse without warnings. */
   lastCwd?: string;
@@ -214,7 +223,12 @@ function toDiskForm(s: Settings): Settings {
     }
     return apiKeyEnc ? { ...safe, apiKeyEnc } : safe;
   });
-  const safeRest: Settings = backendAuth ? { ...rest, backendAuth } : rest;
+  let safeRest: Settings = backendAuth ? { ...rest, backendAuth } : rest;
+  if (rest.remoteControl) {
+    const { controlToken, controlTokenEnc, ...safeRemote } = rest.remoteControl;
+    const enc = controlToken && remoteCredentialStorageAvailable() ? tryEncryptKey(controlToken) : controlTokenEnc;
+    safeRest = { ...safeRest, remoteControl: enc ? { ...safeRemote, controlTokenEnc: enc } : safeRemote };
+  }
   if (anthropicApiKey) {
     const enc = tryEncryptKey(anthropicApiKey);
     // safeStorage down → keep the key in memory only. Persisting plaintext is
@@ -292,6 +306,17 @@ function load(): Settings {
   // already populated the migration is a no-op. Fire-and-forget the persist
   // — `load()` callers don't want to await migration on every cache miss.
   let needsRewrite = false;
+  if (cached.remoteControl?.controlToken) {
+    delete cached.remoteControl.controlToken; // Public credentials are accepted from safeStorage only, never plaintext disk.
+    needsRewrite = true;
+  }
+  if (cached.remoteControl?.controlTokenEnc && remoteCredentialStorageAvailable()) {
+    const token = tryDecryptKey(cached.remoteControl.controlTokenEnc);
+    if (token !== null) {
+      cached.remoteControl.controlToken = token;
+      delete cached.remoteControl.controlTokenEnc;
+    }
+  }
   if (cached.lastCwd && (!cached.recentCwds || cached.recentCwds.length === 0)) {
     const migrated: Settings = {
       ...cached,
@@ -371,7 +396,24 @@ async function persist(next: Settings): Promise<void> {
 }
 
 export function getSettings(): Settings {
-  return { ...load() };
+  const state=load();
+  // Static imports may read settings before Electron's secure storage is
+  // ready. Rehydrate the collaboration credential when it becomes available.
+  if(state.remoteControl?.controlTokenEnc&&!state.remoteControl.controlToken&&remoteCredentialStorageAvailable()) {
+    const token=tryDecryptKey(state.remoteControl.controlTokenEnc);
+    if(token!==null)state.remoteControl={...state.remoteControl,controlToken:token};
+  }
+  return { ...state };
+}
+
+/** Remote-only atomic edits share the existing settings write queue. */
+export function updateRemoteControlFields(change: (current: RemoteControlSettings | undefined) => RemoteControlSettings): Promise<Settings> {
+  return withWriteLock(async () => {
+    const current = load();
+    const next = { ...current, remoteControl: change(current.remoteControl) };
+    await persist(next);
+    return { ...next };
+  });
 }
 
 export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -422,9 +464,24 @@ export function setOpenTabs(tabs: OpenTabEntry[], activeCwd: string | null): Pro
     const current = load();
     const next: Settings = {
       ...current,
-      openTabs: tabs.map((t) => ({ cwd: t.cwd, openedAt: t.openedAt })),
+      openTabs: tabs.map((t) => ({
+        cwd: t.cwd, openedAt: t.openedAt,
+        ...(t.remoteHosts?.length ? { remoteHosts: parsePocketVibeRemoteHosts(t.remoteHosts) } : {}),
+      })),
       lastActiveCwd: activeCwd,
     };
+    await persist(next);
+    return { ...next };
+  });
+}
+
+/** Remove a lazy restore reference without sending a placeholder to the registry. */
+export function forgetRestoredTab(cwd: string): Promise<Settings> {
+  return withWriteLock(async () => {
+    const current = load();
+    const openTabs = (current.openTabs ?? []).filter((tab) => tab.cwd !== cwd);
+    const next = { ...current, openTabs,
+      lastActiveCwd: current.lastActiveCwd === cwd ? openTabs[0]?.cwd ?? null : current.lastActiveCwd };
     await persist(next);
     return { ...next };
   });
