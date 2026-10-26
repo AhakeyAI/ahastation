@@ -38,10 +38,10 @@
     }
   },
   "development": {
-    "runtime": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
-    "code": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\dist-electron",
+    "runtime": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+    "code": "<USER_HOME>\\Desktop\\ahastation-internal1\\dist-electron",
     "packaged": false,
-    "artifact": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf",
+    "artifact": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf",
     "rounds": [
       {
         "mode": "normal",
@@ -90,14 +90,14 @@
             "ProcessId": 4124,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.1622190Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
             "ProcessId": 4920,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.4586670Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -132,7 +132,7 @@
             "ProcessId": 19884,
             "ParentProcessId": 35304,
             "CreationDate": "2026-10-23T15:25:09.9064400Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -153,7 +153,7 @@
             "ProcessId": 22824,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.1706200Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -204,7 +204,7 @@
             "ProcessId": 4920,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.4586670Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -349,7 +349,7 @@
             "ProcessId": 4920,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.4586670Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -439,7 +439,7 @@
             "terminalId": "ea91e687-888c-4b59-87a0-5465e060e1bc",
             "pid": 3264,
             "startedAt": "2026-10-23T15:25:11.235Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
             "label": "offline-0",
             "cols": 117,
             "rows": 37,
@@ -451,7 +451,7 @@
             "terminalId": "be8220c2-dcb6-442f-afb1-b4ac4866ef3b",
             "pid": 26724,
             "startedAt": "2026-10-23T15:25:11.298Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
             "label": "offline-1",
             "cols": 117,
             "rows": 37,
@@ -465,7 +465,7 @@
             "ProcessId": 4920,
             "ParentProcessId": 19884,
             "CreationDate": "2026-10-23T15:25:10.4586670Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -526,7 +526,7 @@
             "ProcessId": 2860,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.0187080Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -547,7 +547,7 @@
             "ProcessId": 11388,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.0143170Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -603,14 +603,14 @@
             "ProcessId": 29244,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.1787840Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
             "ProcessId": 30404,
             "ParentProcessId": 35304,
             "CreationDate": "2026-10-23T15:25:35.8706720Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -703,7 +703,7 @@
             "ProcessId": 29244,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.1787840Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -848,7 +848,7 @@
             "ProcessId": 29244,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.1787840Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           },
           {
@@ -882,7 +882,7 @@
             "terminalId": "b72916e6-54da-4624-b4f1-13ccbf8ab101",
             "pid": 19448,
             "startedAt": "2026-10-23T15:25:36.831Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
             "label": "offline-0",
             "cols": 117,
             "rows": 37,
@@ -894,7 +894,7 @@
             "terminalId": "d553abce-6f6d-4759-95a9-cfba3c2c50b6",
             "pid": 5440,
             "startedAt": "2026-10-23T15:25:36.874Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
             "label": "offline-1",
             "cols": 117,
             "rows": 37,
@@ -922,7 +922,7 @@
             "ProcessId": 29244,
             "ParentProcessId": 30404,
             "CreationDate": "2026-10-23T15:25:36.1787840Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
             "InJob": true
           }
         ],
@@ -932,10 +932,10 @@
     ]
   },
   "packaged": {
-    "runtime": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
-    "code": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\resources\\app.asar\\dist-electron",
+    "runtime": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+    "code": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\resources\\app.asar\\dist-electron",
     "packaged": true,
-    "artifact": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx",
+    "artifact": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx",
     "rounds": [
       {
         "mode": "normal",
@@ -991,7 +991,7 @@
             "ProcessId": 3100,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.8328590Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1047,7 +1047,7 @@
             "ProcessId": 32928,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.8276410Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1061,7 +1061,7 @@
             "ProcessId": 34468,
             "ParentProcessId": 12184,
             "CreationDate": "2026-10-23T15:26:29.5841600Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1075,7 +1075,7 @@
             "ProcessId": 34488,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.9592560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1168,7 +1168,7 @@
             "ProcessId": 34488,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.9592560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1313,7 +1313,7 @@
             "ProcessId": 34488,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.9592560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1333,7 +1333,7 @@
             "terminalId": "40f4f843-24b5-41e5-9608-7bc4c953c637",
             "pid": 12320,
             "startedAt": "2026-10-23T15:26:30.750Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
             "label": "offline-0",
             "cols": 117,
             "rows": 37,
@@ -1345,7 +1345,7 @@
             "terminalId": "6a0f2587-d99d-4df7-964a-ee7d46a56d08",
             "pid": 11992,
             "startedAt": "2026-10-23T15:26:30.790Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
             "label": "offline-1",
             "cols": 117,
             "rows": 37,
@@ -1373,7 +1373,7 @@
             "ProcessId": 34488,
             "ParentProcessId": 34468,
             "CreationDate": "2026-10-23T15:26:29.9592560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           }
         ],
@@ -1441,7 +1441,7 @@
             "ProcessId": 11876,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.7691560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1483,14 +1483,14 @@
             "ProcessId": 27396,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.6581190Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
             "ProcessId": 28268,
             "ParentProcessId": 12184,
             "CreationDate": "2026-10-23T15:26:51.4700310Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1518,7 +1518,7 @@
             "ProcessId": 34992,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.6536470Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1555,7 +1555,7 @@
             "ProcessId": 11876,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.7691560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1700,7 +1700,7 @@
             "ProcessId": 11876,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.7691560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
@@ -1776,7 +1776,7 @@
             "terminalId": "db40b34f-8987-45bf-b313-e472ebc92efa",
             "pid": 27084,
             "startedAt": "2026-10-23T15:26:52.338Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
             "label": "offline-0",
             "cols": 117,
             "rows": 37,
@@ -1788,7 +1788,7 @@
             "terminalId": "573bfb81-94d2-463a-bc81-4193c569f2a5",
             "pid": 6348,
             "startedAt": "2026-10-23T15:26:52.379Z",
-            "cwd": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
             "label": "offline-1",
             "cols": 117,
             "rows": 37,
@@ -1809,7 +1809,7 @@
             "ProcessId": 11876,
             "ParentProcessId": 28268,
             "CreationDate": "2026-10-23T15:26:51.7691560Z",
-            "ExecutablePath": "C:\\Users\\JHJ\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
             "InJob": true
           },
           {
