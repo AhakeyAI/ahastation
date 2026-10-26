@@ -9,7 +9,7 @@ import {
 } from '../dist-electron/backends/worker-runtime-contract.js';
 
 test('runtime versions are extracted from common CLI output', () => {
-  assert.equal(extractRuntimeVersion('codex-cli 0.144.1'), '0.144.1');
+  assert.equal(extractRuntimeVersion('codex-cli 0.156.1'), '0.156.1');
   assert.equal(extractRuntimeVersion('Claude Code v2.1.150 (stable)'), '2.1.150');
   assert.equal(extractRuntimeVersion('unknown'), null);
 });
@@ -25,7 +25,7 @@ test('Worker runtime gate fails closed for missing, incompatible and unauthentic
   }).state, 'version-incompatible');
   assert.equal(assessWorkerRuntime({
     backendId: 'codex', installed: true, implementationEnabled: true,
-    authenticated: false, version: '0.144.1',
+    authenticated: false, version: '0.156.1',
   }).state, 'needs-login');
 });
 
@@ -33,7 +33,7 @@ test('Worker runtime becomes available only at the tested version with authentic
   for (const [backendId, version] of [
     ['claude-code', '2.1.150'],
     ['opencode', '1.18.3'],
-    ['codex', '0.144.1'],
+    ['codex', '0.156.1'],
     ['kimi', '0.24.1'],
   ]) {
     const result = assessWorkerRuntime({

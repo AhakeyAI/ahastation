@@ -42,7 +42,7 @@ test('Codex worker task profile reaches native SDK thread options', async () => 
   }, {
     schemaVersion: 1,
     backendId: 'codex',
-    runtimeVersion: '0.144.1',
+    runtimeVersion: '0.156.1',
   });
   const session = backend.createSession({
     cwd: process.cwd(),
@@ -372,7 +372,7 @@ test('Codex production app-server session becomes ready without a model turn', a
   const events = [];
   let notification;
   const transport = {
-    async start() { calls.push('initialize/account'); return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { calls.push('initialize/account'); return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { calls.push('thread/start'); return 'app-thread-1'; },
     async resumeThread(id) { calls.push(`thread/resume:${id}`); return id; },
     async startTurn(_threadId, input) {
@@ -402,7 +402,7 @@ test('Codex production app-server session becomes ready without a model turn', a
   assert.deepEqual(calls, ['initialize/account', 'thread/start']);
   assert.deepEqual(session.snapshot(), {
     protocol: 'codex-app-server', protocolVersion: 'v2',
-    sessionId: 'app-thread-1', backendVersion: '0.144.1',
+    sessionId: 'app-thread-1', backendVersion: '0.156.1',
   });
   session.sendUserText('actual user input');
   await new Promise((resolve) => setImmediate(resolve));
@@ -415,7 +415,7 @@ test('Codex app-server host emits turn-status around the turn lifecycle', async 
   const events = [];
   let notification;
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'app-thread-ts'; },
     async resumeThread(id) { return id; },
     async startTurn() {
@@ -453,7 +453,7 @@ test('Codex app-server worker does not emit turn-status events', async () => {
   const events = [];
   let notification;
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'app-thread-wts'; },
     async resumeThread(id) { return id; },
     async startTurn() {
@@ -488,7 +488,7 @@ test('Codex app-server receives the compiled task model and reasoning effort', a
   let openOptions;
   const transport = {
     async start() {
-      return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } };
+      return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } };
     },
     async openThread(options) {
       openOptions = options;
@@ -514,7 +514,7 @@ test('Codex app-server receives the compiled task model and reasoning effort', a
   }, {
     schemaVersion: 1,
     backendId: 'codex',
-    runtimeVersion: '0.144.1',
+    runtimeVersion: '0.156.1',
   });
   const session = backend.createSession({
     cwd: '/workspace',
@@ -541,7 +541,7 @@ test('Codex app-server Worker emits no provider messages and synthesizes WorkRep
     unresolved: [],
   };
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'codex-worker'; },
     async resumeThread(id) { return id; },
     async startTurn() {
@@ -594,7 +594,7 @@ test('Codex app-server maps command approval through the common permission contr
   let requestApproval;
   const events = [];
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'codex-permission'; },
     async resumeThread(id) { return id; },
     async startTurn() { return 'turn-permission'; },
@@ -647,7 +647,7 @@ test('Codex app-server crash denies pending approvals and releases Worker waiter
   let exit;
   const events = [];
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'codex-crash'; },
     async resumeThread(id) { return id; },
     async startTurn() { return 'turn-crash'; },
@@ -698,7 +698,7 @@ test('Codex app-server surfaces an acknowledgement for command-only host output'
   const events = [];
   const commands = [];
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'app-thread-command'; },
     async resumeThread(id) { return id; },
     async startTurn() {
@@ -741,7 +741,7 @@ test('Codex app-server interrupt shares the authoritative turn completion waiter
   let notify;
   let turnNumber = 0;
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'thread-interrupt'; },
     async resumeThread(id) { return id; },
     async startTurn() { turnNumber += 1; return `turn-${turnNumber}`; },
@@ -774,7 +774,7 @@ test('Codex app-server steering queues the next turn after interrupt acknowledge
   let turnNumber = 0;
   let interruptedTurn;
   const transport = {
-    async start() { return { userAgent: 'Codex/0.144.1', account: { type: 'chatgpt' } }; },
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'thread-steer'; },
     async resumeThread(id) { return id; },
     async startTurn() {
@@ -839,4 +839,115 @@ test('an unsupported-model 400 becomes an actionable message, other errors pass 
 
   const unrelated = 'stream disconnected before completion';
   assert.equal(describeCodexTurnError(unrelated), unrelated);
+});
+
+
+test('Codex fileChange approval resolves paths via the itemId cache (A-16)', async () => {
+  const events = [];
+  let notification;
+  let onRequest;
+  const transport = {
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
+    async openThread() { return 'app-thread-fc'; },
+    async resumeThread(id) { return id; },
+    async startTurn() { return 'turn-fc'; },
+    async interruptTurn() {},
+    close() {},
+  };
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport: (options) => {
+      notification = options.onNotification;
+      onRequest = options.onRequest;
+      return transport;
+    },
+  });
+  const session = backend.createSession({
+    cwd: '/workspace', executionRole: 'worker', extra: { codexTransport: 'app-server' },
+  }, (event) => events.push(event));
+  await session.start();
+
+  notification({ method: 'item/started', params: {
+    item: {
+      type: 'fileChange',
+      id: 'fc1',
+      changes: [{ path: 'src/a.js', kind: 'update' }, { path: 'src/b.js', kind: 'add' }],
+    },
+    threadId: 'app-thread-fc', turnId: 'turn-fc',
+  } });
+
+  const pending = onRequest({ method: 'item/fileChange/requestApproval', id: 11, params: {
+    itemId: 'fc1', reason: 'needs to write outside the sandbox', grantRoot: null,
+  } });
+  const request = events.find((event) => event.kind === 'permission-request');
+  assert.ok(request, 'fileChange approval reaches the host');
+  assert.deepEqual(request.input.paths, ['src/a.js', 'src/b.js']);
+  assert.equal(request.toolUseID, 'fc1');
+
+  session.resolvePermission(request.id, 'allow');
+  assert.deepEqual(await pending, { decision: 'accept' });
+
+  const unknown = onRequest({ method: 'item/fileChange/requestApproval', id: 12, params: {
+    itemId: 'fc-unknown', reason: null, grantRoot: null,
+  } });
+  const unknownRequest = events.filter((event) => event.kind === 'permission-request').at(-1);
+  assert.equal('paths' in unknownRequest.input, false, 'uncorrelated approvals stay path-less (and thus deniable)');
+  session.resolvePermission(unknownRequest.id, 'deny');
+  assert.deepEqual(await unknown, { decision: 'decline' });
+  session.end();
+});
+
+
+test('Codex stop revokes unanswered approvals and declines new ones (A-20)', async () => {
+  const events = [];
+  let notification;
+  let onRequest;
+  const transport = {
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
+    async openThread() { return 'app-thread-stop'; },
+    async resumeThread(id) { return id; },
+    async startTurn() { return 'turn-stop'; },
+    async interruptTurn() {
+      queueMicrotask(() => notification({ method: 'turn/completed', params: {
+        threadId: 'app-thread-stop', turn: { id: 'turn-stop', status: 'completed', error: null },
+      } }));
+    },
+    close() {},
+  };
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport: (options) => {
+      notification = options.onNotification;
+      onRequest = options.onRequest;
+      return transport;
+    },
+  });
+  const session = backend.createSession({
+    cwd: '/workspace', executionRole: 'worker', extra: { codexTransport: 'app-server' },
+  }, (event) => events.push(event));
+  await session.start();
+  session.sendUserText('run a command');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const pending = onRequest({ method: 'item/commandExecution/requestApproval', id: 21, params: {
+    itemId: 'cmd-1', command: 'npm test', cwd: '/workspace',
+  } });
+  const pendingResult = Promise.race([
+    pending,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('approval was not revoked on stop')), 1_000)),
+  ]);
+
+  await session.interrupt('user');
+  assert.deepEqual(await pendingResult, { decision: 'decline' });
+  assert.equal(events.some((event) => event.kind === 'permission-cancelled'), true);
+  assert.equal(events.some((event) => event.kind === 'worker-signal'
+    && event.signal.kind === 'ended' && event.signal.reason === 'interrupted'), true);
+
+  const requestCount = events.filter((event) => event.kind === 'permission-request').length;
+  const late = await onRequest({ method: 'item/commandExecution/requestApproval', id: 22, params: {
+    itemId: 'cmd-2', command: 'rm -rf build', cwd: '/workspace',
+  } });
+  assert.deepEqual(late, { decision: 'decline' }, 'approvals after stop are declined immediately');
+  assert.equal(events.filter((event) => event.kind === 'permission-request').length, requestCount);
+  session.end();
 });

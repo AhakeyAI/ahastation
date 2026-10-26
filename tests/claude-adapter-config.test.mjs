@@ -195,3 +195,137 @@ test('Claude Worker steering continues the persistent session without a canonica
   ]);
   session.end();
 });
+
+
+test('Claude leaves the model unset by default and accepts any explicit preference (A-15)', async () => {
+  let queryInput;
+  const fakeQuery = {
+    initializationResult: async () => ({ session_id: 'claude-model-auto' }),
+    [Symbol.asyncIterator]() { return this; },
+    next() { return new Promise(() => {}); },
+    async interrupt() {},
+    async setPermissionMode() {},
+  };
+  const backend = new ClaudeCodeBackend({
+    queryFactory: (input) => { queryInput = input; return fakeQuery; },
+  });
+  assert.equal(backend.capabilities.defaultModel, undefined);
+
+  const profile = backend.compileTaskProfile({
+    schemaVersion: 1,
+    backendId: 'claude-code',
+    modelPreference: 'claude-test-model',
+    workMode: 'balanced',
+    contextMode: 'meeting-summary',
+    timeoutMs: 1_800_000,
+    maxTokenBudget: 200_000,
+  }, {
+    schemaVersion: 1,
+    backendId: 'claude-code',
+    runtimeVersion: '2.1.150',
+  });
+  assert.equal(profile.model, 'claude-test-model');
+  assert.deepEqual(profile.unsupported, []);
+
+  const session = backend.createSession({ cwd: '/workspace' }, () => {});
+  await session.start();
+  assert.equal(queryInput.options.model, undefined);
+  session.end();
+});
+
+test('Claude drops the compiled auto sentinel instead of passing it to the CLI (A-15)', async () => {
+  let queryInput;
+  const fakeQuery = {
+    initializationResult: async () => ({ session_id: 'claude-model-sentinel' }),
+    [Symbol.asyncIterator]() { return this; },
+    next() { return new Promise(() => {}); },
+    async interrupt() {},
+    async setPermissionMode() {},
+  };
+  const backend = new ClaudeCodeBackend({
+    queryFactory: (input) => { queryInput = input; return fakeQuery; },
+  });
+  const session = backend.createSession({ cwd: '/workspace', model: 'auto' }, () => {});
+  await session.start();
+  assert.equal(queryInput.options.model, undefined);
+  session.end();
+});
+
+test('Claude discovers the account model catalog at session init (A-15)', async () => {
+  const fakeQuery = {
+    initializationResult: async () => ({
+      session_id: 'claude-model-catalog',
+      models: [
+        { value: 'claude-sonnet-new', displayName: 'Sonnet' },
+        { id: 'claude-opus-new' },
+        'claude-haiku-new',
+        { value: 'claude-sonnet-new' },
+      ],
+    }),
+    [Symbol.asyncIterator]() { return this; },
+    next() { return new Promise(() => {}); },
+    async interrupt() {},
+    async setPermissionMode() {},
+  };
+  const backend = new ClaudeCodeBackend({ queryFactory: () => fakeQuery });
+  const session = backend.createSession({ cwd: '/workspace' }, () => {});
+  await session.start();
+  assert.deepEqual(backend.capabilities.models, [
+    'claude-sonnet-new',
+    'claude-opus-new',
+    'claude-haiku-new',
+  ]);
+  session.end();
+});
+
+test('Claude user interrupt emits exactly one terminal signal and closes the CLI (A-19/A-20)', async () => {
+  let closeCalls = 0;
+  const pending = [];
+  const buffered = [];
+  const push = (value) => {
+    const resolve = pending.shift();
+    if (resolve) resolve({ value, done: false });
+    else buffered.push(value);
+  };
+  const fakeQuery = {
+    initializationResult: async () => ({ session_id: 'claude-worker-interrupt' }),
+    [Symbol.asyncIterator]() { return this; },
+    next() {
+      if (buffered.length > 0) {
+        return Promise.resolve({ value: buffered.shift(), done: false });
+      }
+      return new Promise((resolve) => pending.push(resolve));
+    },
+    async interrupt() {
+      push({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: '[Request interrupted by user]' }],
+        },
+      });
+      push({
+        type: 'result',
+        subtype: 'error',
+        is_error: true,
+        result: 'Request interrupted by user',
+      });
+    },
+    async setPermissionMode() {},
+    close() { closeCalls += 1; },
+  };
+  const events = [];
+  const backend = new ClaudeCodeBackend({ queryFactory: () => fakeQuery });
+  const session = backend.createSession({
+    cwd: process.cwd(),
+    executionRole: 'worker',
+  }, (event) => events.push(event));
+
+  await session.start();
+  await session.interrupt('user');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closeCalls, 1);
+  assert.deepEqual(events, [
+    { kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } },
+  ]);
+  session.end();
+});
