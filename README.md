@@ -1,5 +1,7 @@
 # AhaStation
 
+当前 `etrnal-dev` 包含 **0.19.0-collaboration.5 开发快照**，尚非全部验收通过的正式版本。先阅读 [快照状态、启动与已知问题](docs/collaboration/DEV_SNAPSHOT_2026-10-24.md)，其中记录旧任务发布风险和实测的 Codex 讨论恢复失败。源码基线历史见 [BASELINE.md](docs/collaboration/BASELINE.md)，整体需求见 [FIRST_RELEASE_SPEC.md](docs/collaboration/FIRST_RELEASE_SPEC.md)，Hub／原生会话源码位于 [services/remote](services/remote/README.md)。
+
 **语音会议式 AI 编程协作客户端** — 多个 CLI coding agent（Claude Code / Codex / Kimi / OpenCode / Qoder）以「数字员工参会者」身份加入你的视频会议：你说话，它们听、看、写代码、跑命令，并把进展讲给你听。
 
 每个 backend 都是一个数字员工，语音对话开会即可完成协作；要看细节，点开任意员工的独立编辑器窗口。运行于桌面（macOS 优先），并为 RK3588 掌机（AhaStation 硬件）做了掌机模式与双屏适配。
