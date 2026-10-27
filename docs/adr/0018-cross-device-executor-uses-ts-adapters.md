@@ -1,6 +1,6 @@
 # 0018 跨设备执行端复用 TS adapter
 
-- 状态：已接受（2026-10-26，用户裁决冲突表 C03、C04、C05）
+- 状态：已接受（2026-10-26，用户裁决冲突表 C03、C04、C05；10-27 补 C14）
 - 日期：2026-10-27
 - 关联：ADR 0016、D14、G4、G8、A-14–A-20；R1 评审 B2、D2、D3；`etrnal-dev` 的 `services/remote/device/station_codex.py`、`codex_shared_service.py`
 
@@ -22,7 +22,7 @@ C0 的 TS adapter 同样走 Codex app-server（`electron/backends/codex-app-serv
    - 或者把 guardian 移到 TS 侧。
 3. 远程接续已有 Codex 对话（`etrnal-dev` ADR 0002 / 0010）作为 TS adapter 的新能力实现。只接续权限不超过执行设备本机项目授权的对话（`read-only` / `on-request`）；完全访问或 `workspace-write` 的对话显示「需要在本机桌面继续」，不远程驱动（C04）。
 4. 首轮双机验收由 Mac 协调、N5095 执行（C05）。macOS 执行端（guardian 的进程组和进程树核对）作为后续卡，排在首轮之后，但必须在首次公开可用之前完成。AME-D06 / D10 已确认，公开可用需要 Windows ↔ macOS 双向验收。
-5. 跨设备首版的 Agent 范围按 C14 裁决，接口不预设只有 Codex。
+5. 跨设备首版同时支持 Claude 和 Codex（C14，2026-10-27），双机验收两个 Agent 都要跑。这一条推翻了 `etrnal-dev` ADR 0005「Codex 首版」的范围部分。
 
 ## 后果
 
