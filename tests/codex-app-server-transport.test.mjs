@@ -197,5 +197,9 @@ test('Codex app-server version gate accepts the verified interval only (A-14)', 
   assert.equal(isSupportedCodexAppServerVersion('0.155.9'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.157.0'), false);
   assert.equal(isSupportedCodexAppServerVersion('1.0.0'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.156.1-beta.1'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.156.1junk'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.156.01'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.156'), false);
   assert.equal(isSupportedCodexAppServerVersion(null), false);
 });

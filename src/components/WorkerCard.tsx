@@ -145,6 +145,9 @@ export const WorkerCard = memo(function WorkerCard({
           <div className="worker-card-perm">
             <div className="worker-card-perm-text">
               是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
+              {worker.backendId === 'codex' && worker.pendingPermission.toolName === 'Bash' && (
+                <small>该命令以完整权限运行；宿主会检测授权范围外的文件变化。</small>
+              )}
             </div>
             {worker.permissionError && (
               <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>
@@ -202,6 +205,9 @@ export const WorkerCard = memo(function WorkerCard({
         <div className="worker-card-perm">
           <div className="worker-card-perm-text">
             是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
+            {worker.backendId === 'codex' && worker.pendingPermission.toolName === 'Bash' && (
+              <small>该命令以完整权限运行；宿主会检测授权范围外的文件变化。</small>
+            )}
           </div>
           {worker.permissionError && (
             <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>

@@ -642,6 +642,77 @@ test('Codex app-server maps command approval through the common permission contr
   session.end();
 });
 
+test('Codex approved commands wait for host baselines and fail on out-of-scope writes', async () => {
+  let requestApproval;
+  let notify;
+  let releaseBefore;
+  const events = [];
+  const calls = [];
+  const guard = {
+    before(commandId) {
+      calls.push(['before', commandId]);
+      return new Promise((resolve) => { releaseBefore = resolve; });
+    },
+    async after(commandId) {
+      calls.push(['after', commandId]);
+      const error = new Error('modified: test/escape.ts');
+      error.code = 'approved-command-scope-violation';
+      throw error;
+    },
+    cancel() {},
+    clear() {},
+  };
+  const transport = {
+    async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
+    async openThread() { return 'codex-guard'; },
+    async resumeThread(id) { return id; },
+    async startTurn() { return 'turn-guard'; },
+    async interruptTurn() {},
+    close() {},
+  };
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport(options) {
+      requestApproval = options.onRequest;
+      notify = options.onNotification;
+      return transport;
+    },
+  });
+  const session = backend.createSession({
+    cwd: '/workspace',
+    executionRole: 'worker',
+    extra: { codexTransport: 'app-server', approvedCommandGuard: guard },
+  }, (event) => events.push(event));
+  await session.start();
+  let response;
+  const responsePromise = requestApproval({
+    id: 'approval-guard',
+    method: 'item/commandExecution/requestApproval',
+    params: { itemId: 'command-guard', command: 'npm test', cwd: '/workspace' },
+  }).then((value) => { response = value; });
+  session.resolvePermission('codex:1:approval-guard', 'allow');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(response, undefined);
+  releaseBefore();
+  await responsePromise;
+  assert.deepEqual(response, { decision: 'accept' });
+  notify({ method: 'item/completed', params: { item: {
+    type: 'commandExecution', id: 'command-guard', command: 'npm test', status: 'completed', exitCode: 0,
+  } } });
+  const deadline = Date.now() + 1_000;
+  while (!events.some((event) => event.kind === 'worker-signal'
+    && event.signal.kind === 'failed') && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.deepEqual(calls, [['before', 'command-guard'], ['after', 'command-guard']]);
+  const failure = events.find((event) => event.kind === 'worker-signal' && event.signal.kind === 'failed');
+  assert.equal(failure.signal.code, 'approved-command-scope-violation');
+  assert.equal(failure.signal.retryable, false);
+  assert.equal(events.some((event) => event.kind === 'worker-signal'
+    && event.signal.kind === 'tool' && event.signal.phase === 'completed'), false);
+  session.end();
+});
+
 test('Codex app-server crash denies pending approvals and releases Worker waiters', async () => {
   let requestApproval;
   let exit;

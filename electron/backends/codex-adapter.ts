@@ -26,6 +26,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type {
+  ApprovedCommandBoundaryGuard,
   BackendSession,
   BackendSessionConfig,
   BackendSessionEvent,
@@ -336,6 +337,16 @@ export function codexApprovalResponse(
   }
 }
 
+function approvedCommandItemId(request: CodexAppServerRequest): string | null {
+  if (
+    request.method !== 'item/commandExecution/requestApproval'
+    && request.method !== 'execCommandApproval'
+  ) return null;
+  const params = isRecord(request.params) ? request.params : {};
+  const id = params.itemId ?? params.callId ?? request.id;
+  return id === undefined || id === null || id === '' ? null : String(id);
+}
+
 // ── Session implementation ─────────────────────────────────────────────────────
 
 class CodexAppServerSession implements BackendSession {
@@ -362,6 +373,8 @@ class CodexAppServerSession implements BackendSession {
   // fileChange entries so the path-less fileChange approval can be authorized
   // against real targets. Bounded FIFO to avoid unbounded growth.
   private fileChangePaths = new Map<string, string[]>();
+  private readonly approvedCommandGuard?: ApprovedCommandBoundaryGuard;
+  private readonly approvedCommandIds = new Set<string>();
   // Set on any non-steer interrupt: approvals are revoked and new ones are
   // auto-declined (A-20). Steer deliberately keeps the approval channel open.
   private stopping = false;
@@ -377,6 +390,15 @@ class CodexAppServerSession implements BackendSession {
     const handler = config.extra?.meetingCommandHandler;
     if (typeof handler === 'function') {
       this.meetingCommandHandler = handler as (command: unknown) => Promise<unknown> | unknown;
+    }
+    const guard = config.extra?.approvedCommandGuard;
+    if (
+      guard
+      && typeof guard === 'object'
+      && typeof (guard as ApprovedCommandBoundaryGuard).before === 'function'
+      && typeof (guard as ApprovedCommandBoundaryGuard).after === 'function'
+    ) {
+      this.approvedCommandGuard = guard as ApprovedCommandBoundaryGuard;
     }
   }
 
@@ -535,6 +557,16 @@ class CodexAppServerSession implements BackendSession {
         }
       }
       if (this.isWorker) {
+        const itemId = typeof item.id === 'string' ? item.id : '';
+        if (
+          notification.method === 'item/completed'
+          && (item.type === 'commandExecution' || item.type === 'command_execution')
+          && itemId
+          && this.approvedCommandIds.has(itemId)
+        ) {
+          void this.completeApprovedCommand(itemId, item);
+          return;
+        }
         if (notification.method === 'item/completed' && item.type === 'agentMessage' && typeof item.text === 'string') {
           this.workerText.push(item.text);
         }
@@ -597,6 +629,39 @@ class CodexAppServerSession implements BackendSession {
         } else this.emit({ kind: 'error', error: detail });
       }
     }
+  }
+
+  private async completeApprovedCommand(
+    commandId: string,
+    item: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.approvedCommandGuard?.after(commandId);
+      this.approvedCommandIds.delete(commandId);
+      if (this.closed) return;
+      for (const signal of mapCodexItemToWorkerSignals(item, 'completed')) {
+        this.emit({ kind: 'worker-signal', signal });
+      }
+    } catch (error) {
+      this.approvedCommandIds.delete(commandId);
+      this.emitApprovedCommandGuardFailure(error);
+    }
+  }
+
+  private emitApprovedCommandGuardFailure(error: unknown): void {
+    if (this.closed) return;
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : 'approved-command-guard-failed';
+    this.emit({
+      kind: 'worker-signal',
+      signal: {
+        kind: 'failed',
+        code,
+        message: error instanceof Error ? error.message : String(error),
+        retryable: false,
+      },
+    });
   }
 
   private normalizeAppServerItem(item: Record<string, unknown>): NormalizedMessage | null {
@@ -664,7 +729,34 @@ class CodexAppServerSession implements BackendSession {
     const pending = this.permissionResolvers.get(id);
     if (!pending) return;
     this.permissionResolvers.delete(id);
+    const commandId = approvedCommandItemId(pending.request);
+    if (decision === 'allow' && commandId && this.approvedCommandGuard) {
+      void this.approveCommandAfterBaseline(id, commandId, pending);
+      return;
+    }
     pending.resolve(codexApprovalResponse(pending.request, decision));
+  }
+
+  private async approveCommandAfterBaseline(
+    requestId: string,
+    commandId: string,
+    pending: { request: CodexAppServerRequest; resolve: (value: unknown) => void },
+  ): Promise<void> {
+    try {
+      await this.approvedCommandGuard?.before(commandId);
+      if (this.stopping || this.closed) {
+        this.approvedCommandGuard?.cancel(commandId);
+        pending.resolve(codexApprovalResponse(pending.request, 'deny'));
+        this.emit({ kind: 'permission-cancelled', id: requestId });
+        return;
+      }
+      this.approvedCommandIds.add(commandId);
+      pending.resolve(codexApprovalResponse(pending.request, 'allow'));
+    } catch (error) {
+      this.approvedCommandGuard?.cancel(commandId);
+      pending.resolve(codexApprovalResponse(pending.request, 'deny'));
+      this.emitApprovedCommandGuardFailure(error);
+    }
   }
 
   async interrupt(reason: 'steer' | 'user' | 'shutdown' = 'user'): Promise<void> {
@@ -703,6 +795,8 @@ class CodexAppServerSession implements BackendSession {
     this.transport?.close();
     this.transport = null;
     this.cancelPendingPermissions();
+    this.approvedCommandGuard?.clear();
+    this.approvedCommandIds.clear();
     this.resolveTurnWaiters();
     this.emitEnded();
     this.emit = () => {};

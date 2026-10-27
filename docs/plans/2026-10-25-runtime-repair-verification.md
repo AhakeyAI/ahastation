@@ -19,7 +19,7 @@ npm test               # macOS 基线 934 过 / 0 失败 / 1 跳过；Windows �
 
 - Node 用 22.x（开发机验证用 22.23.4）。
 - 记录 Windows 首次全量测试的通过/失败数，失败按 PR #47 的分类法归类（CRLF/ps、Kimi 路径、Qoder watch、symlink 权限、其他）。
-- B04 harness 在 `docs/c0-handoff-2026-10-22` 分支的 `docs/c0/b04-runtime/`，结果写回该分支 `docs/c0/results/`。
+- B04 harness 的源头在 `docs/c0-handoff-2026-10-22` 分支；自 2026-10-26 起 N5095 新场景和证据只写入 `docs/n5095-c0-2026-10-26` 的 `docs/c0/results/`，由 Mac 合并，不再推送 PR #50 分支。
 
 ## 1. 真实账号 B04 复跑（最高优先级）
 
@@ -46,7 +46,7 @@ npm test               # macOS 基线 934 过 / 0 失败 / 1 跳过；Windows �
 - [x] 删除手动模型配置后，Claude worker / Host 均能启动；Host result 与 13 个动态模型已归档
 - [x] 会话初始化后 capabilities 更新为账号真实模型目录（Host 实测）
 - [x] 显式模型不被旧静态列表降级（adapter 单测）
-- [x] 语音润色旧默认模型已清理为当前 `claude-sonnet-5` 别名；显式 `anthropicModel` 仍优先
+- [x] 语音润色不再写死模型：显式 `anthropicModel` 优先，未配置时从 Claude capabilities 的动态模型目录选择，目录为空则保留原文
 
 ### A-16 fileChange 路径关联
 - [x] Windows 只读沙箱写入批准含真实 paths（S1/S4/S5 原始 permissions）
@@ -71,6 +71,13 @@ npm test               # macOS 基线 934 过 / 0 失败 / 1 跳过；Windows �
 - [x] 未答复批准立即 decline 并发出 permission-cancelled（Codex adapter 单测）
 - [x] 停止后的新批准直接 decline；真实 S6 无新工具与文件变化，Windows 子进程树归零
 - [x] 已 accept 未执行动作由中断 + 进程树终止覆盖；"未确认安静前显示『停止中』"UI 与跨端 applied 状态已纳入实施设计
+
+## 2b. 2026-10-26 前置修复 P5–P7
+
+- [x] **P5 获批命令越界**：Codex 批准卡片明示完整权限；宿主在命令批准/完成边界比对未授权文件 SHA-256，越界后 Run failed、不自动重试。guard、adapter、scheduler、renderer 测试及 B04 S11 fixture 已覆盖；事后检测不回滚写入。
+- [x] **P6 版本策略**：严格 stable semver 的已验证区间；新增每周 Node 24 workflow，对 latest 做无账号读取、无模型 turn 的 initialize 握手与 adapter 契约测试。通过只开扩大区间 PR，失败只开调查卡 PR，不直接写 main、不自动建 Issue。2026-10-27 本机最新 0.164.0 的真实 initialize 握手已通过，生产区间未直接扩大。
+- [x] **P7 小修**：语音润色复用动态模型目录；Kimi 与 task-budget 的条件等待放宽到 10 秒。最终完整回归 949 tests / 943 pass / 0 fail / 6 skipped，typecheck 与 build 通过。
+- [ ] P4 的 PR 合入仍由用户执行；CI 通过不等于已合入。S11 的真实 Codex 调用未在本轮消耗额度执行，当前证据是确定性 fixture + 真实 `npm test`。
 
 ## 3. 调研与设计接力（开工准备 vs 开发期验收）
 

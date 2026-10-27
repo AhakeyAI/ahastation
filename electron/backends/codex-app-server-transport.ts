@@ -23,25 +23,31 @@ export interface CodexAppServerReady {
 
 export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.156.1';
 
-// A-14: the gate is a verified interval, not a single pinned version. Patch
-// releases within the verified minor line are accepted; anything older or
-// newer is rejected until the adapter contract is re-validated against it.
+// A-14/G8: the gate is a verified interval, not a single pinned version.
+// Stable releases inside the interval are accepted; anything older or newer
+// is rejected until the weekly handshake and adapter contracts re-validate it.
 export const CODEX_APP_SERVER_MIN_VERSION = '0.156.1';
 export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = '0.157.0';
 
-function compareCodexVersions(left: string, right: string): number {
-  const a = left.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const b = right.split('.').map((part) => Number.parseInt(part, 10) || 0);
+function parseCodexVersion(version: string): [number, number, number] | null {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function compareCodexVersions(left: [number, number, number], right: [number, number, number]): number {
   for (let i = 0; i < 3; i += 1) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0);
+    if (left[i] !== right[i]) return left[i] - right[i];
   }
   return 0;
 }
 
 export function isSupportedCodexAppServerVersion(version: string | null): boolean {
   if (!version) return false;
-  return compareCodexVersions(version, CODEX_APP_SERVER_MIN_VERSION) >= 0
-    && compareCodexVersions(version, CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION) < 0;
+  const parsed = parseCodexVersion(version);
+  const min = parseCodexVersion(CODEX_APP_SERVER_MIN_VERSION);
+  const max = parseCodexVersion(CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION);
+  if (!parsed || !min || !max) return false;
+  return compareCodexVersions(parsed, min) >= 0 && compareCodexVersions(parsed, max) < 0;
 }
 
 /** True when the subprocess env carries an explicit OpenAI-compatible API key. */
