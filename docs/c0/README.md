@@ -20,8 +20,8 @@
 | --- | --- | --- | --- |
 | 运行时修复 A-14–A-20，P4–P7 | `fix/runtime-a14-a20` | N5095 | 已真实复验，待开 PR |
 | C0 文档与决定，P8 | `docs/c0-handoff-2026-10-22`，PR #50 | Mac | 本次完成 ADR 改号和本文重写 |
-| 安全基线 P1–P3 | `fix/security-baseline`，[PR #53](https://github.com/ShawnyinsGit/ahastation-internal/pull/53)（草稿） | Mac | Electron 45、PDF.js 6、CI Node 24；Mac 冒烟通过，三平台 CI 待通过 |
-| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | 未开始；只在本机隔离环境跑（G9） |
+| 安全基线 P1–P3 | `fix/security-baseline`，[PR #53](https://github.com/ShawnyinsGit/ahastation-internal/pull/53)（草稿） | Mac | Electron 45、PDF.js 6、CI Node 24、`safeStorage` 异步接口；三平台 CI 通过，待 N5095 打包冒烟 |
+| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告、R2 冲突表与全部裁决已完成（ADR 0017 / 0018），已转告作者；R3 修订进行中 |
 | 跨设备协作 collaboration.5 | `etrnal-dev` | eternal904 | 评审前不改；K01 自动发布问题是一票否决项 |
 | 终端守护进程与本地 CLI 工作区 | PR #49 | Leo Lin | 已建议拆成四个 PR，待作者回复 |
 
@@ -31,7 +31,7 @@
 2. **`DEVELOPMENT-READINESS.md`**：A-14–A-20 的复验证据、额度使用原则、首批开发顺序。其中 §1「可进入技术开发」已被上一份改为有条件。
 3. **`DECISIONS-NEEDED.md`**：D1–D15、T1–T3 的已定结果。T2 的「25%」只能当定性证据，见 DECISIONS §5 第 3 条。
 4. **`plan/README.md` + `plan/cards.csv`**：实施卡、依赖、人日、关键路径。跨设备卡 X1–X8 按 G1 暂停，等 R1 结论出来再重估。
-5. 产品规格：Codex 的 AME 文档 09–13，目前在 `handoff-2026-10-22/docs/ahastudio/`。按 G12，它们会迁到 `docs/ame/` 并更正（R4），迁好后以 `docs/ame/` 为准。05–08 是历史方案，不沿用。
+5. 产品规格：**`../ame/`**（AME 09–13 的在用版本，2026-10-27 迁入并更正，见 `../ame/README.md`）。交接包里的原件只作来源；05–08 是历史方案，不沿用。
 
 ## 3. 目录
 
@@ -48,7 +48,6 @@
 | `evidence/`、`results/` | B01 基线证据、N5095 语音和回声结果、双 provider 并发资源样本 |
 | `run-n5095.ps1` | N5095 上的语音基准与 Windows 基线脚本 |
 | `../adr/README.md` | **统一 ADR 索引**。C0 的 ADR 是 0013–0016；main 是 0001；`etrnal-dev` 是 0002–0012；评审裁决的 0017–0018 已用，新 ADR 从 0019 起编号 |
-
 ## 4. 代码基线
 
 | 项 | 事实 |
