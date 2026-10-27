@@ -21,7 +21,7 @@ C0 的 TS adapter 同样走 Codex app-server（`electron/backends/codex-app-serv
    - 由 guardian 作为启动器包住 adapter 拉起的进程；
    - 或者把 guardian 移到 TS 侧。
 3. 远程接续已有 Codex 对话（`etrnal-dev` ADR 0002 / 0010）作为 TS adapter 的新能力实现。只接续权限不超过执行设备本机项目授权的对话（`read-only` / `on-request`）；完全访问或 `workspace-write` 的对话显示「需要在本机桌面继续」，不远程驱动（C04）。
-4. 首轮双机验收由 Mac 协调、N5095 执行（C05）。macOS 执行端（guardian 的进程组和进程树核对）作为后续卡，排在首轮之后。
+4. 首轮双机验收由 Mac 协调、N5095 执行（C05）。macOS 执行端（guardian 的进程组和进程树核对）作为后续卡，排在首轮之后，但必须在首次公开可用之前完成。AME-D06 / D10 已确认，公开可用需要 Windows ↔ macOS 双向验收。
 5. 跨设备首版的 Agent 范围按 C14 裁决，接口不预设只有 Codex。
 
 ## 后果
