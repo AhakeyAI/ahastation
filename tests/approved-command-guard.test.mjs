@@ -34,6 +34,26 @@ test('approved command guard permits changes inside authorized write roots', asy
   await guard.after('command-1');
 });
 
+test('approved command guard reanchors write roots onto a real workspace path', async (t) => {
+  const root = await fixture(t);
+  const aliases = await mkdtemp(join(tmpdir(), 'ahastation-command-guard-alias-'));
+  const alias = join(aliases, 'workspace');
+  t.after(() => rm(aliases, { recursive: true, force: true }));
+  try {
+    await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch (error) {
+    if (process.platform === 'win32' && error?.code === 'EPERM') {
+      t.skip('creating a junction requires Windows privilege');
+      return;
+    }
+    throw error;
+  }
+  const guard = new ApprovedCommandGuard({ workspaceRoot: alias, writePaths: () => [join(alias, 'src')] });
+  await guard.before('aliased');
+  await writeFile(join(root, 'src', 'app.ts'), 'after\n');
+  await guard.after('aliased');
+});
+
 test('approved command guard detects added modified and deleted out-of-scope files', async (t) => {
   const root = await fixture(t);
   const guard = new ApprovedCommandGuard({ workspaceRoot: root, writePaths: () => [join(root, 'src')] });

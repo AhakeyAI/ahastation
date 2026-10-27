@@ -50,8 +50,14 @@ export class ApprovedCommandGuard {
     if (this.pending.size >= this.maxPendingCommands) {
       throw new Error('Too many approved commands awaiting scope verification');
     }
-    const root = await realpath(this.workspaceRoot);
-    const authorizedRoots = this.writePaths().map((path) => resolve(root, path));
+    const requestedRoot = resolve(this.workspaceRoot);
+    const root = await realpath(requestedRoot);
+    const authorizedRoots = this.writePaths().map((path) => {
+      const absolute = resolve(requestedRoot, path);
+      const rel = relative(requestedRoot, absolute);
+      const inside = rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+      return inside ? resolve(root, rel) : absolute;
+    });
     const files = await this.snapshot(root, authorizedRoots);
     this.pending.set(commandId, { root, authorizedRoots, files });
   }
