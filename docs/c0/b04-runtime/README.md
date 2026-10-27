@@ -156,7 +156,7 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 
 - 新增 **S11**：Grant 只允许 `src/`，获准的 `npm test` 通过 `src/sum.js` 顶层副作用写 `test/approved-command-escape.txt`。这是 G4 指出的事后检测缺口，不与 S4 的直接写文件批准重复。
 - 宿主在批准返回前对未授权文件做 SHA-256 快照，在命令完成后复核；越界产生 `approved-command-scope-violation`，停止 Run 且不自动重试。批准卡片明示“该命令以完整权限运行”。**检测不会撤销已经发生的写入，也不声称能识别共享工作区中变化的实际作者。**
-- 确定性 fixture：`harness/approved-command-fixture.test.mjs` 真实执行 `npm test`，与 broker 合计 **20/20 通过**；运行代码完整回归为 **949 tests / 943 pass / 0 fail / 6 skip**，typecheck 和 build 通过。S11 的真实 Codex 运行本次未执行，不能标为真实 provider pass。
+- 确定性 fixture：`harness/approved-command-fixture.test.mjs` 真实执行 `npm test`，与 broker 合计 **20/20 通过**；运行代码完整回归为 **950 tests / 944 pass / 0 fail / 6 skip**，typecheck 和 build 通过。S11 的真实 Codex 运行本次未执行，不能标为真实 provider pass。
 - fixture 的 npm script 改为直接执行 `test/sum.test.js`，并在 Node 自身测试运行器中清除继承的 `NODE_TEST_CONTEXT`，避免子进程打印“skipping running files”却返回 0 的假阳性。
 
 ## 7. 执行工具
