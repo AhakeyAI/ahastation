@@ -127,8 +127,16 @@ jobs:
       # needs git) and npm ci / electron-builder need the rest:
       # python3/make/g++ (native npm modules), libfuse2 (appimagetool runs
       # in a fuse-less docker container).
+      # Debian 11 LTS ended 2026-08-31 and bullseye-security moved to
+      # archive.debian.org: deb.debian.org still serves the index but its
+      # pool 404s (run 40513605068). The main suite is still on deb.debian.org.
       - name: Install container build deps
         run: |
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+            if [ -f "$f" ]; then
+              sed -i 's#deb.debian.org/debian-security#archive.debian.org/debian-security#g' "$f"
+            fi
+          done
           apt-get update
           apt-get install -y --no-install-recommends \
             git curl ca-certificates xz-utils python3 make g++ libfuse2
