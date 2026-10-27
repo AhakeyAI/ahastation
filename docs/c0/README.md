@@ -11,14 +11,14 @@
 
 合入顺序（决定 G3）：
 
-1. 运行时修复 `fix/runtime-a14-a20`（还没开 PR）；
+1. 运行时修复 [PR #54](https://github.com/ShawnyinsGit/ahastation-internal/pull/54)（`fix/runtime-a14-a20`，CI 三平台通过，待用户合入）；
 2. 本文档分支 PR #50；
 3. 安全基线 PR #53（草稿）；
 4. PR #49（终端守护进程，需要拆分）。
 
 | 线 | 分支 / PR | 写者 | 状态 |
 | --- | --- | --- | --- |
-| 运行时修复 A-14–A-20，P4–P7 | `fix/runtime-a14-a20` | N5095 | 已真实复验，待开 PR |
+| 运行时修复 A-14–A-20，P4–P7 | `fix/runtime-a14-a20`，[PR #54](https://github.com/ShawnyinsGit/ahastation-internal/pull/54) | N5095 | P4–P7 已交付，CI 三平台通过，待用户合入。证据见 `results/N5095-2026-10-26.md` |
 | C0 文档与决定，P8 | `docs/c0-handoff-2026-10-22`，PR #50 | Mac | 本次完成 ADR 改号和本文重写 |
 | 安全基线 P1–P3 | `fix/security-baseline`，[PR #53](https://github.com/ShawnyinsGit/ahastation-internal/pull/53)（草稿） | Mac | Electron 45、PDF.js 6、CI Node 24、`safeStorage` 异步接口；三平台 CI 通过，待 N5095 打包冒烟 |
 | `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告和 R2 冲突表已完成；C01、C03–C05 已裁决，写成 ADR 0017 / 0018；其余待裁决 |
@@ -58,12 +58,12 @@
 | 运行时 | Electron 42.11.18，内置 Node 24.19.0。PR #53 升到 45.0.0，内置 Node 24.22.0 |
 | CI Node | 22。PR #53 改为 24 |
 | 依赖漏洞 | 运行时修复分支的 lock 已降到只剩 1 high（PDF.js，GHSA-hq66-cqwq-w95j），由 PR #53 修复。main 自身的 lock 还有 MCP SDK、xmldom 等条目，运行时修复合入后复查 |
-| 运行时修复分支测试 | Mac Node 22：937 项，934 通过，1 失败（Kimi 1 秒等待，偶发），2 跳过；Node 26：0 失败 |
+| 运行时修复分支测试 | PR #54（`d1ee166`）：N5095 本地 950 项，944 通过，0 失败，6 跳过；CI 三平台通过 |
 
-已知的测试时序隐患（P7）：机器负载高时，有两个对时间敏感的检查会超时。
+已知的测试时序隐患（P7）：机器负载高时，对时间敏感的检查会超时。
 
-- `electron/backends/worker-runtime-contract.ts:301`、`:326` 的运行时版本探测只等 3 秒，超时后会误判 worker 不可用。N5095 这类慢机器在真实使用中也可能遇到。
-- `tests/kimi-adapter.test.mjs:66` 只等 1 秒。
+- `tests/kimi-adapter.test.mjs:66` 和 `task-budget` 的等待：PR #54 已延长到 10 秒。
+- **仍未处理**：`electron/backends/worker-runtime-contract.ts:301`、`:326` 的运行时版本探测只等 3 秒，超时后会误判 worker 不可用。N5095 这类慢机器在真实使用中也可能遇到。
 
 两者都在 Node 24 默认并发跑测试时出现，详见 PR #53 描述。
 
@@ -80,7 +80,7 @@
 | B02 关闭基线回归 | 通过。N5095 在 `c134de2` 上 34 个测试失败，PR #47 修复，main CI 三平台通过。10-22 时说的「0 失败」只基于 macOS，是交接错误 | 同上；main CI |
 | B03 领域契约 | 设计完成，ADR 0015。**跨设备部分待 R1** | `b03-contract/README.md` |
 | B04 单一运行底座 | 完成：保留现有 adapter，ADR 0016；F1–F11 已由 A-14–A-20 修复并严格复验 | `b04-runtime/` |
-| B05 两端语音 | 路线已定（D3：在线为主、本地兜底）；三家在线实测是 R6 / A-08，预算 100 元（G5） | `b05-voice/README.md` |
+| B05 两端语音 | 路线已定（D3：在线为主、本地兜底）；三家在线基准和预算器已交付（R6，离线测试 11/11），真实实测未做，预算 100 元（G5） | `b05-voice/README.md`、`b05-voice/online/` |
 | B06 额度矩阵 | 协议完成，A-10 待实施 | `b06-quota/` |
 | B07 主界面 UX | 已冻结（D7、D15） | `b07-ux/` |
 
@@ -89,7 +89,11 @@
 - **待用户决定：**
   - Q1–Q100（`etrnal-dev`）与 D1–D15 的冲突表，R2 产出后逐条裁决；
   - PR #49 和 `etrnal-dev` 作者回复后的拆分方案。
-- **N5095：** P4–P7、R6、R7。建议在 P7 中加上 3 秒版本探测的问题，见 §4。
+- **N5095：** P4–P7、R6、R7 已交付（`results/N5095-2026-10-26.md`）。还要做：
+  - PR #53 的 Windows 打包冒烟，并确认旧版加密的 API key 升级后仍能读出；
+  - `etrnal-dev` rebase 后复现 K01；B04 S4–S6；核对 `etrnal-dev` 里非主持设备能否批准计划（C10）；
+  - 3 秒版本探测（§4）；
+  - 实施期：S11 的真实 Codex 运行、三家语音真实实测（预算 100 元）、A-08 / AEC / M6 验收。
 - **Mac：** R1–R5。
 
 ## 7. 工作约定
