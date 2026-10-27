@@ -100,3 +100,24 @@ BLOCKED/待现场：真实双机、公网/微信云托管、真实GitHub写入�
 最终源码保持验证前四个 Git blob 不变，原生组件再次核对为 **28 个 Python 源码、85 个载荷 SHA 一致**，见 `NATIVE-SOURCE-PAYLOAD-VERIFICATION.json`。最终本地提交 SHA 及逐文件对应关系保存到 `FINAL-DELIVERY.json`；证据摘要为 `KEY-REGRESSIONS.json`，清单为 `SHA256SUMS.txt`。`git diff --check` 和最终 diff 审查覆盖重复实现、冗余状态、无用代码及权限／并发边界；仅提交三个发布相关源码文件、正式测试和本文档，运行数据、构建产物及原审计文本不提交。
 
 本次仅需更新 Station 的相应源码／编译输出，不需要更新 Hub 或迁移数据库；没有修改原生源码。原候选安装包未替换。未推送、创建真实 PR、合入 main、部署、使用生产数据库／凭据或原始 Codex 会话。BLOCKED／未执行：上述本机 UI 首次加载稳定性、真实双机、公网 Hub、真实 GitHub PR、用户原 Desktop 会话及付费模型；本机 bare Git、PR 计数夹具和隔离数据库结果不代替这些现场验收。
+
+## 独立复核与分支评审基线（2026-10-27）
+
+对源码提交 `e0c940a2bd919b9b6b933eaa6242bda6669ffb84` 独立审查并重新验证。本节是文档补充，不改变该提交的业务源码、正式回归或依赖；前述失败轮次和原始日志保留。本次复核未发现该次修改引入的新增代码冲突或发布逻辑缺陷，不代表整个分支或生产现场不存在其他问题。
+
+| 独立复核 | 实际结果 |
+| --- | --- |
+| Renderer / Electron 类型检查、Electron 重新编译 | 通过 |
+| 完成证据、选定文件、Git、停止、恢复及身份八文件 Node 回归 | 67/67 通过，无跳过 |
+| Hub P1、journal/RPC、Guardian、shared Python 回归 | 分别 6/11/17/33 项通过，共 67 项 |
+| 此前失败的两个 UI 用例定向复核 | 2/2 通过，断言与超时未修改 |
+| 完整 `npm test` | **1192 项：1186 通过、0 失败、6 跳过，退出 0** |
+| 验证源码与提交指纹、`git diff --check` | 一致／通过 |
+
+正式回归确认：当前任务与旧完成收据混用、旧调用方、已换代收据、错误 taskId、旧 snapshot，以及文件选择／确认／收据准备和 PR 查询期间换代，都不会继续新增发布或向新 attempt 报告旧完成事实。若资料 commit 在换代前已合法生成，保留原 commit、分支及 worktree，换代后的 push、PR、模型、验证和交付事件为 0。正常同 attempt 发布、重复交付与重启读取仍通过。
+
+前述两个 UI 加载超时及 F10 全文链路在本轮完整测试中均通过；此前首次加载超时的偶发根因仍未定位，不将本轮通过描述为该稳定性问题已经修复。六项跳过仍是原平台／Windows symlink 权限限制。未另行重跑整个 `test:collaboration` 聚合命令；其中 Node 用例由本轮完整 `npm test` 覆盖，相关 Python 四套单独复跑。原生源码未改，沿用此前源码／载荷核验。
+
+本机复核证据位于 `runtime/review-cross-attempt-20261027-153852/`：`REVIEW-RESULT.json`、`EXIT-RESULTS.json`、`cross-attempt-RESULT.json`、`pr-attempt-RESULT.json`、`node-related.log`、四套 Python 日志、`ui-two-failures.log` 和 `npm-test-full.log`。这些运行文件保持忽略，不提交凭据、运行数据或完整日志；协作者按交接说明在独立本机环境复现。
+
+协作评审以 `etrnal-dev` 更新后的提交为入口，业务源码基线为上述 `e0c940a`，main 基底为 `c8295b9`。先读本地整合交接、v2 完成证据语义、GLOSSARY 和 ADR 索引，再评审契约及 Q/D 冲突表。六组提交是有依赖的评审组；在负责人完成契约与冲突裁决后，再整理可独立验证的合入批次。当前不创建 PR、不合入 main、不部署或连接公网 Hub。K02 历史现场根因、公网 Hub 的生产属性／维护人及真实双机验收仍待补充。
