@@ -6,7 +6,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import { SessionRegistry } from './sessions.js';
-import { flushSettingsWrites, getSettings, updateSettings } from './store.js';
+import { flushSettingsWrites, getSettings, updateSettings, warmSecrets } from './store.js';
 import { registerCustomBackends } from './backends/registry.js';
 import type { IpcContext, IpcEmittedEvent } from './ipc/context.js';
 import { handleSecure, mainWindowSenderPolicy } from './ipc/validators.js';
@@ -683,6 +683,9 @@ if (!hasSingleInstanceLock) {
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   registerAppProtocol();
+  // Decrypt stored API keys (async safeStorage) before any IPC handler or
+  // backend can read auth settings.
+  await warmSecrets().catch((err) => console.error('[main] warmSecrets failed:', err));
   // Dynamic-import IPC modules so their transitive deps (orchestrator,
   // claude-session, ASR, etc.) don't block the app-ready event.
   // IPC handlers must be registered before createWindow() so the renderer

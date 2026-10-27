@@ -5,6 +5,7 @@
 export const app = {
   getPath: () => '/tmp',
   isPackaged: false,
+  whenReady: async () => {},
 };
 export const ipcMain = { handle: () => {}, on: () => {} };
 export const desktopCapturer = {};
@@ -17,7 +18,11 @@ export const dialog = { showMessageBox: async () => ({ response: 1 }) };
 export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
-export const safeStorage = { encryptString: () => Buffer.alloc(0), decryptString: () => '' };
+export const safeStorage = {
+  isAsyncEncryptionAvailable: async () => false,
+  encryptStringAsync: async () => Buffer.alloc(0),
+  decryptStringAsync: async () => ({ result: '', shouldReEncrypt: false }),
+};
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };
 export const webContents = { fromId: () => null };
