@@ -67,6 +67,7 @@ test('weekly Codex workflow uses Node 24 and never invokes a paid model or auto-
   const workflow = await readFile(resolve('.github/workflows/codex-compatibility.yml'), 'utf8');
   assert.match(workflow, /schedule:/);
   assert.match(workflow, /node-version: 24/);
+  assert.match(workflow, /actions\/checkout@v4\s+with:\s+ref: main/);
   assert.match(workflow, /tests\/codex-adapter\.test\.mjs/);
   assert.match(workflow, /--expected-version/);
   assert.doesNotMatch(workflow, /turn\/start|gh issue create|OPENAI_API_KEY/);

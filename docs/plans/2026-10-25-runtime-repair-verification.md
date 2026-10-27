@@ -76,7 +76,7 @@ npm test               # macOS 基线 934 过 / 0 失败 / 1 跳过；Windows �
 
 - [x] **P5 获批命令越界**：Codex 批准卡片明示完整权限；宿主在命令批准/完成边界比对未授权文件 SHA-256，越界后 Run failed、不自动重试。guard、adapter、scheduler、renderer 测试及 B04 S11 fixture 已覆盖；事后检测不回滚写入。
 - [x] **P6 版本策略**：严格 stable semver 的已验证区间；新增每周 Node 24 workflow，对 latest 做无账号读取、无模型 turn 的 initialize 握手与 adapter 契约测试。通过只开扩大区间 PR，失败只开调查卡 PR，不直接写 main、不自动建 Issue。2026-10-27 本机最新 0.164.0 的真实 initialize 握手已通过，生产区间未直接扩大。
-- [x] **P7 小修**：语音润色复用动态模型目录；Kimi 与 task-budget 的条件等待放宽到 10 秒。最终完整回归 949 tests / 943 pass / 0 fail / 6 skipped，typecheck 与 build 通过。
+- [x] **P7 小修**：语音润色复用动态模型目录；Kimi 与 task-budget 的条件等待放宽到 10 秒。最终完整回归 950 tests / 944 pass / 0 fail / 6 skipped，typecheck 与 build 通过。
 - [ ] P4 的 PR 合入仍由用户执行；CI 通过不等于已合入。S11 的真实 Codex 调用未在本轮消耗额度执行，当前证据是确定性 fixture + 真实 `npm test`。
 
 ## 3. 调研与设计接力（开工准备 vs 开发期验收）
