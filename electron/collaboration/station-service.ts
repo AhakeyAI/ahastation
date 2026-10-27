@@ -954,7 +954,8 @@ export class StationService {
         const publication=receipt.publication;const binding=this.storage.read().bindings[publication.projectId];if(!binding?.confirmed)throw new Error('资料仓库授权已撤销');
         await trustedDirectory(binding.taskWorkspaceRoot,publication.cwd);await this.authorizeDelivery(task,receipt);const ref=await pushPublication(publication,args=>this.runDeliveryGit(task,receipt,publication.cwd,args,'materials-push'));
         await this.authorizeDelivery(task,receipt);
-        const prUrl=await ensurePullRequest(ref.repository,publication.branch,publication.targetBranch,'Station selected delivery '+task.id,summary,ref.commit);
+        const prUrl=await ensurePullRequest(ref.repository,publication.branch,publication.targetBranch,
+          'Station selected delivery '+task.id,summary,ref.commit,undefined,()=>this.authorizeDelivery(task,receipt));
         delivery={summary,tests:'执行详情及选定成果内的验证记录',files:ref.paths,commit:ref.commit,prUrl,branch:publication.branch,repository:ref.repository};
       }else if(task.resource==='text'){
         if(!receipt.finalText||!receipt.fullTextVerified)throw new Error('旧执行记录只有预览，完整正文尚未证明；保留原成果并在执行设备核对，不重跑Agent补正文');
@@ -966,20 +967,41 @@ export class StationService {
         summary=textSlice(bytes.toString('utf8'),0,4000);delivery={summary,summaryKind:'preview',textArtifact:manifest,tests:'实际测试见结构化报告；全文通过字节数与SHA核对',files:[],commit:'',prUrl:'',branch:''};
       }else if(task.agentId==='file-test')delivery={summary:textSlice(summary,0,4000),tests:'非文字测试适配器输出',files:[],commit:'',prUrl:'',branch:''};
       else throw new Error('执行已退出。请在执行设备检查成果范围，选择文件及已授权资料仓库后发布；原生目录已有修改将保留。');
+      await this.authorizeDelivery(task,receipt);
       delivery.scopeVersion=Number(receipt.taskSnapshot?.scopeVersion??0);
       delivery.report={version:1,taskId:task.id,attemptId:task.attemptId,summary:textSlice(summary,-8000),exitConfirmed:receipt.exitConfirmed===true,files:delivery.files,commit:delivery.commit,...verification};
       await this.taskReceipt(task,{status:'delivered',delivery,deliveryError:undefined});
-      await this.taskEvent(task,'delivered',true,{delivery,turnOutcome:this.storage.read().receipts[task.id].turnOutcome});
+      await this.authorizeDelivery(task,receipt);
+      await this.taskEvent(task,'delivered',true,{delivery,turnOutcome:receipt.turnOutcome});
       await this.clearBusinessError(task,'delivery');await this.clearBusinessError(task);
       await this.issue('delivery:'+task.id+':'+String(task.attemptId));
     } catch(error) {
-      let workspaceCommit:string|undefined;try{if(task.resource==='repository')workspaceCommit=await git(receipt.cwd!,['rev-parse','HEAD']);}catch{}
+      let workspaceCommit:string|undefined;
+      if (task.resource==='repository' && this.deliveryAttemptCurrent(task,receipt)) {
+        try {workspaceCommit=await git(receipt.cwd!,['rev-parse','HEAD']);} catch {}
+      }
+      if (!this.deliveryAttemptCurrent(task,receipt)) {
+        await this.error(error,task,'delivery');
+        return;
+      }
       const stopped=this.storage.read().receipts[task.id].status==='stopped';
       const reason=error instanceof Error?error.message:String(error);
-      await this.taskReceipt(task,{status:stopped?'stopped':'delivery-pending',deliveryError:reason});await this.taskEvent(task,stopped?'stopped':'delivery-pending',true,{...(workspaceCommit?{workspaceCommit}:{}),...(receipt.turnOutcome?{turnOutcome:receipt.turnOutcome}:{})});await this.issue('delivery:'+task.id+':'+String(task.attemptId),reason);
+      await this.taskReceipt(task,{status:stopped?'stopped':'delivery-pending',deliveryError:reason});
+      if (this.deliveryAttemptCurrent(task,receipt)) {
+        await this.taskEvent(task,stopped?'stopped':'delivery-pending',true,{
+          ...(workspaceCommit?{workspaceCommit}:{}),
+          ...(receipt.turnOutcome?{turnOutcome:receipt.turnOutcome}:{}),
+        });
+      }
+      await this.issue('delivery:'+task.id+':'+String(task.attemptId),reason);
     }
   }
-  private repositoryDelivery(task:SharedEntity,receipt:LocalReceipt,summary:string){return deliverRepository(receipt.cwd!,task.id,String(task.meetingId),summary,String(task.baseCommit),undefined,()=>this.authorizeDelivery(task,receipt),(args,phase)=>this.runDeliveryGit(task,receipt,receipt.cwd!,args,phase));}
+  private repositoryDelivery(task:SharedEntity,receipt:LocalReceipt,summary:string){
+    const authorize=()=>this.authorizeDelivery(task,receipt);
+    return deliverRepository(receipt.cwd!,task.id,String(task.meetingId),summary,String(task.baseCommit),
+      (repository,head,base,title,body,commit)=>ensurePullRequest(repository,head,base,title,body,commit,undefined,authorize),
+      authorize,(args,phase)=>this.runDeliveryGit(task,receipt,receipt.cwd!,args,phase));
+  }
   private async recordDeliveryGit(receipt:LocalReceipt,phase:string,id:string,result:Record<string,unknown>){
     await this.storage.update(s=>{const current=s.receipts[receipt.taskId];if(current?.attemptId!==receipt.attemptId)return;const saved=current.gitOperations?.[phase];if(saved?.id!==id)return;Object.assign(saved,{exitConfirmed:result.cleanup_confirmed===true,...(typeof result.exitCode==='number'?{exitCode:result.exitCode}:result.not_started?{exitCode:-1}:{})});});
     if(this.connected)void this.pump().catch(error=>this.error(error));
@@ -1013,18 +1035,34 @@ export class StationService {
     });}finally{this.gitStarting.delete(id);}
     const result=this.storage.read().receipts[task.id].gitOperations?.[phase];if(!result?.exitConfirmed||result.exitCode!==0)throw new Error(this.storage.read().reconciliation?.['git-run:'+id]?.reason??this.storage.read().reconciliation?.['git:'+id]?.reason??'Git 交付待核对');return '';
   }
+  private deliveryAttemptCurrent(task:SharedEntity,receipt:LocalReceipt):boolean {
+    const state=this.storage.read();
+    const current=state.snapshot.entities.task?.find(row=>row.id===task.id);
+    const local=state.receipts[task.id];
+    return !!task.id && typeof task.attemptId==='string' && !!task.attemptId
+      && current?.attemptId===task.attemptId && !!local
+      && [local,receipt].every(row=>row.taskId===task.id && row.attemptId===task.attemptId
+        && (!row.taskSnapshot || row.taskSnapshot.id===task.id && row.taskSnapshot.attemptId===task.attemptId));
+  }
   private async authorizeDelivery(task:SharedEntity,receipt:LocalReceipt){
-    const currentScope=this.rows('task').find(t=>t.id===task.id)?.scopeVersion??task.scopeVersion??0;
-    if(Number(currentScope)!==Number(receipt.taskSnapshot?.scopeVersion??0))throw new Error('原成果属于旧范围版本；保留原成果，明确继续当前范围后再交付，不重跑原尝试');
-    const current=this.rows('task').find(t=>t.id===task.id);
-    const local=this.storage.read().receipts[task.id];
-    if (!current||current.attemptId!==task.attemptId||local?.attemptId!==receipt.attemptId
-      ||!local.exitConfirmed||local.turnOutcome!=='completed') {
-      throw new Error('原轮次未证明正常结束，保留本机部分成果；不会新增发布');
-    }
-    if (current.stopRequested||local.stopRequested) {
-      throw new Error('用户已要求停止，保留已完成结果；明确继续前不会新增发布');
-    }
+    const checkEvidence=()=>{
+      if (!this.deliveryAttemptCurrent(task,receipt)) {
+        throw new Error('当前任务与完成收据的任务／尝试身份不一致，保留原成果；不会新增发布');
+      }
+      const current=this.rows('task').find(row=>row.id===task.id)!;
+      const local=this.storage.read().receipts[task.id];
+      if(Number(current.scopeVersion??task.scopeVersion??0)!==Number(receipt.taskSnapshot?.scopeVersion??0)) {
+        throw new Error('原成果属于旧范围版本；保留原成果，明确继续当前范围后再交付，不重跑原尝试');
+      }
+      if (!local.exitConfirmed || local.turnOutcome!=='completed'
+        || !receipt.exitConfirmed || receipt.turnOutcome!=='completed') {
+        throw new Error('原轮次未证明正常结束，保留本机部分成果；不会新增发布');
+      }
+      if (current.stopRequested || local.stopRequested) {
+        throw new Error('用户已要求停止，保留已完成结果；明确继续前不会新增发布');
+      }
+    };
+    checkEvidence();
     if(this.rows('device').some(d=>d.id===this.storage.read().deviceId&&d.revoked))throw new Error('本机设备授权已撤销，成果保留');
     const s=this.storage.read();if(!s.allowedAgents.includes(String(task.agentId)))throw new Error('原 Agent 本机授权已撤销，成果保留');
     if(task.resource==='repository'){
@@ -1036,6 +1074,8 @@ export class StationService {
       const grant=s.directories[String(task.projectId)];if(!grant?.confirmed||!grant.allowedAgentIds.includes(String(task.agentId))||grant.revision!==receipt.bindingRevision)throw new Error('原成果目录授权已变化');
       await trustedDirectory(task.resource==='native'?grant.root:grant.workspaceRoot,receipt.cwd!);
     }
+    // Directory and Git identity checks yield; the attempt may change meanwhile.
+    checkEvidence();
   }
   async action(action: string,p: Record<string,unknown>={}): Promise<unknown> {
     if(action==='status') return this.view();
@@ -1141,7 +1181,7 @@ export class StationService {
       return {baseline:receipt.nativeBaseline,current};
     }
     if(action==='delivery.select') {
-      const identity=this.identityKey();this.accountActions++;try{
+      this.accountActions++;try{
       const task=this.rows('task').find(t=>t.id===p.taskId);const receipt=task&&this.storage.read().receipts[task.id];
       if(!task||task.targetDeviceId!==this.storage.read().deviceId||!receipt?.cwd||!receipt.exitConfirmed)throw new Error('只能在原执行设备、实际退出后选择成果文件');
       const binding=this.storage.read().bindings[String(p.projectId)];if(!binding?.confirmed)throw new Error('请选择已在本机授权的资料仓库');
@@ -1150,14 +1190,25 @@ export class StationService {
       const chosen=await dialog.showOpenDialog({title:'确认成果范围：只选本次需要共享的文件',defaultPath:receipt.cwd,properties:['openFile','multiSelections']});if(chosen.canceled)return {cancelled:true};
       for(const file of chosen.filePaths)await trustedDirectory(receipt.cwd,join(file,'..'));
       const confirmed=await dialog.showMessageBox({type:'question',buttons:['确认这些文件并发布','返回'],defaultId:1,cancelId:1,message:'确认本次成果文件范围',detail:chosen.filePaths.join('\n')+'\n原有文件和修改会保留；只发布这里选定的内容。'});if(confirmed.response!==0)return {cancelled:true};
+      let publication=receipt.publication;
       try {
         await publishFiles(binding.localRepoRoot,binding.taskWorkspaceRoot,chosen.filePaths,String(p.baseCommit),
           async draft=>{
-            await this.taskReceipt(task,{publication:{...draft,projectId:String(p.projectId),targetBranch:String(p.targetBranch)}});
+            await this.authorizeDelivery(task,receipt);
+            const prepared={...draft,projectId:String(p.projectId),targetBranch:String(p.targetBranch)};
+            await this.taskReceipt(task,{publication:prepared});
+            await this.authorizeDelivery(task,receipt);
+            publication=prepared;
           },()=>this.authorizeDelivery(task,receipt));
       }
-      catch(error){await this.taskReceipt(task,{status:'delivery-pending'});await this.error(error,task,'delivery');return this.view();}
-      await this.deliverTask(task,this.storage.read().receipts[task.id]);return this.view();
+      catch(error){
+        if(this.deliveryAttemptCurrent(task,receipt))await this.taskReceipt(task,{status:'delivery-pending'});
+        await this.error(error,task,'delivery');
+        return this.view();
+      }
+      // Keep the selected attempt's receipt; a fresh lookup could belong to its successor.
+      await this.deliverTask(task,{...receipt,publication});
+      return this.view();
 
       }finally{this.accountActions--;}
     }

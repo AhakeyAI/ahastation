@@ -26,7 +26,9 @@ export async function publishFiles(root:string,workspaceRoot:string,selected:str
   const repository=normalizeGithubRepository(await git(root,['remote','get-url','origin'])).canonicalUrl;
   const branch='codex/station-materials-'+randomUUID();const cwd=join(workspaceRoot,branch.split('/')[1]);
   await authorize?.();
-  await mkdir(workspaceRoot,{recursive:true});await git(root,['worktree','add','-b',branch,cwd,baseCommit]);
+  await mkdir(workspaceRoot,{recursive:true});
+  await authorize?.();
+  await git(root,['worktree','add','-b',branch,cwd,baseCommit]);
   const files:string[]=[];
   for(const file of selected) {
     const info=await lstat(file);const name=safeRelative(basename(file));
