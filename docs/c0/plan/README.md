@@ -185,4 +185,4 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 | 板端目标 Debian 11 已停止安全更新（安全源已迁到 `archive.debian.org`） | 板子不再有安全补丁；CI 要改走 archive 镜像（PR #53 已改） | 已确认 | B39 决定板端是否换 Debian 12；在那之前 CI 继续用 archive |
 | Codex 自带的 `zsh` 要求 GLIBC_2.34，板端只有 2.31 | 板上的 Codex 执行命令可能失败；产物检查只把它记为非致命警告 | 中 | PR #53 rebase 到 Codex 0.156.1 后，在板上实测 Codex 跑命令；不行就让 Codex 改用系统 shell，或板端不启用 Codex |
 | GitHub Actions 存储额度已满（账号级，本仓库没有占用） | 手动构建和打 tag 发版都会在上传产物时失败 | 已确认 | 在账号层面清理旧 artifact 或调整额度；发版前先查 |
-| 测试替身把所有 userData 指向 `/tmp`（P9 ⑥） | 并发跑测试偶发失败 | 已确认 | 每个进程一个临时目录 |
+| 测试替身把所有 userData 指向 `/tmp`（P9 ⑤） | 并发跑测试偶发失败 | 已确认 | 每个进程一个临时目录 |
