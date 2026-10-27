@@ -24,7 +24,7 @@
 | --- | --- |
 | AME-D01–D64、Q01–Q34 | 本目录 09 |
 | D1–D15、T1–T3 | C0 一页决定单 `../c0/DECISIONS-NEEDED.md`（2026-10-23） |
-| G1–G12、P1–P8、R1–R7 | 开发前决定 `../c0/DECISIONS-2026-10-26.md` |
+| G1–G13、P1–P9、R1–R7 | 开发前决定 `../c0/DECISIONS-2026-10-26.md` |
 | C01–C21 | R2 冲突表 `../c0/review-etrnal-dev/CONFLICTS.md`，目前在 `review/etrnal-dev-2026-10` 分支 |
 | B01–B42 | 本目录 12 的工作包；C0 的 B01–B07 与之相同 |
 | `etrnal-dev` 的 Q1–Q112 | 该分支的 `docs/collaboration/FIRST_RELEASE_SPEC.md` |

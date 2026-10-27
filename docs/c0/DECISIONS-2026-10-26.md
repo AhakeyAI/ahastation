@@ -18,6 +18,7 @@
 | G10 | Q1–Q100（`etrnal-dev`）与 D1–D15（C0）冲突 | **Claude 列冲突表，用户逐条裁决**，不按日期或线路自动取舍 |
 | G11 | 多会话分工 | **每个分支只有一个写者**，见 §4 |
 | G12 | AME 文档 09–13 | **由 Claude 直接修改**（解除此前「不改 Codex 文档」的约定）。注意：这些文件在 `ahakey-studio-community` 里是未跟踪文件，而那个仓库的远端是公开仓库，不能推到那里。改为在本仓库建 `docs/ame/` 作为在用版本，`handoff-2026-10-22/` 里的副本继续原样保留 |
+| G13 | 模型来源（2026-10-27 补充） | **每个 harness 只用自家模型**：Claude Code → Anthropic 模型；Codex → OpenAI 模型（ChatGPT 登录或 OpenAI API key）；Kimi → Kimi 模型。不支持把 Claude Code / Codex 指向第三方或「OpenAI / Anthropic 兼容」接口去跑别家模型，也不做 Responses ↔ Chat Completions 的协议桥接。AME 10-22 记录里的 Zcode、DeepSeek 等，只有接入它们自己的 harness 后才能使用。不影响 AME-D26 的跨模型复核：那是不同 harness 各用自家模型 |
 
 ## 2. 前置修复（要写代码，开发前完成）
 
@@ -31,6 +32,7 @@
 | P6 | Codex 版本门改为已验证区间 + 每周 CI 检查（G8）。**已交付：区间 [0.156.1, 0.157.0)，每周工作流只开 PR** | F1：固定版本因模型下线失效 | N5095 / `fix/runtime-a14-a20` |
 | P7 | 小修：`electron/asr-polish.ts:55` 写死 `claude-sonnet-5`（改为从模型列表取）；`tests/kimi-adapter.test.mjs:66` 只等 1 秒，全量并发时偶发失败（Mac 复跑 1 次失败、单独 3/3 通过）；`task-budget` 偶发失败。**已交付：模型改从目录取，两处等待延长到 10 秒；3 秒版本探测未处理** | 与 F3 同类隐患；测试不稳 | N5095 / `fix/runtime-a14-a20` |
 | P8 | 文档治理：C0 README §3–§7 过时；ADR 改号（G7）与统一索引；本文接入阅读顺序。**2026-10-26 已完成** | 与准入文档冲突 | Mac / `docs/c0-handoff-2026-10-22` |
+| P9 | Codex 版本收尾与 G13 落地（PR #54 合入前；Mac 复核 PR #54 时发现）：<br>① 删掉 `electron/backends/codex-adapter.ts:1491` 的「钉在 0.144.x」注释，它的前提已被实测否定（`b04-runtime/README.md` §6f）；<br>② 清掉残留的 0.144.1：`scripts/real-worker-stability-smoke.mjs:47`（`npm run test:real-workers` 在 `:138` 断言版本必须等于 0.144.1，真实冒烟必然失败）、`scripts/board/runtime-versions.env:3`（板端严格门）、`src/dev-fixture-bootstrap.ts:67`；<br>③ `electron/backends/worker-runtime-contract.ts:14`、`:243` 仍按 `0.156.1` 精确匹配，与协议层的区间 `[0.156.1, 0.157.0)` 不一致，0.156.2 会被 Worker 门误判为不兼容。改为两处共用同一个区间，并补 0.156.2 的单测；<br>④ 同文件 `:301`、`:326` 的版本探测只等 3 秒，放宽或改为可配置；<br>⑤ 按 G13 移除 Codex、Kimi 的 Base URL 配置入口（`src/components/Lobby.tsx:442`、`src/components/BackendSettings.tsx:769`；Codex 侧注入在 `codex-adapter.ts:1417-1419`）。已有配置读入时忽略，并提示一次；<br>⑥ 测试替身 `tests/electron-stub-impl.mjs` 把所有测试的 userData 都指向 `/tmp`，并发时互相覆盖；改成每个进程一个临时目录，连同写死 `/tmp/meetings` 的测试一起改 | G8、G13 | N5095 / `fix/runtime-a14-a20` |
 
 ## 3. 设计对齐（分析协作者进展后细化）
 

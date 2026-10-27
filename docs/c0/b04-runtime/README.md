@@ -159,6 +159,25 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 - 确定性 fixture：`harness/approved-command-fixture.test.mjs` 真实执行 `npm test`，与 broker 合计 **20/20 通过**；运行代码完整回归为 **950 tests / 944 pass / 0 fail / 6 skip**，typecheck 和 build 通过。S11 的真实 Codex 运行本次未执行，不能标为真实 provider pass。
 - fixture 的 npm script 改为直接执行 `test/sum.test.js`，并在 Node 自身测试运行器中清除继承的 `NODE_TEST_CONTEXT`，避免子进程打印“skipping running files”却返回 0 的假阳性。
 
+## 6f. Codex 的 chat 接口实测（2026-10-27，Mac）
+
+**目的**：核对 `codex-adapter.ts` 里的注释：「0.145 删掉了 `wire_api="chat"`，Kimi / Moonshot 这类只支持 chat/completions 的接口需要它，所以内置 Codex 要钉在 0.144.x」。
+
+**方法**：
+- 本地起一个假的服务端（127.0.0.1，只记录请求路径，一律返回 404）；
+- 用内置的 `codex-cli 0.144.1`（macOS arm64）、临时 `CODEX_HOME` 和假 key 跑 `codex exec`；
+- 不连真实模型，不读用户配置。
+
+| 配置 | 0.144.1 的行为 |
+| --- | --- |
+| AhaStation 现在的做法：SDK 把 `baseUrl` 转成 `--config openai_base_url=...`（`@openai/codex-sdk` 0.144.1 `dist/index.js:178-181`） | 只请求 `/v1/responses`（GET 7 次、POST 6 次），从没请求过 `/chat/completions` |
+| 在 `config.toml` 里自定义服务商，写上 `wire_api = "chat"` | 读配置就失败：`wire_api = "chat" is no longer supported` |
+
+**结论**：
+- chat 接口在 0.144.1 就已经不可用，注释的前提不成立，钉在 0.144.x 保护不了任何用法；
+- 按 G13 本来也不需要这条路径。升级到 0.156.1 在这方面没有损失；
+- 收尾工作见 `DECISIONS-2026-10-26.md` P9。
+
 ## 7. 执行工具
 
 写一个 `scripts/b04/run-scenarios.mjs`：每个候选一个驱动（C-A 驱动直接 import 现有 adapter；C-P 驱动用 `@getpaseo/client`），场景脚本共用。驱动接口：
