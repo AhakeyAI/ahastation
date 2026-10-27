@@ -21,7 +21,7 @@
 | 运行时修复 A-14–A-20，P4–P7 | `fix/runtime-a14-a20` | N5095 | 已真实复验，待开 PR |
 | C0 文档与决定，P8 | `docs/c0-handoff-2026-10-22`，PR #50 | Mac | 本次完成 ADR 改号和本文重写 |
 | 安全基线 P1–P3 | `fix/security-baseline`，[PR #53](https://github.com/ShawnyinsGit/ahastation-internal/pull/53)（草稿） | Mac | Electron 45、PDF.js 6、CI Node 24、`safeStorage` 异步接口；三平台 CI 通过，待 N5095 打包冒烟 |
-| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告、R2 冲突表与全部裁决已完成（ADR 0017 / 0018），已转告作者；R3 修订进行中 |
+| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告、R2 冲突表与全部裁决已完成（ADR 0017 / 0018），已转告作者；R3 首版完成 |
 | 跨设备协作 collaboration.5 | `etrnal-dev` | eternal904 | 评审前不改；K01 自动发布问题是一票否决项 |
 | 终端守护进程与本地 CLI 工作区 | PR #49 | Leo Lin | 已建议拆成四个 PR，待作者回复 |
 
@@ -30,7 +30,7 @@
 1. **`DECISIONS-2026-10-26.md`**：用户 12 项决定（G1–G12）、前置修复 P1–P8、设计对齐 R1–R7、分支写者，以及对 N5095 会话的更正。
 2. **`DEVELOPMENT-READINESS.md`**：A-14–A-20 的复验证据、额度使用原则、首批开发顺序。其中 §1「可进入技术开发」已被上一份改为有条件。
 3. **`DECISIONS-NEEDED.md`**：D1–D15、T1–T3 的已定结果。T2 的「25%」只能当定性证据，见 DECISIONS §5 第 3 条。
-4. **`plan/README.md` + `plan/cards.csv`**：实施卡、依赖、人日、关键路径。跨设备卡 X1–X8 按 G1 暂停，等 R1 结论出来再重估。
+4. **`plan/README.md` + `plan/cards.csv`**：实施卡、依赖、人日、关键路径。跨设备卡已按 R1 / R2 重估（§2a）。
 5. 产品规格：**`../ame/`**（AME 09–13 的在用版本，2026-10-27 迁入并更正，见 `../ame/README.md`）。交接包里的原件只作来源；05–08 是历史方案，不沿用。
 
 ## 3. 目录
@@ -42,7 +42,7 @@
 | `b05-voice/` | 语音候选、基准脚本 `bench_voice.py`、回声测试 `echo_test.py` |
 | `b06-quota/` | 用量矩阵与接线方案 `WIRING.md`、脱敏 fixture |
 | `b07-ux/` | UX 方案与可点击原型 `prototype.html`（v2，已冻结） |
-| `design/meeting-mode.md`、`design/remote-control.md` | 会议模式与跨设备设计。**按 G1 待 R1 结论修订**（R3） |
+| `design/meeting-mode.md`、`design/remote-control.md` | 会议模式与跨设备设计。R3 已修订：remote-control §0、meeting-mode §9a 优先于原文 |
 | `design/later-gates.md` | 门 B → F 其余工作包的技术方案概要 |
 | `research/upstream-2026-10-22.md` | Orca、Paseo、Multica 的版本与许可复核 |
 | `evidence/`、`results/` | B01 基线证据、N5095 语音和回声结果、双 provider 并发资源样本 |
