@@ -39,7 +39,7 @@
 | R1 | `etrnal-dev` 评审（G1、G9）：Hub / Station / 接收组件 / v2 契约；一票否决项 = 越界写、停止、**K01 自动发布**；另查 K02 线程恢复、基于 `c134de2` 未合 PR #47 的差距 | 评审报告 + 采用 / 部分采用 / 不采用的建议 | Mac |
 | R2 | Q1–Q100 与 D1–D15 冲突表（G10） | 冲突表，交用户裁决 | Mac |
 | R3 | C0 B03 契约、remote-control、meeting-mode 按 R1 结论修订；X1–X8 人日重估 | 修订稿 | Mac |
-| R4 | AME 09–13 迁到 `docs/ame/` 并更正：旧基线、准入状态、与 R1/R2 结论对齐（G12） | `docs/ame/` | Mac |
+| R4 | **2026-10-27 已完成迁移和首轮更正（`docs/ame/README.md`）；R2 剩余项裁决后再同步一次**。AME 09–13 迁到 `docs/ame/` 并更正：旧基线、准入状态、与 R1/R2 结论对齐（G12） | `docs/ame/` | Mac |
 | R5 | PR #49（Leo Lin）复审：Windows 守护进程测试与打包 smoke 缺失；worker 桥与 A-20 停止语义 | 复审意见，按 G3 顺序合入 | Mac |
 | R6 | A-08 语音三家实测方案与预算器（G5） | benchmark 脚本与预算口径，A-08 开工即用 | N5095 |
 | R7 | 并发名额默认 2（G6）写入 B10 / B21 设计与设置项 | 设计更新 | N5095 |

@@ -2,7 +2,17 @@
 
 版本：0.1。日期：2026-10-22。配套[产品规格](./10-ame-product-spec-v0.1-2026-10-22.md)。以下分层、实体和接口是供技术评审的实现建议；已确认产品边界以[决策记录](./09-ame-product-decisions-and-open-questions-2026-10-21.md)为准。
 
+> **在用版本（2026-10-27）。** 本文件已从 Codex 10-22 交接包迁到 `docs/ame/`（决定 G12），以这里为准；交接包里的原件保持不变。修改处标「（10-27 更正）」，汇总见 [README](./README.md)。
+
 ## 基线与复用
+
+（10-27 更正）本节下面几段描述的是 2026-10-22 的旧检出，已过期，只作历史保留。当前事实如下：
+
+- **代码基线**：`ShawnyinsGit/ahastation-internal` main `c8295b9`（PR #47）。B02 已关闭：N5095 上原有 34 个测试失败已修复，main CI 三平台通过。
+- **运行时修复**：A-14–A-20 在 `fix/runtime-a14-a20` 分支，已真实复验，待开 PR。
+- **安全基线**：Electron 45、PDF.js 6、CI Node 24、`safeStorage` 异步接口，在 PR #53（草稿）。
+- **旧检出**：`Documents/Claude/AhaStation @ bb76522` 是旧检出，不作基线。
+- **详细状态**：见 `docs/c0/README.md` §4–§5。
 
 2026-10-22 只读复核 `/Users/heartline/Documents/Claude/AhaStation`：HEAD 仍为 `bb765223e34cd2ca7c08052cd24b34e9f7bd84ac`，package 0.18.4；`package-lock.json` 有用户修改且另有未跟踪资产。当前 Orca 工作区为空项目基线，不从这里重写产品或直接合并其他检出。
 
@@ -15,9 +25,9 @@
 | `electron/backends/registry.ts`、`worker-scheduler.ts` | Harness 探测与调度 | 能力门、跨端事件、额度阈值路由和稳定版本仍需验证 |
 | `electron/observe/observe-service.ts` | 已有会话只读上下文 | 辅助 Host 调查，不把扫描到的会话直接当受控可写任务 |
 
-历史[2026-10-19 证据](./evidence/2026-10-19-baseline-audit.json)使用隔离 archive 并复用本机依赖，类型检查及构建通过，默认测试 888 项中 871 通过、16 失败、1 跳过；补本地 fixture 后仅重跑 Kimi 定向 14 项通过。
+历史[2026-10-19 证据](../c0/handoff-2026-10-22/docs/ahastudio/evidence/2026-10-19-baseline-audit.json)使用隔离 archive 并复用本机依赖，类型检查及构建通过，默认测试 888 项中 871 通过、16 失败、1 跳过；补本地 fixture 后仅重跑 Kimi 定向 14 项通过。
 
-最新[2026-10-22 证据](./evidence/2026-10-22-baseline-audit.json)：在 Darwin arm64、Node v26.12.1／npm 11.20.0 上再次使用 tracked HEAD archive 和现有 node_modules，类型检查、构建通过；默认测试仍 871 通过、16 失败、1 跳过，16 个失败位置与历史一致。本轮未复制缺失 fixture、未做 npm ci 或修复。已取得缓存 Node v22.23.4，但未用它重跑，CI 的 Node 22 验证仍待进行；未调用付费真实 Worker、Windows/N5095 或双机语音测试。C0 尚未通过。
+最新[2026-10-22 证据](../c0/handoff-2026-10-22/docs/ahastudio/evidence/2026-10-22-baseline-audit.json)：在 Darwin arm64、Node v26.12.1／npm 11.20.0 上再次使用 tracked HEAD archive 和现有 node_modules，类型检查、构建通过；默认测试仍 871 通过、16 失败、1 跳过，16 个失败位置与历史一致。本轮未复制缺失 fixture、未做 npm ci 或修复。已取得缓存 Node v22.23.4，但未用它重跑，CI 的 Node 22 验证仍待进行；未调用付费真实 Worker、Windows/N5095 或双机语音测试。C0 尚未通过。
 
 语音现状核查：ASR 为讯飞 IAT，TTS 使用系统 speechSynthesis，音色注册按 locale 和单一选择缓存，未证明角色级多音色。用户确认樱桃 SDK 不支持 N5095；替代实现须先做目标硬件 PoC。全局 CLI 实际版本与固定兼容版本也有差异，见新证据及交接文档，不据安装成功推定可控执行已验收。
 
@@ -88,9 +98,14 @@ Host 负责对话与统筹，不直接成为所有权限的裁决者。授权、
 | Paseo SDK / daemon | 公开接口、原生权限保真、停止、历史补取、用量 | 第一批 adapter 候选 |
 | DeepSeek Harness / Cordis | 插件生命周期、依赖和 SDK、选定 Harness 适配、版本变更成本 | 新增候选，不预设取代现有代码 |
 
-候选使用同一任务、平台、Harness 版本和权限矩阵，比较创建、追问、批准拒绝、取消、断线补历史、恢复、越界请求、用量及证据。先完成固定版本的小切片再选一个，不让三套编排同时承担生产权威。Orca 参考运行模型；Multica 参考组织，嵌入前核对具体许可。
+候选使用同一任务、平台、Harness 版本和权限矩阵，比较创建、追问、批准拒绝、取消、断线补历史、恢复、越界请求、用量及证据。先完成固定版本的小切片再选一个，不让三套编排同时承担生产权威。
 
-依据见[上游复用研究](../research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)和[RSI 研究](../research/ahastudio-rsi-harness-reuse-2026-10-22.md)。Cordis 动态清理不能撤销外部提交、网页操作或部署；外部动作需各自补偿或回退协议。
+（10-27 更正）B04 已于 2026-10-23 完成，保留现有 AhaStation adapter 作为唯一运行底座（D14、ADR 0016）：
+
+- Paseo 没有采用：Codex 最严格模式下，工作区写入不经宿主（S4 一票否决）；断线后也补不回历史（S7）。
+- DeepSeek Harness / Cordis 没有进入对照。按单一运行底座的要求，它们不再作为运行底座候选，只作为插件或 RSI 的参考，在 B09 / B35 中评估。Orca 参考运行模型；Multica 参考组织，嵌入前核对具体许可。
+
+依据见[上游复用研究](../c0/handoff-2026-10-22/docs/research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)和[RSI 研究](../c0/handoff-2026-10-22/docs/research/ahastudio-rsi-harness-reuse-2026-10-22.md)。Cordis 动态清理不能撤销外部提交、网页操作或部署；外部动作需各自补偿或回退协议。
 
 ## 额度服务与模型路由
 
@@ -109,6 +124,14 @@ Host 负责对话与统筹，不直接成为所有权限的裁决者。授权、
 每台设备有本地协调服务，完整应用与后台服务可分进程但统一安装。正式计划写入由一个项目主持者负责；执行端独立持有已授权 Run 与恢复状态。通信需请求 ID、回执、历史补取、来源版本、重放防护和取消状态；群聊文本不是机器指令的唯一格式。
 
 官方中转传密文，可信设备管理解密和恢复凭据；复用成熟加密实现，不自创协议。代码、大文件走 GitHub 明确版本，小文本可在通信内。账号登录发现设备不自动授权目录或屏幕。失去全部设备时的恢复体验、保留期限属于确认单，密钥与恢复方案先技术评审。
+
+（10-27 更正）跨设备路线已按 R1 / R2 收敛：
+
+- 以 `etrnal-dev` 的 Hub / Station 为实现基础（有条件部分采用）。
+- 内部验收阶段是受信 Hub + 设备签名（ADR 0017）：设备发出的每条消息都要签名；新设备的公钥须由已有可信设备确认。内容加密（ADR 0014）在首次公开可用前完成。
+- 执行端复用现有 TS adapter（ADR 0018）。
+- 项目稳定 ID 见 ADR 0013。
+- 其余差异见冲突表 `docs/c0/review-etrnal-dev/CONFLICTS.md`，在 `review/etrnal-dev-2026-10` 分支上。
 
 ## 优化版本与评测
 

@@ -1,6 +1,8 @@
 # AhaStudio AME 产品决策与待讨论问题
 
-更新日期：2026-10-22。面向产品、设计、软件与硬件开发协作者。
+更新日期：2026-10-22（迁移与更正 2026-10-27）。面向产品、设计、软件与硬件开发协作者。
+
+> **在用版本（2026-10-27）。** 本文件已从 Codex 10-22 交接包迁到 `docs/ame/`（决定 G12），以这里为准；交接包里的原件保持不变。修改处标「（10-27 更正）」，汇总见 [README](./README.md)。
 
 AhaStudio 定位为 Agent Meeting Environment（AME）。用户主要与一个长期助理交流，由助理主持会议、按需组织 Agent、把讨论转成任务，并持续推进到有证据的交付。AhaStation 是专门承载这支 Agent 团队的随身第二台电脑，首发以 Windows 为主。
 
@@ -194,9 +196,9 @@ AhaStudio 定位为 Agent Meeting Environment（AME）。用户主要与一个�
 | --- | --- | --- |
 | D51 | 自研重心是语音、会议机制及从决定到交付的体验 | Aha 持有用户决定、任务范围、授权和验收语义；不要求全部存储与运行机制重新实现 |
 | D52 | 优先整合集成已有开源能力，必要时做边界清楚的移植或优化 | 可复用会话、进程、工作区、Git、原生 Harness、ASR/TTS 等；技能提示不等于强制执行的运行服务 |
-| D53 | 首发选一个经过验收的执行底座，可支持多个原生 Harness | 不同时拼装多套编排内核；具体选谁尚未决定 |
+| D53 | 首发选一个经过验收的执行底座，可支持多个原生 Harness | 不同时拼装多套编排内核。（10-27 更正）2026-10-23 已选定：保留现有 AhaStation adapter（B04、C0 决定 D14、ADR 0016） |
 
-[上游复用研究](../research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)将 Paseo SDK 与 daemon 列为第一验证候选，现有 AhaStation 实现作为对照。Orca 可参考运行模型及评估 CLI 连接；Multica 可参考任务协同，但其自定义许可不能按纯 Apache 依赖处理。上述是静态研究，不是已完成接入或选型。
+[上游复用研究](../c0/handoff-2026-10-22/docs/research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)将 Paseo SDK 与 daemon 列为第一验证候选，现有 AhaStation 实现作为对照。Orca 可参考运行模型及评估 CLI 连接；Multica 可参考任务协同，但其自定义许可不能按纯 Apache 依赖处理。上述是静态研究，不是已完成接入或选型。
 
 最小对比验证应覆盖创建与追问、批准与拒绝、停止、重连补历史、重启恢复、越界请求及证据返回。SDK 有接口不等于各 provider 都能保真处理批准、停止和恢复。
 
@@ -314,12 +316,12 @@ HTML 当前交付文件缺少引用的 `scheme-one-orchestra.js`、`scheme-one-o
 
 ## 来源与关联材料
 
-- [RSI 与 DeepSeek Harness 可借鉴边界](../research/ahastudio-rsi-harness-reuse-2026-10-22.md)：一手来源核对、插件接口候选、优化评测与版本边界；属于研究建议，未选定或完成集成。
+- [RSI 与 DeepSeek Harness 可借鉴边界](../c0/handoff-2026-10-22/docs/research/ahastudio-rsi-harness-reuse-2026-10-22.md)：一手来源核对、插件接口候选、优化评测与版本边界；属于研究建议，未选定或完成集成。
 
 - 本轮用户连续讨论及两份粘贴会议纪要。纪要中的模型名称、SDK 名称和硬件期限需按原资料核对，不把自动摘要当选型依据。
-- [竞品定位策略](../research/orca-paseo-multica-ahastudio-strategy-2026-10.md)、[Orca 研究](../research/orca-ade-v1.4.218-comparison.md)、[Paseo 与 Multica 研究](../research/paseo-multica-comparison-2026-10.md)。
-- [当前上游复用边界](../research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)。
-- [旧开发计划](./06-runnable-release-plan-2026-10.md)、[旧 WBS](./07-runnable-release-wbs-2026-10.md)、[旧开工安排](./08-r1-execution-readiness-2026-10-19.md)。保留历史证据，后续按本文重排。
+- [竞品定位策略](../c0/handoff-2026-10-22/docs/research/orca-paseo-multica-ahastudio-strategy-2026-10.md)、[Orca 研究](../c0/handoff-2026-10-22/docs/research/orca-ade-v1.4.218-comparison.md)、[Paseo 与 Multica 研究](../c0/handoff-2026-10-22/docs/research/paseo-multica-comparison-2026-10.md)。
+- [当前上游复用边界](../c0/handoff-2026-10-22/docs/research/ahastudio-upstream-reuse-boundaries-2026-10-21.md)。
+- [旧开发计划](../c0/handoff-2026-10-22/docs/ahastudio/06-runnable-release-plan-2026-10.md)、[旧 WBS](../c0/handoff-2026-10-22/docs/ahastudio/07-runnable-release-wbs-2026-10.md)、[旧开工安排](../c0/handoff-2026-10-22/docs/ahastudio/08-r1-execution-readiness-2026-10-19.md)。保留历史证据，后续按本文重排。
 - 本机设计材料：[HTML 原型](/Users/heartline/Downloads/ahastudio-task-flow-prototype.html)、[Pocket v1.4 PDF](/Users/heartline/Downloads/AhaStudio-Pocket-交互动线文档-v1.4.pdf)、[四方案对比图](/Users/heartline/Downloads/交互设计.jpg)。
 - 本机宣传和硬件材料：[宣传介绍](/Users/heartline/Downloads/ahastudio宣传介绍.zip)、[硬件包](/Users/heartline/Downloads/ahastation硬件.zip)。
 
@@ -414,3 +416,6 @@ HTML 当前交付文件缺少引用的 `scheme-one-orchestra.js`、`scheme-one-o
 | 2026-10-22 | 用户接受试用从首次成功双设备远程连接起固定 30 天、显示准确到期时间，换绑重装重连均不重置；更新 D56、Q30、规格与讨论单，价格和服务并发尚待确定 |
 | 2026-10-22 | 用户接受首发一个官方远程协同订阅档、不限设备绑定，本地核心免费开源且模型自备；具体价格和服务并发在托管成本与内测数据后提案确认；更新 D56、Q30、规格、WBS 及讨论单，六组主要原则收敛，实施证据和具体商业数值未伪作已确认 |
 | 2026-10-22 | 用户补充樱桃 SDK 不支持 N5095，仅 Core Gen11–14／Core Ultra，内部 demo 因未签 NDA 不便外发，提供 cherry.pcelves.com；更新硬件事实与 Q05，现有硬件改验证其他本地 ASR/TTS 或 API 路径。隔离 archive 重跑类型检查及构建通过、默认测试 888 项中 871 通过16失败1跳过，失败位置与10月19日一致；仍复用本机依赖、未做 npm ci，不代表 C0 通过。用户要求汇总交接 Claude，后续执行转交 |
+| 2026-10-23 | （10-27 补记）C0 一页决定单 D1–D15 由用户回复（`docs/c0/DECISIONS-NEEDED.md`）。与本文相关的有：B04 选定现有 adapter 作为唯一运行底座，对应本文 D53；首个验收 Issue 已创建为 #48，对应本文 D06、Q01；中转离线信箱保留 30 天，对应本文 D41、D47 的「另定期限」 |
+| 2026-10-26 | （10-27 补记）用户作出开发前决定 G1–G12（`docs/c0/DECISIONS-2026-10-26.md`）。其中 G1：跨设备与会议模式先评审 `etrnal-dev` 再定。G12：本文迁到 `docs/ame/`，由 Claude 直接更正 |
+| 2026-10-26／27 | （10-27 补记）R2 冲突表的裁决（`review/etrnal-dev-2026-10` 分支的 `docs/c0/review-etrnal-dev/CONFLICTS.md`）：<br>• 内部验收阶段的跨设备采用受信 Hub + 设备签名；**本文 D47「中转只见密文」不改，是首次公开可用的前置条件**（ADR 0017）；<br>• 跨设备执行复用现有 TS adapter（ADR 0018）；<br>• 远程接续已有对话，只接受权限不超过本机项目授权的对话；<br>• 首轮内部验收由 Mac 协调、N5095 执行；本文 D10 的双向验收仍是公开可用的门槛 |
