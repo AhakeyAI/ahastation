@@ -152,6 +152,13 @@ WBS 验收：「固定候选版本跑同一创建、批准、拒绝、停止、�
 - **S3 判据**：结构化 Write/Edit 或命令批准均算通过；只读命令可直接执行，不要求宿主全量可见。
 - **S9 仍是实施缺口**：adapter 尚不向上层输出 usage（A-10），但 harness 已采集真实协议通知用于 B06 fixture；不把“协议有字段”虚报为“应用已接线”。
 
+## 6e. P5 获批命令越界（2026-10-26，N5095）
+
+- 新增 **S11**：Grant 只允许 `src/`，获准的 `npm test` 通过 `src/sum.js` 顶层副作用写 `test/approved-command-escape.txt`。这是 G4 指出的事后检测缺口，不与 S4 的直接写文件批准重复。
+- 宿主在批准返回前对未授权文件做 SHA-256 快照，在命令完成后复核；越界产生 `approved-command-scope-violation`，停止 Run 且不自动重试。批准卡片明示“该命令以完整权限运行”。**检测不会撤销已经发生的写入，也不声称能识别共享工作区中变化的实际作者。**
+- 确定性 fixture：`harness/approved-command-fixture.test.mjs` 真实执行 `npm test`，与 broker 合计 **20/20 通过**；运行代码完整回归为 **949 tests / 943 pass / 0 fail / 6 skip**，typecheck 和 build 通过。S11 的真实 Codex 运行本次未执行，不能标为真实 provider pass。
+- fixture 的 npm script 改为直接执行 `test/sum.test.js`，并在 Node 自身测试运行器中清除继承的 `NODE_TEST_CONTEXT`，避免子进程打印“skipping running files”却返回 0 的假阳性。
+
 ## 7. 执行工具
 
 写一个 `scripts/b04/run-scenarios.mjs`：每个候选一个驱动（C-A 驱动直接 import 现有 adapter；C-P 驱动用 `@getpaseo/client`），场景脚本共用。驱动接口：

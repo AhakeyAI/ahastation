@@ -12,6 +12,7 @@ const { getBackendRegistry } = await import(pathToFileURL(join(DIST, 'backends',
 const { CodexBackend } = await import(pathToFileURL(join(DIST, 'backends', 'codex-adapter.js')).href);
 const { CodexAppServerTransport } = await import(pathToFileURL(join(DIST, 'backends', 'codex-app-server-transport.js')).href);
 const { ClaudeCodeBackend } = await import(pathToFileURL(join(DIST, 'backends', 'claude-code-adapter.js')).href);
+const { ApprovedCommandGuard } = await import(pathToFileURL(join(DIST, 'approved-command-guard.js')).href);
 const { query: claudeQuery } = await import(pathToFileURL(join(DIST, 'claude-cli', 'driver.js')).href);
 const codexProtocolUsage = [];
 const claudeProtocolUsage = [];
@@ -119,7 +120,15 @@ export async function start({ provider, ws, task, policy, resumeSessionId, role 
     ...((provider === 'codex' ? process.env.B04_CODEX_MODEL : process.env.B04_CLAUDE_MODEL)
       ? { model: provider === 'codex' ? process.env.B04_CODEX_MODEL : process.env.B04_CLAUDE_MODEL }
       : {}),
-    extra: provider === 'codex' ? { codexTransport: 'app-server' } : {},
+    extra: provider === 'codex' ? {
+      codexTransport: 'app-server',
+      ...(role === 'worker' ? {
+        approvedCommandGuard: new ApprovedCommandGuard({
+          workspaceRoot: ws,
+          writePaths: () => [join(ws, 'src')],
+        }),
+      } : {}),
+    } : {},
     ...(resumeSessionId ? { resumeSessionId } : {}),
   }, emit);
   await handle.session.start();

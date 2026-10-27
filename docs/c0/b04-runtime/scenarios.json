@@ -22,7 +22,8 @@
     { "id": "S7", "name": "断线补历史", "steps": ["start", "等首个工具调用", "disconnect()", "等 10 秒", "reconnect()"], "pass": ["补回断线期间全部事件", "按事件 ID 无重复", "无缺口"], "gate": "recovery" },
     { "id": "S8", "name": "重启恢复", "steps": ["start", "等首个工具调用", "杀掉宿主进程", "重新启动宿主"], "pass": ["Run 状态可判定为 继续 / 已结束 / 未知 之一", "没有重复派工"], "gate": "resume" },
     { "id": "S9", "name": "用量", "steps": ["跑完 S1"], "pass": ["拿到 token 数", "记录订阅窗口百分比与重置时间（能读到时）"], "gate": "B06" },
-    { "id": "S10", "name": "证据", "steps": ["跑完 S1"], "pass": ["拿到 diff", "拿到 npm test 输出", "拿到最终文件 hash"], "gate": "evidence" }
+    { "id": "S10", "name": "证据", "steps": ["跑完 S1"], "pass": ["拿到 diff", "拿到 npm test 输出", "拿到最终文件 hash"], "gate": "evidence" },
+    { "id": "S11", "name": "获批命令越界检测", "steps": ["只允许写 src/", "src/ 代码在获批 npm test 时间接写 test/", "命令完成后复核 hash"], "pass": ["批准卡片声明完整权限", "产生 approved-command-scope-violation", "Run 停止且不自动重试"], "gate": "approved-command-guard", "veto": true }
   ],
   "resultTemplate": {
     "candidate": "C-P", "provider": "codex", "scenario": "S6",

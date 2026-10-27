@@ -30,6 +30,8 @@
 - 统一事件：`run.started / tool / permission-requested / usage / delivery / ended(reason)`。
 - 「能力不足明确拒绝」：每个 backend 声明 `capabilities`（interrupt、resume、permission-bridge、usage、sandbox），派工前检查；缺失就拒绝派工并告诉用户缺什么，不降级执行。
 - 事件关联同一 Run：所有事件带 `runId + attempt + backendSessionId`。
+- **并发设置（G6/R7）**：每设备持久化 `worker.maxConcurrentWorkers`，N5095 默认 **2**，允许设置 1–8；只影响新派发，重启后恢复同一值，不擅自放宽。等待用户批准的 worker 按现有规则暂时让出名额，批准后的短暂 soft overrun 仍由 fail-closed 超时兜底。Host / Talker 不占 worker 名额。
+- 调整并发只改变调度容量，不扩大任务 Grant、预算或自动批准范围；额度预留仍按实际 in-flight attempt 计算。
 
 ---
 
@@ -103,6 +105,8 @@
 
 - **现有基础**：`taskWorkspaceSnapshot` 已有 `git-worktree / read-only / shared-locked`、`baseline` 脏目录记录；`task-authority` 的写路径约束；`evaluateTaskBudget` 的无进展检测（`maxStagnantAttempts`）。
 - 补齐：默认每个 Run 一个 git worktree（参考 Orca 的 worktree 模型，MIT，按文件移植需保留 NOTICE）；脏目录不复制，只读可见（已有 `dirty-base-visible-read-only` 诊断）；轮次上限改为规格的「默认 3 轮实现→复核，含首次」。
+- **并发边界（G6/R7）**：默认两个 worker 也只能操作各自 worktree；`shared-locked` 必须按写路径交集串行，不能用提高并发绕过锁。命令前后 hash 检测在共享工作区会把其他 worker 的同期越界变化也算作风险并停止 Run，这是保守的 fail-closed 行为，不作作者归因。
+- **M6 放宽门槛**：在 N5095 实测双 worker + 在线语音的 CPU、RSS、首包延迟、停止和授权证据；默认 2 全部通过后，才可由用户决定是否提高设置。设计完成不代表该设置已在代码中实现。
 
 ---
 

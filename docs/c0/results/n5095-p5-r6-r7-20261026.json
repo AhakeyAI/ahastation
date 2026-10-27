@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-26",
+  "device": "N5095 / Windows 11 / Node 22.23.4 / Python 3.10",
+  "evidenceBranch": "docs/n5095-c0-2026-10-26",
+  "runtimeBranch": "fix/runtime-a14-a20",
+  "runtime": {
+    "typecheck": "pass",
+    "build": "pass",
+    "tests": 949,
+    "pass": 943,
+    "fail": 0,
+    "skipped": 6,
+    "targetedAfterFixes": {
+      "tests": 62,
+      "pass": 62,
+      "fail": 0
+    },
+    "paidModelCalls": false
+  },
+  "p6LatestCodex": {
+    "version": "0.164.0",
+    "realInitializeHandshake": "pass",
+    "evidence": "../results/n5095-codex-latest-20261027.json",
+    "accountRead": false,
+    "modelTurn": false,
+    "productionRangeExpanded": false
+  },
+  "p5B04Fixture": {
+    "scenario": "S11",
+    "tests": 20,
+    "pass": 20,
+    "fail": 0,
+    "realNpmTestExecuted": true,
+    "violation": "added: test/approved-command-escape.txt",
+    "realCodexExecuted": false,
+    "rollbackClaimed": false
+  },
+  "r6OnlineVoice": {
+    "offlineTests": 11,
+    "pass": 11,
+    "fail": 0,
+    "dryRun": "../results/n5095-online-voice-dry-run-20261026.json",
+    "dryRunPlannedCalls": 9,
+    "realApiCalls": false,
+    "providers": ["xfyun", "doubao", "azure"],
+    "budgetCny": "100.00",
+    "separateFromClaudeAndCodex": true,
+    "blockedBeforeRealRun": [
+      "Fill xfyun current console unit prices in pricing.json",
+      "Provide fixed 16 kHz mono PCM16 WAV and authorized provider credentials",
+      "Confirm actual Azure USD/CNY rate"
+    ]
+  },
+  "r7ConcurrencyDesign": {
+    "document": "../design/later-gates.md",
+    "defaultWorkers": 2,
+    "settingRange": "1-8",
+    "implementationClaimed": false,
+    "wideningGate": "M6 dual-worker plus online voice measurements"
+  }
+}
