@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-26",
+  "currency": "CNY",
+  "totalBudgetCny": "100.00",
+  "usdCnyRate": "7.20",
+  "usdCnyRateNote": "预算换算假设，不是支付渠道实际汇率；真实执行前按账单汇率更新。",
+  "providers": {
+    "xfyun": {
+      "tts": {
+        "unit": "characters",
+        "unitPriceCny": null,
+        "source": "https://www.xfyun.cn/doc/tts/online_tts/API.html",
+        "note": "公开 API 页只说明每日 500 次免费额度，未给可核算的超出后价格。执行前从当前账号控制台填写；不得把免费额度当作无限零成本。"
+      },
+      "asr": {
+        "unit": "seconds",
+        "unitPriceCny": null,
+        "source": "https://www.xfyun.cn/doc/asr/voicedictation/voicedictation-description.html",
+        "note": "执行前从当前账号控制台填写。"
+      }
+    },
+    "doubao": {
+      "tts": {
+        "unit": "characters",
+        "unitPriceCny": "0.0003",
+        "resourceId": "seed-tts-2.0",
+        "source": "https://www.volcengine.com/docs/DoubaoVoice/Billinginstructions-21",
+        "note": "豆包语音合成模型 2.0 后付费 3 元/万字符。"
+      },
+      "asr": {
+        "unit": "seconds",
+        "unitPriceCny": "0.0002777777777777777777777777778",
+        "resourceId": "volc.seedasr.sauc.duration",
+        "source": "https://www.volcengine.com/docs/DoubaoVoice/Billinginstructions-21",
+        "note": "豆包流式语音识别模型 2.0 后付费 1 元/小时；按秒保守向上取整。"
+      }
+    },
+    "azure": {
+      "tts": {
+        "unit": "characters",
+        "unitPriceUsd": "0.000015",
+        "source": "https://azure.microsoft.com/en-us/pricing/details/speech/",
+        "note": "Standard Neural 后付费 15 USD/百万字符；区域和实际账单可能不同。"
+      },
+      "asr": {
+        "unit": "seconds",
+        "unitPriceUsd": "0.0002777777777777777777777777778",
+        "source": "https://azure.microsoft.com/en-us/pricing/details/speech/",
+        "note": "Standard real-time transcription 1 USD/小时；按秒保守向上取整。短音频 REST 不返回中间结果。"
+      }
+    }
+  }
+}

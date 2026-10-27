@@ -26,10 +26,10 @@
 | P1 | PDF.js 5 → 6.x（PR #53 草稿） | GHSA-hq66-cqwq-w95j（打开恶意 PDF 可执行任意 JS）；主进程解析用户附件 `electron/attachments/parse.ts:147`，只有这一处使用 | Mac / `fix/security-baseline` |
 | P2 | Electron 42 → 45（PR #53 草稿） | 45.0.0 于 2026-10-21 发布，Electron 只维护最新 3 个大版本（43–45）；42.11.18 与 45.0.0 同日发布，大概率是 42 的最后一版。需重建 node-pty 等原生模块并跑 macOS / Windows smoke | Mac / `fix/security-baseline` |
 | P3 | CI Node 22 → 24（PR #53 草稿） | Electron 42 内置 Node 24.19.0，测试却在 22 上跑。已验证：修复分支在 Node 26.12.1 下 937 项、935 通过、0 失败，Node 22 下同样无真实失败 | Mac / `fix/security-baseline` |
-| P4 | 运行时修复开 PR 并合入 | 准入文档 §5 第 1 步；目前只有分支、没有 PR | N5095 / `fix/runtime-a14-a20` |
-| P5 | 命令越界：B04 新场景 + 宿主 hash 比对（G4） | `read-only + on-request` 下获批命令在沙箱外运行，例如允许改 `src/` 加批准 `npm test`，被改的源码可在测试时写 `test/` | N5095 / `fix/runtime-a14-a20` |
-| P6 | Codex 版本门改为已验证区间 + 每周 CI 检查（G8） | F1：固定版本因模型下线失效 | N5095 / `fix/runtime-a14-a20` |
-| P7 | 小修：`electron/asr-polish.ts:55` 写死 `claude-sonnet-5`（改为从模型列表取）；`tests/kimi-adapter.test.mjs:66` 只等 1 秒，全量并发时偶发失败（Mac 复跑 1 次失败、单独 3/3 通过）；`task-budget` 偶发失败 | 与 F3 同类隐患；测试不稳 | N5095 / `fix/runtime-a14-a20` |
+| P4 | 运行时修复开 PR 并合入。**2026-10-27 已开 [PR #54](https://github.com/ShawnyinsGit/ahastation-internal/pull/54)，CI 三平台通过，待用户合入** | 准入文档 §5 第 1 步 | N5095 / `fix/runtime-a14-a20` |
+| P5 | 命令越界：B04 新场景 + 宿主 hash 比对（G4）。**已交付：S11 + fixture 20/20；真实 Codex 运行待做** | `read-only + on-request` 下获批命令在沙箱外运行，例如允许改 `src/` 加批准 `npm test`，被改的源码可在测试时写 `test/` | N5095 / `fix/runtime-a14-a20` |
+| P6 | Codex 版本门改为已验证区间 + 每周 CI 检查（G8）。**已交付：区间 [0.156.1, 0.157.0)，每周工作流只开 PR** | F1：固定版本因模型下线失效 | N5095 / `fix/runtime-a14-a20` |
+| P7 | 小修：`electron/asr-polish.ts:55` 写死 `claude-sonnet-5`（改为从模型列表取）；`tests/kimi-adapter.test.mjs:66` 只等 1 秒，全量并发时偶发失败（Mac 复跑 1 次失败、单独 3/3 通过）；`task-budget` 偶发失败。**已交付：模型改从目录取，两处等待延长到 10 秒；3 秒版本探测未处理** | 与 F3 同类隐患；测试不稳 | N5095 / `fix/runtime-a14-a20` |
 | P8 | 文档治理：C0 README §3–§7 过时；ADR 改号（G7）与统一索引；本文接入阅读顺序。**2026-10-26 已完成** | 与准入文档冲突 | Mac / `docs/c0-handoff-2026-10-22` |
 
 ## 3. 设计对齐（分析协作者进展后细化）
@@ -41,8 +41,8 @@
 | R3 | **2026-10-27 已完成首版**：`design/remote-control.md` §0、`b03-contract` §8、`design/meeting-mode.md` §9a、`plan/` X 卡重估（内部首轮 37–59 人日，公开前追加 19–32）。C0 B03 契约、remote-control、meeting-mode 按 R1 结论修订；X1–X8 人日重估 | 修订稿 | Mac |
 | R4 | **2026-10-27 已完成迁移和首轮更正（`docs/ame/README.md`）；R2 剩余项裁决后再同步一次**。AME 09–13 迁到 `docs/ame/` 并更正：旧基线、准入状态、与 R1/R2 结论对齐（G12） | `docs/ame/` | Mac |
 | R5 | PR #49（Leo Lin）复审：Windows 守护进程测试与打包 smoke 缺失；worker 桥与 A-20 停止语义 | 复审意见，按 G3 顺序合入 | Mac |
-| R6 | A-08 语音三家实测方案与预算器（G5） | benchmark 脚本与预算口径，A-08 开工即用 | N5095 |
-| R7 | 并发名额默认 2（G6）写入 B10 / B21 设计与设置项 | 设计更新 | N5095 |
+| R6 | A-08 语音三家实测方案与预算器（G5）。**已交付：`b05-voice/online/`，离线测试 11/11；真实实测未做** | benchmark 脚本与预算口径，A-08 开工即用 | N5095 |
+| R7 | 并发名额默认 2（G6）写入 B10 / B21 设计与设置项。**设计已写入 `design/later-gates.md`；设置项待实施** | 设计更新 | N5095 |
 
 `etrnal-dev` 的维护者需要知道：评审期间 K01 按一票否决项处理。是否转告由用户决定。
 
