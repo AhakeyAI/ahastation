@@ -30,10 +30,10 @@
 | 0011 | 首版已接任务只在原执行设备恢复 | `etrnal-dev` | 同上 | 2026-10-21 |
 | 0012 | 原生工具审批跨端展示并只接受一次有效答复 | `etrnal-dev` | 同上 | 2026-10-21 |
 | [0013](0013-stable-project-identity.md) | 项目使用稳定 ID，路径只是设备挂载 | C0（原 0001） | 已接受（D8） | 2026-10-23 |
-| [0014](0014-libsodium-for-device-crypto.md) | 设备间加密使用 libsodium，不自创协议 | C0（原 0002） | 已接受；**内容加密部分延期**，见 0017 | 2026-10-23（安全评审 2026-10-25） |
+| [0014](0014-libsodium-for-device-crypto.md) | 设备间加密使用 libsodium，不自创协议 | C0（原 0002） | 已接受；内容加密推迟到公开发布前，见 0017 | 2026-10-23（安全评审 2026-10-25） |
 | [0015](0015-keep-meeting-repository-wrap-envelope.md) | 保留 MeetingRepository，外套事件信封 v2 | C0（原 0003） | 已接受 | 2026-10-23（契约评审 2026-10-25） |
 | [0016](0016-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | C0（原 0004） | 已接受（D14） | 2026-10-23 |
-| [0017](0017-trusted-hub-with-signed-device-messages.md) | 首版跨设备：受信 Hub + 设备签名 | 评审 R2（C01） | 已接受 | 2026-10-27 |
+| [0017](0017-trusted-hub-with-signed-device-messages.md) | 内部验收阶段的跨设备：受信 Hub + 设备签名（公开前补内容加密） | 评审 R2（C01） | 已接受 | 2026-10-27 |
 | [0018](0018-cross-device-executor-uses-ts-adapters.md) | 跨设备执行端复用 TS adapter | 评审 R2（C03–C05） | 已接受 | 2026-10-27 |
 
 0002–0012 的文件目前只在 `etrnal-dev` 分支上（提交 `5f76c3a`），所以表里没有链接，合入后再补。这些 ADR 在该分支内标为 accepted，但按决定 G1，跨设备方案以评审结论为准。
