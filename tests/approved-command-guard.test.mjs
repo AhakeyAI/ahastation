@@ -23,6 +23,12 @@ test('approved command guard permits changes inside authorized write roots', asy
   const root = await fixture(t);
   const guard = new ApprovedCommandGuard({ workspaceRoot: root, writePaths: () => [join(root, 'src')] });
   await guard.before('command-1');
+  const baseline = guard.pending.get('command-1');
+  assert.equal(baseline.files.has('src/app.ts'), false, JSON.stringify({
+    root: baseline.root,
+    authorizedRoots: baseline.authorizedRoots,
+    files: [...baseline.files.keys()],
+  }));
   await writeFile(join(root, 'src', 'app.ts'), 'after\n');
   await writeFile(join(root, 'src', 'new.ts'), 'new\n');
   await guard.after('command-1');
