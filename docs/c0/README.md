@@ -47,7 +47,7 @@
 | `research/upstream-2026-10-22.md` | Orca、Paseo、Multica 的版本与许可复核 |
 | `evidence/`、`results/` | B01 基线证据、N5095 语音和回声结果、双 provider 并发资源样本 |
 | `run-n5095.ps1` | N5095 上的语音基准与 Windows 基线脚本 |
-| `../adr/README.md` | **统一 ADR 索引**。C0 的 ADR 是 0013–0016；main 是 0001；`etrnal-dev` 是 0002–0012；新 ADR 从 0017 起编号 |
+| `../adr/README.md` | **统一 ADR 索引**。C0 的 ADR 是 0013–0016；main 是 0001；`etrnal-dev` 是 0002–0012；评审裁决的 0017–0018 已用，新 ADR 从 0019 起编号 |
 
 ## 4. 代码基线
 
