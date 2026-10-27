@@ -199,3 +199,8 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 | 跨设备依赖外部协作者（`etrnal-dev`） | X0 未完成时 X1 起的卡都不能开工 | 中 | A-12、X12 不依赖 X0，可以先做；X0 的范围已写在给作者的评论里 |
 | 公开前要把 Hub 改为只见密文（X10，XL） | 公开发布推迟 | 高 | 内部首轮先用受信 Hub + 签名（ADR 0017）；X10 尽早排期，签名链与 A-12 复用 |
 | 单人 + Agent 协作时并行度有限 | 进度 | 中 | 按 §2 并行分组拆，避免同一文件多人改 |
+| Codex 版本门与残留的写死版本不一致（DECISIONS P9） | 真实冒烟必然失败；补丁版本被 Worker 门误拒 | 已确认 | PR #54 合入前按 P9 修 |
+| 板端目标 Debian 11 已停止安全更新（安全源已迁到 `archive.debian.org`） | 板子不再有安全补丁；CI 要改走 archive 镜像（PR #53 已改） | 已确认 | B39 决定板端是否换 Debian 12；在那之前 CI 继续用 archive |
+| Codex 自带的 `zsh` 要求 GLIBC_2.34，板端只有 2.31 | 板上的 Codex 执行命令可能失败；产物检查只把它记为非致命警告 | 中 | PR #53 rebase 到 Codex 0.156.1 后，在板上实测 Codex 跑命令；不行就让 Codex 改用系统 shell，或板端不启用 Codex |
+| GitHub Actions 存储额度已满（账号级，本仓库没有占用） | 手动构建和打 tag 发版都会在上传产物时失败 | 已确认 | 在账号层面清理旧 artifact 或调整额度；发版前先查 |
+| 测试替身把所有 userData 指向 `/tmp`（P9 ⑥） | 并发跑测试偶发失败 | 已确认 | 每个进程一个临时目录 |

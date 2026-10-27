@@ -30,6 +30,7 @@
 - 统一事件：`run.started / tool / permission-requested / usage / delivery / ended(reason)`。
 - 「能力不足明确拒绝」：每个 backend 声明 `capabilities`（interrupt、resume、permission-bridge、usage、sandbox），派工前检查；缺失就拒绝派工并告诉用户缺什么，不降级执行。
 - 事件关联同一 Run：所有事件带 `runId + attempt + backendSessionId`。
+- **模型来源（G13）**：每个 backend 只接自家模型，不提供 Base URL 或兼容接口配置，也不做协议桥接。要用新的服务商，就接它自己的 harness，作为新的 backend。
 - **并发设置（G6/R7）**：每设备持久化 `worker.maxConcurrentWorkers`，N5095 默认 **2**，允许设置 1–8；只影响新派发，重启后恢复同一值，不擅自放宽。等待用户批准的 worker 按现有规则暂时让出名额，批准后的短暂 soft overrun 仍由 fail-closed 超时兜底。Host / Talker 不占 worker 名额。
 - 调整并发只改变调度容量，不扩大任务 Grant、预算或自动批准范围；额度预留仍按实际 in-flight attempt 计算。
 
