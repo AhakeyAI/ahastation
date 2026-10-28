@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "at": "2026-10-27",
-  "source": "etrnal-dev@295e1ba",
+  "source": "etrnal-dev@046114f (rechecked after latest updates; original reproduction was 295e1ba)",
   "isolated": true,
   "publicHub": false,
   "paidModelCalls": false,
