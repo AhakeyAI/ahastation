@@ -35,12 +35,7 @@ export function RealTerminal({ workerId }: RealTerminalProps) {
     setExited(false);
     setError(null);
 
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      scrollback: 5000,
-    });
+    const term = new Terminal({ cursorBlink: true, scrollback: 5000 });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);

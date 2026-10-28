@@ -1814,7 +1814,9 @@ html.popout-view #root {
   border: 1px solid var(--border-soft, #2a2b2e);
   border-radius: 8px;
   padding: 4px;
-  min-width: 140px;
+  min-width: 240px;
+  max-height: min(520px, 70vh);
+  overflow-y: auto;
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
@@ -1836,6 +1838,30 @@ html.popout-view #root {
 .stage-tab-menu-item:hover {
   background: var(--bg-glass, rgba(255,255,255,0.08));
 }
+
+.stage-tab-menu-section {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 4px;
+  padding: 10px 10px 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.stage-tab-menu-hint { padding: 10px; max-width: 300px; font-size: 12px; color: var(--text-secondary); }
+.stage-tab-menu-item small { margin-left: auto; color: var(--text-secondary); font-size: 11px; }
+.stage-tab-menu-item:focus-visible { outline: 2px solid var(--accent, #5686ed); outline-offset: -2px; }
+.lobby-local-terminal { margin-top: 14px; }
+.shell-terminal-error, .real-terminal-error { padding: 9px 12px; margin-bottom: 10px; background: #fff1f0; color: #b42318; border: 1px solid #ffd3cf; border-radius: 6px; font-size: 12px; }
+.shell-terminal .xterm, .real-terminal .xterm { height: 100%; }
+.terminal-session-surface { height: 100%; width: 100%; overflow: hidden; }
+.stage-tab-status { flex-shrink: 0; font-size: 10px; color: #667085; }
+.stage-tab-status.is-running { color: #15803d; }
+.stage-tab-status.is-error { color: #b42318; }
+.stage-tab-search { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #98a2b3; border-radius: 5px; background: transparent; color: inherit; }
+.stage-tab-menu { max-height: min(65vh, 520px); overflow-y: auto; }
+.local-terminal-font { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.local-terminal-font select { padding: 3px; color: #344054; background: white; border: 1px solid #d0d5dd; border-radius: 4px; }
+.local-terminal-footer { flex-wrap: wrap; }
+.local-terminal-body .shell-terminal > [role="status"] { padding: 8px 12px; color: #667085; }
 
 .stage-terminal-content {
   width: 100%;
