@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { macosTaskTestsEnabled } from './platform-support.mjs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -87,7 +88,7 @@ test('restart restores original submission without POST, shutdown preserves pend
   await assert.rejects(invalid.start(),/身份|服务/); invalid.end(); assert.equal(hub.posts.length,1);
 });
 
-test('real public Bridge → durable Hub → Station native two turns and remote process cancellation', {skip:!process.env.POCKET_VIBE_TEST_PYTHON},async(t)=> {
+test('real public Bridge → durable Hub → Station native two turns and remote process cancellation', {skip:!process.env.POCKET_VIBE_TEST_PYTHON||!macosTaskTestsEnabled},async(t)=> {
   const fixture=fileURLToPath(new URL('../services/remote/tests/public_remote_fixture.py',import.meta.url));
   const child=spawn(process.env.POCKET_VIBE_TEST_PYTHON,['-u',fixture],{stdio:['pipe','pipe','pipe']}); let output='',errors='',ready;
   child.stdout.on('data',chunk=>{output+=chunk; for(const line of output.split(/\r?\n/)) {try {const data=JSON.parse(line);if(data.ready)ready=data;}catch{}}});

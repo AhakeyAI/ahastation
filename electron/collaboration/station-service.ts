@@ -609,6 +609,7 @@ export class StationService {
     // Mark starting BEFORE invoking an Agent. Restart never blindly replays it.
     await this.taskReceipt(task,{status:alreadyRunning?'running':'starting',cwd,...(!attach?{executionInvoked:false}:{}),executorPid:process.pid});
     if(task.resource!=='native'||alreadyRunning) this.slots.add(key);
+    this.active.set(key,handle);
     void (async()=>{
       try {
         if(task.resource!=='native') await this.taskEvent(task,'running');

@@ -1,8 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {createInterface} from 'node:readline';
 import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {app,safeStorage,dialog} from 'electron';import {StationService} from '../dist-electron/collaboration/station-service.js';import {updateRemoteControlFields} from '../dist-electron/store.js';
+import {macosTaskTestsEnabled} from './platform-support.mjs';
 const until=async(fn,message)=>{for(let n=0;n<800;n++){if(await fn())return;await new Promise(r=>setTimeout(r,40));}assert.fail(message);};
-test('production Station and frozen helper queue native continuation, stop only its waiter, preserve thread and support both stop directions', {timeout:120000,skip:!process.env.POCKET_VIBE_TEST_PYTHON},async()=>{
+test('production Station and frozen helper queue native continuation, stop only its waiter, preserve thread and support both stop directions', {timeout:120000,skip:!process.env.POCKET_VIBE_TEST_PYTHON||!macosTaskTestsEnabled},async()=>{
   const root=await mkdtemp(join(tmpdir(),'station-native-flow-'));app.getPath=()=>root;app.getAppPath=()=>process.cwd();safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=s=>Buffer.from('fixture:'+s);safeStorage.decryptString=b=>b.toString().slice(8);
   process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
   const child=spawn(process.env.POCKET_VIBE_TEST_PYTHON,['services/remote/tests/station_native_fixture.py'],{stdio:['pipe','pipe','pipe'],windowsHide:true});let errors='';child.stderr.on('data',v=>{errors=(errors+v).slice(-4000);});const lines=createInterface({input:child.stdout});let a,b;

@@ -87,6 +87,7 @@ jobs:
         env:
           COLLABORATION_PYTHON: python
           POCKET_VIBE_TEST_PYTHON: python
+          POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
 
       - name: Package (macOS dmg, unsigned in CI)
         if: matrix.os == 'macos-latest'

@@ -23,7 +23,7 @@ async def main():
             if command!='restart':break
             port=fixture.socket.getsockname()[1];fixture.server.should_exit=True
             await asyncio.wait_for(fixture.serving,15);fixture.socket.close()
-            fixture.socket=socket.socket();fixture.socket.bind(('127.0.0.1',port))
+            fixture.socket=socket.socket();fixture.socket.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);fixture.socket.bind(('127.0.0.1',port))
             url=fixture.engine.url;fixture.engine.dispose();fixture.engine=create_engine(url);fixture.store=HubStore(fixture.engine,'test-only-collaboration-secret-at-least-32');fixture.store.ready()
             fixture.app=create_app(fixture.store)
             fixture.server=uvicorn.Server(uvicorn.Config(fixture.app,log_level='critical',lifespan='on'))

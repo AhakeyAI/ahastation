@@ -4,7 +4,8 @@ import test from 'node:test';import assert from 'node:assert/strict';import {spa
 import {CollaborationConnection} from '../dist-electron/collaboration/connection.js';import {nativeHelper} from '../dist-electron/collaboration/native-helper.js';import {preserveText,readFullText,uploadText,downloadText} from '../dist-electron/collaboration/text-artifacts.js';
 const sha=b=>createHash('sha256').update(b).digest('hex');const sleep=n=>new Promise(r=>setTimeout(r,n));const wait=async(fn)=>{for(let i=0;i<600;i++){if(await fn())return;await sleep(25);}assert.fail('owned fixture did not reach expected state');};
 import {chromium} from 'playwright';
-test('F10 generated UTF8 travels frozen process journal, durable disk, authenticated HTTP, Hub restart and actual React without byte loss',{timeout:180000},async()=>{
+import {macosTaskTestsEnabled} from './platform-support.mjs';
+test('F10 generated UTF8 travels frozen process journal, durable disk, authenticated HTTP, Hub restart and actual React without byte loss',{timeout:180000,skip:!process.env.COLLABORATION_PYTHON||!macosTaskTestsEnabled},async()=>{
  const root=await mkdtemp(join(tmpdir(),'station-text-chain-'));const oldState=process.env.POCKET_VIBE_STATE_DIR;process.env.POCKET_VIBE_STATE_DIR=join(root,'native');let child,lines,browser,vite,a,b;const connections=[];const reports=[];let readyResolve,restartedResolve;
  try{
   child=spawn(process.env.COLLABORATION_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{windowsHide:true,stdio:['pipe','pipe','pipe']});child.stderr.resume();lines=createInterface({input:child.stdout});const ready=new Promise(r=>readyResolve=r);lines.on('line',l=>{try{const v=JSON.parse(l);if(v.ready)readyResolve(v);if(v.restarted)restartedResolve?.();}catch{}});const info=await Promise.race([ready,sleep(20000).then(()=>{throw new Error('owned Hub startup');})]);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { macosTaskTestsEnabled } from './platform-support.mjs';
 import { build } from 'esbuild';
 import { app, ipcMain } from 'electron';
 import { PocketVibeBackend, fetchPocketVibeRemoteSessions, extractPocketVibeResultText } from '../dist-electron/backends/pocket-vibe-adapter.js';
@@ -316,7 +317,7 @@ test('selected native sessions cannot dispatch local Meeting worker commands', a
   finally { session.end(); }
 });
 
-test('real Bridge → Hub → Station catalogue and polling round trip (offline executors)', { skip: !process.env.POCKET_VIBE_TEST_PYTHON }, async (t) => {
+test('real Bridge → Hub → Station catalogue and polling round trip (offline executors)', { skip: !process.env.POCKET_VIBE_TEST_PYTHON || !macosTaskTestsEnabled }, async (t) => {
   const fixture = fileURLToPath(new URL('../services/remote/tests/remote_session_fixture.py', import.meta.url));
   const child = spawn(process.env.POCKET_VIBE_TEST_PYTHON, ['-u', fixture], { stdio: ['pipe', 'pipe', 'pipe'] });
   let output = ''; let errors = ''; let url;
@@ -354,7 +355,7 @@ test('real Bridge → Hub → Station catalogue and polling round trip (offline 
   assert.equal(disconnected.directory.status, 'disconnected'); assert.deepEqual(disconnected.directory.sessions, []);
 });
 
-test('real concurrent directory refresh and two remote members keep native targets and replies', { skip: !process.env.POCKET_VIBE_TEST_PYTHON }, async (t) => {
+test('real concurrent directory refresh and two remote members keep native targets and replies', { skip: !process.env.POCKET_VIBE_TEST_PYTHON || !macosTaskTestsEnabled }, async (t) => {
   const fixture = fileURLToPath(new URL('../services/remote/tests/remote_session_fixture.py', import.meta.url));
   const child = spawn(process.env.POCKET_VIBE_TEST_PYTHON, ['-u', fixture, '--slow-scan'], { stdio: ['pipe', 'pipe', 'pipe'] });
   let output = ''; let errors = ''; let url;

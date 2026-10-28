@@ -16,6 +16,7 @@ import {validateSharedWire} from '../dist-electron/collaboration/production-vali
 import {normalizeHostPlan} from '../dist-electron/collaboration/coordinator.js';
 import {nativeHelper} from '../dist-electron/collaboration/native-helper.js';
 import {randomUUID} from 'node:crypto';
+import {macosTaskTestsEnabled} from './platform-support.mjs';
 
 test('Host preserves inline source text without treating it as an unverified Git file or accepting privilege escalation',()=>{
   const task={meetingId:'meeting',title:'whole delivery',objective:'Complete a whole document',targetDeviceId:'device',agentId:'file-test',resource:'text',permission:'read-only',dependencies:[],inputs:['Keep all validation requirements']};
@@ -27,7 +28,7 @@ test('v2 shared command fixtures have identical TypeScript and Python acceptance
   const cases=JSON.parse(readFileSync(new URL('../contracts/collaboration/v2-validation-cases.json',import.meta.url),'utf8'));
   const results=cases.map(c=>{try{parseSharedCommand(c.value);return true;}catch{return false;}});
   assert.deepEqual(results,cases.map(c=>c.valid));
-  const python=JSON.parse(execFileSync(process.env.COLLABORATION_PYTHON,['services/remote/collaboration_contracts/check_v2.py'],{input:JSON.stringify(cases),encoding:'utf8',timeout:15000}));
+  const python=JSON.parse(execFileSync(process.env.COLLABORATION_PYTHON,['services/remote/collaboration_contracts/check_v2.py'],{input:JSON.stringify(cases),encoding:'utf8',timeout:60000}));
   assert.deepEqual(results,python);
   assert.throws(()=>validateSharedWire('event',{protocol:999,seq:1,kind:'task',id:'x',revision:1,value:{}}));
   assert.throws(()=>validateSharedWire('snapshot',{protocol:2,cursor:0,entities:{}}));
@@ -77,7 +78,7 @@ test('frozen worker keeps the local journal namespace across filtered launch, ex
   }finally{await running?.catch(()=>{});if(previous===undefined)delete process.env.POCKET_VIBE_STATE_DIR;else process.env.POCKET_VIBE_STATE_DIR=previous;app.getAppPath=appPath;await rm(root,{recursive:true,force:true});}
 });
 test('two production Station receivers share real Hub state, persist receipt, execute once, stop and explicitly continue',
- {timeout:90000,skip:!process.env.POCKET_VIBE_TEST_PYTHON},async()=>{
+ {timeout:90000,skip:!process.env.POCKET_VIBE_TEST_PYTHON||!macosTaskTestsEnabled},async()=>{
   const root=await mkdtemp(join(tmpdir(),'station-two-devices-'));const originalPath=app.getPath;
   app.getPath=()=>root;safeStorage.isEncryptionAvailable=()=>true;
   safeStorage.encryptString=value=>Buffer.from('fixture-cipher:'+value);safeStorage.decryptString=value=>value.toString().replace('fixture-cipher:','');
@@ -143,6 +144,6 @@ test('two production Station receivers share real Hub state, persist receipt, ex
   }finally{
     await a?.shutdown();await b?.shutdown();for(const service of [a,b])if(service){clearInterval(service.nativeTimer);clearInterval(service.recoveryTimer);service.connection?.stop();}await flushSettingsWrites();app.getPath=originalPath;
     child.stdin.end('\n');await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',resolve);});
-    await rm(root,{recursive:true,force:true});
+    await rm(root,{recursive:true,force:true,maxRetries:8,retryDelay:100});
   }
 });

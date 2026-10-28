@@ -34,7 +34,7 @@ class StationCollaborationTest(unittest.IsolatedAsyncioTestCase):
         self.store=HubStore(self.engine,'test-only-collaboration-secret-at-least-32'); self.store.migrate()
         self.account=self.store.identity('station-test','test-password-123',register=True)
         self.other=self.store.identity('other-test','test-password-123',register=True)
-        self.app=create_app(self.store); self.socket=socket.socket(); self.socket.bind(('127.0.0.1',0))
+        self.app=create_app(self.store); self.socket=socket.socket(); self.socket.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); self.socket.bind(('127.0.0.1',0))
         self.url=f'http://127.0.0.1:{self.socket.getsockname()[1]}'
         self.server=uvicorn.Server(uvicorn.Config(self.app,log_level='critical',lifespan='on'))
         self.serving=asyncio.create_task(self.server.serve(sockets=[self.socket]))
