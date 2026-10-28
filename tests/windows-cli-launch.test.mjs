@@ -9,7 +9,7 @@ import { resolveBinaryFromPath } from '../dist-electron/backends/subprocess-back
 
 const execute = promisify(execFile);
 
-test('Windows npm launcher resolves past the Unix shim and preserves PTY arguments', {
+for (const codepage of [437, 65001]) test(`Windows npm launcher preserves PTY arguments with code page ${codepage}`, {
   skip: process.platform !== 'win32',
   timeout: 15_000,
 }, async (t) => {
@@ -21,7 +21,8 @@ test('Windows npm launcher resolves past the Unix shim and preserves PTY argumen
   const result = join(root, 'argv.json');
   await writeFile(join(root, name), '#!/bin/sh\nexit 1\n');
   await writeFile(capture, `require('node:fs').writeFileSync(process.env.AHA_TEST_ARGV, JSON.stringify(process.argv.slice(2)));`);
-  await writeFile(launcher, `@echo off\r\n"${process.execPath}" "${capture}" %*\r\n`);
+  // Keep the shim ASCII-only; cmd decodes batch literals using its code page.
+  await writeFile(launcher, `@echo off\r\nchcp ${codepage} >nul\r\n"%AHA_TEST_NODE%" "%~dp0capture.cjs" %*\r\n`);
   const previousPath = process.env.PATH;
   process.env.PATH = `${root};${previousPath ?? ''}`;
   t.after(async () => {
@@ -48,8 +49,11 @@ test('Windows npm launcher resolves past the Unix shim and preserves PTY argumen
   await writeFile(runner, source);
   const loader = `data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));`;
   await execute(process.execPath, ['--import', loader, runner], {
-    env: { ...process.env, AHA_TEST_BINARY: binary, AHA_TEST_ARGS: JSON.stringify(args), AHA_TEST_CWD: root, AHA_TEST_ARGV: result },
+    env: { ...process.env, AHA_TEST_NODE: process.execPath, AHA_TEST_BINARY: binary, AHA_TEST_ARGS: JSON.stringify(args), AHA_TEST_CWD: root, AHA_TEST_ARGV: result },
     windowsHide: true, timeout: 10_000,
+  }).catch(error => {
+    error.message += `\nPTY stdout:\n${error.stdout ?? ''}\nChild stderr:\n${error.stderr ?? ''}`;
+    throw error;
   });
   assert.deepEqual(JSON.parse(await readFile(result, 'utf8')), args);
 });

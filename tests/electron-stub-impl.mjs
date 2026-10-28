@@ -1,9 +1,22 @@
 // Minimal stub of the parts of `electron` that the orchestrator's transitive
-// imports touch at module load time. The test never reaches code that calls
-// these — they exist only so `import { app } from 'electron'` resolves.
+// imports touch at module load time. Tests that write settings receive an
+// isolated userData directory rather than racing on a shared /tmp/settings.
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+let userData;
+function testUserData() {
+  if (!userData) {
+    userData = mkdtempSync(join(tmpdir(), 'aha-test-userdata-'));
+    process.once('exit', () => rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  }
+  return userData;
+}
 
 export const app = {
-  getPath: () => '/tmp',
+  getPath: name => name === 'userData' ? testUserData() : '/tmp',
   isPackaged: false,
 };
 export const ipcMain = { handle: () => {}, on: () => {} };
