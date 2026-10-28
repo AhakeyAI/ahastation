@@ -206,9 +206,11 @@ def launch_task(spec, emit, *, probe=False):
     label = f"org.pocket-vibe.task.{token}"
     context = {"label": label, "service": f"user/{os.getuid()}/{label}", "folder": str(folder),
                "parent_coalition": api.coalition(os.getpid())}
-    script = Path(__file__) if probe else Path(__file__).with_name("task_process.py")
+    worker = not probe and spec.get("operation") in ("worker-run", "worker-check")
+    script = Path(__file__) if probe else Path(__file__).with_name("station_native.py" if worker else "task_process.py")
     from runtime_entry import python_command
-    arguments = python_command(script)+["--macos-job", str(folder / "context.json")]
+    mode = "--macos-guardian" if worker else "--macos-job"
+    arguments = python_command(script)+[mode, str(folder / "context.json")]
     for name, content in (("input.json", spec), ("context.json", context)):
         path = folder / name; path.write_text(json.dumps(content), encoding="utf-8"); path.chmod(0o600)
     job = {"Label": label, "ProgramArguments": arguments, "RunAtLoad": True, "LaunchOnlyOnce": True,
@@ -268,7 +270,7 @@ def launch_task(spec, emit, *, probe=False):
                         before = stream.tell(); line = stream.readline()
                         if not line.endswith(b"\n"): stream.seek(before); break
                         frame = json.loads(line)
-                        if frame.get("type") == "result": result = frame["result"]
+                        if frame.get("type") == "result": result = frame.get("result", frame.get("value"))
                         elif frame.get("type") == "probe": result = frame; confirmed = True
                         else: emit(frame)
                     offset = stream.tell()

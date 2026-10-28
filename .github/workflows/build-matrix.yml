@@ -84,6 +84,9 @@ jobs:
 
       - name: Test suite
         run: npm test
+        env:
+          COLLABORATION_PYTHON: python
+          POCKET_VIBE_TEST_PYTHON: python
 
       - name: Package (macOS dmg, unsigned in CI)
         if: matrix.os == 'macos-latest'

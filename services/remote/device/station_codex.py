@@ -23,7 +23,7 @@ class CodexRpcError(RuntimeError):
         super().__init__(f"Codex RPC {diagnostic['method']} [{diagnostic['code']}]: {diagnostic['message']} (stage={diagnostic['stage']}, thread={diagnostic.get('threadId')}, turn={diagnostic.get('turnId')})")
 
 class Guardian:
-    def __init__(self,request,emit):
+    def __init__(self,request,emit,task_tree=None):
         self.request=request;self.emit=emit;self.journal=TaskJournal(str(uuid.UUID(request['executionId'])),'codex')
         self.messages=queue.Queue(maxsize=2048);self.sequence=0;self.replies={};self.thread=None;self.turn=None
         self.summary='';self.delta='';self.approvals={};self.complete=False;self.interrupted=False;self.failed=False
@@ -31,6 +31,7 @@ class Guardian:
         self.stderr=''
         self.native_error='';self.model=None
         self.stop_sent_at=None;self.final_messages=[];self.final_message=None;self.stage='preparation';self.pending_turn_messages=[]
+        self.task_tree=task_tree
     def redact(self,text):
         for key,secret in os.environ.items():
             if len(secret)>8 and re.search('TOKEN|KEY|SECRET|PASSWORD',key,re.I):text=text.replace(secret,'[redacted]')
@@ -129,6 +130,8 @@ class Guardian:
                 self.job=WindowsJob();self.owned={'version':2,'status':'running','phase':'prepared','containment':'windows-job-list','job':self.job.name,'owner':windows_identity(os.getpid())[0]}
             elif sys.platform.startswith('linux'):
                 self.tree=LinuxTaskTree();self.owned={'version':2,'status':'running','phase':'prepared','containment':'linux-subreaper','owner':self.tree.owner,'tracked':[]}
+            elif sys.platform=='darwin' and self.task_tree is not None:
+                self.tree=self.task_tree;self.owned=self.tree.record()
             else:raise RuntimeError('This guardian platform requires native containment integration before execution')
             write_json(self.journal.path/'containment.json',self.owned)
             spawn=self.job.spawn if self.job else subprocess.Popen

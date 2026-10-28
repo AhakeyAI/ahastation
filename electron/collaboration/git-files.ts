@@ -18,7 +18,7 @@ export async function previewGitFile(root:string,commit:string,file:string):Prom
 export interface GitFileReference {repository:string;commit:string;paths:string[]}
 export interface FilePublication extends GitFileReference {cwd:string;branch:string}
 export function safeRelative(file:string):string {
-  if(!file||file.includes('\0')||isAbsolute(file)||file.split(/[\\/]/).some(p=>!p||p==='..'||p==='.'||p.toLowerCase()==='.git')) throw new Error('文件引用必须是安全的仓库内相对路径');
+  if(!file||file.includes('\0')||isAbsolute(file)||/^[a-z]:[\\/]/i.test(file)||file.split(/[\\/]/).some(p=>!p||p==='..'||p==='.'||p.toLowerCase()==='.git')) throw new Error('文件引用必须是安全的仓库内相对路径');
   return file.replaceAll('\\','/');
 }
 export async function publishFiles(root:string,workspaceRoot:string,selected:string[],baseCommit:string,prepared?:(publication:FilePublication)=>Promise<void>,authorize?:()=>Promise<void>):Promise<GitFileReference> {
@@ -54,9 +54,10 @@ export async function pushPublication(publication:FilePublication,write=(args:st
 }
 export async function materializeFiles(root:string,ref:GitFileReference,destination:string,authorizedRoot=dirname(destination)):Promise<string[]> {
   if(normalizeGithubRepository(await git(root,['remote','get-url','origin'])).canonicalUrl!==ref.repository||!/^[a-f0-9]{40}$/.test(ref.commit))throw new Error('文件资料仓库或准确版本不匹配');
+  const requested=resolve(destination),authorized=resolve(authorizedRoot),relativeDestination=relative(authorized,requested);
   const base=await realpath(authorizedRoot);await mkdir(destination,{recursive:true});const actual=await realpath(destination);
   const within=(parent:string,child:string)=>{const r=relative(parent,child);return !isAbsolute(r)&&r!=='..'&&!r.startsWith('..'+sep);};
-  const expected=resolve(destination);if(!within(base,actual)||(process.platform==='win32'?actual.toLowerCase()!==expected.toLowerCase():actual!==expected))throw new Error('输入目录存在越界或符号链接，已保留内容等待核对');
+  const expected=resolve(base,relativeDestination);if(!within(base,actual)||(process.platform==='win32'?actual.toLowerCase()!==expected.toLowerCase():actual!==expected))throw new Error('输入目录存在越界或符号链接，已保留内容等待核对');
   await git(root,['fetch','origin',ref.commit]);const written:string[]=[];
   for(const raw of ref.paths) {
     const file=safeRelative(raw);const entry=await git(root,['ls-tree',ref.commit,'--',file]);

@@ -27,7 +27,7 @@ def config_for(grants):
     return {'project_policy':{'confirmed':bool(roots),'roots':roots},
         'desktop_permission':'full-access' if full else 'workspace-write' if writable else 'read-only', 'full_access_confirmed':full}
 
-async def execute(request):
+async def execute(request,macos_tree=None):
     operation=request['operation']; config=config_for(request.get('grants',[]))
     if operation=='self-test': return {'ok':True,'protocol':2,'frozen':bool(getattr(sys,'frozen',False))}
     if operation=='detect':
@@ -46,7 +46,7 @@ async def execute(request):
         return {'installed':installed,'authenticated':authenticated,'linked':linked}
     if operation.startswith('worker-'):
         from station_codex import Guardian,inspect
-        if operation in ('worker-run','worker-check'):return await asyncio.to_thread(Guardian(request,emit).run)
+        if operation in ('worker-run','worker-check'):return await asyncio.to_thread(Guardian(request,emit,macos_tree).run)
         if operation=='worker-inspect':return inspect(request)
         journal=TaskJournal(str(uuid.UUID(request['executionId'])),'codex')
         if operation=='worker-approval':
@@ -190,7 +190,12 @@ def main():
         if name not in ('codex_shared_service','task_process','idle_probe','macos_task'): raise ValueError('Unknown component')
         sys.argv=[name]+sys.argv[sys.argv.index('--component')+2:];runpy.run_module(name,run_name='__main__');return
     try:
-        request=json.loads(sys.stdin.readline(262145));result=asyncio.run(execute(request));emit({'type':'result','value':result})
+        macos_tree=None
+        if len(sys.argv)==3 and sys.argv[1]=='--macos-guardian':
+            from macos_task import enter_job
+            _,macos_tree=enter_job(sys.argv[2])
+        request=json.loads(sys.stdin.readline(262145));result=asyncio.run(execute(request,macos_tree))
+        emit({'type':'result','result':result} if macos_tree is not None else {'type':'result','value':result})
     except Exception as error: emit({'type':'error','message':str(error)[:1000]});sys.exit(1)
 
 if __name__=='__main__': main()

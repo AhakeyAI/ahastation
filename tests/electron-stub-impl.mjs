@@ -18,7 +18,12 @@ export const clipboard = { writeText: () => {} };
 export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
-export const safeStorage = { encryptString: () => Buffer.alloc(0), decryptString: () => '' };
+export const safeStorage = {
+  isEncryptionAvailable: () => true,
+  getSelectedStorageBackend: () => 'gnome_libsecret',
+  encryptString: (value) => Buffer.from(`test-encrypted:${value}`),
+  decryptString: (value) => value.toString().replace('test-encrypted:', ''),
+};
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };
 export const webContents = { fromId: () => null, getAllWebContents: () => [] };
