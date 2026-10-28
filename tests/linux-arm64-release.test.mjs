@@ -60,7 +60,7 @@ test('board gate checks packaged runtimes; Kimi and strict versions are opt-in',
   assert.match(gate, /AHASTATION_GATE_STRICT/);
   assert.match(gate, /AHASTATION_GATE_REQUIRE_KIMI/);
   assert.match(versions, /CLAUDE_VERSION=2\.1\.150/);
-  assert.match(versions, /CODEX_VERSION=0\.144\.1/);
+  assert.match(versions, /CODEX_VERSION=0\.156\.1/);
   assert.match(versions, /OPENCODE_VERSION=1\.18\.3/);
   assert.match(versions, /KIMI_VERSION=0\.24\.1/);
 });

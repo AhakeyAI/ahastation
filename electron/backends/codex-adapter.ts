@@ -1436,7 +1436,7 @@ export class CodexBackend implements CliBackend {
     try {
       const run = this.deps.execFile ?? ((file: string, args: string[]) =>
         execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000 }));
-      // Codex 0.144.x writes both success and failure status messages to stderr.
+      // Codex CLI writes both success and failure status messages to stderr.
       // execFileSync returns stdout only, so the command's exit status is the
       // stable machine-readable contract: zero means authenticated; non-zero
       // throws and is handled below.
@@ -1487,11 +1487,7 @@ export class CodexBackend implements CliBackend {
  * loaded from app.asar, but child_process.spawn cannot execute an ASAR virtual
  * path. electron-builder unpacks the native platform package, so prefer that
  * real path and pass it to the SDK via codexPathOverride.
- *
- * PIN NOTE: the bundled 0.144.x is deliberate — codex 0.145 removed
- * wire_api="chat" (Responses API only), and third-party endpoints that only
- * speak chat/completions (Kimi/Moonshot) need the chat wire API. Do not
- * upgrade the bundled codex past 0.144.x until a protocol bridge exists. */
+ */
 export function resolveCodexRuntime(resourcesPath = process.resourcesPath): string | null {
   const platformPackage = process.platform === 'darwin'
     ? `codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`

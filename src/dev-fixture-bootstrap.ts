@@ -64,7 +64,7 @@ function installFixture(fixture: string): void {
   const backends = [
     backend('claude-code', 'Claude Code', 'claude', '2.1.150', true),
     backend('opencode', 'OpenCode', 'opencode', '1.18.3'),
-    backend('codex', 'Codex', 'codex', '0.144.1'),
+    backend('codex', 'Codex', 'codex', '0.156.1'),
     backend('kimi', 'Kimi Code', 'kimi', '0.24.1'),
   ];
   const ok = async () => ({ ok: true });
