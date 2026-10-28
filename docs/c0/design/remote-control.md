@@ -4,6 +4,8 @@
 
 ## 0. R3 修订（2026-10-27）：改以 `etrnal-dev` 为实现基础
 
+> **2026-10-28 更正**：执行端改走原生 CLI，由终端线负责，Station 只做编排；远端会话可以经 Hub 实时只读查看。下面 0.3「执行端（C03、ADR 0018）」和 0.4 的 X1 以 [ADR 0019](../../adr/0019-native-cli-workers-with-host-hooks.md) 与 [变更说明](native-cli-worker.md) 为准。
+
 依据：
 - R1 评审 `../review-etrnal-dev/README.md`；
 - R2 冲突表与全部裁决 `../review-etrnal-dev/CONFLICTS.md`；
