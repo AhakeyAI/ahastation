@@ -13,6 +13,14 @@ import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
 import { getBackendRegistry, resetBackendRegistry } from '../dist-electron/backends/registry.js';
 import { testMeetingsPath } from './electron-stub-impl.mjs';
 
+async function waitForEvent(predicate, message) {
+  const deadline = Date.now() + 10_000;
+  while (!predicate()) {
+    if (Date.now() > deadline) assert.fail(message);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function fakeSessionFactory() {
   return {
     async start() {}, end() {}, sendUserText() {}, sendUserContent() {},
@@ -736,23 +744,22 @@ test('terminal hosts use the renderer session scope and normalize process failur
       kind: 'worker-signal',
       signal: { kind: 'failed', code: 'runtime-crash', message: 'qoder crashed', retryable: true },
     });
-    // safeEmit appends to the journal before the emit callback fires;
-    // let the async append settle before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.ok(events.some((item) => (
+    await waitForEvent(() => events.some((item) => (
       item.hostId === 'qoder'
       && item.event.kind === 'error'
       && item.event.error === 'qoder crashed'
     )), 'error event for terminal failure');
-    assert.ok(events.some((item) => (
+    await waitForEvent(() => events.some((item) => (
       item.hostId === 'qoder'
       && item.event.kind === 'turn-status'
       && item.event.status === 'completed'
-    )));
+    )), 'turn-status completed event');
 
     terminalEmit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.ok(events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'), 'ended event');
+    await waitForEvent(
+      () => events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'),
+      'ended event',
+    );
   } finally {
     await orchestrator.end();
     await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
