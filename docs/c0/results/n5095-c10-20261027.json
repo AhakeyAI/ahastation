@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-27",
+  "source": "etrnal-dev@295e1ba",
+  "isolated": true,
+  "publicHub": false,
+  "paidModelCalls": false,
+  "expectedRule": "动作批准可以在非主持设备；阶段计划确认只能在主持设备（D10/C10）",
+  "conclusion": "not-compliant",
+  "codeEvidence": [
+    {
+      "path": "services/remote/device/collaboration_store.py",
+      "lines": "384-395",
+      "observed": "plan.review validates plan content and writes approval but never calls coordinator() or compares device with coordinatorDeviceId"
+    },
+    {
+      "path": "services/remote/device/collaboration_store.py",
+      "lines": "404-407",
+      "observed": "plan.decide is intentionally exempted from coordinator(); this is action approval and does not cure the unguarded plan.review confirmation path"
+    },
+    {
+      "path": "services/remote/tests/test_unified_meeting.py",
+      "lines": "59-67",
+      "observed": "test uses self.b (non-coordinator) for plan.review with approved=True and expects success"
+    },
+    {
+      "path": "services/remote/tests/test_collaboration_stability.py",
+      "lines": "44-57",
+      "observed": "test uses self.b for plan.review with approved=True and expects success"
+    }
+  ],
+  "runtimeEvidence": {
+    "transport": "loopback HTTP/WSS + SQLite",
+    "tests": [
+      "test_unified_meeting.UnifiedMeetingTest.test_remote_configuration_is_a_saved_request_and_plan_review_is_versioned",
+      "test_collaboration_stability.StabilityTest.test_plan_content_version_ignores_policy_refresh_but_fences_both_writers"
+    ],
+    "pass": 2,
+    "fail": 0,
+    "meaning": "Existing tests pass by permitting non-host plan approval, directly reproducing the C10 violation"
+  },
+  "requiredFix": "Gate plan.review on the current coordinating device while retaining non-host action approval; add negative non-host plan.review tests and positive coordinator tests"
+}

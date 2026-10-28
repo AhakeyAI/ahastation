@@ -3,18 +3,18 @@
   "provider": "codex",
   "scenario": "S6",
   "versions": {
-    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "app": "fix/runtime-a14-a20 7505164",
     "codex": "0.156.1",
     "model": "account-default"
   },
-  "at": "2026-10-25T15:45:25.117Z",
+  "at": "2026-10-28T03:47:20.664Z",
   "result": "pass",
   "veto": true,
-  "observed": "trigger=first-tool-event confirmed=true in 1064ms; new tool calls in 30s after stop=0; files changed after stop=false; child processes 2 -> 0",
+  "observed": "trigger=first-tool-event confirmed=true in 924ms; new tool calls in 30s after stop=0; files changed after stop=false; child processes 2 -> 0",
   "stop": {
     "confirmed": true,
-    "confirmMs": 1064,
-    "eventsDuringStop": 1
+    "confirmMs": 924,
+    "eventsDuringStop": 2
   },
   "evidence": [
     "results/logs/C-A-codex-S6.json"

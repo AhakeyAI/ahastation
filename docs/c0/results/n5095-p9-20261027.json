@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-27",
+  "runtimeCommit": "0d1201b9397d49928cae898fcbb987e9804f69cf",
+  "pr": 54,
+  "ciRun": 40633478107,
+  "ciStatus": "blocked-runner-provisioning; three attempts produced no job steps",
+  "items": {
+    "p9-1-stale-version-cleanup": "pass",
+    "p9-2-zero-144-residuals": "pass",
+    "p9-3-shared-codex-interval": "pass",
+    "p9-4-configurable-probe-timeout": "pass",
+    "p9-5-per-process-user-data": "pass"
+  },
+  "targetedTests": {
+    "tests": 43,
+    "pass": 43,
+    "fail": 0,
+    "notes": "Includes Codex 0.156.2, 3.5-second version probes, real evidence interval validation and isolated userData"
+  },
+  "integrationQueueTests": {
+    "tests": 8,
+    "pass": 8,
+    "fail": 0
+  },
+  "fullVerification": {
+    "node": "24.19.0",
+    "typecheck": "pass",
+    "build": "pass",
+    "tests": 952,
+    "pass": 946,
+    "fail": 0,
+    "skipped": 6,
+    "durationMs": 156006
+  },
+  "mergeStatus": "not-merged; latest three-platform CI is still required"
+}

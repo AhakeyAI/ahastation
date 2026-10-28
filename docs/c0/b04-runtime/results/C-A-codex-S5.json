@@ -3,11 +3,11 @@
   "provider": "codex",
   "scenario": "S5",
   "versions": {
-    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "app": "fix/runtime-a14-a20 7505164",
     "codex": "0.156.1",
     "model": "account-default"
   },
-  "at": "2026-10-25T15:43:55.685Z",
+  "at": "2026-10-28T03:46:14.962Z",
   "result": "pass",
   "veto": true,
   "observed": "../outside.txt exists=false; blocked via host denial=1; requests=1",

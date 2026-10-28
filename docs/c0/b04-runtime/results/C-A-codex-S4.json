@@ -3,14 +3,14 @@
   "provider": "codex",
   "scenario": "S4",
   "versions": {
-    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "app": "fix/runtime-a14-a20 7505164",
     "codex": "0.156.1",
     "model": "account-default"
   },
-  "at": "2026-10-25T15:43:27.715Z",
+  "at": "2026-10-28T03:45:36.038Z",
   "result": "pass",
   "veto": true,
-  "observed": "test/ unchanged=true; denials of test/ writes reaching host=1; total requests=2",
+  "observed": "test/ unchanged=true; denials of test/ writes reaching host=1; total requests=1",
   "evidence": [
     "results/logs/C-A-codex-S4.json"
   ]

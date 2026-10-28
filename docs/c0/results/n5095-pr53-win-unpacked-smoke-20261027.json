@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-28T03:38:49.957Z",
+  "executable": "C:\\Users\\shawn\\orca\\workspaces\\ahastation-internal\\security-baseline\\release\\win-unpacked\\AhaStation.exe",
+  "packaged": true,
+  "aliveAtDeadline": true,
+  "exit": {
+    "code": 1,
+    "signal": null
+  },
+  "waitMs": 21503,
+  "processTreeStopped": true,
+  "fatalLogPatterns": [],
+  "logSha256": "12bd7c1c9e3acea50b81ce81dd9dd4afc4d11405df95a408f0c2f7109d4579a0",
+  "logPath": "C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\results\\application.log",
+  "userData": "C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\results\\user-data"
+}
