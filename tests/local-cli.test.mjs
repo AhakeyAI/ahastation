@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,7 +10,8 @@ import { registerShellPtyIpc } from '../dist-electron/ipc/shell-pty.js';
 import { getPtyHost } from '../dist-electron/pty-host.js';
 
 test('local CLI detection uses PATH and preserves native color preferences', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'aha-local-cli-'));
+  // Windows CI TEMP may use RUNNER~1 while where.exe returns the long path.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'aha-local-cli-')));
   const filename = process.platform === 'win32' ? 'codex.cmd' : 'codex';
   const binary = join(root, filename);
   await writeFile(binary, process.platform === 'win32' ? '@echo off\r\n' : '#!/bin/sh\n', { mode: 0o755 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -13,7 +13,8 @@ test('Windows npm launcher resolves past the Unix shim and preserves PTY argumen
   skip: process.platform !== 'win32',
   timeout: 15_000,
 }, async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'aha CLI 中文 '));
+  // Windows CI TEMP may use RUNNER~1 while where.exe returns the long path.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'aha CLI 中文 ')));
   const name = 'aha-offline-launch';
   const launcher = join(root, `${name}.cmd`);
   const capture = join(root, 'capture.cjs');
