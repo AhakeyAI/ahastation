@@ -20,13 +20,14 @@ import type {
   MeetingDelivery,
   MeetingPlan,
 } from '../types';
-import type { StageWindow, StageWindowType } from '../lib/stage-window-store';
+import type { StageWindow, StageWindowType, StageWindowOptions } from '../lib/stage-window-store';
 import { computeWorkerCapacity } from '../lib/worker-capacity';
 import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
 import { FileViewer } from './FileViewer';
 import { BrowserStage } from './BrowserStage';
 import { StageTabBar } from './StageTabBar';
 import { TerminalPanel } from './TerminalPanel';
+import { ShellTerminal } from './ShellTerminal';
 import { RealTerminal } from './RealTerminal';
 import { WorkerWorkbench } from './WorkerWorkbench';
 import { ActivityTabContent } from './ActivityTabContent';
@@ -50,6 +51,7 @@ interface ScreenStageProps {
   finalMeetingDelivery: MeetingDelivery | null;
   finalMeetingDecision: FinalMeetingDecision | null;
   sessionId: string | null;
+  cwd?: string;
   /** Task the cross-project board asked us to open. `seq` changes on every
    *  request so re-picking the same task after closing the inspector works. */
   focusTask?: { taskId: string; seq: number } | null;
@@ -66,7 +68,7 @@ interface ScreenStageProps {
   activeWindowId: string | null;
   onSelectWindow: (id: string) => void;
   onCloseWindow: (id: string) => void;
-  onCreateWindow: (type: StageWindowType, opts?: { workerId?: string; title?: string }) => void;
+  onCreateWindow: (type: StageWindowType, opts?: StageWindowOptions) => void;
   onPopOutWindow?: (id: string) => void;
   onResolvePermission: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
   browserTabs?: BrowserTabInfo[];
@@ -101,6 +103,7 @@ export const ScreenStage = memo(function ScreenStage({
   finalMeetingDelivery,
   finalMeetingDecision,
   sessionId,
+  cwd,
   focusTask,
   onAcceptDelivery,
   onReviseDelivery,
@@ -305,7 +308,9 @@ export const ScreenStage = memo(function ScreenStage({
   const terminalOwnsDelivery = Boolean(
     terminalPtyWorker && delivery?.workerId === terminalPtyWorker.id,
   );
-  const stageDeliveryCovered = Boolean(delivery) && !terminalOwnsDelivery;
+  const manualTerminalActive = Boolean(activeWindow?.localCliId);
+  const visibleFinalDelivery = manualTerminalActive ? null : finalMeetingDelivery;
+  const stageDeliveryCovered = Boolean(delivery) && !terminalOwnsDelivery && !manualTerminalActive;
 
   const stageClass = share.active
     ? 'stage-sharing'
@@ -363,14 +368,14 @@ export const ScreenStage = memo(function ScreenStage({
             activeWindowId={activeWindowId}
             onSelect={onSelectWindow}
             onClose={onCloseWindow}
-            onCreate={onCreateWindow}
+            onCreate={(type, opts) => onCreateWindow(type, { ...opts, cwd })}
             onPopOut={onPopOutWindow}
           />
 
           <div className="stage-content">
-            {finalMeetingDelivery ? (
+            {visibleFinalDelivery ? (
               <FinalMeetingDelivery
-                delivery={finalMeetingDelivery}
+                delivery={visibleFinalDelivery}
                 decision={finalMeetingDecision}
                 onAccept={onAcceptFinalMeetingDelivery}
                 onRequestRework={onRequestFinalMeetingRework}
@@ -402,7 +407,7 @@ export const ScreenStage = memo(function ScreenStage({
               />
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'browser' && browserViewportRef && onBrowserOpenTab && onBrowserCloseTab && onBrowserSetActive && onBrowserNavigate && onBrowserBack && onBrowserForward && onBrowserReload && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'browser' && browserViewportRef && onBrowserOpenTab && onBrowserCloseTab && onBrowserSetActive && onBrowserNavigate && onBrowserBack && onBrowserForward && onBrowserReload && (
               <div className="stage-browser-content">
                 <BrowserStage
                   tabs={browserTabs}
@@ -419,9 +424,14 @@ export const ScreenStage = memo(function ScreenStage({
               </div>
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'terminal' && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'terminal' && (
               <div className="stage-terminal-content">
-                {terminalPtyWorker ? (
+                {activeWindow.localCliId ? (
+                  <ShellTerminal key={activeWindow.id} terminalId={activeWindow.id}
+                    shellId={activeWindow.shellId}
+                    cliId={activeWindow.localCliId === 'shell' ? undefined : activeWindow.localCliId}
+                    cwd={activeWindow.cwd} />
+                ) : terminalPtyWorker ? (
                   <WorkerWorkbench
                     workerId={terminalPtyWorker.id}
                     sessionId={sessionId!}
@@ -435,7 +445,7 @@ export const ScreenStage = memo(function ScreenStage({
               </div>
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'file' && activeWindow.filePath && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'file' && activeWindow.filePath && (
               <div className="stage-file-content">
                 <FileViewer
                   relativePath={activeWindow.filePath}

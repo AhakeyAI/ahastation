@@ -19,6 +19,7 @@ import { meetingStore, type MeetingState } from './lib/meeting-store';
 import { browserStore, requestHideBrowser } from './lib/browser-store';
 import { toast } from './lib/toast';
 import { Lobby } from './components/Lobby';
+import { LocalTerminalWorkspace } from './components/LocalTerminalWorkspace';
 import { Onboarding, ONBOARDED_STORAGE_KEY, type OnboardingMode } from './components/Onboarding';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
@@ -102,6 +103,7 @@ export function App() {
    *  back off as soon as a real session tab exists so closing all tabs lands
    *  on the Lobby again. */
   const [boardOnly, setBoardOnly] = useState(false);
+  const [localTerminalOpen, setLocalTerminalOpen] = useState(false);
   /** First launch ever → full 4-step flow; later cold starts → scan-only
    *  splash. Suppressed under the dev visual fixtures so screenshots of the
    *  Lobby/meeting stay deterministic. */
@@ -789,12 +791,17 @@ export function App() {
     />
   ) : undefined), [handheld, autoApproveScope, multiAgent, toggleMultiAgent]);
 
+  if (localTerminalOpen) {
+    return <LocalTerminalWorkspace onBack={() => setLocalTerminalOpen(false)} />;
+  }
+
   if (!hasTabs && !boardOnly) {
     return (
       <>
         <Lobby
           lastError={lastError}
           onEnterBoard={enterBoardOnly}
+          onOpenTerminal={() => setLocalTerminalOpen(true)}
           onReplayOnboarding={() => setOnboardingMode('full')}
         />
         {onboardingMode && (
@@ -869,6 +876,7 @@ export function App() {
             finalMeetingDelivery={workers.finalMeetingDelivery}
             finalMeetingDecision={workers.finalMeetingDecision}
             sessionId={activeTab?.id ?? null}
+            cwd={cwd ?? undefined}
             focusTask={taskFocus}
             onAcceptDelivery={() => workers.acceptDelivery()}
             onReviseDelivery={(fb: string) => workers.reviseDelivery(fb)}

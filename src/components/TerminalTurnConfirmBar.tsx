@@ -27,7 +27,8 @@ export function TerminalTurnConfirmBar({
   const lastText = worker.lastText ?? '';
   const taskComplete = lastText.startsWith(TERMINAL_TASK_COMPLETE_MARKER);
   const turnEnded = lastText.startsWith(TERMINAL_TURN_ENDED_MARKER);
-  const showBar = worker.status === 'running' && (taskComplete || turnEnded);
+  const inputPending = lastText.startsWith('[terminal-input-pending]');
+  const showBar = worker.status === 'running' && (taskComplete || turnEnded || inputPending);
   if (!showBar || dismissedSeq === (worker.eventSeq ?? 0)) return null;
 
   const confirm = async (outcome: 'done' | 'failed') => {
@@ -44,11 +45,23 @@ export function TerminalTurnConfirmBar({
     }
   };
 
+  if (inputPending) return (
+    <div className="terminal-turn-confirm" role="status">
+      <span>{lastText.replace('[terminal-input-pending]', '')}</span>
+      <button type="button" onClick={() => {
+        void window.vibeMeet.workerPty.ready(sessionId, worker.id).then((result) => {
+          if (!result.ok) setError('没有可发送的待发任务');
+        }).catch((err) => setError(String(err)));
+      }}>发送待发任务</button>
+      {error && <div role="alert">{error}</div>}
+    </div>
+  );
+
   return (
     <div className="terminal-turn-confirm" role="status">
       <div className="terminal-turn-confirm-title">
         <strong>{taskComplete ? '任务已完成' : '本轮已结束'}</strong>
-        <small>{taskComplete ? 'Claude 已标记任务完成，请查看上方输出并确认提交给 host。' : 'Claude 在终端中完成了一轮对话，请确认任务去向。'}</small>
+        <small>{taskComplete ? 'Agent 已标记任务完成，请确认提交审查。' : 'Agent 在终端中完成了一轮对话，请确认任务去向。'}</small>
       </div>
       <input
         type="text"
