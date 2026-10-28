@@ -21,7 +21,7 @@
 | 运行时修复 A-14–A-20，P4–P7 | `fix/runtime-a14-a20`，[PR #54](https://github.com/ShawnyinsGit/ahastation-internal/pull/54) | N5095 | P4–P7 已交付，CI 三平台通过，待用户合入。证据见 `results/N5095-2026-10-26.md` |
 | C0 文档与决定，P8 | `docs/c0-handoff-2026-10-22`，PR #50 | Mac | 本次完成 ADR 改号和本文重写 |
 | 安全基线 P1–P3 | `fix/security-baseline`，[PR #53](https://github.com/ShawnyinsGit/ahastation-internal/pull/53)（草稿） | Mac | Electron 45、PDF.js 6、CI Node 24、`safeStorage` 异步接口；三平台 CI 通过，待 N5095 打包冒烟 |
-| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告和 R2 冲突表已完成；C01、C03–C05 已裁决，写成 ADR 0017 / 0018；其余待裁决 |
+| `etrnal-dev` 评审 R1–R3 | `review/etrnal-dev-2026-10` | Mac | R1 报告、R2 冲突表与全部裁决已完成（ADR 0017 / 0018），已转告作者；R3 首版完成 |
 | 跨设备协作 collaboration.5 | `etrnal-dev` | eternal904 | 评审前不改；K01 自动发布问题是一票否决项 |
 | 终端守护进程与本地 CLI 工作区 | PR #49 | Leo Lin | 已建议拆成四个 PR，待作者回复 |
 
@@ -30,7 +30,7 @@
 1. **`DECISIONS-2026-10-26.md`**：用户 13 项决定（G1–G13）、前置修复 P1–P9、设计对齐 R1–R7、分支写者，以及对 N5095 会话的更正。
 2. **`DEVELOPMENT-READINESS.md`**：A-14–A-20 的复验证据、额度使用原则、首批开发顺序。其中 §1「可进入技术开发」已被上一份改为有条件。
 3. **`DECISIONS-NEEDED.md`**：D1–D15、T1–T3 的已定结果。T2 的「25%」只能当定性证据，见 DECISIONS §5 第 3 条。
-4. **`plan/README.md` + `plan/cards.csv`**：实施卡、依赖、人日、关键路径。跨设备卡 X1–X8 按 G1 暂停，等 R1 结论出来再重估。
+4. **`plan/README.md` + `plan/cards.csv`**：实施卡、依赖、人日、关键路径。跨设备卡已按 R1 / R2 重估（§2a）。
 5. 产品规格：**`../ame/`**（AME 09–13 的在用版本，2026-10-27 迁入并更正，见 `../ame/README.md`）。交接包里的原件只作来源；05–08 是历史方案，不沿用。
 
 ## 3. 目录
@@ -42,13 +42,12 @@
 | `b05-voice/` | 语音候选、基准脚本 `bench_voice.py`、回声测试 `echo_test.py` |
 | `b06-quota/` | 用量矩阵与接线方案 `WIRING.md`、脱敏 fixture |
 | `b07-ux/` | UX 方案与可点击原型 `prototype.html`（v2，已冻结） |
-| `design/meeting-mode.md`、`design/remote-control.md` | 会议模式与跨设备设计。**按 G1 待 R1 结论修订**（R3） |
+| `design/meeting-mode.md`、`design/remote-control.md` | 会议模式与跨设备设计。R3 已修订：remote-control §0、meeting-mode §9a 优先于原文 |
 | `design/later-gates.md` | 门 B → F 其余工作包的技术方案概要 |
 | `research/upstream-2026-10-22.md` | Orca、Paseo、Multica 的版本与许可复核 |
 | `evidence/`、`results/` | B01 基线证据、N5095 语音和回声结果、双 provider 并发资源样本 |
 | `run-n5095.ps1` | N5095 上的语音基准与 Windows 基线脚本 |
-| `../adr/README.md` | **统一 ADR 索引**。C0 的 ADR 是 0013–0016；main 是 0001；`etrnal-dev` 是 0002–0012；新 ADR 从 0019 起编号（0017–0018 已由 `review/etrnal-dev-2026-10` 分支占用） |
-
+| `../adr/README.md` | **统一 ADR 索引**。C0 的 ADR 是 0013–0016；main 是 0001；`etrnal-dev` 是 0002–0012；评审裁决的 0017–0018 已用，新 ADR 从 0019 起编号 |
 ## 4. 代码基线
 
 | 项 | 事实 |
@@ -87,14 +86,15 @@
 ## 6. 待办与待决
 
 - **待用户决定：**
-  - Q1–Q100（`etrnal-dev`）与 D1–D15 的冲突表，R2 产出后逐条裁决；
+  - 按 G3 顺序合入 PR #54 → PR #50 → PR #53；本评审分支排在 PR #50 之后；
   - PR #49 和 `etrnal-dev` 作者回复后的拆分方案。
+  - 冲突表 C01–C21 已全部裁决，见 `review-etrnal-dev/CONFLICTS.md`。
 - **N5095：** P4–P7、R6、R7 已交付（`results/N5095-2026-10-26.md`）。还要做：
   - PR #53 的 Windows 打包冒烟，并确认旧版加密的 API key 升级后仍能读出；
   - `etrnal-dev` rebase 后复现 K01；B04 S4–S6；核对 `etrnal-dev` 里非主持设备能否批准计划（C10）；
   - **P9，PR #54 合入前**：Codex 版本收尾、3 秒版本探测、测试替身 `/tmp`；
   - 实施期：S11 的真实 Codex 运行、三家语音真实实测（预算 100 元）、A-08 / AEC / M6 验收。
-- **Mac：** R1–R5。
+- **Mac：** R1–R4 已完成；R3 的跨设备估算等 eternal904 回复后修正；R5 等 PR #49 拆分后复审。
 
 ## 7. 工作约定
 
