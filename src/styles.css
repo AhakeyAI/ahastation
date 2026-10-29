@@ -13601,3 +13601,6 @@ html.ahabar-view #root {
 /* The close/minimize prompt blocks the window close until answered, so it
    must sit above every overlay (探索页 350, onboarding, modals). */
 .minimize-prompt-backdrop { z-index: 1050; }
+/* 额度条放在底部（状态栏上方）：贴近底边，面板向上展开 */
+.usage-strip.is-bottom { margin: 0 16px 8px; }
+.usage-strip.is-bottom .usage-panel { top: auto; bottom: calc(100% + 6px); max-height: calc(100vh - 140px); overflow-y: auto; }

@@ -134,7 +134,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: {
  * 会话缩略条。点击打开额度面板：最紧张的排最上，可刷新、切换详细/紧凑、
  * 显示剩余/已用。数据由主进程每 15 分钟拉取，窗口聚焦时（≥5 分钟）补拉。
  */
-export const UsageStrip = memo(function UsageStrip() {
+export const UsageStrip = memo(function UsageStrip({ placement = 'top' }: { placement?: 'top' | 'bottom' }) {
   const { providers, refreshing } = useUsageState();
   const [open, setOpen] = useState(false);
   const [display, setDisplay] = usePersistedChoice<UsageDisplay>('aha.usage.display', DISPLAYS, 'remaining');
@@ -155,7 +155,7 @@ export const UsageStrip = memo(function UsageStrip() {
   const lastUpdated = Math.max(0, ...providers.map((p) => p.updatedAt));
 
   return (
-    <div className="usage-strip" ref={ref}>
+    <div className={`usage-strip is-${placement}`} ref={ref}>
       <span className="usage-strip-label">额度</span>
       <div className="usage-strip-chips">
         {providers.map((p) => (

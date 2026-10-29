@@ -102,7 +102,9 @@ export function App() {
   const hasLiveTab = !!sharedModel||!!(activeTab && !activeTab.placeholder);
   const activeOpenedAt = activeTab?.openedAt ?? null;
 
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  // 对话面板默认收起：会议启动或切换会议后先看舞台（任务看板），需要时
+  // 从顶栏「对话」展开；拖入文件、点参会者时仍会自动展开。
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [ttsOn, setTtsOn] = useState(true);
   const [muted, setMuted] = useState(false);
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
@@ -572,6 +574,11 @@ export function App() {
   // the editor form factor (overlay in handheld, independent window else).
   const { mode: uiMode, override: uiModeOverride } = useHandheldMode();
   const handheld = uiMode === 'handheld';
+  // A newly started or switched-to meeting opens with the chat drawer closed.
+  const activeMeetingId = activeTab?.id;
+  useEffect(() => {
+    if (activeMeetingId) setDrawerOpen(false);
+  }, [activeMeetingId]);
   const handheldInitialDrawerApplied = useRef(false);
   useEffect(() => {
     if (!handheld || handheldInitialDrawerApplied.current) return;
@@ -853,10 +860,6 @@ export function App() {
         <BroadcastStrip briefings={workers.coordinatorBriefings} onInterrupt={onBargeIn} />
       )}
 
-      {/* 额度条：各 AI 剩余额度（对标 Orca 状态栏额度）。挂在 BroadcastStrip 旁、
-          .mtg-main 之上，不进 stage 的 CSS grid。外部会话改在任务看板里看。 */}
-      {!handheld && <UsageStrip />}
-
       <main className="mtg-main">
         <section className="stage-wrap">
           <ScreenStage
@@ -972,6 +975,10 @@ export function App() {
       </main>
 
       {handheld && toolbar}
+
+      {/* 额度条：各 AI 剩余额度（对标 Orca 状态栏额度），放在底部状态栏上方，
+          面板向上展开。外部会话改在任务看板里看。 */}
+      {!handheld && <UsageStrip placement="bottom" />}
 
       {!handheld && (
         <StatusBar
