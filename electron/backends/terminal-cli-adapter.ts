@@ -861,7 +861,9 @@ export class TerminalCliBackend implements CliBackend {
   ): BackendEffectiveProfile {
     return compileBackendTaskProfile(requested, runtime, {
       backendId: this.id,
-      defaultModel: this.capabilities.defaultModel!,
+      // Claude's terminal profile pins no default model on purpose: 'auto'
+      // means no --model flag, so the CLI uses the account default.
+      defaultModel: this.capabilities.defaultModel ?? 'auto',
       models: this.capabilities.models ?? [],
       // The TUI ignores mcp/systemPrompt/skills; surface that in the profile.
       unsupported: () => ['workMode'],
