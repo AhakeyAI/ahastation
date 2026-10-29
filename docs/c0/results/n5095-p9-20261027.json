@@ -33,5 +33,7 @@
     "skipped": 6,
     "durationMs": 156006
   },
-  "mergeStatus": "not-merged; latest three-platform CI is still required"
+  "mergeStatus": "merged by user on 2026-10-29",
+  "mergeCommit": "dda045acc4195daea71063537e3e6aefe1e150b5",
+  "mainCiRun": 40809873905
 }
