@@ -65,6 +65,8 @@ npm run build:electron && node scripts/e2e-opencode-smoke.mjs
 npm run dist:dmg     # macOS arm64 DMG（未签名体验版）
 ```
 
+本机直接安装（Apple Silicon Mac，需 Node.js 22）：`bash scripts/install-local-mac.sh [--yes]`（从源码构建到 `/Applications/AhaStudio.app`，`--yes` 跳过覆盖确认）。
+
 ## 文档
 
 `docs/` 下有设计/调研文档：OpenCode server 接入实测（`spike-opencode-server.md`）、Phase 2 验收清单（`e2e-phase2-checklist.md`）、Qoder/多后端 harness 调研、掌机与 UI 规划等。
