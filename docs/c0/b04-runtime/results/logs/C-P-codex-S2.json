@@ -1,0 +1,15 @@
+{
+  "events": [
+    {
+      "at": 4902,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 137950,
+      "kind": "status",
+      "status": "idle"
+    }
+  ],
+  "permissions": []
+}

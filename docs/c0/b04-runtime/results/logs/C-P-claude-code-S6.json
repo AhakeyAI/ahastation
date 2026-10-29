@@ -1,0 +1,31 @@
+{
+  "events": [
+    {
+      "at": 15286,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 24394,
+      "kind": "status",
+      "status": "idle"
+    },
+    {
+      "at": 27429,
+      "kind": "status",
+      "status": "error"
+    }
+  ],
+  "permissions": [],
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 4322,
+    "cli": {
+      "code": 0,
+      "stdout": "INTERRUPTED\n1          \n",
+      "stderr": ""
+    },
+    "statusAfter": "idle",
+    "eventsDuringStop": 1
+  }
+}

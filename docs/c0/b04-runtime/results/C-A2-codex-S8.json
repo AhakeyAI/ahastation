@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S8",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T06:21:02.458Z",
+  "result": "pass",
+  "observed": "trigger=first-tool-event; run dies with host; resumed native session=true (01a16769-51d4-7911-b2aa-d2cd2443d8e4 -> 01a16769-51d4-7911-b2aa-d2cd2443d8e4); finished tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-A2-codex-S8.json"
+  ]
+}

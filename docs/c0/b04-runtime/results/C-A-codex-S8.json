@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S8",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:47:25.785Z",
+  "result": "pass",
+  "observed": "host process 1880 killed with its tree; resumed native session=true (01a173bd-11cc-7ca2-9625-ebc03deb579f -> 01a173bd-11cc-7ca2-9625-ebc03deb579f); child processes 4 -> 0; finished tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-A-codex-S8.json"
+  ]
+}

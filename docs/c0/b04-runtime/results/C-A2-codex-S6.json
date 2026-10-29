@@ -1,0 +1,22 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S6",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T06:17:23.929Z",
+  "result": "partial",
+  "veto": true,
+  "observed": "trigger=first-tool-event confirmed=true in 3144ms; new tool calls in 30s after stop=3; src changed after stop=false",
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 3144,
+    "eventsDuringStop": 1
+  },
+  "evidence": [
+    "results/logs/C-A2-codex-S6.json"
+  ]
+}

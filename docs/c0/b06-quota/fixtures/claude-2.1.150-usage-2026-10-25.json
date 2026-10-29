@@ -1,0 +1,38 @@
+{
+  "source": "B04 C-A Claude Host smoke, bundled CLI, Windows 11",
+  "capturedAt": "2026-10-25",
+  "samples": [
+    {
+      "type": "rate_limit_event",
+      "rate_limit_info": {
+        "status": "allowed",
+        "resetsAt": 1792996200,
+        "rateLimitType": "five_hour",
+        "unifiedWindows": {
+          "five_hour": { "utilization": 0, "resetsAt": 1792996200, "status": "allowed" },
+          "seven_day": { "utilization": 0.01, "resetsAt": 1793437200, "status": "allowed" }
+        }
+      }
+    },
+    {
+      "type": "result",
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 36900,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "modelUsage": {
+        "claude-opus-5-5": {
+          "inputTokens": 2,
+          "outputTokens": 8,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 36900,
+          "costUSD": 0.295368,
+          "costBasis": "list"
+        }
+      },
+      "total_cost_usd": 0.2954953
+    }
+  ]
+}

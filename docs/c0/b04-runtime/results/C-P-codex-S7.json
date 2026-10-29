@@ -1,0 +1,25 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S7",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:56:58.445Z",
+  "result": "fail",
+  "observed": "trigger=running+20s; after 10s gap: status=running timeline entries=0, entries timestamped in gap=0, gap=false; finished tests={\"pass\":2,\"fail\":0}",
+  "reconnect": {
+    "pendingAtReconnect": 0,
+    "statusAfter": "running",
+    "entries": 0,
+    "entriesDuringGap": 0,
+    "gap": false,
+    "staleCursor": false,
+    "reset": false
+  },
+  "evidence": [
+    "results/logs/C-P-codex-S7.json"
+  ]
+}

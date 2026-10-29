@@ -1,0 +1,28 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S6",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:50:30.034Z",
+  "result": "pass",
+  "veto": true,
+  "observed": "trigger=running+20s confirmed=true in 3784ms; new tool calls in 30s after stop=0; src changed after stop=false",
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 3784,
+    "cli": {
+      "code": 0,
+      "stdout": "INTERRUPTED\n1          \n",
+      "stderr": ""
+    },
+    "statusAfter": "idle",
+    "eventsDuringStop": 1
+  },
+  "evidence": [
+    "results/logs/C-P-codex-S6.json"
+  ]
+}

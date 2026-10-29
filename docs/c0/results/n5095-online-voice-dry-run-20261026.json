@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-27T03:16:16.490133+00:00",
+  "mode": "dry-run",
+  "realApiCalls": false,
+  "pricing": "C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\b05-voice\\online\\pricing.json",
+  "pricingSha256": "4e2520242f1bc8b97bd1ccf7b41a2517fdedbe14cf83a3d7b9289bbeb261b533",
+  "audio": null,
+  "audioSeconds": null,
+  "plannedCalls": 9,
+  "repeatNote": "repeat=0 is cold; repeat=1 is warm; providers and calls run serially",
+  "credentialsRequired": {
+    "xfyun": [
+      "XFYUN_APP_ID",
+      "XFYUN_API_KEY",
+      "XFYUN_API_SECRET",
+      "XFYUN_TTS_SPEAKER"
+    ],
+    "doubao": [
+      "DOUBAO_API_KEY",
+      "DOUBAO_TTS_SPEAKER"
+    ],
+    "azure": [
+      "AZURE_SPEECH_KEY",
+      "AZURE_SPEECH_REGION",
+      "AZURE_TTS_VOICE"
+    ]
+  },
+  "credentialPresence": {
+    "xfyun": {
+      "XFYUN_APP_ID": false,
+      "XFYUN_API_KEY": false,
+      "XFYUN_API_SECRET": false,
+      "XFYUN_TTS_SPEAKER": false
+    },
+    "doubao": {
+      "DOUBAO_API_KEY": false,
+      "DOUBAO_TTS_SPEAKER": false
+    },
+    "azure": {
+      "AZURE_SPEECH_KEY": false,
+      "AZURE_SPEECH_REGION": false,
+      "AZURE_TTS_VOICE": false
+    }
+  },
+  "plan": [
+    {
+      "provider": "xfyun",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 0,
+      "text": "好的，我先只读看一下这个项目的说明和最近的提交，然后给你一个阶段计划。",
+      "quantity": 35,
+      "estimatedCny": "xfyun/tts has no verified price; fill the current console price before --execute"
+    },
+    {
+      "provider": "xfyun",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 1,
+      "text": "测试有三项没有通过，我建议先修复授权持久化，再处理多后端并行。",
+      "quantity": 31,
+      "estimatedCny": "xfyun/tts has no verified price; fill the current console price before --execute"
+    },
+    {
+      "provider": "xfyun",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 2,
+      "text": "这个改动需要你确认，因为它会修改设置界面的默认行为。",
+      "quantity": 26,
+      "estimatedCny": "xfyun/tts has no verified price; fill the current console price before --execute"
+    },
+    {
+      "provider": "doubao",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 0,
+      "text": "好的，我先只读看一下这个项目的说明和最近的提交，然后给你一个阶段计划。",
+      "quantity": 35,
+      "estimatedCny": "0.0105"
+    },
+    {
+      "provider": "doubao",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 1,
+      "text": "测试有三项没有通过，我建议先修复授权持久化，再处理多后端并行。",
+      "quantity": 31,
+      "estimatedCny": "0.0093"
+    },
+    {
+      "provider": "doubao",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 2,
+      "text": "这个改动需要你确认，因为它会修改设置界面的默认行为。",
+      "quantity": 26,
+      "estimatedCny": "0.0078"
+    },
+    {
+      "provider": "azure",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 0,
+      "text": "好的，我先只读看一下这个项目的说明和最近的提交，然后给你一个阶段计划。",
+      "quantity": 35,
+      "estimatedCny": "0.00378000"
+    },
+    {
+      "provider": "azure",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 1,
+      "text": "测试有三项没有通过，我建议先修复授权持久化，再处理多后端并行。",
+      "quantity": 31,
+      "estimatedCny": "0.00334800"
+    },
+    {
+      "provider": "azure",
+      "operation": "tts",
+      "repeat": 0,
+      "textIndex": 2,
+      "text": "这个改动需要你确认，因为它会修改设置界面的默认行为。",
+      "quantity": 26,
+      "estimatedCny": "0.00280800"
+    }
+  ],
+  "budget": {
+    "currency": "CNY",
+    "limit": "100.00",
+    "spent": "0",
+    "reserved": "0",
+    "remaining": "100.00",
+    "separateFromClaudeAndCodex": true
+  },
+  "note": "No network requests were made. --execute is required for real calls."
+}

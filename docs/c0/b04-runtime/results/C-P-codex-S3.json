@@ -1,0 +1,16 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S3",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:45:49.928Z",
+  "result": "not-exercised",
+  "observed": "permission requests reaching host=0, allowed=0, command approvals=0; runtime ran tools without asking the host",
+  "evidence": [
+    "results/logs/C-P-codex-S3.json"
+  ]
+}

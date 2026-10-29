@@ -1,0 +1,22 @@
+{
+  "candidate": "C-A",
+  "provider": "claude-code",
+  "scenario": "S6",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix",
+    "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:30:47.923Z",
+  "result": "pass",
+  "veto": true,
+  "observed": "trigger=first-tool-event confirmed=true in 19ms; new tool calls in 30s after stop=0; files changed after stop=false; child processes 3 -> 0",
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 19,
+    "eventsDuringStop": 1
+  },
+  "evidence": [
+    "results/logs/C-A-claude-code-S6.json"
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "results": [
+    {
+      "step": "1 default: meeting with tiles on top, stage below, chat closed",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": false,
+        "drawerTab": null,
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "2 open chat (会议对话)",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": true,
+        "drawerTab": "会议对话",
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "3 switch to 群聊 tab",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": true,
+        "drawerTab": "群聊 · 全部项目",
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "4 collapse chat",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": false,
+        "drawerTab": null,
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "5 collapse participant tiles",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 0,
+        "tilesCollapsed": true,
+        "drawer": false,
+        "drawerTab": null,
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "展开参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "6 expand tiles again",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": false,
+        "drawerTab": null,
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "7 open 群聊 from toolbar",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": true,
+        "drawerTab": "群聊 · 全部项目",
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "8 fullscreen stage hides tiles and chat",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 0,
+        "tilesCollapsed": false,
+        "drawer": false,
+        "drawerTab": null,
+        "full": true,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "退出全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "9 Esc exits fullscreen, chat state restored",
+      "ok": true,
+      "fails": [],
+      "state": {
+        "tiles": 5,
+        "tilesCollapsed": false,
+        "drawer": true,
+        "drawerTab": "群聊 · 全部项目",
+        "full": false,
+        "stage": true,
+        "toolbar": [
+          "💬 聊天",
+          "👥 群聊",
+          "收起参会人",
+          "⛶ 共享区全屏",
+          "结束会议"
+        ],
+        "title": "会议"
+      }
+    },
+    {
+      "step": "10 short press starts recording: stage locked, my tile shows 录音中",
+      "ok": true,
+      "state": {
+        "locked": true,
+        "meTag": "录音中"
+      }
+    },
+    {
+      "step": "11 phone width has no horizontal page scroll",
+      "ok": true,
+      "state": {
+        "overflow": false
+      }
+    }
+  ],
+  "consoleErrors": []
+}

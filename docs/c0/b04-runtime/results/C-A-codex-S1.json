@@ -1,0 +1,17 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S1",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + final-runtime",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:49:50.788Z",
+  "result": "pass",
+  "observed": "ended={\"at\":74800,\"reason\":\"completed\"} firstEventMs=19944 sessionIdStable=true tests={\"pass\":2,\"fail\":0}",
+  "durationMs": 74800,
+  "evidence": [
+    "results/logs/C-A-codex-S1.json"
+  ]
+}

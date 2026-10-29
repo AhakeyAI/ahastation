@@ -1,0 +1,644 @@
+{
+  "asOf": "2026-10-22 23:40:20",
+  "host": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 156 Stepping 0, GenuineIntel",
+    "cpuCount": 4,
+    "python": "3.10.11",
+    "sherpaOnnx": "1.13.8",
+    "cpuName": "Intel(R) Celeron(R) N5095 @ 2.00GHz"
+  },
+  "asr": [
+    {
+      "model": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "threads": 1,
+      "rtfMean": 0.669,
+      "runs": [
+        {
+          "wav": "0.wav",
+          "audioSeconds": 5.612,
+          "seconds": 4.083,
+          "rtf": 0.728,
+          "text": "对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢"
+        },
+        {
+          "wav": "1.wav",
+          "audioSeconds": 5.153,
+          "seconds": 3.144,
+          "rtf": 0.61,
+          "text": "重点呢想谈三个问题首先呢就是这一轮全球金融动荡的表现"
+        }
+      ]
+    },
+    {
+      "model": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "threads": 2,
+      "rtfMean": 0.776,
+      "runs": [
+        {
+          "wav": "0.wav",
+          "audioSeconds": 5.612,
+          "seconds": 4.02,
+          "rtf": 0.716,
+          "text": "对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢"
+        },
+        {
+          "wav": "1.wav",
+          "audioSeconds": 5.153,
+          "seconds": 4.308,
+          "rtf": 0.836,
+          "text": "重点呢想谈三个问题首先呢就是这一轮全球金融动荡的表现"
+        }
+      ]
+    },
+    {
+      "model": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "threads": 4,
+      "rtfMean": 1.647,
+      "runs": [
+        {
+          "wav": "0.wav",
+          "audioSeconds": 5.612,
+          "seconds": 9.699,
+          "rtf": 1.728,
+          "text": "对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢"
+        },
+        {
+          "wav": "1.wav",
+          "audioSeconds": 5.153,
+          "seconds": 8.071,
+          "rtf": 1.566,
+          "text": "重点呢想谈三个问题首先呢就是这一轮全球金融动荡的表现"
+        }
+      ]
+    }
+  ],
+  "tts": [
+    {
+      "model": "vits-aishell3",
+      "threads": 1,
+      "sampleRate": 8000,
+      "numSpeakers": 174,
+      "rtfMean": 1.065,
+      "rtfMax": 1.544,
+      "runs": [
+        {
+          "sid": 10,
+          "sentence": 0,
+          "seconds": 4.611,
+          "audioSeconds": 6.36,
+          "rtf": 0.725
+        },
+        {
+          "sid": 10,
+          "sentence": 1,
+          "seconds": 5.379,
+          "audioSeconds": 5.971,
+          "rtf": 0.901
+        },
+        {
+          "sid": 10,
+          "sentence": 2,
+          "seconds": 4.607,
+          "audioSeconds": 4.886,
+          "rtf": 0.943
+        },
+        {
+          "sid": 33,
+          "sentence": 0,
+          "seconds": 6.635,
+          "audioSeconds": 7.883,
+          "rtf": 0.842
+        },
+        {
+          "sid": 33,
+          "sentence": 1,
+          "seconds": 8.004,
+          "audioSeconds": 7.953,
+          "rtf": 1.006
+        },
+        {
+          "sid": 33,
+          "sentence": 2,
+          "seconds": 6.107,
+          "audioSeconds": 6.326,
+          "rtf": 0.965
+        },
+        {
+          "sid": 99,
+          "sentence": 0,
+          "seconds": 3.49,
+          "audioSeconds": 5.602,
+          "rtf": 0.623
+        },
+        {
+          "sid": 99,
+          "sentence": 1,
+          "seconds": 6.376,
+          "audioSeconds": 5.315,
+          "rtf": 1.2
+        },
+        {
+          "sid": 99,
+          "sentence": 2,
+          "seconds": 6.072,
+          "audioSeconds": 4.611,
+          "rtf": 1.317
+        },
+        {
+          "sid": 150,
+          "sentence": 0,
+          "seconds": 11.7,
+          "audioSeconds": 7.577,
+          "rtf": 1.544
+        },
+        {
+          "sid": 150,
+          "sentence": 1,
+          "seconds": 10.14,
+          "audioSeconds": 7.07,
+          "rtf": 1.434
+        },
+        {
+          "sid": 150,
+          "sentence": 2,
+          "seconds": 7.803,
+          "audioSeconds": 6.088,
+          "rtf": 1.282
+        }
+      ]
+    },
+    {
+      "model": "vits-aishell3",
+      "threads": 2,
+      "sampleRate": 8000,
+      "numSpeakers": 174,
+      "rtfMean": 0.62,
+      "rtfMax": 0.886,
+      "runs": [
+        {
+          "sid": 10,
+          "sentence": 0,
+          "seconds": 1.751,
+          "audioSeconds": 6.36,
+          "rtf": 0.275
+        },
+        {
+          "sid": 10,
+          "sentence": 1,
+          "seconds": 5.289,
+          "audioSeconds": 5.971,
+          "rtf": 0.886
+        },
+        {
+          "sid": 10,
+          "sentence": 2,
+          "seconds": 3.905,
+          "audioSeconds": 4.886,
+          "rtf": 0.799
+        },
+        {
+          "sid": 33,
+          "sentence": 0,
+          "seconds": 6.777,
+          "audioSeconds": 7.883,
+          "rtf": 0.86
+        },
+        {
+          "sid": 33,
+          "sentence": 1,
+          "seconds": 5.135,
+          "audioSeconds": 7.953,
+          "rtf": 0.646
+        },
+        {
+          "sid": 33,
+          "sentence": 2,
+          "seconds": 3.72,
+          "audioSeconds": 6.326,
+          "rtf": 0.588
+        },
+        {
+          "sid": 99,
+          "sentence": 0,
+          "seconds": 3.073,
+          "audioSeconds": 5.602,
+          "rtf": 0.549
+        },
+        {
+          "sid": 99,
+          "sentence": 1,
+          "seconds": 3.411,
+          "audioSeconds": 5.315,
+          "rtf": 0.642
+        },
+        {
+          "sid": 99,
+          "sentence": 2,
+          "seconds": 3.757,
+          "audioSeconds": 4.611,
+          "rtf": 0.815
+        },
+        {
+          "sid": 150,
+          "sentence": 0,
+          "seconds": 4.081,
+          "audioSeconds": 7.577,
+          "rtf": 0.539
+        },
+        {
+          "sid": 150,
+          "sentence": 1,
+          "seconds": 2.897,
+          "audioSeconds": 7.07,
+          "rtf": 0.41
+        },
+        {
+          "sid": 150,
+          "sentence": 2,
+          "seconds": 2.588,
+          "audioSeconds": 6.088,
+          "rtf": 0.425
+        }
+      ]
+    },
+    {
+      "model": "vits-aishell3",
+      "threads": 4,
+      "sampleRate": 8000,
+      "numSpeakers": 174,
+      "rtfMean": 0.414,
+      "rtfMax": 0.514,
+      "runs": [
+        {
+          "sid": 10,
+          "sentence": 0,
+          "seconds": 2.695,
+          "audioSeconds": 6.36,
+          "rtf": 0.424
+        },
+        {
+          "sid": 10,
+          "sentence": 1,
+          "seconds": 2.222,
+          "audioSeconds": 5.971,
+          "rtf": 0.372
+        },
+        {
+          "sid": 10,
+          "sentence": 2,
+          "seconds": 1.907,
+          "audioSeconds": 4.886,
+          "rtf": 0.39
+        },
+        {
+          "sid": 33,
+          "sentence": 0,
+          "seconds": 2.284,
+          "audioSeconds": 7.883,
+          "rtf": 0.29
+        },
+        {
+          "sid": 33,
+          "sentence": 1,
+          "seconds": 3.595,
+          "audioSeconds": 7.953,
+          "rtf": 0.452
+        },
+        {
+          "sid": 33,
+          "sentence": 2,
+          "seconds": 2.697,
+          "audioSeconds": 6.326,
+          "rtf": 0.426
+        },
+        {
+          "sid": 99,
+          "sentence": 0,
+          "seconds": 2.83,
+          "audioSeconds": 5.602,
+          "rtf": 0.505
+        },
+        {
+          "sid": 99,
+          "sentence": 1,
+          "seconds": 2.283,
+          "audioSeconds": 5.315,
+          "rtf": 0.429
+        },
+        {
+          "sid": 99,
+          "sentence": 2,
+          "seconds": 2.37,
+          "audioSeconds": 4.611,
+          "rtf": 0.514
+        },
+        {
+          "sid": 150,
+          "sentence": 0,
+          "seconds": 3.142,
+          "audioSeconds": 7.577,
+          "rtf": 0.415
+        },
+        {
+          "sid": 150,
+          "sentence": 1,
+          "seconds": 2.56,
+          "audioSeconds": 7.07,
+          "rtf": 0.362
+        },
+        {
+          "sid": 150,
+          "sentence": 2,
+          "seconds": 2.338,
+          "audioSeconds": 6.088,
+          "rtf": 0.384
+        }
+      ]
+    },
+    {
+      "model": "kokoro-v1_1",
+      "threads": 1,
+      "sampleRate": 24000,
+      "numSpeakers": 103,
+      "rtfMean": 12.23,
+      "rtfMax": 16.358,
+      "runs": [
+        {
+          "sid": 3,
+          "sentence": 0,
+          "seconds": 92.742,
+          "audioSeconds": 6.953,
+          "rtf": 13.337
+        },
+        {
+          "sid": 3,
+          "sentence": 1,
+          "seconds": 111.88,
+          "audioSeconds": 6.839,
+          "rtf": 16.358
+        },
+        {
+          "sid": 3,
+          "sentence": 2,
+          "seconds": 73.188,
+          "audioSeconds": 5.22,
+          "rtf": 14.02
+        },
+        {
+          "sid": 30,
+          "sentence": 0,
+          "seconds": 109.986,
+          "audioSeconds": 7.722,
+          "rtf": 14.243
+        },
+        {
+          "sid": 30,
+          "sentence": 1,
+          "seconds": 98.89,
+          "audioSeconds": 7.395,
+          "rtf": 13.373
+        },
+        {
+          "sid": 30,
+          "sentence": 2,
+          "seconds": 79.253,
+          "audioSeconds": 5.731,
+          "rtf": 13.828
+        },
+        {
+          "sid": 60,
+          "sentence": 0,
+          "seconds": 91.888,
+          "audioSeconds": 6.858,
+          "rtf": 13.398
+        },
+        {
+          "sid": 60,
+          "sentence": 1,
+          "seconds": 65.698,
+          "audioSeconds": 7.113,
+          "rtf": 9.237
+        },
+        {
+          "sid": 60,
+          "sentence": 2,
+          "seconds": 52.42,
+          "audioSeconds": 5.492,
+          "rtf": 9.546
+        },
+        {
+          "sid": 90,
+          "sentence": 0,
+          "seconds": 72.566,
+          "audioSeconds": 8.252,
+          "rtf": 8.794
+        },
+        {
+          "sid": 90,
+          "sentence": 1,
+          "seconds": 98.718,
+          "audioSeconds": 7.858,
+          "rtf": 12.563
+        },
+        {
+          "sid": 90,
+          "sentence": 2,
+          "seconds": 49.008,
+          "audioSeconds": 6.074,
+          "rtf": 8.069
+        }
+      ]
+    },
+    {
+      "model": "kokoro-v1_1",
+      "threads": 2,
+      "sampleRate": 24000,
+      "numSpeakers": 103,
+      "rtfMean": 8.068,
+      "rtfMax": 10.423,
+      "runs": [
+        {
+          "sid": 3,
+          "sentence": 0,
+          "seconds": 50.703,
+          "audioSeconds": 6.954,
+          "rtf": 7.291
+        },
+        {
+          "sid": 3,
+          "sentence": 1,
+          "seconds": 46.08,
+          "audioSeconds": 6.839,
+          "rtf": 6.738
+        },
+        {
+          "sid": 3,
+          "sentence": 2,
+          "seconds": 30.08,
+          "audioSeconds": 5.221,
+          "rtf": 5.761
+        },
+        {
+          "sid": 30,
+          "sentence": 0,
+          "seconds": 61.051,
+          "audioSeconds": 7.723,
+          "rtf": 7.905
+        },
+        {
+          "sid": 30,
+          "sentence": 1,
+          "seconds": 77.078,
+          "audioSeconds": 7.395,
+          "rtf": 10.423
+        },
+        {
+          "sid": 30,
+          "sentence": 2,
+          "seconds": 56.417,
+          "audioSeconds": 5.731,
+          "rtf": 9.843
+        },
+        {
+          "sid": 60,
+          "sentence": 0,
+          "seconds": 59.372,
+          "audioSeconds": 6.858,
+          "rtf": 8.657
+        },
+        {
+          "sid": 60,
+          "sentence": 1,
+          "seconds": 60.263,
+          "audioSeconds": 7.11,
+          "rtf": 8.476
+        },
+        {
+          "sid": 60,
+          "sentence": 2,
+          "seconds": 42.487,
+          "audioSeconds": 5.492,
+          "rtf": 7.736
+        },
+        {
+          "sid": 90,
+          "sentence": 0,
+          "seconds": 81.551,
+          "audioSeconds": 8.252,
+          "rtf": 9.883
+        },
+        {
+          "sid": 90,
+          "sentence": 1,
+          "seconds": 49.356,
+          "audioSeconds": 7.857,
+          "rtf": 6.282
+        },
+        {
+          "sid": 90,
+          "sentence": 2,
+          "seconds": 47.495,
+          "audioSeconds": 6.074,
+          "rtf": 7.82
+        }
+      ]
+    },
+    {
+      "model": "kokoro-v1_1",
+      "threads": 4,
+      "sampleRate": 24000,
+      "numSpeakers": 103,
+      "rtfMean": 5.937,
+      "rtfMax": 7.654,
+      "runs": [
+        {
+          "sid": 3,
+          "sentence": 0,
+          "seconds": 53.223,
+          "audioSeconds": 6.954,
+          "rtf": 7.654
+        },
+        {
+          "sid": 3,
+          "sentence": 1,
+          "seconds": 49.813,
+          "audioSeconds": 6.839,
+          "rtf": 7.283
+        },
+        {
+          "sid": 3,
+          "sentence": 2,
+          "seconds": 36.606,
+          "audioSeconds": 5.221,
+          "rtf": 7.011
+        },
+        {
+          "sid": 30,
+          "sentence": 0,
+          "seconds": 53.036,
+          "audioSeconds": 7.723,
+          "rtf": 6.867
+        },
+        {
+          "sid": 30,
+          "sentence": 1,
+          "seconds": 45.966,
+          "audioSeconds": 7.395,
+          "rtf": 6.216
+        },
+        {
+          "sid": 30,
+          "sentence": 2,
+          "seconds": 32.901,
+          "audioSeconds": 5.731,
+          "rtf": 5.74
+        },
+        {
+          "sid": 60,
+          "sentence": 0,
+          "seconds": 38.743,
+          "audioSeconds": 6.858,
+          "rtf": 5.649
+        },
+        {
+          "sid": 60,
+          "sentence": 1,
+          "seconds": 34.036,
+          "audioSeconds": 7.11,
+          "rtf": 4.787
+        },
+        {
+          "sid": 60,
+          "sentence": 2,
+          "seconds": 26.193,
+          "audioSeconds": 5.492,
+          "rtf": 4.769
+        },
+        {
+          "sid": 90,
+          "sentence": 0,
+          "seconds": 41.0,
+          "audioSeconds": 8.252,
+          "rtf": 4.969
+        },
+        {
+          "sid": 90,
+          "sentence": 1,
+          "seconds": 40.878,
+          "audioSeconds": 7.857,
+          "rtf": 5.203
+        },
+        {
+          "sid": 90,
+          "sentence": 2,
+          "seconds": 30.947,
+          "audioSeconds": 6.074,
+          "rtf": 5.095
+        }
+      ]
+    }
+  ],
+  "missing": []
+}

@@ -1,0 +1,47 @@
+{
+  "asOf": "2026-10-23 03:49:14",
+  "host": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "node": "AhaStation"
+  },
+  "mode": "echo-only",
+  "aec": "none (raw device baseline)",
+  "silenceDb": -68.9,
+  "runs": [
+    {
+      "wav": "vits-aishell3-t4-sid10.wav",
+      "playbackSeconds": 6.36,
+      "micDb": -68.8,
+      "echoOverSilenceDb": 0.0,
+      "asrText": "",
+      "asrHeardSomething": false
+    },
+    {
+      "wav": "vits-aishell3-t4-sid150.wav",
+      "playbackSeconds": 7.58,
+      "micDb": -68.8,
+      "echoOverSilenceDb": 0.1,
+      "asrText": "",
+      "asrHeardSomething": false
+    },
+    {
+      "wav": "vits-aishell3-t4-sid33.wav",
+      "playbackSeconds": 7.88,
+      "micDb": -68.9,
+      "echoOverSilenceDb": -0.1,
+      "asrText": "",
+      "asrHeardSomething": false
+    }
+  ],
+  "summary": {
+    "samples": 3,
+    "asrLeakageRate": 0.0
+  },
+  "valid": false,
+  "invalidReason": "Mic level during playback equals the silence baseline (about -68.8 dB, +0.0 dB) on all 3 samples: the microphone captured no playback at all. Windows microphone privacy is Allow, so the speaker is probably muted or the mic input gain is near zero. Not changed by the tester (user audio settings).",
+  "rerunChecklist": [
+    "Unmute speakers and set volume to normal listening level",
+    "Settings > System > Sound > Input: Microphone (Realtek) level 70-100, speak to see the meter move",
+    "Rerun echo_test.py; then rerun with --talk while someone speaks over playback"
+  ]
+}

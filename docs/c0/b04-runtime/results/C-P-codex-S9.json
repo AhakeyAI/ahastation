@@ -1,0 +1,16 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S9",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:45:49.931Z",
+  "result": "pass",
+  "observed": "usage={\"inputTokens\":18080,\"cachedInputTokens\":17664,\"outputTokens\":77,\"contextWindowMaxTokens\":258400,\"contextWindowUsedTokens\":18157}",
+  "evidence": [
+    "results/logs/C-P-codex-S9.json"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "events": [
+    {
+      "at": 13246,
+      "kind": "tool",
+      "tool": "Write",
+      "phase": "started"
+    },
+    {
+      "at": 13310,
+      "kind": "permission-request",
+      "tool": "Write",
+      "input": "{\"file_path\":\"C:\\\\Users\\\\shawn\\\\AppData\\\\Local\\\\Temp\\\\aha-b04-C-A-claude-code-S6-Fg18GA\\\\repo\\\\src\\\\stop-scenario\\\\file-001.txt\",\"content\":\"1\"}"
+    },
+    {
+      "at": 14836,
+      "kind": "ended",
+      "reason": "interrupted"
+    }
+  ],
+  "permissions": [
+    {
+      "at": 13310,
+      "toolName": "Write",
+      "input": {
+        "file_path": "C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-A-claude-code-S6-Fg18GA\\repo\\src\\stop-scenario\\file-001.txt",
+        "content": "1"
+      },
+      "toolDetail": "",
+      "allow": true,
+      "why": "write under src/ is granted: C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-A-claude-code-S6-Fg18GA\\repo\\src\\stop-scenario\\file-001.txt"
+    }
+  ],
+  "stop": {
+    "confirmed": true,
+    "confirmMs": 19,
+    "eventsDuringStop": 1,
+    "processesBefore": [
+      {
+        "pid": 8212,
+        "parentPid": 2848,
+        "name": "cmd.exe"
+      },
+      {
+        "pid": 5740,
+        "parentPid": 8212,
+        "name": "conhost.exe"
+      },
+      {
+        "pid": 8820,
+        "parentPid": 8212,
+        "name": "claude.exe"
+      }
+    ],
+    "processesAfter": []
+  }
+}

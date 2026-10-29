@@ -1,0 +1,435 @@
+{
+  "asOf": "2026-10-22 23:09:01",
+  "host": {
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpuCount": 10,
+    "python": "3.9.6",
+    "sherpaOnnx": "1.13.8",
+    "cpuName": "Apple M1 Pro"
+  },
+  "asr": [
+    {
+      "model": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "threads": 1,
+      "rtfMean": 0.073,
+      "runs": [
+        {
+          "wav": "0.wav",
+          "audioSeconds": 5.612,
+          "seconds": 0.407,
+          "rtf": 0.073,
+          "text": "对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢"
+        },
+        {
+          "wav": "1.wav",
+          "audioSeconds": 5.153,
+          "seconds": 0.374,
+          "rtf": 0.073,
+          "text": "重点呢想谈三个问题首先呢就是这一轮全球金融动荡的表现"
+        }
+      ]
+    },
+    {
+      "model": "sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+      "threads": 4,
+      "rtfMean": 0.077,
+      "runs": [
+        {
+          "wav": "0.wav",
+          "audioSeconds": 5.612,
+          "seconds": 0.449,
+          "rtf": 0.08,
+          "text": "对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢"
+        },
+        {
+          "wav": "1.wav",
+          "audioSeconds": 5.153,
+          "seconds": 0.387,
+          "rtf": 0.075,
+          "text": "重点呢想谈三个问题首先呢就是这一轮全球金融动荡的表现"
+        }
+      ]
+    }
+  ],
+  "tts": [
+    {
+      "model": "vits-aishell3",
+      "threads": 1,
+      "sampleRate": 8000,
+      "numSpeakers": 174,
+      "rtfMean": 0.055,
+      "rtfMax": 0.072,
+      "runs": [
+        {
+          "sid": 10,
+          "sentence": 0,
+          "seconds": 0.342,
+          "audioSeconds": 5.902,
+          "rtf": 0.058
+        },
+        {
+          "sid": 10,
+          "sentence": 1,
+          "seconds": 0.356,
+          "audioSeconds": 6.141,
+          "rtf": 0.058
+        },
+        {
+          "sid": 10,
+          "sentence": 2,
+          "seconds": 0.254,
+          "audioSeconds": 4.722,
+          "rtf": 0.054
+        },
+        {
+          "sid": 33,
+          "sentence": 0,
+          "seconds": 0.402,
+          "audioSeconds": 7.771,
+          "rtf": 0.052
+        },
+        {
+          "sid": 33,
+          "sentence": 1,
+          "seconds": 0.37,
+          "audioSeconds": 7.746,
+          "rtf": 0.048
+        },
+        {
+          "sid": 33,
+          "sentence": 2,
+          "seconds": 0.303,
+          "audioSeconds": 5.741,
+          "rtf": 0.053
+        },
+        {
+          "sid": 99,
+          "sentence": 0,
+          "seconds": 0.297,
+          "audioSeconds": 5.947,
+          "rtf": 0.05
+        },
+        {
+          "sid": 99,
+          "sentence": 1,
+          "seconds": 0.271,
+          "audioSeconds": 5.239,
+          "rtf": 0.052
+        },
+        {
+          "sid": 99,
+          "sentence": 2,
+          "seconds": 0.224,
+          "audioSeconds": 4.306,
+          "rtf": 0.052
+        },
+        {
+          "sid": 150,
+          "sentence": 0,
+          "seconds": 0.545,
+          "audioSeconds": 7.592,
+          "rtf": 0.072
+        },
+        {
+          "sid": 150,
+          "sentence": 1,
+          "seconds": 0.421,
+          "audioSeconds": 7.114,
+          "rtf": 0.059
+        },
+        {
+          "sid": 150,
+          "sentence": 2,
+          "seconds": 0.299,
+          "audioSeconds": 5.939,
+          "rtf": 0.05
+        }
+      ]
+    },
+    {
+      "model": "vits-aishell3",
+      "threads": 4,
+      "sampleRate": 8000,
+      "numSpeakers": 174,
+      "rtfMean": 0.019,
+      "rtfMax": 0.022,
+      "runs": [
+        {
+          "sid": 10,
+          "sentence": 0,
+          "seconds": 0.115,
+          "audioSeconds": 5.902,
+          "rtf": 0.019
+        },
+        {
+          "sid": 10,
+          "sentence": 1,
+          "seconds": 0.135,
+          "audioSeconds": 6.141,
+          "rtf": 0.022
+        },
+        {
+          "sid": 10,
+          "sentence": 2,
+          "seconds": 0.096,
+          "audioSeconds": 4.722,
+          "rtf": 0.02
+        },
+        {
+          "sid": 33,
+          "sentence": 0,
+          "seconds": 0.146,
+          "audioSeconds": 7.771,
+          "rtf": 0.019
+        },
+        {
+          "sid": 33,
+          "sentence": 1,
+          "seconds": 0.134,
+          "audioSeconds": 7.746,
+          "rtf": 0.017
+        },
+        {
+          "sid": 33,
+          "sentence": 2,
+          "seconds": 0.118,
+          "audioSeconds": 5.741,
+          "rtf": 0.021
+        },
+        {
+          "sid": 99,
+          "sentence": 0,
+          "seconds": 0.107,
+          "audioSeconds": 5.947,
+          "rtf": 0.018
+        },
+        {
+          "sid": 99,
+          "sentence": 1,
+          "seconds": 0.101,
+          "audioSeconds": 5.239,
+          "rtf": 0.019
+        },
+        {
+          "sid": 99,
+          "sentence": 2,
+          "seconds": 0.087,
+          "audioSeconds": 4.306,
+          "rtf": 0.02
+        },
+        {
+          "sid": 150,
+          "sentence": 0,
+          "seconds": 0.132,
+          "audioSeconds": 7.592,
+          "rtf": 0.017
+        },
+        {
+          "sid": 150,
+          "sentence": 1,
+          "seconds": 0.123,
+          "audioSeconds": 7.114,
+          "rtf": 0.017
+        },
+        {
+          "sid": 150,
+          "sentence": 2,
+          "seconds": 0.109,
+          "audioSeconds": 5.939,
+          "rtf": 0.018
+        }
+      ]
+    },
+    {
+      "model": "kokoro-v1_1",
+      "threads": 1,
+      "sampleRate": 24000,
+      "numSpeakers": 103,
+      "rtfMean": 0.733,
+      "rtfMax": 0.789,
+      "runs": [
+        {
+          "sid": 3,
+          "sentence": 0,
+          "seconds": 6.811,
+          "audioSeconds": 9.3,
+          "rtf": 0.732
+        },
+        {
+          "sid": 3,
+          "sentence": 1,
+          "seconds": 7.02,
+          "audioSeconds": 9.25,
+          "rtf": 0.759
+        },
+        {
+          "sid": 3,
+          "sentence": 2,
+          "seconds": 5.045,
+          "audioSeconds": 7.075,
+          "rtf": 0.713
+        },
+        {
+          "sid": 30,
+          "sentence": 0,
+          "seconds": 7.764,
+          "audioSeconds": 10.575,
+          "rtf": 0.734
+        },
+        {
+          "sid": 30,
+          "sentence": 1,
+          "seconds": 7.348,
+          "audioSeconds": 10.5,
+          "rtf": 0.7
+        },
+        {
+          "sid": 30,
+          "sentence": 2,
+          "seconds": 5.499,
+          "audioSeconds": 7.85,
+          "rtf": 0.701
+        },
+        {
+          "sid": 60,
+          "sentence": 0,
+          "seconds": 6.644,
+          "audioSeconds": 8.927,
+          "rtf": 0.744
+        },
+        {
+          "sid": 60,
+          "sentence": 1,
+          "seconds": 7.078,
+          "audioSeconds": 9.625,
+          "rtf": 0.735
+        },
+        {
+          "sid": 60,
+          "sentence": 2,
+          "seconds": 5.301,
+          "audioSeconds": 7.3,
+          "rtf": 0.726
+        },
+        {
+          "sid": 90,
+          "sentence": 0,
+          "seconds": 8.587,
+          "audioSeconds": 11.95,
+          "rtf": 0.719
+        },
+        {
+          "sid": 90,
+          "sentence": 1,
+          "seconds": 9.281,
+          "audioSeconds": 12.55,
+          "rtf": 0.74
+        },
+        {
+          "sid": 90,
+          "sentence": 2,
+          "seconds": 7.223,
+          "audioSeconds": 9.15,
+          "rtf": 0.789
+        }
+      ]
+    },
+    {
+      "model": "kokoro-v1_1",
+      "threads": 4,
+      "sampleRate": 24000,
+      "numSpeakers": 103,
+      "rtfMean": 0.88,
+      "rtfMax": 0.993,
+      "runs": [
+        {
+          "sid": 3,
+          "sentence": 0,
+          "seconds": 6.049,
+          "audioSeconds": 7.365,
+          "rtf": 0.821
+        },
+        {
+          "sid": 3,
+          "sentence": 1,
+          "seconds": 5.633,
+          "audioSeconds": 6.839,
+          "rtf": 0.824
+        },
+        {
+          "sid": 3,
+          "sentence": 2,
+          "seconds": 4.101,
+          "audioSeconds": 5.217,
+          "rtf": 0.786
+        },
+        {
+          "sid": 30,
+          "sentence": 0,
+          "seconds": 6.725,
+          "audioSeconds": 7.732,
+          "rtf": 0.87
+        },
+        {
+          "sid": 30,
+          "sentence": 1,
+          "seconds": 6.99,
+          "audioSeconds": 7.397,
+          "rtf": 0.945
+        },
+        {
+          "sid": 30,
+          "sentence": 2,
+          "seconds": 4.823,
+          "audioSeconds": 5.72,
+          "rtf": 0.843
+        },
+        {
+          "sid": 60,
+          "sentence": 0,
+          "seconds": 6.526,
+          "audioSeconds": 6.835,
+          "rtf": 0.955
+        },
+        {
+          "sid": 60,
+          "sentence": 1,
+          "seconds": 7.06,
+          "audioSeconds": 7.112,
+          "rtf": 0.993
+        },
+        {
+          "sid": 60,
+          "sentence": 2,
+          "seconds": 4.572,
+          "audioSeconds": 5.51,
+          "rtf": 0.83
+        },
+        {
+          "sid": 90,
+          "sentence": 0,
+          "seconds": 7.28,
+          "audioSeconds": 8.22,
+          "rtf": 0.886
+        },
+        {
+          "sid": 90,
+          "sentence": 1,
+          "seconds": 7.092,
+          "audioSeconds": 7.833,
+          "rtf": 0.905
+        },
+        {
+          "sid": 90,
+          "sentence": 2,
+          "seconds": 5.445,
+          "audioSeconds": 6.053,
+          "rtf": 0.9
+        }
+      ]
+    }
+  ],
+  "missing": []
+}

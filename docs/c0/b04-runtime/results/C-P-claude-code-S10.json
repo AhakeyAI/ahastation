@@ -1,0 +1,16 @@
+{
+  "candidate": "C-P",
+  "provider": "claude-code",
+  "scenario": "S10",
+  "versions": {
+    "paseo": "0.12.0",
+    "claudeCode": "global 2.1.309",
+    "model": "claude-sonnet-5-5"
+  },
+  "at": "2026-10-23T06:22:43.777Z",
+  "result": "pass",
+  "observed": "diff 352 chars; npm test {\"pass\":2,\"fail\":0}; hashes {\"src/sum.js\":\"fa46f0dc65e8cb89ce58ed951c8eb74abfc758f0670f7fe159aa645fd2d5ad53\",\"test/sum.test.js\":\"4406383dab7875afb1de4d182cff1cbd4ac89fb8bd71b2e8909eebce1b049625\"}",
+  "evidence": [
+    "results/logs/C-P-claude-code-S10.json"
+  ]
+}
