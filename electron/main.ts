@@ -147,7 +147,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
-    title: 'AhaStation',
+    title: 'AhaStudio',
     backgroundColor: getThemeBackgroundColor(),
     // hiddenInset only works on macOS; Windows/Linux use the default title bar.
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
@@ -368,7 +368,7 @@ function requestDestructiveAttention(): Promise<void> {
   return new Promise((resolve) => {
     if (!Notification.isSupported()) return resolve();
     const notify = new Notification({
-      title: 'AhaStation 需要确认高风险操作',
+      title: 'AhaStudio 需要确认高风险操作',
       body: 'Worker 请求执行破坏性工具，点击通知进行处理',
       timeoutType: 'never',
       urgency: 'critical',

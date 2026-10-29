@@ -4173,7 +4173,7 @@ export class WorkerScheduler {
                 blockers: dirty
                   ? [
                       '隔离 worktree 不会包含当前未提交改动。',
-                      'AhaStation 不会自动 commit、stash 或复制这些改动。',
+                      'AhaStudio 不会自动 commit、stash 或复制这些改动。',
                       '共享锁定模式属于非受管兼容路径，不能自动集成或原子发布。',
                     ]
                   : [

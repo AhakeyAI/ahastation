@@ -102,7 +102,7 @@ function createCompanionWindow(view: CompanionViewMode): BrowserWindow {
     y: Math.round(display.y + (isAha ? 12 : 48)),
     minWidth: isAha ? 320 : COMPANION_SIZE.minWidth,
     minHeight: isAha ? 48 : COMPANION_SIZE.minHeight,
-    title: isAha ? 'AhaBar' : 'AhaStation 陪伴屏',
+    title: isAha ? 'AhaBar' : 'AhaStudio 陪伴屏',
     frame: false,
     alwaysOnTop: true,
     resizable: !isAha,

@@ -33,7 +33,7 @@ if (!deb) throw new Error(`No arm64 .deb found in ${releaseDir}`);
 const unpacked = mkdtempSync(join(tmpdir(), 'ahastation-arm64-'));
 try {
   execFileSync('dpkg-deb', ['-x', deb, unpacked], { stdio: 'inherit' });
-  const appRoot = join(unpacked, 'opt', 'AhaStation');
+  const appRoot = join(unpacked, 'opt', 'AhaStudio');
   const resources = join(appRoot, 'resources');
   requireExecutable(join(appRoot, 'ahastation'), 'Electron launcher');
   requireMatch(resources, /app\.asar\.unpacked[\\/]node_modules[\\/]@openai[\\/]codex-linux-arm64[\\/].*[\\/]codex$/);
