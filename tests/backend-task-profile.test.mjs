@@ -8,6 +8,7 @@ import {
   backendRuntimeSchema,
 } from '../dist-electron/backends/task-profile.js';
 import { ClaudeCodeBackend } from '../dist-electron/backends/claude-code-adapter.js';
+import { ClaudeTerminalBackend } from '../dist-electron/backends/claude-terminal-adapter.js';
 import { CodexBackend } from '../dist-electron/backends/codex-adapter.js';
 import { KimiBackend } from '../dist-electron/backends/kimi-adapter.js';
 import {
@@ -55,6 +56,16 @@ test('Claude emits only pinned SDK effort and adaptive thinking settings', () =>
     effort: 'medium',
     thinking: { type: 'adaptive' },
   });
+});
+
+test('Claude terminal without a model preference compiles to auto (CLI picks the account default)', () => {
+  const profile = new ClaudeTerminalBackend().compileTaskProfile(
+    requested('claude-code-terminal', { workMode: 'balanced' }),
+    runtime('claude-code-terminal', '2.1.299'),
+  );
+
+  assert.equal(profile.model, 'auto');
+  assert.deepEqual(profile.downgraded, ['workMode:balanced->tui-interactive']);
 });
 
 test('OpenCode compiles a provider/model prompt binding and reports reasoning downgrade', () => {
