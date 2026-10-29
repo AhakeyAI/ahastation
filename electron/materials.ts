@@ -16,6 +16,7 @@
 
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
+import { maybeAppendGitignore } from './attachments/workspace.js';
 
 const MATERIALS_DIR = '.vibe-materials';
 const CHAT_DIR = 'chat';
@@ -57,26 +58,6 @@ async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
 
-async function maybeAppendGitignore(cwd: string): Promise<void> {
-  if (!existsSync(path.join(cwd, '.git'))) return;
-  const gitignorePath = path.join(cwd, '.gitignore');
-  const entry = `${MATERIALS_DIR}/`;
-  try {
-    let current = '';
-    try {
-      current = await fs.readFile(gitignorePath, 'utf8');
-    } catch {
-      current = '';
-    }
-    const lines = current.split(/\r?\n/).map((l) => l.trim());
-    if (lines.includes(entry) || lines.includes(MATERIALS_DIR)) return;
-    const sep = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
-    await fs.appendFile(gitignorePath, `${sep}${entry}\n`);
-  } catch {
-    // best-effort
-  }
-}
-
 async function writeSafely(dir: string, name: string, buffer: Buffer): Promise<string> {
   const safeBase = sanitizeFilename(name);
   const ext = extensionOf(safeBase);
@@ -115,7 +96,7 @@ export async function saveChatMessage(opts: SaveChatMessageOptions): Promise<str
   const { cwd, role, text, ts, imageUrl, attachments } = opts;
   const chatDir = path.join(cwd, MATERIALS_DIR, CHAT_DIR);
   await ensureDir(chatDir);
-  await maybeAppendGitignore(cwd);
+  await maybeAppendGitignore(cwd, MATERIALS_DIR);
 
   const dateStr = dateStamp();
   const chatFile = path.join(chatDir, `${dateStr}.md`);
@@ -167,7 +148,7 @@ export async function saveFileToMaterials(opts: SaveFileOptions): Promise<string
   const dateStr = dateStamp();
   const filesDir = path.join(cwd, MATERIALS_DIR, FILES_DIR, dateStr);
   await ensureDir(filesDir);
-  await maybeAppendGitignore(cwd);
+  await maybeAppendGitignore(cwd, MATERIALS_DIR);
 
   const absPath = await writeSafely(filesDir, name, buffer);
   await updateManifest(cwd);
@@ -189,7 +170,7 @@ export async function saveImageToMaterials(opts: SaveImageOptions): Promise<stri
   const dateStr = dateStamp();
   const filesDir = path.join(cwd, MATERIALS_DIR, FILES_DIR, dateStr);
   await ensureDir(filesDir);
-  await maybeAppendGitignore(cwd);
+  await maybeAppendGitignore(cwd, MATERIALS_DIR);
 
   const ext = mimeToExt(mediaType);
   const name = `screenshot-${timeOnly()}.${ext}`;
