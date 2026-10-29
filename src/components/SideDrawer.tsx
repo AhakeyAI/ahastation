@@ -575,7 +575,7 @@ export const SideDrawer = memo(function SideDrawer({
       ? dispatchMode === 'plan'
         ? 'Plan 模式 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
         : '直接派活 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
-      : 'Type a message · Enter 发送 · 📎 附件 / 拖放 / 粘贴均可';
+      : '输入消息，Enter 发送；可附文件、拖放或粘贴';
 
   const sendDisabled = disabled || staging || sending || (staged.length === 0 && !text.trim());
 
@@ -584,19 +584,19 @@ export const SideDrawer = memo(function SideDrawer({
       <div className="drawer-tabs">
         <button className={`drawer-tab ${tab === 'participants' ? 'active' : ''}`} onClick={() => setTab('participants')}>
           <Users size={14} aria-hidden="true" style={{ marginRight: 4, verticalAlign: -2 }} />
-          Participants
+          参会者
           {backends.filter((b) => activeBackendIds.has(b.id)).length > 0 && (
             <span className="drawer-badge">{backends.filter((b) => activeBackendIds.has(b.id)).length}</span>
           )}
         </button>
         <button className={`drawer-tab ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>
           <MessageSquare size={14} aria-hidden="true" style={{ marginRight: 4, verticalAlign: -2 }} />
-          Chat
+          对话
           {transcript.length > 0 && <span className="drawer-badge">{transcript.length}</span>}
         </button>
         <button className={`drawer-tab ${tab === 'files' ? 'active' : ''}`} onClick={() => setTab('files')}>
           <FolderOpen size={14} aria-hidden="true" style={{ marginRight: 4, verticalAlign: -2 }} />
-          Files
+          文件
         </button>
       </div>
 

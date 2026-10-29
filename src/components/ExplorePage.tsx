@@ -19,7 +19,7 @@ export function ExplorePage({ onClose }: ExplorePageProps) {
       </header>
 
       <section className="aha-explore-section">
-        <div className="aha-explore-label">Works with Aha</div>
+        <div className="aha-explore-label">配套硬件</div>
         <div className="aha-explore-grid">
           <div className="aha-explore-card aha-explore-card-feature">
             <div className="aha-explore-card-icon">⌨️</div>
@@ -41,7 +41,7 @@ export function ExplorePage({ onClose }: ExplorePageProps) {
       </section>
 
       <section className="aha-explore-section">
-        <div className="aha-explore-label">Feature Apps</div>
+        <div className="aha-explore-label">功能应用</div>
         <div className="aha-explore-grid">
           <div className="aha-explore-card">
             <div className="aha-explore-card-icon">🎙</div>
@@ -64,7 +64,7 @@ export function ExplorePage({ onClose }: ExplorePageProps) {
           <div className="aha-explore-card-icon">🎨</div>
           <div className="aha-explore-card-name">灯效 / 键位 / 客户端配置分享</div>
           <p className="aha-explore-card-desc">
-            分享与一键导入社区配置包（M9-4），依赖配置导入导出（M4-16）。
+            分享和一键导入社区配置包，需要先支持配置的导入导出。
           </p>
           <span className="aha-dev-tag">开发中</span>
         </div>

@@ -153,14 +153,14 @@ export const BottomToolbar = memo(function BottomToolbar({
         ? <AudioLines size={ICON_SIZE} />
         : <Mic size={ICON_SIZE} />;
   const micLabel = micRetryable
-    ? 'Retry mic'
+    ? '重试麦克风'
     : micBusy
-      ? 'Starting…'
+      ? '启动中…'
       : muted
-        ? 'Unmute'
+        ? '取消静音'
         : listening
-          ? 'Listening'
-          : 'Mic';
+          ? '聆听中'
+          : '麦克风';
 
   // Handheld layout (§3.3): fixed 5 keys — mic / speaker / share / interrupt
   // / leave. Snapshot + chat collapse into a 更多 menu (chat is also the
@@ -184,7 +184,7 @@ export const BottomToolbar = memo(function BottomToolbar({
           </div>
           <ToolbarButton
             icon={ttsOn ? <Volume2 size={ICON_SIZE} /> : <VolumeX size={ICON_SIZE} />}
-            label={ttsOn ? 'Voice on' : 'Voice off'}
+            label={ttsOn ? '播报开' : '播报关'}
             onClick={onToggleTts}
             active={ttsOn}
           />
@@ -193,14 +193,14 @@ export const BottomToolbar = memo(function BottomToolbar({
         <div className="toolbar-group toolbar-group-primary">
           <ToolbarButton
             icon={sharing ? <Monitor size={ICON_SIZE} /> : <MonitorUp size={ICON_SIZE} />}
-            label={sharing ? 'Stop sharing' : 'Share my screen'}
+            label={sharing ? '停止共享' : '共享屏幕'}
             onClick={onToggleShare}
             active={sharing}
             danger={sharing}
           />
           <ToolbarButton
             icon={<Square size={ICON_SIZE} />}
-            label="Interrupt"
+            label="打断"
             onClick={onInterrupt}
           />
         </div>
@@ -253,7 +253,7 @@ export const BottomToolbar = memo(function BottomToolbar({
           </div>
           <button className="tb-leave" onClick={onLeave}>
             <span className="tb-btn-icon" aria-hidden="true"><X size={ICON_SIZE} /></span>
-            <span className="tb-btn-label">Leave</span>
+            <span className="tb-btn-label">离开</span>
           </button>
         </div>
       </div>
@@ -278,7 +278,7 @@ export const BottomToolbar = memo(function BottomToolbar({
         </div>
         <ToolbarButton
           icon={ttsOn ? <Volume2 size={ICON_SIZE} /> : <VolumeX size={ICON_SIZE} />}
-          label={ttsOn ? 'Voice on' : 'Voice off'}
+          label={ttsOn ? '播报开' : '播报关'}
           onClick={onToggleTts}
           active={ttsOn}
         />
@@ -287,20 +287,20 @@ export const BottomToolbar = memo(function BottomToolbar({
       <div className="toolbar-group toolbar-group-primary">
         <ToolbarButton
           icon={sharing ? <Monitor size={ICON_SIZE} /> : <MonitorUp size={ICON_SIZE} />}
-          label={sharing ? 'Stop sharing' : 'Share my screen'}
+          label={sharing ? '停止共享' : '共享屏幕'}
           onClick={onToggleShare}
           active={sharing}
           danger={sharing}
         />
         <ToolbarButton
           icon={<Camera size={ICON_SIZE} />}
-          label={sharing ? 'Send snapshot' : 'Snapshot (share first)'}
+          label={sharing ? '发送截图' : '截图（先共享）'}
           onClick={onSnapshot}
           disabled={!snapshotEnabled}
         />
         <ToolbarButton
           icon={<Square size={ICON_SIZE} />}
-          label="Interrupt"
+          label="打断"
           onClick={onInterrupt}
         />
       </div>
@@ -309,7 +309,7 @@ export const BottomToolbar = memo(function BottomToolbar({
         {controlsSlot}
         <ToolbarButton
           icon={<MessageSquare size={ICON_SIZE} />}
-          label="Chat"
+          label="对话"
           onClick={onToggleChat}
           active={chatOpen}
         />
@@ -321,7 +321,7 @@ export const BottomToolbar = memo(function BottomToolbar({
         />
         <button className="tb-leave" onClick={onLeave}>
           <span className="tb-btn-icon" aria-hidden="true"><X size={ICON_SIZE} /></span>
-          <span className="tb-btn-label">Leave</span>
+          <span className="tb-btn-label">离开</span>
         </button>
       </div>
     </div>
