@@ -10,7 +10,7 @@ let fontSize = savedFont >= 10 && savedFont <= 24 ? savedFont : 14;
 const savedAppearance = localStorage.getItem('aha.terminal.appearance');
 let appearance: TerminalAppearance = savedAppearance === 'dark' || savedAppearance === 'light'
   ? savedAppearance
-  : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  : (globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
 function notify() {
   revision++;
