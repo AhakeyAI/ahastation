@@ -1,10 +1,12 @@
-2026-10-23 实施后记录：.5已按本材料完成可执行工作，实际结果见 [本轮报告](COLLABORATION_5_FIX_REPORT_2026-10-23.md)／[逐项证据](COLLABORATION_5_H01_H14_S01_S18_EVIDENCE.md)。下文“待实施”保留为材料编写时状态，现场未运行项继续待验收。
+> 当前实施状态和分工见 [REVIEW_STATUS.md](REVIEW_STATUS.md)。本文保留早期需求与验证背景；执行方向及权限冲突按负责人在评审分支和 ADR 0017–0019 中的逐项裁决处理，历史“已通过”不代表本轮复验。
+
+2026-10-23 实施后记录：.5已按本材料完成可执行工作，实际结果见 [本轮报告](REVIEW_STATUS.md#历史证据)／[逐项证据](REVIEW_STATUS.md#历史证据)。下文“待实施”保留为材料编写时状态，现场未运行项继续待验收。
 
 # collaboration.4 复审后的技术收口范围与验收
 
 日期：2026-10-23。用户已确认 Q108–Q112 和正常结束／真正中断／结果未知三类整体边界，要求完整修改提示词。本文件是下一轮执行材料，当前未修改产品、重跑测试或打包。
 
-权威需求为 FIRST_RELEASE_SPEC 第13–14节，实施约束为 UNIFIED_MEETING_IMPLEMENTATION 第9节，确认过程见 DESIGN_REVIEW。完整可复制指令见 [STABILITY_HARDENING_PROMPT_2026-10-23.txt](STABILITY_HARDENING_PROMPT_2026-10-23.txt)。既有 Q1–Q107、S01–S18 及原功能保护继续有效；旧提示词保留历史，不再作为最新状态描述。
+权威需求为 FIRST_RELEASE_SPEC 第13–14节，实施约束为 UNIFIED_MEETING_IMPLEMENTATION 第9节，确认过程见 DESIGN_REVIEW。完整可复制指令见 [STABILITY_HARDENING_PROMPT_2026-10-23.txt](REVIEW_STATUS.md#历史证据)。既有 Q1–Q107、S01–S18 及原功能保护继续有效；旧提示词保留历史，不再作为最新状态描述。
 
 ## 修复范围
 

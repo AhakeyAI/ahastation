@@ -6,10 +6,12 @@ import { getBackendAuth } from '../store.js';
 import { GuardedCodexExecution } from './native-helper.js';
 import type { SharedEntity, SharedSnapshot,HostInputStatus,HostInputFailure } from './production-types.js';
 import {parseSharedCommand} from './production-validation.js';
+import type { BackendSessionSnapshot } from '../backends/cli-backend.js';
 export interface CoordinatorHooks {
   reply(text:string,inputId:string):Promise<void>;
   plan(tasks:Array<Record<string,unknown>>,inputId:string):Promise<void>;
   checkpoint(inputId:string,status:HostInputStatus,threadId?:string,failure?:HostInputFailure):Promise<void>;
+  createdSession?(session:BackendSessionSnapshot,inputId:string):Promise<void>;
 }
 const INSTRUCTIONS = '你是共享会议唯一 Host。只做统筹，围绕完整交付拆分独立任务，包含必要测试和成果说明。纯对话直接回答。不要调用本机工具代替执行设备，不自动扩大授权。明确点名原生对话的消息不会发给你，不要重复派发。提出计划时输出 station-plan JSON 围栏，内容为任务数组。每项包含 meetingId,title,objective,targetDeviceId,agentId,resource(text/directory/repository/native),permission(read-only/workspace-write),dependencies数组,inputs数组；仓库任务还需projectId和准确baseCommit。只从会议members中选择具备可用Agent和授权的设备。一个任务含连续多文件修改、必要测试和交付说明，不把步骤拆成新任务。计划批准和自动分配独立控制。缺少准确基线或条件时说明所需准备，不猜值。同目标返工保持原任务，最终验收后追加才建关联后续任务。禁止最终合并PR，依赖任务须等会议集成和组合验证通过。';
 export function normalizeHostPlan(meetingId:string,value:unknown):Array<Record<string,unknown>> {
@@ -40,7 +42,10 @@ export class SharedCoordinator {
       try {
         const result=await this.execution.run({cwd:this.folder,permission:'read-only',threadId:this.threadId,
           objective:INSTRUCTIONS+'\ninputs 只放已经发布的 Git 文件引用对象 {repository:"https://github.com/owner/repo",commit:"40位准确提交号",paths:["仓库内相对路径"]}；纯文字要求全部写进 objective，纯文字任务用 permission=read-only，inputs=[]。没有文件就用空数组。dependencies 只引用已经存在的真实业务任务 ID；首轮独立任务用空数组。资料发布通知只更新上下文，尚未给出执行目标时不要派任务。\n当前共享会议快照（不授予本机目录权限）：\n'+context+'\n用户输入：\n'+String(message.text)}, {
-          identity:async(thread)=>{this.threadId=thread;await this.hooks.checkpoint(message.id,'starting',thread);},
+          identity:async(thread)=>{
+            if(!this.threadId)await this.hooks.createdSession?.({protocol:'codex-app-server',sessionId:thread},message.id);
+            this.threadId=thread;await this.hooks.checkpoint(message.id,'starting',thread);
+          },
           output:async(text)=>{output=textSlice(output+text,-64000);},approval:async()=> 'deny',
         });
         if(!result.exitConfirmed)throw new Error('Host 原执行退出未确认，请保留原输入等待核对');

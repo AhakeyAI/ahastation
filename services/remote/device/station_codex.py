@@ -16,6 +16,7 @@ from pathlib import Path
 from task_journal import TaskJournal,read_json,write_json
 from task_process import WindowsJob,windows_identity,recover
 from task_ownership import LinuxTaskTree,linux_identity
+from codex_runtime import is_supported
 
 class CodexRpcError(RuntimeError):
     def __init__(self,diagnostic):
@@ -170,7 +171,7 @@ class Guardian:
             threading.Thread(target=drain_stderr,daemon=True).start()
             initialized=self.call('initialize',{'clientInfo':{'name':'ahastation_worker','title':'AhaStation','version':'0.19.0'},'capabilities':{'experimentalApi':False,'requestAttestation':False}})
             version=re.search(r'/(\d+\.\d+\.\d+)(?:\s|\(|$)',initialized.get('userAgent',''))
-            if not version or version[1]!='0.164.0':raise RuntimeError('Codex app-server protocol version is incompatible; task was not submitted')
+            if not version or not is_supported(version[1]):raise RuntimeError('Codex app-server protocol version is incompatible; task was not submitted')
             self.send({'method':'initialized'})
             account=self.call('account/read',{'refreshToken':False})
             if account.get('requiresOpenaiAuth') and not account.get('account') and not os.getenv('OPENAI_API_KEY'):raise RuntimeError('Codex login required')

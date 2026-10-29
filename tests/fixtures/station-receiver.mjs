@@ -1,9 +1,10 @@
+import './offline-backends.mjs';
 import {app,safeStorage} from 'electron';
 import {readFile} from 'node:fs/promises';
 import {StationService} from '../../dist-electron/collaboration/station-service.js';
 import {updateRemoteControlFields} from '../../dist-electron/store.js';
 const [root,connection]=process.argv.slice(2);app.getPath=()=>root;
-safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=s=>Buffer.from('fixture:'+s);safeStorage.decryptString=b=>b.toString().slice(8);
+safeStorage.isAsyncEncryptionAvailable=()=>true;safeStorage.encryptStringAsync=s=>Buffer.from('fixture:'+s);safeStorage.decryptStringAsync=async b=>({result:b.toString().slice(8),shouldReEncrypt:false});
 process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
 const config=JSON.parse(await readFile(connection,'utf8'));
 await updateRemoteControlFields(()=>({enabled:true,mode:'public',serviceUrl:config.url,ownerId:config.owner,controlToken:config.token}));

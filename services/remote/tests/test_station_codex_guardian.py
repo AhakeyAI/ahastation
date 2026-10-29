@@ -17,7 +17,7 @@ thread='native-fixture-thread';turn='native-fixture-turn'
 def send(v):print(json.dumps(v),flush=True)
 for raw in sys.stdin:
  m=json.loads(raw);method=m.get('method');p=m.get('params') or {};identity=m.get('id')
- if method=='initialize':send({'id':identity,'result':{'userAgent':'fixture/0.164.0','codexHome':'fixture'}})
+ if method=='initialize':send({'id':identity,'result':{'userAgent':'fixture/0.156.1','codexHome':'fixture'}})
  elif method=='account/read':send({'id':identity,'result':{'requiresOpenaiAuth':False,'account':{'type':'fixture'}}})
  elif method=='model/list':send({'id':identity,'result':{'data':[{'model':'fixture-model','isDefault':True}]}})
  elif method in ('thread/start','thread/resume'):send({'id':identity,'result':{'thread':{'id':thread}}})
@@ -172,7 +172,7 @@ print('read and replacement locks handled without losing the original record')
             if process.poll() is None:process.kill();process.wait(timeout=10)
             for stream in (process.stdin,process.stdout,process.stderr):stream.close()
     def test_protocol_mismatch_never_starts_a_native_turn(self):
-        self.server.write_text(SERVER.replace('fixture/0.164.0','fixture/999.0.0'),encoding='utf-8')
+        self.server.write_text(SERVER.replace('fixture/0.156.1','fixture/999.0.0'),encoding='utf-8')
         result=self.result(self.invoke(self.request));self.assertFalse(result['ok']);self.assertTrue(result['cleanup_confirmed'])
         self.assertIn('incompatible',result['error']);self.assertFalse((self.root/'late-child.txt').exists())
     def test_utf8_chinese_objective_survives_windows_packaged_stdio_boundary(self):

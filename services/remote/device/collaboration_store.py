@@ -383,6 +383,7 @@ class CollaborationStore:
             return self.put(c,owner,'meeting',meeting['id'],meeting)
         if action=='plan.review':
             meeting=self.meeting(c,owner,p)
+            self.coordinator(c,owner,device,meeting)
             self.plan_basis(meeting,p)
             self.validate_plan(c,owner,meeting,p['tasks'])
             if any(t['meetingId']!=meeting['id'] for t in p['tasks']):fail('Foreign plan task',400)
@@ -403,7 +404,7 @@ class CollaborationStore:
             return self.put(c,owner,'meeting',meeting['id'],{**meeting,'finalPrUrl':p['prUrl'],'finalCommit':p['commit']})
         if action in ('meeting.update','plan.propose','plan.decide'):
             meeting=self.meeting(c,owner,p)
-            if action!='plan.decide': self.coordinator(c,owner,device,meeting)
+            self.coordinator(c,owner,device,meeting)
             if action!='meeting.update':self.plan_basis(meeting,p,proposal=action=='plan.propose')
             elif meeting['revision']!=p['expectedRevision']: fail('Meeting revision conflict')
             if action=='meeting.update':

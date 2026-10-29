@@ -6,9 +6,10 @@ import test from 'node:test';
 import {
   CodexAppServerTransport,
   extractCodexRuntimeVersion,
+  isSupportedCodexAppServerVersion,
 } from '../dist-electron/backends/codex-app-server-transport.js';
 
-function fakeAppServer() {
+function fakeAppServer(userAgent = 'Codex/0.156.1') {
   const process = new EventEmitter();
   process.stdout = new PassThrough();
   process.stderr = new PassThrough();
@@ -24,7 +25,7 @@ function fakeAppServer() {
         queueMicrotask(() => {
           if (message.method === 'initialize') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
-              userAgent: 'Codex/0.164.0', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+              userAgent, codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
             } })}\n`);
           } else if (message.method === 'account/read') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
@@ -53,7 +54,7 @@ test('app-server readiness uses initialize and account/read without a model turn
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
   const ready = await transport.start();
-  assert.equal(ready.userAgent, 'Codex/0.164.0');
+  assert.equal(ready.userAgent, 'Codex/0.156.1');
   assert.equal(ready.account.type, 'chatgpt');
   assert.deepEqual(fake.methods, ['initialize', 'initialized', 'account/read']);
   transport.close();
@@ -177,13 +178,29 @@ test('app-server rejects a runtime that does not match its locked schema', async
   const transport = new CodexAppServerTransport({
     binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process,
   });
-  await assert.rejects(transport.start(), /requires 0\.164\.0/);
+  await assert.rejects(transport.start(), /supports >=0\.156\.1 <0\.157\.0/);
   transport.close();
+});
+
+test('Codex interval accepts stable patches and rejects unverified versions before account or task submission', async () => {
+  for (const version of ['0.156.1', '0.156.2', '0.156.999', '0.156.0', '0.157.0', '0.164.0', '0.156.1-beta.1', '0.156.1+build']) {
+    const accepted = ['0.156.1', '0.156.2', '0.156.999'].includes(version);
+    assert.equal(isSupportedCodexAppServerVersion(version), accepted, version);
+    const fake = fakeAppServer('Codex/' + version);
+    const transport = new CodexAppServerTransport({ binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process });
+    try {
+      if (accepted) await transport.start();
+      else {
+        await assert.rejects(transport.start(), /Unsupported Codex/);
+        assert.deepEqual(fake.methods, ['initialize']);
+      }
+    } finally { transport.close(); }
+  }
 });
 
 test('Codex runtime version is extracted from the real desktop user agent shape', () => {
   assert.equal(
-    extractCodexRuntimeVersion('Codex Desktop/0.164.0 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
-    '0.164.0',
+    extractCodexRuntimeVersion('Codex Desktop/0.156.1 (Mac OS; arm64) dumb (ahastation; 0.15.1)'),
+    '0.156.1',
   );
 });

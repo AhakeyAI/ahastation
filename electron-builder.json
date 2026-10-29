@@ -11,6 +11,7 @@
     "dist-electron/**/*",
     "contracts/collaboration/v1.schema.json",
     "contracts/collaboration/v2.schema.json",
+    "contracts/runtime/codex.json",
     "package.json"
   ],
   "asarUnpack": [

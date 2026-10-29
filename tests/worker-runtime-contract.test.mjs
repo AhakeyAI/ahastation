@@ -9,7 +9,7 @@ import {
 } from '../dist-electron/backends/worker-runtime-contract.js';
 
 test('runtime versions are extracted from common CLI output', () => {
-  assert.equal(extractRuntimeVersion('codex-cli 0.164.0'), '0.164.0');
+  assert.equal(extractRuntimeVersion('codex-cli 0.156.1'), '0.156.1');
   assert.equal(extractRuntimeVersion('Claude Code v2.1.150 (stable)'), '2.1.150');
   assert.equal(extractRuntimeVersion('unknown'), null);
 });
@@ -25,7 +25,7 @@ test('Worker runtime gate fails closed for missing, incompatible and unauthentic
   }).state, 'version-incompatible');
   assert.equal(assessWorkerRuntime({
     backendId: 'codex', installed: true, implementationEnabled: true,
-    authenticated: false, version: '0.164.0',
+    authenticated: false, version: '0.156.1',
   }).state, 'needs-login');
 });
 
@@ -33,7 +33,7 @@ test('Worker runtime becomes available only at the tested version with authentic
   for (const [backendId, version] of [
     ['claude-code', '2.1.150'],
     ['opencode', '1.18.3'],
-    ['codex', '0.164.0'],
+    ['codex', '0.156.1'],
     ['kimi', '0.24.1'],
   ]) {
     const result = assessWorkerRuntime({
@@ -80,4 +80,16 @@ test('assessConfiguredWorkerRuntime accepts system Claude versions at dispatch t
   });
   assert.equal(result.state, 'available');
   assert.equal(result.expectedVersion, '2.1.215');
+});
+
+test('Codex Worker version gates share the transport interval and preserve prereleases for rejection', () => {
+  for (const [version, accepted] of [
+    ['0.156.0', false], ['0.156.1', true], ['0.156.2', true], ['0.157.0', false],
+    ['0.164.0', false], ['0.156.1-beta.1', false], ['0.156.1+build', false],
+  ]) {
+    assert.equal(extractRuntimeVersion('codex-cli ' + version), version);
+    const result = assessConfiguredWorkerRuntime({ backendId: 'codex', installed: true,
+      implementationEnabled: true, authenticated: true, version });
+    assert.equal(result.state, accepted ? 'available' : 'version-incompatible', version);
+  }
 });

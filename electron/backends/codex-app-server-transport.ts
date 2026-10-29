@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { CODEX_RUNTIME, isSupportedCodexAppServerVersion } from './codex-runtime.js';
+export { isSupportedCodexAppServerVersion } from './codex-runtime.js';
 
 export interface CodexAppServerNotification {
   method: string;
@@ -20,7 +22,9 @@ export interface CodexAppServerReady {
   account: Record<string, unknown>;
 }
 
-export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.164.0';
+export const SUPPORTED_CODEX_APP_SERVER_VERSION = CODEX_RUNTIME.bundled;
+export const CODEX_APP_SERVER_MIN_VERSION = CODEX_RUNTIME.min;
+export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = CODEX_RUNTIME.maxExclusive;
 
 /** True when the subprocess env carries an explicit OpenAI-compatible API key. */
 export function hasCodexApiKeyCredentials(env: NodeJS.ProcessEnv | undefined): boolean {
@@ -87,10 +91,10 @@ export class CodexAppServerTransport {
     });
     const userAgent = String(initialized.userAgent ?? '');
     const runtimeVersion = extractCodexRuntimeVersion(userAgent);
-    if (runtimeVersion !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+    if (!isSupportedCodexAppServerVersion(runtimeVersion)) {
       throw new Error(
         `Unsupported Codex app-server runtime ${runtimeVersion ?? 'unknown'}; `
-        + `AhaStation requires ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+        + `AhaStation supports >=${CODEX_RUNTIME.min} <${CODEX_RUNTIME.maxExclusive}`,
       );
     }
     this.notify('initialized');

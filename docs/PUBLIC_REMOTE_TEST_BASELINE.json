@@ -115,8 +115,8 @@
     }
   },
   "sharedDesktopEvidence": {
-    "baselineLog": "C:\\Users\\79142\\AppData\\Local\\Temp\\station-shared-baseline.log",
-    "currentLog": "C:\\Users\\79142\\AppData\\Local\\Temp\\station-shared-delivery-verified.log",
+    "baselineLog": "<temporary-evidence>/station-shared-baseline.log",
+    "currentLog": "<temporary-evidence>/station-shared-delivery-verified.log",
     "newFailures": [],
     "removedFailures": [],
     "pythonLoopbackEnabled": true,

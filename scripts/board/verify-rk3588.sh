@@ -32,6 +32,12 @@ if [ -f "$VERSIONS_FILE" ]; then
   . "$VERSIONS_FILE"
 fi
 
+# Keep the board's strict packaged-version check on the shared bundled pin.
+CODEX_CONTRACT="$SCRIPT_DIR/../../contracts/runtime/codex.json"
+[ -r "$CODEX_CONTRACT" ] || fail "Codex runtime contract is missing: $CODEX_CONTRACT"
+CODEX_VERSION=$(sed -n 's/^[[:space:]]*"bundled":[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' "$CODEX_CONTRACT")
+[ -n "$CODEX_VERSION" ] || fail "Codex bundled version is missing from runtime contract"
+
 bundled_runtime() {
   case "$1" in
     claude)

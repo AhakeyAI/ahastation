@@ -62,9 +62,9 @@ class UnifiedMeetingTest(baseline.StationCollaborationTest):
         self.assertEqual(request['route'],'control');self.assertEqual(request['targetDeviceId'],self.a['id'])
         await self.command(self.b['token'],'meeting.update',{'meetingId':m['id'],'expectedRevision':3,'members':[],'autoApprovePlan':False,'autoAssign':False},expected=403)
         brief={'goal':'edited goal','approach':'edited why','steps':[],'risks':[],'openQuestions':[]}
-        reviewed=await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':3,'tasks':[task],'brief':brief,'approved':True})
+        reviewed=await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':3,'tasks':[task],'brief':brief,'approved':True})
         self.assertEqual(reviewed['planBrief'],brief)
-        await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':3,'tasks':[task],'approved':True},expected=409)
+        await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':3,'tasks':[task],'approved':True},expected=409)
 
     async def test_host_migration_preserves_ids_and_refuses_inflight_tasks(self):
         m,task=await self.prepare();offered=await self.command(self.a['token'],'task.create',task)

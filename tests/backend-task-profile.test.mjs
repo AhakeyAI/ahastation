@@ -36,7 +36,7 @@ const requested = (backendId, overrides = {}) => ({
 test('Codex deep compiles to the pinned native high reasoning effort', () => {
   const profile = new CodexBackend().compileTaskProfile(
     requested('codex', { modelPreference: 'gpt-5.4' }),
-    runtime('codex', '0.164.0'),
+    runtime('codex', '0.156.1'),
   );
 
   assert.equal(profile.model, 'gpt-5.4');
@@ -100,10 +100,10 @@ test('Kimi never claims an unsupported reasoning control', () => {
 test('compilation is pure, stable, secret-free, and preserves requested intent', () => {
   const backend = new CodexBackend();
   const input = requested('codex', { modelPreference: 'gpt-5.4' });
-  const first = backend.compileTaskProfile(input, runtime('codex', '0.164.0'));
+  const first = backend.compileTaskProfile(input, runtime('codex', '0.156.1'));
   const second = backend.compileTaskProfile(
     structuredClone(input),
-    runtime('codex', '0.164.0'),
+    runtime('codex', '0.156.1'),
   );
 
   assert.deepEqual(input, requested('codex', { modelPreference: 'gpt-5.4' }));
@@ -222,10 +222,10 @@ test('scheduler persists effective profile before workspace and session', async 
     async compileTaskProfile(profile) {
       order.push('profile-compile');
       return {
-        runtime: runtime(profile.backendId, '0.164.0'),
+        runtime: runtime(profile.backendId, '0.156.1'),
         effectiveProfile: new CodexBackend().compileTaskProfile(
           profile,
-          runtime(profile.backendId, '0.164.0'),
+          runtime(profile.backendId, '0.156.1'),
         ),
       };
     },

@@ -39,7 +39,7 @@ WindowsGUI：打开独立产品→配对/根授权/CLI认证→关窗托盘→�
 - Station renderer和Electron typecheck退出0；两端构建通过（Vite已有大chunk提示）。全量909：864通过、40失败、5跳过；相对本轮起始905/860/40/5新增4项通过。40失败**名称逐项一致**，差集为空，见Station `docs/PUBLIC_REMOTE_TEST_BASELINE.json`。
 - 公网HTTP/header/WS空闲/心跳探针与源码ZIP工作树清单/校验2项通过；这不是微信云托管WSS验收。MySQL原生3项因本机无服务明确跳过；提供手动CI MySQL8.4独立空测试库及逻辑备份恢复，未运行CI，不声称平台备份通过。
 - 当前WSL系统只有Python3.14.4，固定pydantic_core2.33.2/PyO3最高3.13，不为测试升级产品依赖；隔离下载官方项目Astral Python3.13.16，SHA256 `24801ea31c7d406d559a17e2226325c723d50c56900b9c0da7b62adaae2affc9`，使用 `/root/.cache/ahastation-public-313/env/bin/python`。未装系统服务/Docker，未读取临时仓库副本。
-- 真实Codex证据临时目录 `C:\Users\79142\AppData\Local\Temp\station-real-public-m0u84e7k`；仅新会话 `01a12580-e44d-7b30-846b-70ac60ce6b62`，未修改用户项目或旧历史。Bootstrap失败发生在启动测试Hub前，其guardian结束并确认退出；临时目录和新原生测试记录保留供检查。
+- 真实Codex证据临时目录 `<local-evidence-path>`；仅新会话 `01a12580-e44d-7b30-846b-70ac60ce6b62`，未修改用户项目或旧历史。Bootstrap失败发生在启动测试Hub前，其guardian结束并确认退出；临时目录和新原生测试记录保留供检查。
 - 所有测试Hub/Bridge/server任务按fixture退出，包输出目录runtime仅构建产物，不包含真实凭证。最终交付 ZIP 及SHA256见 `runtime/delivery-manifest.json`；没有真实公网部署、DNS/网站改动、提交/推送/发布。
 
 ## 2026-10-11 三项审查问题修复
@@ -81,13 +81,13 @@ WindowsGUI：打开独立产品→配对/根授权/CLI认证→关窗托盘→�
 - 新增10项回归调用生产发现/RPC/适配器逻辑，其中RPC fixture是真实stdio子进程、有分页/变更/失败及重复来源；覆盖无PATH、多候选/更新失效/手工保留、真实cwd/本地数据/不可恢复引用、占用未知/切换控制、两轮同ID、权限/model默认、不偷偷新建和取消后历史标记残留。
 - Station本轮起始及最终均912：867通过、40失败、5跳过；名称逐项相同，且与之前记录的40名逐项相同，差集为空。renderer/Electron typecheck及构建退出0；Vite既有大chunk提示保留。electron/main.ts SHA256 未变化。
 - Windows Python全量81：63通过、18跳过；WSL Python3.13.16全量81：64通过、17跳过，无失败。Windows原子Job、Linux subreaper/pidfd真实进程测试、取消/断线重连及旧CLI/Claude协议回归保留；WSL不是原生Linux桌面或ARM64打包验收。
-- 真实执行使用Codex桌面新建的独立项目 `C:\Users\79142\Documents\Codex\2026-10-12\bridge-desktop-acceptance-20261012`、原生会话 `01a12ee6-1b9e-7412-8707-4ae4ce9486db`，未操作用户工作会话。Desktop首轮写README标记，独立exec resume接续上下文写SECOND，均同ID/cwd；原权限workspace-write/never，没有提权。发现任务结束后桌面仍可能持有writer；首次恢复明确writer冲突，归档期间明确archived错误，仅对这个新测试会话由桌面归档/恢复释放writer后再恢复成功。
+- 真实执行使用Codex桌面新建的独立项目 `<local-evidence-path>`、原生会话 `01a12ee6-1b9e-7412-8707-4ae4ce9486db`，未操作用户工作会话。Desktop首轮写README标记，独立exec resume接续上下文写SECOND，均同ID/cwd；原权限workspace-write/never，没有提权。发现任务结束后桌面仍可能持有writer；首次恢复明确writer冲突，归档期间明确archived错误，仅对这个新测试会话由桌面归档/恢复释放writer后再恢复成功。
 - 两次原生恢复分别使用生产LocalAgentRunner初始执行与Bridge/Hub回环（注入SQLite），不连接部署服务；写REMOTE_ONE/REMOTE_TWO并收到文本，慢任务pulse文件写入后请求取消，真实监管证明退出且文件停止增长。随后发现旧inProgress误阻断新任务，本轮修正且新增回归；修正后的后续真实执行及最终冻结验证结果在交付manifest补记。没有把上述首次失败隐藏成全程成功。
 - 冻结包保留旧包，最新输出及大小/哈希/自检/Job probe/烟测记录以 `runtime/delivery-manifest.json` 为准。Hub/WSS包条目保留，未重建云端服务或协议。新模块须在最新包自检中出现 desktop_catalog_sources；旧包自检不替代新包。
 
 仍待验收：Station原生GUI实际点击选择/配对、回桌面界面重新打开同一会话核对、桌面组件真实更新/重启GUI、原生macOS桌面组件发现/执行/取消、原生Linux/ARM64交付、托盘/自动启动、MySQL、跨电脑公网/WSS、麦克风及Claude真实模型（本机捆绑Claude CLI存在但未登录）。当前只读查询、协议fixture、模拟darwin不算这些实测。没有发布、推送、云端部署、DNS修改或自动登录；所有自建回环Hub/Bridge均退出，保留隔离测试证据。
 
-本轮真实取消后的续发补充：修正历史 inProgress 判断后，同一原生ID的新指令已实际开始并写出 AFTER_CANCEL.md；CLI随后返回 `Selected model is at capacity`，未得到成功最终文本，因此“取消后完整一轮成功反馈”仍待验收。没有为此切换模型、提权或重复付费调用。两轮与取消证据在 `C:\Users\79142\AppData\Local\Temp\station-real-public-qv5l0x_z` 的bootstrap、独立SQLite任务记录及after-cancel-result.json；后续失败也保留。pulse在取消后不再增长，桌面主进程仍在。适配器现在把桌面恢复/writer/模型失败原因写入持久反馈，避免只留下泛化失败。
+本轮真实取消后的续发补充：修正历史 inProgress 判断后，同一原生ID的新指令已实际开始并写出 AFTER_CANCEL.md；CLI随后返回 `Selected model is at capacity`，未得到成功最终文本，因此“取消后完整一轮成功反馈”仍待验收。没有为此切换模型、提权或重复付费调用。两轮与取消证据在 `<local-evidence-path>` 的bootstrap、独立SQLite任务记录及after-cancel-result.json；后续失败也保留。pulse在取消后不再增长，桌面主进程仍在。适配器现在把桌面恢复/writer/模型失败原因写入持久反馈，避免只留下泛化失败。
 桌面回读补充：通过本机桌面API read_thread只读回读这个测试ID，已能看见Bridge后续turn、取消的interrupted及容量错误，cwd和原ID一致；这验证本地历史连续性，仍不当作原生GUI重新打开的视觉验收。两轮成功恢复分别经过LocalAgentRunner初始执行与公网Hub/Bridge回环，未完成Station GUI两轮点击验收。
 
 

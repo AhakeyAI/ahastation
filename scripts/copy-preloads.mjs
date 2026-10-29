@@ -12,3 +12,6 @@ await Promise.all(preloads.map((name) => copyFile(
   join(root, 'electron', name),
   join(output, name),
 )));
+
+await mkdir(join(output, 'runtime'), { recursive: true });
+await copyFile(join(root, 'contracts/runtime/codex.json'), join(output, 'runtime/codex.json'));

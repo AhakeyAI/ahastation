@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import type {UnifiedModel} from '../lib/unified-meeting-store';
-import {sharedCommand,sharedRequest,sharedPhase} from '../lib/unified-meeting-store';
+import {sharedCommand,sharedRequest} from '../lib/unified-meeting-store';
 import {toast} from '../lib/toast';
 import {NativeHistory} from './CollaborationPanel';
 import type {SharedEntity} from '../../electron/collaboration/production-types';
@@ -43,10 +43,7 @@ export function SharedInvitation({model}:{model:UnifiedModel}){
     <button onClick={()=>void window.vibeMeet.settingsWindow.open({focus:'backends-unconfigured'})}>Agent 就绪与本机授权设置</button>
   </div>;
 }
-export function SharedParticipants({model,onOpenTask,onInvite}:{model:UnifiedModel;onOpenTask:(id:string)=>void;onInvite:()=>void}){
-  const hostDevice=model.view.snapshot.entities.device?.find(d=>d.id===model.meeting.coordinatorDeviceId);
-  return <aside className="tiles-gallery unified-participants"><div className="tiles-gallery-scroll"><article className="unified-member"><strong>You · {model.view.config.name}（本机）</strong><p>查看与主持不自动授予本机执行资格</p></article><article className="unified-member"><strong>Host · {String(hostDevice?.name??'原协调设备')} · {String(model.meeting.hostAgentId??'codex')}</strong><p>{hostDevice?.online?'会议唯一统筹':'离线，新安排等待恢复'}</p></article>{model.members.map(member=><article className="unified-member" key={member.id}><strong>{member.label}{member.deviceId===model.view.deviceId?' · 本机':''}</strong><p>{member.online?'在线':'离线，保留最后确认状态'}{member.nativeSessionId?' · 原生对话串行接续':member.executionCandidate===false?' · 可讨论，不接新任务':' · 独立会议讨论'}</p>{member.tasks.map(t=><button key={t.id} onClick={()=>onOpenTask(t.id)}>{String(t.title)} · {sharedPhase(t)}</button>)}</article>)}</div><button className="tiles-gallery-add" onClick={onInvite}>＋ 邀请设备／对话</button></aside>;
-}
+export {SharedParticipants} from './SharedCollaborationPanel';
 export function SharedApprovals({model}:{model:UnifiedModel}){return <>{(model.view.snapshot.entities.approval??[]).filter(a=>a.meetingId===model.meeting.id||model.tasks.some(t=>t.id===a.taskId)).map(a=><article className="approval-card" key={a.id}><strong>工具审批 · {String(a.tool)}</strong><p>{String(model.view.snapshot.entities.device?.find(d=>d.id===model.tasks.find(t=>t.id===a.taskId)?.targetDeviceId)?.name??'执行设备')}</p><p>{String(a.description)}</p>{a.effectiveDecision||a.decision?<p>{a.effectiveDecision?'执行端已确认':'决定已保存，等待执行端确认'}：{String(a.effectiveDecision??a.decision)}</p>:a.supported?<><button onClick={()=>perform(sharedCommand('approval.decide',{approvalId:a.id,decision:'allow'}))}>允许这一次</button><button onClick={()=>perform(sharedCommand('approval.decide',{approvalId:a.id,decision:'deny'}))}>拒绝</button></>:<p>此原生交互请在执行设备 Codex 桌面处理</p>}</article>)}</>;}
 export function SharedInterrupt({model,onClose}:{model:UnifiedModel;onClose:()=>void}){
   const [selected,setSelected]=useState('');const active=model.tasks.filter(t=>!t.exitConfirmed&&t.status!=='accepted');

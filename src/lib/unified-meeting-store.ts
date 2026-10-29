@@ -1,5 +1,5 @@
 import {verifiedDelivery} from '../../electron/collaboration/delivery-identity';
-import { useEffect,useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { SharedEntity,StationView } from '../../electron/collaboration/production-types';
 import type { BackendInfo,MeetingPlanBrief,PlanMeetingTaskInput,TranscriptEntry } from '../types';
 import {resolveSharedMention,type SharedMention} from './shared-mentions';
@@ -14,12 +14,30 @@ export async function refreshShared(){
   const ticket=++generation;
   try{const reply=await window.vibeMeet.collaboration.request('status');if(ticket!==generation)return;if(!reply.ok)throw new Error(reply.error);
     const view=reply.value as StationView;let activeId=state.activeId;
+    if(view.enabled===false)activeId=null;
     if(state.view?.deviceId!==view.deviceId){try{activeId=localStorage.getItem('station-meeting:'+view.deviceId);}catch{activeId=null;}}
     if(activeId&&!view.snapshot.entities.meeting?.some(m=>m.id===activeId))activeId=null;
     state={view,activeId};emit();
   }catch(error){if(ticket===generation){state={...state,error:String(error)};emit();}}
 }
-function subscribe(listener:()=>void){listeners.add(listener);if(!unsubscribe&&typeof window.vibeMeet.collaboration?.onChanged==='function'){unsubscribe=window.vibeMeet.collaboration.onChanged(()=>void refreshShared());void refreshShared();}return()=>{listeners.delete(listener);};}
+function subscribe(listener:()=>void){
+  listeners.add(listener);
+  if(!unsubscribe&&typeof window.vibeMeet.collaboration?.onChanged==='function'){
+    let active=true;
+    const stop=window.vibeMeet.collaboration.onChanged(()=>{if(active)void refreshShared();});
+    unsubscribe=()=>{active=false;stop();};
+    void refreshShared();
+  }
+  return()=>{
+    listeners.delete(listener);
+    if(!listeners.size){
+      unsubscribe?.();
+      unsubscribe=undefined;
+      // An in-flight reply belongs to the previous mounted consumers.
+      ++generation;
+    }
+  };
+}
 export function useUnifiedMeeting(){return useSyncExternalStore(subscribe,()=>state);}
 export function selectSharedMeeting(id:string|null){state={...state,activeId:id};try{if(state.view)localStorage.setItem('station-meeting:'+state.view.deviceId,id??'');}catch{}emit();}
 export async function sharedRequest(action:string,payload:Record<string,unknown>={}) {

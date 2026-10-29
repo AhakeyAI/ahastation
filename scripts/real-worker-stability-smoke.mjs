@@ -44,7 +44,7 @@ const [
 const NODE = process.execPath;
 const EXACT_RUNTIME_VERSIONS = {
   'claude-code': '2.1.150',
-  codex: '0.164.0',
+  codex: JSON.parse(readFileSync(new URL('../contracts/runtime/codex.json', import.meta.url), 'utf8')).bundled,
 };
 const SELECTED_BACKENDS = (process.env.AHASTATION_REAL_WORKER_BACKENDS ?? 'claude-code,codex')
   .split(',')

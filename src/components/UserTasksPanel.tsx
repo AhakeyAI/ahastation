@@ -17,16 +17,7 @@ import {
 } from '../lib/dependency-gate';
 import { WORKER_STATUS_LABEL } from '../lib/task-columns';
 import type { MeetingPlan, WorkerStatus } from '../types';
-import type {UnifiedModel} from '../lib/unified-meeting-store';
-import {sharedPhase} from '../lib/unified-meeting-store';
-import {pendingBaseRevisions,dependencyWait} from '../../electron/collaboration/plan-revision';
-
-export function SharedUserTasksPanel({model,onOpenTask}:{model:UnifiedModel;onOpenTask:(id:string)=>void}){
-  const proposed=(model.meeting.plan??[]) as Array<Record<string,unknown>>;
-  const revisions=pendingBaseRevisions(model.view.snapshot,model.meeting);
-  const waiting=(task:Record<string,unknown>)=>revisions.some(r=>r.planTaskId===String(task.planTaskId??'planned-'+proposed.indexOf(task)))?'等待基线修订批准':dependencyWait(model.view.snapshot,model.meeting.id,task)??'获准目标，等待设备／项目就绪';
-  return <section className="user-tasks-panel unified-task-list"><h2>{String(model.meeting.title)}</h2><p>主项目：{String(model.view.snapshot.entities.project?.find(p=>p.id===model.meeting.mainProjectId)?.name??'纯文字，可在首次文件工作前绑定')} · {model.meeting.planApproved?'当前计划已批准':'计划待审阅'}</p><table><thead><tr><th>完整交付</th><th>设备 · Agent</th><th>真实阶段</th></tr></thead><tbody>{model.tasks.map(t=><tr key={t.id}><td><button onClick={()=>onOpenTask(t.id)}>{String(t.title)}</button></td><td>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</td><td>{sharedPhase(t)}</td></tr>)}{proposed.filter(p=>!model.tasks.some(t=>p.planTaskId?t.planTaskId===p.planTaskId:t.title===p.title&&t.objective===p.objective)).map((p,i)=><tr key={'proposed-'+i}><td>{String(p.title)}</td><td>{String(model.view.snapshot.entities.device?.find(d=>d.id===p.targetDeviceId)?.name)} · {String(p.agentId)}</td><td>{model.meeting.planApproved?waiting(p):'Host 提案，尚未批准'}</td></tr>)}</tbody></table></section>;
-}
+export {SharedUserTasksPanel} from './SharedCollaborationPanel';
 
 interface UserTasksPanelProps {
   workers: WorkerState[];

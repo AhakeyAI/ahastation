@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PocketVibeBackend } from '../dist-electron/backends/pocket-vibe-adapter.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const previewRoot=await mkdtemp(join(tmpdir(),'pocket-cancellation-preview-'));
+const previewKeys=['AHASTATION_ENABLE_COLLABORATION','AHASTATION_REMOTE_ALLOW_LOOPBACK','AHASTATION_USER_DATA_DIR'];
+const previousPreview=Object.fromEntries(previewKeys.map(key=>[key,process.env[key]]));
+process.env.AHASTATION_ENABLE_COLLABORATION='1';
+process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
+process.env.AHASTATION_USER_DATA_DIR=previewRoot;
+test.after(async()=>{for(const key of previewKeys)if(previousPreview[key]===undefined)delete process.env[key];else process.env[key]=previousPreview[key];await rm(previewRoot,{recursive:true,force:true});});
 
 const reply = (data) => ({ ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -9,7 +20,7 @@ const until = async (predicate) => {
   assert.fail('Timed out waiting for the production turn pipeline');
 };
 const target = { agent_id: 'device-codex', device_id: 'device', provider: 'codex', session_id: 'native-session',
-  cwd: 'C:\\remote\\project', title: 'Remote', service_url: 'https://fixture.example', owner_id: 'owner' };
+  cwd: 'C:\\remote\\project', title: 'Remote', service_url: 'http://127.0.0.1:43155', owner_id: 'owner' };
 const config = { cwd: 'C:\\station\\local', remoteTarget: target,
   env: { POCKET_VIBE_AUTH_MODE: 'public', POCKET_VIBE_HUB_URL: target.service_url, POCKET_VIBE_OWNER_ID: 'owner', POCKET_VIBE_TOOL_TOKEN: 'fixture-control' } };
 const identity = JSON.stringify([target.service_url, target.owner_id, target.device_id, target.provider, target.session_id]);

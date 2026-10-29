@@ -9,7 +9,7 @@
   - main：0001；
   - `etrnal-dev`：0002–0012，原号保留；
   - C0：0013–0016，原为 0001–0004，2026-10-26 重新编号，只改了文件名和标题号，正文不变。
-- **下一个可用编号是 0017。** 先合入的分支先用；后合入的分支如果撞号，要在合入前改成下一个空号，并在本表登记。
+- 评审分支已占用 0017、0018、0019，**下一个可用编号是 0020。** 新增前核对统一索引，不能按哪个分支先合入静默覆盖。
 - 跨分支合并时，编号冲突由本索引登记，不允许静默覆盖同名文件。
 
 ## 索引
@@ -35,7 +35,9 @@
 
 0002–0012 的文件已随本地整合保留，0013–0016 从 C0 `04c5f762` 原文引入，只同步治理文档，未据此合入其实现。这些 ADR 在该分支内标为 accepted，但按决定 G1，跨设备方案以评审结论为准。
 
-交叉点的逐项原文、代码影响与建议见 [本次冲突表](../collaboration/INTEGRATION_CONFLICTS_2026-10-26.md)。本次未新增 ADR；下一个编号仍为 0017。
+评审分支的 [0017：设备消息签名](https://github.com/ShawnyinsGit/ahastation-internal/blob/review/etrnal-dev-2026-10/docs/adr/0017-trusted-hub-with-signed-device-messages.md)、[0018：跨设备执行端](https://github.com/ShawnyinsGit/ahastation-internal/blob/review/etrnal-dev-2026-10/docs/adr/0018-cross-device-executor-uses-ts-adapters.md)、[0019：原生 CLI Worker 与全局 hooks](https://github.com/ShawnyinsGit/ahastation-internal/blob/review/etrnal-dev-2026-10/docs/adr/0019-native-cli-workers-with-host-hooks.md) 已占用编号。0019 替代 0016 的 Worker 执行部分和 0018 第 1、2 条；新实现不再把 Worker 对齐 TS adapter。原 ADR 正文保留，新要求见 [当前评审状态](../collaboration/REVIEW_STATUS.md)。
+
+交叉点历史原文见 [本次冲突表](../collaboration/INTEGRATION_CONFLICTS_2026-10-26.md)，负责人裁决以评审分支 CONFLICTS.md 和 ADR 0017–0019 为准。下方保留原待裁决交叉点作为历史索引，不表示这些决定仍未裁决。本次未新增 ADR，下一个编号是 0020。
 
 ## 待裁决的交叉点
 

@@ -18,8 +18,11 @@ export async function previewGitFile(root:string,commit:string,file:string):Prom
 export interface GitFileReference {repository:string;commit:string;paths:string[]}
 export interface FilePublication extends GitFileReference {cwd:string;branch:string}
 export function safeRelative(file:string):string {
-  if(!file||file.includes('\0')||isAbsolute(file)||/^[a-z]:[\\/]/i.test(file)||file.split(/[\\/]/).some(p=>!p||p==='..'||p==='.'||p.toLowerCase()==='.git')) throw new Error('文件引用必须是安全的仓库内相对路径');
-  return file.replaceAll('\\','/');
+  if (!file || /[\0\\:]/.test(file) || isAbsolute(file)
+      || file.split('/').some(part => !part || part === '..' || part === '.' || part.toLowerCase() === '.git')) {
+    throw new Error('文件引用必须是安全的仓库内相对路径');
+  }
+  return file;
 }
 export async function publishFiles(root:string,workspaceRoot:string,selected:string[],baseCommit:string,prepared?:(publication:FilePublication)=>Promise<void>,authorize?:()=>Promise<void>):Promise<GitFileReference> {
   if(!selected.length||selected.length>100||!/^[a-f0-9]{40}$/.test(baseCommit))throw new Error('请明确选择文件和准确基线版本');

@@ -29,7 +29,9 @@ def config_for(grants):
 
 async def execute(request,macos_tree=None):
     operation=request['operation']; config=config_for(request.get('grants',[]))
-    if operation=='self-test': return {'ok':True,'protocol':2,'frozen':bool(getattr(sys,'frozen',False))}
+    if operation=='self-test':
+        from codex_runtime import CODEX_RUNTIME
+        return {'ok':True,'protocol':2,'frozen':bool(getattr(sys,'frozen',False)),'codexRuntime':CODEX_RUNTIME}
     if operation=='detect':
         installed=False;authenticated=False;linked=False
         try:

@@ -11,15 +11,17 @@ root_files={'AGENTS.md','CLAUDE.md','GLOSSARY.md','README.md','LICENSE','LICENSE
 blocked={'node_modules','.venv','__pycache__','.git','runtime','release','dist','dist-electron','station-native','station-native-work'}
 paths=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','-z'],cwd=ROOT).decode('utf-8').split('\0')
 tracked=set(subprocess.check_output(['git','ls-files','-z'],cwd=ROOT).decode('utf-8').split('\0'))
+deleted=set(subprocess.check_output(['git','ls-files','--deleted','-z'],cwd=ROOT).decode('utf-8').split('\0'))
 hashes={}
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as stream:
     def put(name,data):
         entry=zipfile.ZipInfo(name);entry.create_system=3;entry.external_attr=(stat.S_IFREG|0o644)<<16;entry.compress_type=zipfile.ZIP_DEFLATED
         stream.writestr(entry,data)
     for name in sorted(set(p for p in paths if p)):
+        if name in deleted or name.startswith('docs/collaboration/evidence/') or name.startswith('docs/collaboration/ROOT_CAUSE_'):continue
         parts=Path(name).parts
         if (len(parts)==1 and name not in root_files) or (len(parts)>1 and parts[0] not in folders):continue
-        if any(p in blocked for p in parts) or (name.startswith('services/') and not name.startswith('services/remote/')):continue
+        if (name != 'contracts/runtime/codex.json' and any(p in blocked for p in parts)) or (name.startswith('services/') and not name.startswith('services/remote/')):continue
         source=ROOT/name
         if source.name=='.env' or source.name.startswith('.env.') and not source.name.endswith('.example'):continue
         if source.suffix.lower() in {'.pyc','.db','.sqlite','.exe','.dll'} or source.name.startswith('private-'):continue

@@ -16,15 +16,15 @@ if(process.env.AHASTATION_LOCAL_SMOKE_FILE&&process.env.AHASTATION_REMOTE_ALLOW_
   const bytes=readFileSync(process.env.AHASTATION_LOCAL_SMOKE_FILE);if(bytes.length>16384)throw new Error('Smoke input exceeds limit');
   const input=JSON.parse(bytes.toString('utf8')) as {url:string;owner:string;token:string};const url=new URL(input.url);
   if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.username||url.password||url.search||url.hash||typeof input.token!=='string'||input.token.length>256)throw new Error('Only local fixture credentials may be prepared');
-  void app.whenReady().then(()=>{
-    if(!safeStorage.isEncryptionAvailable())throw new Error('Windows secure credential storage unavailable');
+  void app.whenReady().then(async()=>{
+    if(!await safeStorage.isAsyncEncryptionAvailable())throw new Error('Windows secure credential storage unavailable');
     const settingsFile=join(profile,'settings.json');const restarting=existsSync(settingsFile);
     if(restarting){
       const previous=JSON.parse(readFileSync(settingsFile,'utf8')) as {remoteControl?:{controlTokenEnc?:string}};
-      if(!previous.remoteControl?.controlTokenEnc||safeStorage.decryptString(Buffer.from(previous.remoteControl.controlTokenEnc,'base64'))!==input.token)throw new Error('Saved OS credential did not survive process restart');
+      if(!previous.remoteControl?.controlTokenEnc||(await safeStorage.decryptStringAsync(Buffer.from(previous.remoteControl.controlTokenEnc,'base64'))).result!==input.token)throw new Error('Saved OS credential did not survive process restart');
     }
-    const encrypted=safeStorage.encryptString(input.token).toString('base64');
-    if(safeStorage.decryptString(Buffer.from(encrypted,'base64'))!==input.token)throw new Error('Secure credential roundtrip failed');
+    const encrypted=(await safeStorage.encryptStringAsync(input.token)).toString('base64');
+    if((await safeStorage.decryptStringAsync(Buffer.from(encrypted,'base64'))).result!==input.token)throw new Error('Secure credential roundtrip failed');
     writeFileSync(join(profile,'settings.json'),JSON.stringify({remoteControl:{enabled:true,mode:'public',serviceUrl:input.url,ownerId:input.owner,login:'station-fixture',controlTokenEnc:encrypted}}));
     // Normal quit lets Chromium flush its encrypted key preferences. Immediate
     // app.exit can leave a valid in-memory ciphertext unreadable on restart.

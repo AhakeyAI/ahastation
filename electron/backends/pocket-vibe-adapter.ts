@@ -37,6 +37,7 @@ import {
   type WorkerAdapterSignal,
 } from '../worker-protocol.js';
 import { randomUUID } from 'node:crypto';
+import { requirePublicHubUrl } from '../collaboration/feature-gate.js';
 import { getSettings } from '../store.js';
 import type { RemoteControlSettings } from '../remote-control-types.js';
 import { getPocketVibeConnection, getRemoteControlSettings, validateRemoteServiceUrl, remotePendingKey, getRemotePending, setRemotePending } from '../remote-control.js';
@@ -144,6 +145,10 @@ export async function fetchPocketVibeRemoteSessions(
   refresh = false,
   deps: PocketVibeDeps = {},
 ): Promise<{ ok: true; directory: PocketVibeRemoteDirectory } | { ok: false; error: string }> {
+  if (auth.publicMode) {
+    try { requirePublicHubUrl(auth.baseUrl ?? ''); }
+    catch (error) { return { ok: false, error: error instanceof Error ? error.message : '跨设备协作暂未开放' }; }
+  }
   if (!auth.apiKey?.trim()) return { ok: false, error: auth.publicMode ? '请启用远端控制并登录远端身份。' : '请先在 Pocket Vibe 设置中保存 Hub 地址和 Tool Token。' };
   if (auth.publicMode && !auth.baseUrl) return { ok: false, error: '远端服务尚未配置。' };
   const baseUrl = (auth.baseUrl?.trim() || DEFAULT_HUB_URL).replace(/\/+$/, '');
@@ -304,9 +309,12 @@ class PocketVibeSession implements BackendSession {
       ?? parsePositiveInt(env.POCKET_VIBE_TURN_TIMEOUT_MS)
       ?? DEFAULT_TURN_TIMEOUT_MS;
     const wireFetch = deps.fetchImpl ?? (fetch as unknown as FetchLike);
-    this.fetchImpl = this.publicMode ? (url, init = {}) => wireFetch(url, { ...init, redirect: 'error',
-      signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
-    }) : wireFetch;
+    this.fetchImpl = this.publicMode ? (url, init = {}) => {
+      requirePublicHubUrl(url);
+      return wireFetch(url, { ...init, redirect: 'error',
+        signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+      });
+    } : wireFetch;
     this.healthTimeoutMs = deps.healthTimeoutMs ?? HEALTH_TIMEOUT_MS;
     const handler = config.extra?.meetingCommandHandler;
     if (typeof handler === 'function') {
@@ -318,6 +326,7 @@ class PocketVibeSession implements BackendSession {
 
   async start(): Promise<void> {
     if (this.publicMode) {
+      requirePublicHubUrl(this.hubUrl);
       if (!this.hubUrl || !this.config.remoteTarget) throw new Error('请先配置远端服务、登录身份，并从参与者入口选择已有远端会话');
       validateRemoteServiceUrl(this.hubUrl);
       if ((this.config.remoteTarget.service_url && this.config.remoteTarget.service_url !== this.hubUrl)

@@ -1,4 +1,5 @@
 node_modules/
+/.cache-playwright/
 dist/
 dist-electron/
 release/
@@ -29,4 +30,7 @@ deliveries/
 **/*.py[cod]
 services/remote/runtime/
 runtime/
+!contracts/runtime/
+contracts/runtime/*
+!contracts/runtime/codex.json
 build/station-native/

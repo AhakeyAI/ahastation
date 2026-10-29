@@ -149,13 +149,13 @@ npm test
 
 ## 上一轮修复验证（2026-10-08，历史记录，未覆盖本次四项审查缺陷）
 
-- Windows：Node v24.19.0（实际位于 `C:\Users\79142\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`）、Python 3.13.5（相邻仓库 `.venv\Scripts\python.exe`）。原始 PATH 无 npm，本轮沿用已有临时 npm 10.9.4 wrapper 加入测试 PATH；它不是产品依赖或永久启动路径。日常启动使用本机有效的 Node/npm PATH。
+- Windows：Node v24.19.0（实际位于 `<local-evidence-path>`）、Python 3.13.5（相邻仓库 `.venv\Scripts\python.exe`）。原始 PATH 无 npm，本轮沿用已有临时 npm 10.9.4 wrapper 加入测试 PATH；它不是产品依赖或永久启动路径。日常启动使用本机有效的 Node/npm PATH。
 - renderer / Electron 两端 `npm run typecheck` 和 `npm run build:electron` 通过。
 - Station 相关 31 项全部通过（包含真实 WebSocket 回环 Hub/Bridge + 模拟执行器）；Pocket Vibe 15 项全部通过，包括 Windows 实际进程树超时、跨进程锁、Bridge 退出、监管进程崩溃恢复、清理未确认保护及引用参数校验。默认测试没有模型调用或用户项目写入。
 - 同环境全量：修复前 899 项 / 854 通过 / 40 失败 / 5 跳过；修复后 **903 项 / 858 通过 / 40 失败 / 5 跳过**。40 个失败名称逐项一致，无新增失败。两次均用 `--test-force-exit --test-concurrency=4 --test-timeout=120000` 完成收集；既有失败包括 Observe 平台进程解析、Windows 符号链接权限和协作/权限断言，本轮未修改这些模块。
 - 已登录的 Codex 0.160.0：仅在独立临时项目和测试会话中，用**当前产品 LocalAgentRunner / Codex 适配器**连续恢复同一原生 ID 两轮。配置为 `workspace-write` / `never`；两份文件分别为 `ROUND1`、`ROUND2`，第二轮读取第一轮文件成功；退出码与 cleanup_confirmed 成功，Station 结果文本提取分别为 `ROUND1_OK`、`ROUND2_OK`。没有使用替代适配器或提升权限。首次验收脚本读取临时文件遇到权限拒绝而中止，重新准备隔离目录后完成上述两轮。CLI 有 MCP/遥测网络警告，未改变登录或配置。
 - 当时待验收：第二台电脑及实际 Hub 地址下的跨电脑 LAN；真实 Station GUI / 麦克风声音输入；真实 Claude；macOS/Linux 进程清理。更正环境记录：本机有 Station 捆绑的 Claude CLI，独立认证检查显示未登录，未代用户登录。回环测试不等于 LAN 验收，执行器实测不等于完整 GUI/语音链路验收。
-- 本轮临时 Hub/Bridge 和测试进程已退出，未发现残留。自动审批检查拒绝删除临时项目及固定测试文件（返回 blocked by policy，未给更详细原因），故保留 `C:\Users\79142\AppData\Local\Temp\station-codex-smoke-dei1l08n` 及同 Temp 目录的 smoke 脚本/结果日志。测试原生会话记录保留，没有修改用户历史数据库。`electron/main.ts` 未修改，未提交、推送或发布。
+- 本轮临时 Hub/Bridge 和测试进程已退出，未发现残留。自动审批检查拒绝删除临时项目及固定测试文件（返回 blocked by policy，未给更详细原因），故保留 `<local-evidence-path>` 及同 Temp 目录的 smoke 脚本/结果日志。测试原生会话记录保留，没有修改用户历史数据库。`electron/main.ts` 未修改，未提交、推送或发布。
 
 ## 上轮四项审查修复与验收记录（2026-10-08，历史结果）
 

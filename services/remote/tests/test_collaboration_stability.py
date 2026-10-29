@@ -3,10 +3,51 @@ import asyncio
 import uuid
 import test_station_collaboration as baseline
 from collaboration_store import CollaborationStore
+from sqlalchemy import select
+from collaboration_store import requests
 
 class StabilityTest(baseline.StationCollaborationTest):
     def current(self,meeting):
         return next(m for m in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['meeting'] if m['id']==meeting['id'])
+
+    async def test_only_host_can_decide_plan_without_affecting_execution_device_tool_approval(self):
+        meeting, task = await self.prepare()
+        service = CollaborationStore(self.store)
+        basis = self.current(meeting)
+        for action in ('plan.review', 'plan.decide'):
+            for approved in (True, False):
+                with self.subTest(action=action, approved=approved):
+                    identity = str(uuid.uuid4())
+                    payload = {'meetingId': meeting['id'], 'expectedPlanVersion': basis['planVersion'], 'approved': approved}
+                    if action == 'plan.review':
+                        payload.update(tasks=[{**task, 'objective': 'unauthorized replacement'}])
+                    before = service.snapshot(self.account['owner_id'])
+                    await self.command(self.b['token'], action, payload, identity, expected=403)
+                    self.assertEqual(service.snapshot(self.account['owner_id']), before)
+                    with self.engine.connect() as connection:
+                        self.assertIsNone(connection.execute(select(requests.c.id).where(requests.c.id == identity)).scalar())
+
+        reviewed = await self.command(self.a['token'], 'plan.review', {
+            'meetingId': meeting['id'], 'expectedPlanVersion': basis['planVersion'], 'tasks': [task], 'approved': True,
+        })
+        self.assertTrue(reviewed['planApproved'])
+        rejected = await self.command(self.a['token'], 'plan.decide', {
+            'meetingId': meeting['id'], 'expectedPlanVersion': reviewed['planVersion'], 'approved': False,
+        })
+        self.assertFalse(rejected['planApproved'])
+        await self.command(self.a['token'], 'plan.decide', {
+            'meetingId': meeting['id'], 'expectedPlanVersion': rejected['planVersion'], 'approved': True,
+        })
+        created = await self.command(self.a['token'], 'task.create', task)
+        execution = {'taskId': created['id'], 'attemptId': created['attemptId']}
+        await self.command(self.b['token'], 'task.receipt', {**execution, 'bindingRevision': 0})
+        approval = await self.command(self.b['token'], 'approval.request', {
+            **execution, 'approvalId': str(uuid.uuid4()), 'tool': 'file-write', 'description': 'local action', 'supported': True,
+        })
+        decided = await self.command(self.b['token'], 'approval.decide', {'approvalId': approval['id'], 'decision': 'allow'})
+        self.assertEqual(decided['decision'], 'allow')
+        self.assertEqual(decided['decidedBy'], self.b['id'])
+        await self.command(self.a['token'], 'approval.decide', {'approvalId': approval['id'], 'decision': 'deny'}, expected=409)
 
     async def test_identical_host_proposal_keeps_existing_approval_and_only_real_change_needs_review(self):
         m,task=await self.prepare();before=self.current(m)
@@ -15,8 +56,8 @@ class StabilityTest(baseline.StationCollaborationTest):
         changed=await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'expectedPlanVersion':same['planVersion'],'expectedPlanDecisionVersion':same['planDecisionVersion'],'tasks':[{**task,'objective':'actual new arrangement'}]})
         self.assertFalse(changed['planApproved']);self.assertEqual(changed['planVersion'],same['planVersion']+1)
         # An explicit human rejection still changes the decision on the same content.
-        approved=await self.command(self.b['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':changed['planVersion'],'approved':True})
-        rejected=await self.command(self.b['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':approved['planVersion'],'approved':False})
+        approved=await self.command(self.a['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':changed['planVersion'],'approved':True})
+        rejected=await self.command(self.a['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':approved['planVersion'],'approved':False})
         self.assertFalse(rejected['planApproved']);self.assertEqual(rejected['planVersion'],approved['planVersion'])
 
     async def test_expert_retry_preserves_exact_target_and_unknown_is_never_retried(self):
@@ -47,14 +88,14 @@ class StabilityTest(baseline.StationCollaborationTest):
         changed=await self.command(self.a['token'],'meeting.update',{'meetingId':m['id'],'expectedRevision':basis['revision'],'members':basis['members'],'autoApprovePlan':False,'autoAssign':True})
         self.assertEqual(changed['planVersion'],v);self.assertEqual(changed['planDecisionVersion'],decision)
         # Human review uses its actual content basis, not the unrelated meeting revision.
-        reviewed=await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':v,'tasks':[task],'approved':True})
+        reviewed=await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':v,'tasks':[task],'approved':True})
         self.assertEqual(reviewed['planVersion'],v)
         self.assertGreater(reviewed['planDecisionVersion'],decision)
         await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'expectedPlanVersion':v,'expectedPlanDecisionVersion':decision,'tasks':[{**task,'objective':'late Host output'}]},expected=409)
         self.assertEqual(self.current(m)['plan'],[task])
         new=await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'expectedPlanVersion':v,'expectedPlanDecisionVersion':reviewed['planDecisionVersion'],'tasks':[{**task,'objective':'new explicit proposal'}]})
         self.assertEqual(new['planVersion'],v+1)
-        await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':v,'tasks':[task],'approved':True},expected=409)
+        await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':v,'tasks':[task],'approved':True},expected=409)
         await self.command(self.a['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':v,'approved':False},expected=409)
         # Old stations cannot overwrite a meeting using the new protection.
         await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'tasks':[task]},expected=426)
@@ -67,7 +108,7 @@ class StabilityTest(baseline.StationCollaborationTest):
         m,task=await self.prepare();task={**task,'planTaskId':'whole'};basis=self.current(m)
         approved=await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':basis['planVersion'],'tasks':[task],'approved':True})
         dispatched=await self.command(self.a['token'],'task.create',task)
-        await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':approved['planVersion'],'tasks':[{**task,'objective':'edit after dispatch'}],'approved':True},expected=409)
+        await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedPlanVersion':approved['planVersion'],'tasks':[{**task,'objective':'edit after dispatch'}],'approved':True},expected=409)
         current=self.current(m);self.assertEqual(current['plan'],[task]);self.assertTrue(current['planApproved'])
         await self.command(self.a['token'],'meeting.update',{'meetingId':m['id'],'expectedRevision':current['revision'],'members':current['members'],'autoApprovePlan':False,'autoAssign':False})
         saved=next(t for t in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['task'] if t['id']==dispatched['id'])

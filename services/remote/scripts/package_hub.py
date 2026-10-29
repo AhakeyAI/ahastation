@@ -14,7 +14,7 @@ hub=['device/public_hub.py','device/hub_store.py','device/device_hub.py','device
      'requirements-public.txt','deploy/Dockerfile','deploy/Dockerfile.dockerignore','deploy/migrate.py','deploy/schema-v1.sql','deploy/schema-v2.sql','deploy/hub.env.example','deploy/compose.yaml',
      'docs/WEIXIN_CLOUD_DEPLOY.md','docs/UNIFIED_MEETING_UPGRADE.md','docs/COLLABORATION_3_UPGRADE.md','docs/COLLABORATION_4_UPGRADE.md','docs/COLLABORATION_5_UPGRADE.md','docs/COLLABORATION_6_UPGRADE.md','docs/PUBLIC_REMOTE_CONTROL.md','docs/BRIDGE_PRODUCT.md','docs/ACCEPTANCE_PUBLIC.md']
 hub += [str(path.relative_to(ROOT)).replace('\\','/') for path in (ROOT/'web').rglob('*') if path.is_file()]
-hub += ['docs/COLLABORATION_7_UPGRADE.md']
+hub += ['docs/COLLABORATION_7_UPGRADE.md','UPSTREAM_SOURCE.json','UPSTREAM_NOTICE.md']
 hub += [str(path.relative_to(ROOT)).replace('\\','/') for path in sorted((ROOT/'deploy/mysql57-upgrade').glob('*.sql'))]
 probe=['probe/app.py','probe/client.py','probe/requirements.txt','probe/README.md']
 def write_entry(stream,name,data):

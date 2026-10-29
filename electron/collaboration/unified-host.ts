@@ -38,6 +38,7 @@ export class UnifiedMeetingHost {
   private rejectedPlans=new Map<string,Error>();
   private execution?:GuardedCodexExecution;
   private images:string[]=[];
+  private sessionCapture?:Promise<void>;
   constructor(private meeting:SharedEntity,private snapshot:()=>SharedSnapshot,private folder:string,private hooks:UnifiedHostHooks,private resume?:BackendSessionSnapshot){}
   private async start() {
     if(this.orch)return;
@@ -61,7 +62,22 @@ export class UnifiedMeetingHost {
         }
       },consult:(id,text)=>this.hooks.consult(id,text,this.current?.id),control:(id,op,text)=>this.hooks.control(id,op,text,this.current?.id)},
     });
-    try{await this.orch.start();}catch(error){this.orch.end();this.orch=undefined;throw error;}
+    try{await this.orch.start();}
+    catch(error){
+      try{if(this.current)await this.captureSession(this.current.id);}
+      finally{this.orch.end();this.orch=undefined;}
+      throw error;
+    }
+  }
+  private captureSession(inputId:string):Promise<void>{
+    if(this.sessionCapture)return this.sessionCapture;
+    const session=this.orch?.hostSessionSnapshot?.();
+    if(!session)return Promise.resolve();
+    this.sessionCapture=(async()=>{
+      if(!this.resume?.sessionId)await this.hooks.createdSession?.(session,inputId);
+      this.resume=session;await this.hooks.session(session);
+    })();
+    return this.sessionCapture;
   }
   /** Transport only: parsing, authorization and planning still go through the
    * original Orchestrator. Guardian identity equals the durable input identity. */
@@ -84,7 +100,11 @@ export class UnifiedMeetingHost {
             await this.hooks.checkpoint(current.id,'starting');
             if(this.cancelled.has(current.id))throw new Error('Host 本轮已在启动前停止');current.invoked=true;
             const result=await this.execution!.run({cwd:this.folder,permission:'read-only',textOnly:true,images:this.images,threadId:this.resume?.sessionId,objective:prompt+PORTABLE_MEETING_COMMAND_PROMPT+sharedSchema+'\n'+text},{
-              identity:async thread=>{this.resume={protocol:'codex-app-server',sessionId:thread};await this.hooks.session(this.resume);},output:async()=>{},approval:async()=> 'deny',
+              identity:async thread=>{
+                const session={protocol:'codex-app-server',sessionId:thread};
+                if(!this.resume?.sessionId)await this.hooks.createdSession?.(session,current.id);
+                this.resume=session;await this.hooks.session(session);
+              },output:async()=>{},approval:async()=> 'deny',
             });
             if(!result.exitConfirmed)throw new Error('Host 守护进程实际退出未确认');
             current.executionEnded=true;
@@ -153,6 +173,11 @@ export class UnifiedMeetingHost {
   }
   private event(e:OrchestratorEvent) {
     const input=this.current;if(!input||e.source!=='talker')return;
+    if(this.meeting.hostAgentId!=='codex'&&e.event.kind==='message') {
+      // SDK init exposes a session before a potentially long first turn ends.
+      // Success and failure await this same capture; duplicate events do not re-register.
+      void this.captureSession(input.id).catch(error=>input.reject(error instanceof Error?error:new Error(String(error))));
+    }
     if(e.event.kind==='message'){
       const message=e.event.message as {type?:string};
       if(message.type==='assistant')input.output=textSlice(input.output+'\n'+extractText(e.event.message),-24000);
@@ -178,10 +203,13 @@ export class UnifiedMeetingHost {
         await done;
         await this.planWrites;
         if(this.rejectedPlans.has(message.id))throw this.rejectedPlans.get(message.id)!;
-        const session=this.orch!.hostSessionSnapshot();if(session)await this.hooks.session(session);
+        await this.captureSession(message.id);
         const visible=textSlice(input.output.replace(/```meeting-command[\s\S]*?```/g,'').trim(),-24000)||(this.current&&this.appliedPlans.has(this.current.id)?'计划已提交审阅。':'');if(visible)await this.hooks.reply(visible,message.id);
         await this.hooks.checkpoint(message.id,'completed');
       }catch(error){
+        // A first SDK turn can fail after creating its session. Persist that
+        // proven identity before the failure checkpoint, without replaying it.
+        try{await this.captureSession(message.id);}catch(registrationError){error=registrationError;}
         const invoked=this.current?.invoked===true;
         const failure=rejectedHostPlan(this.rejectedPlans.get(message.id)??error);
         const settled=this.current?.executionEnded===true&&failure;

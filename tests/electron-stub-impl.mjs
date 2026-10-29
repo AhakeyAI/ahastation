@@ -3,8 +3,10 @@
 // these — they exist only so `import { app } from 'electron'` resolves.
 
 export const app = {
-  getPath: () => '/tmp',
+  getPath: () => process.env.AHASTATION_TEST_PROFILE || '/tmp',
   isPackaged: false,
+  isReady: () => true,
+  whenReady: async () => {},
 };
 export const ipcMain = { handle: () => {}, on: () => {} };
 export const desktopCapturer = {};
@@ -19,10 +21,10 @@ export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
 export const safeStorage = {
-  isEncryptionAvailable: () => true,
+  isAsyncEncryptionAvailable: async () => false,
+  encryptStringAsync: async () => Buffer.alloc(0),
+  decryptStringAsync: async () => ({ result: '', shouldReEncrypt: false }),
   getSelectedStorageBackend: () => 'gnome_libsecret',
-  encryptString: (value) => Buffer.from(`test-encrypted:${value}`),
-  decryptString: (value) => value.toString().replace('test-encrypted:', ''),
 };
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };

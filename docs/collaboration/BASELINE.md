@@ -1,8 +1,10 @@
 # etrnal-dev：可复现源码基线
 
-> 2026-10-27：main本地整合、K01修复、K02诊断及最终验证见 [当前交接](LOCAL_INTEGRATION_HANDOFF_2026-10-26.md) 与 [实际验收结果](LOCAL_INTEGRATION_VALIDATION_2026-10-27.md)。下方旧基线历史保留；本地整合不等于公开发布。
+> 当前状态以 [REVIEW_STATUS.md](REVIEW_STATUS.md) 为准：PR #55 已存在且保持草稿，ADR 0019 已调整 Worker 执行分工；下方保留早期基线记录。
 
-> 2026-10-24：本分支新增 collaboration.5 开发快照，当前进展、启动依赖、验证限制和未修问题见 [DEV_SNAPSHOT_2026-10-24.md](DEV_SNAPSHOT_2026-10-24.md)。下文保留最初基线与四项契约的历史状态；“未完成”等描述不能当作最新实现清单。
+> 2026-10-27：main本地整合、K01修复、K02诊断及最终验证见 [当前交接](REVIEW_STATUS.md#历史证据) 与 [实际验收结果](REVIEW_STATUS.md#历史证据)。下方旧基线历史保留；本地整合不等于公开发布。
+
+> 2026-10-24：本分支新增 collaboration.5 开发快照，当前进展、启动依赖、验证限制和未修问题见 [DEV_SNAPSHOT_2026-10-24.md](REVIEW_STATUS.md#历史证据)。下文保留最初基线与四项契约的历史状态；“未完成”等描述不能当作最新实现清单。
 
 本分支用于向新成员交接已有源码，并作为后续公共契约与多设备开发的起点。
 它不是“共享会议、多设备 Worker 已全部实现”的产品发布。
@@ -50,7 +52,7 @@ Hub/Python 安装、隔离测试、初始化和源码 ZIP 说明见
 
 ## 测试配置
 
-- 默认 resources/remote-service.json 的 serviceUrl 留空；需维护者核实并提供测试地址。
+- 隔离评审只使用显式配置的本机 Hub，不连接 resources/remote-service.json 中维护者配置的公网地址。
 - 新成员使用独立协作测试账号；账号密码私下交接。
 - 模型／Git 登录保留在各自电脑，不进仓库。
 - MySQL、HUB_SECRET 等只在 Hub 的私有配置中；不分发给 Station 客户端。

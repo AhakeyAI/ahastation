@@ -62,6 +62,7 @@ export interface StationLocalState {
   originalHostSessions?:Record<string,{protocol:string;sessionId:string;protocolVersion?:string;backendVersion?:string}>;
 }
 export interface StationView {
+  enabled?: boolean;
   accountKey?:string;errorScope?:'device';legacyError?:string;businessErrors?:BusinessError[];
   messageSubmissions?:MessageSubmission[];
   reconciliation?:Record<string,ReconciliationIssue>;

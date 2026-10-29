@@ -6,7 +6,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import { SessionRegistry } from './sessions.js';
-import { flushSettingsWrites, getSettings, updateSettings } from './store.js';
+import { flushSettingsWrites, getSettings, updateSettings, warmSecrets } from './store.js';
 import { registerCustomBackends } from './backends/registry.js';
 import type { IpcContext, IpcEmittedEvent } from './ipc/context.js';
 import { handleSecure, mainWindowSenderPolicy } from './ipc/validators.js';
@@ -693,6 +693,7 @@ if (!hasSingleInstanceLock) {
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   registerAppProtocol();
+  await warmSecrets().catch(() => console.error('[main] credential startup decryption failed; ciphertext retained'));
   if (process.platform === 'win32' || process.platform === 'linux') {
     stationTray = new Tray(join(app.getAppPath(), 'dist', 'icon-96.png'));
     stationTray.setToolTip('AhaStation');

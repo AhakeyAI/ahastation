@@ -1,14 +1,14 @@
+import {macosTaskTestsEnabled} from './platform-support.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';import {createInterface} from 'node:readline';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {app,safeStorage} from 'electron';import {StationService} from '../dist-electron/collaboration/station-service.js';import {updateRemoteControlFields} from '../dist-electron/store.js';
-import {macosTaskTestsEnabled} from './platform-support.mjs';
 const loader="data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));";
 async function ready(child){return new Promise((resolve,reject)=>{let errors='';child.stderr?.on('data',v=>{errors=(errors+v).slice(-2000);});const timer=setTimeout(()=>reject(new Error('Fixture startup timed out '+errors)),20000);createInterface({input:child.stdout}).on('line',line=>{try{const r=JSON.parse(line);if(r.ready){clearTimeout(timer);resolve(r);}}catch{}});child.once('exit',code=>{clearTimeout(timer);reject(new Error('Fixture exited '+code+' '+errors));});});}
 async function exited(child){if(child.exitCode===null&&child.signalCode===null)await new Promise(r=>child.once('exit',r));}
 async function until(fn,message){for(let n=0;n<600;n++){if(await fn())return;await new Promise(r=>setTimeout(r,40));}assert.fail(message);}
 test('receiver process crash restores original device, proves in-process fixture exit and waits for explicit continue', {timeout:90000,skip:!process.env.POCKET_VIBE_TEST_PYTHON||!macosTaskTestsEnabled},async()=>{
-  const root=await mkdtemp(join(tmpdir(),'station-process-'));app.getPath=()=>root;safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=s=>Buffer.from('fixture:'+s);safeStorage.decryptString=b=>b.toString().slice(8);
+  const root=await mkdtemp(join(tmpdir(),'station-process-'));app.getPath=()=>root;safeStorage.isAsyncEncryptionAvailable=()=>true;safeStorage.encryptStringAsync=s=>Buffer.from('fixture:'+s);safeStorage.decryptStringAsync=async b=>({result:b.toString().slice(8),shouldReEncrypt:false});
   process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
   const hub=spawn(process.env.POCKET_VIBE_TEST_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{stdio:['pipe','pipe','pipe'],windowsHide:true});let receiver,a;
   try{

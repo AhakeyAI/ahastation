@@ -36,6 +36,9 @@ jobs:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache-playwright
+      POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +65,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Select isolated test interpreter
+        shell: bash
+        run: |
+          test_python="$(python -c 'import sys; print(sys.executable)')"
+          echo "COLLABORATION_PYTHON=$test_python" >> "$GITHUB_ENV"
+          echo "POCKET_VIBE_TEST_PYTHON=$test_python" >> "$GITHUB_ENV"
+          echo "AHASTATION_BUILD_PYTHON=$test_python" >> "$GITHUB_ENV"
+
       - name: Build bundled Station receiver
         run: |
           python -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
@@ -84,10 +95,12 @@ jobs:
 
       - name: Test suite
         run: npm test
-        env:
-          COLLABORATION_PYTHON: python
-          POCKET_VIBE_TEST_PYTHON: python
-          POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
+
+      - name: Collaboration regressions (loopback fixtures)
+        run: npm run test:collaboration
+
+      - name: Build renderer and Electron distribution
+        run: npm run build
 
       - name: Package (macOS dmg, unsigned in CI)
         if: matrix.os == 'macos-latest'
@@ -138,6 +151,10 @@ jobs:
     # newer than GLIBC_2.31.
     container: debian:11
     timeout-minutes: 90
+    env:
+      # Debian's Chromium matches the container ABI; Playwright's downloaded
+      # browser targets newer distributions than this packaging environment.
+      STATION_CHROME: /usr/bin/chromium
     steps:
       # debian:11 ships no git/curl/node - install before checkout (checkout
       # needs git) and npm ci / electron-builder need the rest:
@@ -147,7 +164,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            git curl ca-certificates xz-utils python3 make g++ libfuse2 \
+            git curl ca-certificates xz-utils python3 make g++ libfuse2 chromium \
             libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev
 
       - uses: actions/checkout@v4
@@ -172,9 +189,6 @@ jobs:
       - name: Typecheck (electron)
         run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json
 
-      - name: Test suite
-        run: npm test
-
       - name: Build bundled receiver on Debian 11 ABI
         shell: bash
         run: |
@@ -188,6 +202,18 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           /opt/station-python/bin/python3.13 -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
           /opt/station-python/bin/python3.13 scripts/build-station-native.py
+          echo "COLLABORATION_PYTHON=/opt/station-python/bin/python3.13" >> "$GITHUB_ENV"
+          echo "POCKET_VIBE_TEST_PYTHON=/opt/station-python/bin/python3.13" >> "$GITHUB_ENV"
+          echo "AHASTATION_BUILD_PYTHON=/opt/station-python/bin/python3.13" >> "$GITHUB_ENV"
+
+      - name: Test suite
+        run: npm test
+
+      - name: Collaboration regressions (loopback fixtures)
+        run: npm run test:collaboration
+
+      - name: Build renderer and Electron distribution
+        run: npm run build
 
       - name: Package (Linux arm64 AppImage + deb)
         # Built inside debian:11; the smoke step below installs and launches

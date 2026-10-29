@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { getClaudeCodeCliSource } from '../claude-cli/resolve.js';
+import { CODEX_RUNTIME, isSupportedCodexAppServerVersion } from './codex-runtime.js';
 
 export type WorkerRuntimeState =
   | 'available'
@@ -11,7 +12,7 @@ export type WorkerRuntimeState =
 
 const EXPECTED_VERSION: Readonly<Record<string, string>> = {
   'claude-code': '2.1.150',
-  codex: '0.164.0',
+  codex: CODEX_RUNTIME.bundled,
   kimi: '0.24.1',
   opencode: '1.18.3',
 };
@@ -175,7 +176,7 @@ export function assessWorkerRelease(input: {
 }
 
 export function extractRuntimeVersion(output: string): string | null {
-  return output.match(/(?:^|[^\d])v?(\d+\.\d+\.\d+)(?:[^\d]|$)/)?.[1] ?? null;
+  return output.match(/(?:^|[^\d])v?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)(?:[^\w.+-]|$)/)?.[1] ?? null;
 }
 
 export function resolveWorkerExpectedVersion(
@@ -240,7 +241,10 @@ export function assessWorkerRuntime(input: {
       reason: '未找到可执行文件，请先安装。',
     };
   }
-  if (expectedVersion && input.version !== expectedVersion) {
+  const compatible = input.backendId === 'codex'
+    ? isSupportedCodexAppServerVersion(input.version)
+    : !expectedVersion || input.version === expectedVersion;
+  if (!compatible) {
     return {
       state: input.version ? 'version-incompatible' : 'diagnostic-failed',
       version: input.version,
@@ -248,7 +252,9 @@ export function assessWorkerRuntime(input: {
       reason: input.version
         ? input.backendId === 'claude-code'
           ? `检测到 ${input.version}，当前仅验证 ${expectedVersion}。请在 Lobby → Host CLI → Claude Code CLI 来源 中选择「系统 PATH」以使用本机版本，或选择「内置版本」使用 ${expectedVersion}。`
-          : `检测到 ${input.version}，当前仅验证 ${expectedVersion}。`
+          : input.backendId === 'codex'
+            ? `检测到 ${input.version}，当前验证区间为 [${CODEX_RUNTIME.min}, ${CODEX_RUNTIME.maxExclusive})。`
+            : `检测到 ${input.version}，当前仅验证 ${expectedVersion}。`
         : '无法读取运行时版本。',
     };
   }

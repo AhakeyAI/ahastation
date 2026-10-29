@@ -1,6 +1,6 @@
 # Existing remote Hub and native-session compatibility
 
-> Current `etrnal-dev` also contains the collaboration.5 Hub and bundled Station receiver implementation. Start with the [development snapshot and known issues](../../docs/collaboration/DEV_SNAPSHOT_2026-10-24.md) and [matching Hub upgrade notes](docs/COLLABORATION_5_UPGRADE.md). The baseline introduction below is historical; shared meetings are implemented but are not fully accepted. Existing schema=2 / MySQL5.7 needs no new DDL for collaboration.5. Pushing this repository does not deploy the cloud service.
+> Current work is reviewed in draft PR #55. Start with the [review status and isolated tests](../../docs/collaboration/REVIEW_STATUS.md) and [source/permission notice](UPSTREAM_NOTICE.md). The baseline introduction below is historical; shared meetings are implemented but are not fully accepted. Pushing this repository does not deploy the cloud service.
 
 This directory contains the Hub, Bridge/native-session support, fixtures and
 deployment sources imported from the current Pocket Vibe working tree.

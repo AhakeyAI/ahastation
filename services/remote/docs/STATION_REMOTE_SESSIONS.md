@@ -100,7 +100,7 @@ Windows 机制与平台版本见 [UpdateProcThreadAttribute](https://learn.micro
 - 同环境全量对照：修改前 899 / 854 通过 / 40 失败 / 5 跳过；修改后 903 / 858 通过 / 40 失败 / 5 跳过。40 个失败名称相同，无新增失败；未修改无关失败模块。
 - 使用已登录 Codex 0.160.0 的**当前产品 LocalAgentRunner 与 Codex 适配器**，在独立临时项目/测试会话中连续恢复两轮：同一原生 ID、电脑端 cwd、配置 workspace-write / never，两份文件内容为 ROUND1 / ROUND2，第二轮读取第一轮文件成功，反馈 ROUND1_OK / ROUND2_OK，cleanup_confirmed 成功，Station 文本提取通过。首次验收脚本遇到临时文件读取权限拒绝，重新准备隔离目录后完成两轮；CLI 的 MCP/遥测网络警告没有导致执行失败。没有替换临时适配器、提升权限或修改用户真实项目。
 - 当时待验收：macOS/Linux 实际进程清理；跨电脑 LAN（缺少第二台电脑/实际 Hub 地址）；真实 Station GUI 和声音输入；Claude 实际调用。更正环境记录：本机有 Station 捆绑的 Claude CLI，独立认证显示未登录，未自动登录。执行器验证不等于完整 LAN/GUI/语音验收。
-- 本轮临时 Hub/Bridge 和测试进程已退出，未发现残留。自动审批检查拒绝删除临时项目/固定文件（blocked by policy，未给具体原因），故保留 `C:\Users\79142\AppData\Local\Temp\station-codex-smoke-dei1l08n` 及同 Temp 目录的 smoke 脚本/结果日志。测试原生会话记录保留，没有修改用户历史数据库。未提交、推送或发布。
+- 本轮临时 Hub/Bridge 和测试进程已退出，未发现残留。自动审批检查拒绝删除临时项目/固定文件（blocked by policy，未给具体原因），故保留 `<local-evidence-path>` 及同 Temp 目录的 smoke 脚本/结果日志。测试原生会话记录保留，没有修改用户历史数据库。未提交、推送或发布。
 
 ## 上轮四项审查修复验证（2026-10-08，历史结果）
 

@@ -131,7 +131,7 @@ function wrapBackend(base, backendId, binaryPath, sessions) {
           return {
             protocol: backendId === 'codex' ? 'codex-app-server' : 'claude-cli',
             sessionId,
-            backendVersion: backendId === 'codex' ? '0.164.0' : '2.1.150',
+            backendVersion: backendId === 'codex' ? '0.156.1' : '2.1.150',
           };
         },
       };
@@ -265,7 +265,7 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   timeout: 120_000,
 }, async (t) => {
   const claudeRuntime = fakeRuntimeBinary('2.1.150');
-  const codexRuntime = fakeRuntimeBinary('0.164.0');
+  const codexRuntime = fakeRuntimeBinary('0.156.1');
   if (!runtimeReady('claude-code', claudeRuntime.binary) || !runtimeReady('codex', codexRuntime.binary)) {
     t.skip('stub Worker runtime version probe unavailable on this host');
     return;

@@ -13,13 +13,18 @@ import { getSettings, flushSettingsWrites } from '../dist-electron/store.js';
 import { PocketVibeBackend, fetchPocketVibeRemoteSessions } from '../dist-electron/backends/pocket-vibe-adapter.js';
 
 const root=await mkdtemp(join(tmpdir(),'station-public-control-')); app.getPath=()=>root;
-safeStorage.isEncryptionAvailable=()=>true;
-safeStorage.encryptString=(value)=>Buffer.from('test-encrypted:'+value);
-safeStorage.decryptString=(buffer)=>buffer.toString().replace('test-encrypted:','');
-test.after(async()=> { await flushSettingsWrites(); await rm(root,{recursive:true,force:true}); });
+const previewKeys=['AHASTATION_ENABLE_COLLABORATION','AHASTATION_REMOTE_ALLOW_LOOPBACK','AHASTATION_USER_DATA_DIR'];
+const previousPreview=Object.fromEntries(previewKeys.map(key=>[key,process.env[key]]));
+process.env.AHASTATION_ENABLE_COLLABORATION='1';
+process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
+process.env.AHASTATION_USER_DATA_DIR=root;
+safeStorage.isAsyncEncryptionAvailable=()=>true;
+safeStorage.encryptStringAsync=(value)=>Buffer.from('test-encrypted:'+value);
+safeStorage.decryptStringAsync=async (buffer)=>({result:buffer.toString().replace('test-encrypted:',''),shouldReEncrypt:false});
+test.after(async()=> { await flushSettingsWrites(); for(const key of previewKeys)if(previousPreview[key]===undefined)delete process.env[key];else process.env[key]=previousPreview[key];await rm(root,{recursive:true,force:true}); });
 const reply=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:async()=>JSON.stringify(data)});
 const until=async(fn)=> { for(let i=0;i<1000;i++) { if(fn())return; await new Promise(resolve=>setTimeout(resolve,5)); } assert.fail('Timed out'); };
-const target={device_id:'device-native',agent_id:'device-native-codex',provider:'codex',session_id:'native-exact',cwd:'C:\\authorized\\remote',title:'Remote Project',service_url:'https://fixture.example',owner_id:'owner-a'};
+const target={device_id:'device-native',agent_id:'device-native-codex',provider:'codex',session_id:'native-exact',cwd:'C:\\authorized\\remote',title:'Remote Project',service_url:'http://127.0.0.1:43155',owner_id:'owner-a'};
 
 test('remote identity uses existing encrypted store and whitelisted IPC, atomic per-member pending refs, and separate legacy config',async()=> {
   const calls=[]; let shown;
@@ -28,7 +33,7 @@ test('remote identity uses existing encrypted store and whitelisted IPC, atomic 
     if(url.endsWith('/v2/devices'))return reply({devices:[{id:'device',name:'PC',online:true,token:'must-not-cross-ipc'}]});
     return reply({owner_id:'owner-a',protocol:2}); };
   assert.equal((await remoteControlAction('configure',{enabled:true,mode:'public',serviceUrl:'http://example.test'})).ok,false);
-  assert.equal((await remoteControlAction('configure',{enabled:true,mode:'public',serviceUrl:'https://fixture.example'})).ok,true);
+  assert.equal((await remoteControlAction('configure',{enabled:true,mode:'public',serviceUrl:'http://127.0.0.1:43155'})).ok,true);
   const result=await remoteControlAction('register',{login:'alice',password:'test-password-123'},{fetchImpl,showRecovery:async(login,code)=> {shown={login,code};}});
   assert.equal(result.ok,true); assert.equal(shown.code,'secret-recovery-fixture'); assert.equal(result.settings.loggedIn,true);
   assert.ok(!JSON.stringify(result).includes('secret-')); assert.ok(!JSON.stringify(remoteControlView()).includes('secret-'));
@@ -42,7 +47,7 @@ test('remote identity uses existing encrypted store and whitelisted IPC, atomic 
   await flushSettingsWrites(); const disk=await readFile(join(root,'settings.json'),'utf8'); assert.ok(!disk.includes('"controlToken":')); assert.ok(disk.includes('controlTokenEnc')); assert.ok(!disk.includes('secret-control-fixture'));
   await remoteControlAction('logout',{}, {fetchImpl}); assert.equal(remoteControlView().loggedIn,false); assert.equal(getRemotePending(a),'submit-a');
   await remoteControlAction('configure',{enabled:false,mode:'legacy',serviceUrl:''}); assert.equal(getSettings().remoteControl.mode,'legacy');
-  const oversized=await fetchPocketVibeRemoteSessions({authMode:'apikey',apiKey:'test',publicMode:true,baseUrl:'https://fixture.example'},true,
+  const oversized=await fetchPocketVibeRemoteSessions({authMode:'apikey',apiKey:'test',publicMode:true,baseUrl:'http://127.0.0.1:43155'},true,
     {fetchImpl:async()=>new Response('x'.repeat(600000))});
   assert.equal(oversized.ok,false); assert.match(oversized.error,/大小/);
 });

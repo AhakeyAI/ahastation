@@ -6,6 +6,7 @@ import { getSettings, updateRemoteControlFields, getBackendAuth, remoteCredentia
 import type { BackendAuthConfig } from './backends/cli-backend.js';
 import type { RemoteControlReply, RemoteControlSettings, RemoteControlView } from './remote-control-types.js';
 import { collaborationFetch } from './collaboration/network.js';
+import { isCollaborationPreviewEnabled, requirePublicHubUrl } from './collaboration/feature-gate.js';
 
 function broadcastRemoteChange(): void {
   for (const wc of webContents.getAllWebContents()) {
@@ -52,7 +53,7 @@ export function remoteControlView(): RemoteControlView {
 export function getPocketVibeConnection(): BackendAuthConfig & { publicMode?: boolean; remoteOwnerId?: string } {
   const state = getRemoteControlSettings();
   if (state.mode === 'public') return { authMode: 'apikey', baseUrl: state.serviceUrl,
-    apiKey: state.enabled && !state.credentialInvalid ? state.controlToken : undefined, publicMode: true, remoteOwnerId: state.ownerId };
+    apiKey: isCollaborationPreviewEnabled() && state.enabled && !state.credentialInvalid ? state.controlToken : undefined, publicMode: true, remoteOwnerId: state.ownerId };
   return getBackendAuth('pocket-vibe') ?? { authMode: 'none' };
 }
 
@@ -80,6 +81,7 @@ async function boundedJson(response: Response): Promise<Record<string, unknown>>
 export async function remoteRequest(path: string, method = 'GET', body?: unknown, authenticated = true,
   fetchImpl: typeof fetch = collaborationFetch): Promise<Record<string, unknown>> {
   const state = getRemoteControlSettings();
+  requirePublicHubUrl(state.serviceUrl);
   if (!state.serviceUrl) throw new Error('远端服务尚未部署或配置，请先设置有效的服务地址');
   const base = validateRemoteServiceUrl(state.serviceUrl);
   if (authenticated && (!state.enabled || !state.controlToken || state.credentialInvalid)) throw new Error('请启用远端控制并登录远端身份');
@@ -181,7 +183,8 @@ export async function remoteControlAction(action: string, payload: Record<string
     if (action === 'logout') {
       const { stationService } = await import('./collaboration/station-service.js');
       if (stationService() && !await stationService()!.shutdown()) throw new Error('本机 Station 任务退出未确认，请核对原任务后再退出协作账号');
-      await request('/v2/logout', 'POST', { all: payload.all === true });
+      if (isCollaborationPreviewEnabled()) await request('/v2/logout', 'POST', { all: payload.all === true });
+      else if (payload.all === true) throw new Error('跨设备协作暂未开放，无法确认服务端撤销；可退出此登录以清除本机凭据');
       await updateRemoteControlFields((current) => current?.controlToken === state.controlToken
         ? { ...(current ?? state), controlToken: undefined, controlTokenEnc: undefined, credentialInvalid: false } : current ?? state);
       return { ok: true, settings: remoteControlView() };

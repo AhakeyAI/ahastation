@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+from ipaddress import ip_network
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
@@ -21,6 +22,19 @@ PROTOCOL=2
 BODY_LIMIT=64*1024
 MESSAGE_LIMIT=128*1024
 log=logging.getLogger('ahastation.hub')
+
+def trusted_proxy_ips():
+    """Only explicitly configured proxy addresses may supply a client IP."""
+    configured = os.getenv('HUB_TRUSTED_PROXY_IPS', '')
+    addresses = [value.strip() for value in configured.split(',') if value.strip()]
+    try:
+        networks = [ip_network(value, strict=False) for value in addresses]
+        if any(network.prefixlen == 0 for network in networks):
+            raise ValueError('An unrestricted network is not a proxy allowlist')
+        return [str(network) for network in networks]
+    except ValueError as error:
+        raise RuntimeError('HUB_TRUSTED_PROXY_IPS must contain explicit IP addresses or CIDRs; wildcard trust is forbidden') from error
+
 
 def bearer(headers):
     value=headers.get('authorization','')
@@ -415,4 +429,5 @@ app=create_app()
 if __name__=='__main__':
     import uvicorn
     uvicorn.run(app,host='0.0.0.0',port=int(os.getenv('PORT','8787')),workers=1,
-                ws_max_size=MESSAGE_LIMIT,ws_max_queue=8,timeout_keep_alive=15,access_log=False)
+                ws_max_size=MESSAGE_LIMIT,ws_max_queue=8,timeout_keep_alive=15,access_log=False,
+                proxy_headers=True,forwarded_allow_ips=trusted_proxy_ips())

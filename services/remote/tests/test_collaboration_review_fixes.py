@@ -42,7 +42,7 @@ class ReviewFixesTest(baseline.StationCollaborationTest):
         a={'meetingId':m['id'],'planTaskId':'a','title':'A','objective':'whole A','targetDeviceId':self.b['id'],'agentId':'fixture','resource':'repository','permission':'workspace-write','projectId':project['id'],'baseCommit':'a'*40,'dependencies':[],'inputs':[]}
         b={**a,'planTaskId':'b','title':'B','objective':'whole B','dependencies':['a']}
         plan=await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'tasks':[a,b]})
-        approved=await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':plan['revision'],'tasks':[a,b],'approved':True})
+        approved=await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':plan['revision'],'tasks':[a,b],'approved':True})
         first=await self.command(self.a['token'],'task.create',a)
         base={'taskId':first['id'],'attemptId':first['attemptId']}
         await self.command(self.b['token'],'task.receipt',{**base,'bindingRevision':1})
@@ -57,7 +57,7 @@ class ReviewFixesTest(baseline.StationCollaborationTest):
         await self.command(self.a['token'],'task.create',revised,expected=409)
         await self.command(self.b['token'],'plan.propose',{'meetingId':m['id'],'tasks':[a,revised]},expected=403)
         await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':meeting['revision'],'tasks':[a,{**b,'baseCommit':'c'*40}],'approved':True},expected=409)
-        updated=await self.command(self.b['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':meeting['revision'],'tasks':[a,revised],'approved':True})
+        updated=await self.command(self.a['token'],'plan.review',{'meetingId':m['id'],'expectedRevision':meeting['revision'],'tasks':[a,revised],'approved':True})
         second=await self.command(self.a['token'],'task.create',revised);again=await self.command(self.a['token'],'task.create',revised)
         self.assertEqual(second['id'],again['id']);self.assertEqual(second['baseCommit'],'b'*40);self.assertEqual(second['dependencies'],[first['id']]);self.assertEqual(second['approvedPlanRevision'],updated['revision'])
         for field,value in [('targetDeviceId',self.a['id']),('agentId','codex'),('baseCommit','c'*40),('dependencies',[])]:
