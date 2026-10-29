@@ -58,6 +58,15 @@ jobs:
       - name: npm install
         run: npm ci
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build bundled Station receiver
+        run: |
+          python -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
+          python scripts/build-station-native.py
+
       - name: Prebuild - speaker model
         run: node scripts/fetch-speaker-model.mjs
 
@@ -70,8 +79,15 @@ jobs:
       - name: Typecheck (electron)
         run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json
 
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+
       - name: Test suite
         run: npm test
+        env:
+          COLLABORATION_PYTHON: python
+          POCKET_VIBE_TEST_PYTHON: python
+          POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
 
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship
@@ -144,7 +160,8 @@ jobs:
           done
           apt-get update
           apt-get install -y --no-install-recommends \
-            git curl ca-certificates xz-utils python3 make g++ libfuse2
+            git curl ca-certificates xz-utils python3 make g++ libfuse2 \
+            libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev
 
       - uses: actions/checkout@v4
 
@@ -171,6 +188,19 @@ jobs:
       - name: Test suite
         run: npm test
 
+      - name: Build bundled receiver on Debian 11 ABI
+        shell: bash
+        run: |
+          mkdir -p .tools/python-source
+          curl --fail --location https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tar.xz -o .tools/python-source/python.tar.xz
+          tar -xJf .tools/python-source/python.tar.xz -C .tools/python-source
+          cd .tools/python-source/Python-3.13.5
+          ./configure --prefix=/opt/station-python --with-ensurepip=install --enable-shared LDFLAGS="-Wl,-rpath=/opt/station-python/lib"
+          make -j2
+          make install
+          cd "$GITHUB_WORKSPACE"
+          /opt/station-python/bin/python3.13 -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
+          /opt/station-python/bin/python3.13 scripts/build-station-native.py
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship
         # no dist/ and the window loads app://bundle/index.html -> blank page.

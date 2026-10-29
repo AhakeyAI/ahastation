@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-21",
+  "branch": "etrnal-dev",
+  "baselineCommit": "3368192d79e80d5faaa40a06a71268e050db7379",
+  "scope": "Collaboration contracts and development foundation; no live Station/Hub entrypoint migration.",
+  "environment": {
+    "platform": "Windows",
+    "node": "v24.22.0",
+    "python": "3.13.5",
+    "ajv": "8.20.0",
+    "jsonschema": "4.23.0"
+  },
+  "focused": {
+    "node": {
+      "tests": 62,
+      "pass": 62,
+      "fail": 0,
+      "skipped": 0,
+      "exitCode": 0
+    },
+    "python": {
+      "tests": 4,
+      "pass": 4,
+      "fail": 0,
+      "skipped": 0,
+      "exitCode": 0
+    },
+    "sharedCases": 45,
+    "crossLanguageParity": "passed"
+  },
+  "fullRegression": {
+    "node": {
+      "tests": 1034,
+      "pass": 995,
+      "fail": 34,
+      "skipped": 5,
+      "cancelled": 0,
+      "exitCode": 1,
+      "concurrency": 4,
+      "forceExit": false,
+      "pythonFixturesEnabled": true,
+      "newFailureNames": [],
+      "resolvedFailureNames": [],
+      "baselineFailureList": "BASELINE_CHECKS.json#/node/baselineFailureNames"
+    },
+    "python": {
+      "tests": 110,
+      "pass": 92,
+      "fail": 0,
+      "skipped": 18,
+      "exitCode": 0
+    }
+  },
+  "checks": {
+    "rendererTypecheck": "passed",
+    "electronTypecheck": "passed",
+    "rendererBuild": "passed",
+    "electronBuild": "passed",
+    "offlineDemo": "passed",
+    "gitDiffCheck": "passed",
+    "originalWorkingCopyHashes": {
+      "checked": 59,
+      "changed": 0
+    }
+  },
+  "notVerified": [
+    "Live new Station-native device/project routes and database migrations (not implemented in this scope)",
+    "Public Hub deployment / cross-network multi-device feature",
+    "Native MySQL / real model / GUI / Linux or macOS execution",
+    "Installer contents / ARM64 packaging / manual GitHub Actions workflow"
+  ],
+  "notes": [
+    "Only trusted main-process code may instantiate the real authorization service; returned markers are not remote authentication.",
+    "Mock grants are explicitly simulation-only and rejected by the execution guard.",
+    "Existing public Hub and Bridge entrypoints are unchanged. Public deployment requirements were not extended.",
+    "Full Node failure names match the previous baseline exactly; full suite exit code remains 1.",
+    "One earlier Node run overlapped output cleanup from a build and was discarded; final regression ran after compilation, without concurrent output cleanup.",
+    "Vite retains the existing large-chunk warning. Git test fixtures use temporary local repositories, without GitHub/model/cloud operations."
+  ]
+}

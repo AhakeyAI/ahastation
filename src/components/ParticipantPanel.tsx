@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Crown, ExternalLink, MicOff, Plus, RotateCcw, T
 import type { HostGroupState, WorkerState } from '../lib/meeting-store';
 import { BackendAvatar } from './BackendAvatar';
 import { WorkerCard } from './WorkerCard';
+export {SharedParticipants} from './UnifiedMeetingParts';
 
 interface ParticipantPanelProps {
   workers: WorkerState[];
@@ -143,7 +144,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   <Terminal size={12} />
                 </button>
               )}
-              {onOpenEditor && (
+              {onOpenEditor && !hg.remoteTarget && (
                 <button
                   type="button"
                   className="tiles-gallery-action-btn"

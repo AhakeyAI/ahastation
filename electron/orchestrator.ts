@@ -27,6 +27,7 @@ import {
   hostTerminalWorkerId,
   isTerminalWorkerBackend,
 } from './backends/terminal-cli-adapter.js';
+import { parsePocketVibeRemoteTarget, parsePocketVibeRemoteHosts, remoteSessionKey, remoteMentionIds, resolveRemoteTarget, REMOTE_ATTACHMENT_ERROR, type PocketVibeRemoteTarget, type PocketVibeRemoteHost, type PocketVibeRemoteDirectory } from './backends/pocket-vibe-target.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import {
   coerceWorkspaceModeForBaseline,
@@ -174,6 +175,13 @@ const DEFAULT_HOST_ID = 'default';
 const DEFAULT_BACKEND_ID = 'claude-code';
 
 interface OrchestratorOpts {
+  /** Shared meetings retain this Orchestrator as their sole planning authority.
+   * These hooks replace local execution, never mirror it. */
+  sharedExecution?: {
+    propose(tasks:PlanMeetingTaskInput[],brief:MeetingPlanBrief):Promise<void>;
+    consult(memberId:string,text:string):Promise<unknown>;
+    control(taskId:string,operation:string,text?:string):Promise<unknown>;
+  };
   emit: (e: OrchestratorEvent) => void;
   cwd: string;
   autoApproveScope?: AutoApproveScope;
@@ -202,6 +210,7 @@ interface OrchestratorOpts {
   ptyScopeId?: string;
   recoverySeq?: number;
   resumeBackendSessions?: Record<string, BackendSessionSnapshot>;
+  remoteHosts?: PocketVibeRemoteHost[];
   recoveredTasks?: Array<Record<string, unknown>>;
   recoveredPlanVersion?: number;
   recoveredReviewSessions?: CoordinatorReviewSession[];
@@ -230,6 +239,8 @@ interface OrchestratorOpts {
 }
 
 export class Orchestrator implements OrchestratorBridge {
+  private sharedExecution?:OrchestratorOpts['sharedExecution'];
+  private autoApprovePlans=false;
   /** All host groups in this meeting. Always has at least 'default'. */
   private hostGroups = new Map<string, HostGroup>();
   /**
@@ -270,6 +281,7 @@ export class Orchestrator implements OrchestratorBridge {
   private readonly getObservedSnapshot: () => ObservedSnapshot;
   private diagnostics: DiagnosticLogger;
   private resumeBackendSessions: Record<string, BackendSessionSnapshot>;
+  private remoteTargets = new Map<string, PocketVibeRemoteTarget>();
   private recoveredTasks: Array<Record<string, unknown>>;
   private recoveredHosts: Array<{ id: string; backendId: string }>;
   private recoveredPlanVersion: number;
@@ -340,6 +352,7 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   constructor(opts: OrchestratorOpts) {
+    this.sharedExecution=opts.sharedExecution;
     this.emit = opts.emit;
     this.cwd = opts.cwd;
     this.autoApproveScope = opts.autoApproveScope ?? 'off';
@@ -458,6 +471,11 @@ export class Orchestrator implements OrchestratorBridge {
       throw new Error(`backend '${defaultBackend}' cannot coordinate`);
     }
     this.createHostGroup(DEFAULT_HOST_ID, defaultBackend);
+    for (const host of parsePocketVibeRemoteHosts(opts.remoteHosts)) {
+      if (this.hostGroups.size >= MAX_HOSTS) break;
+      this.remoteTargets.set(host.id, host.remoteTarget);
+      this.createHostGroup(host.id, 'pocket-vibe');
+    }
     if (this.recoveredTasks.length > 0) {
       this.meetingScheduler.restoreTasks(this.recoveredTasks);
     }
@@ -497,7 +515,16 @@ export class Orchestrator implements OrchestratorBridge {
       // MCP-less backends speak the meeting protocol through fenced
       // ```meeting-command frames in their reply text instead of native
       // tools; teach them the portable command vocabulary.
-      if (backendId === 'codex' || backendId === 'pocket-vibe') {
+      const remoteTarget = backendId === 'pocket-vibe' && purpose === 'host'
+        ? this.remoteTargets.get(actorHostId) : undefined;
+      if (remoteTarget) {
+        // A selected native session executes on its own computer. It must not
+        // inherit the local Talker's "delegate instead of edit" instructions.
+        systemPrompt = `你是当前会议的远端成员「${remoteTarget.title}」。\n`
+          + `在电脑端已有 ${remoteTarget.provider} 原生会话 ${remoteTarget.session_id} 中连续处理发给你的指令。\n`
+          + `所有项目读取、修改和验证必须在电脑端项目目录 ${remoteTarget.cwd} 中执行。\n`
+          + '直接在该远端会话执行任务，以普通 assistant 文本反馈结果、修改和失败原因。不要向 Station 派发本机 Worker、创建新会话或输出 meeting-command。';
+      } else if (backendId === 'codex' || backendId === 'pocket-vibe') {
         systemPrompt = `${systemPrompt ?? ''}${PORTABLE_MEETING_COMMAND_PROMPT}`;
       }
       const authEntry = getBackendAuth(backendId);
@@ -540,6 +567,8 @@ export class Orchestrator implements OrchestratorBridge {
       return backend.createSession(
         {
           cwd: opts.cwd,
+          ...(backendId === 'pocket-vibe' && purpose === 'host'
+            ? { remoteTarget } : {}),
           systemPrompt,
           model,
           taskProfile,
@@ -558,6 +587,13 @@ export class Orchestrator implements OrchestratorBridge {
           executionRole: purpose,
           extra: {
             ...backendExtra,
+            ...(remoteTarget ? { onRemoteTargetResolved: (target: PocketVibeRemoteTarget) => {
+              if ([...this.remoteTargets.entries()].some(([id, existing]) => id !== actorHostId && remoteSessionKey(existing) === remoteSessionKey(target))) {
+                throw new Error('同一电脑的原生会话已加入会议，请移除重复成员。');
+              }
+              Object.assign(remoteTarget, target);
+              void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
+            } } : {}),
             ...(backendId === 'codex' ? { codexTransport: 'app-server' } : {}),
             // Kimi: ACP mode only understands device-code OAuth — it ignores
             // API keys entirely. When an apiKey is configured, fall back to
@@ -708,8 +744,15 @@ export class Orchestrator implements OrchestratorBridge {
   /** Add a new host group to this meeting. Returns the host group id.
    *  The host's talker session is started asynchronously — the renderer shows
    *  a "Connecting…" placeholder until the session-ready event arrives. */
-  addHost(backendId: string, hostId?: string): { ok: true; hostId: string } | { ok: false; error: string } {
+  addHost(backendId: string, hostId?: string, remoteTarget?: PocketVibeRemoteTarget): { ok: true; hostId: string } | { ok: false; error: string } {
     if (this.closed) return { ok: false, error: 'orchestrator is closed' };
+    const target = remoteTarget === undefined ? undefined : parsePocketVibeRemoteTarget(remoteTarget);
+    if (remoteTarget !== undefined && (backendId !== 'pocket-vibe' || !target)) {
+      return { ok: false, error: 'remoteTarget 仅支持 Pocket Vibe，且必须包含有效的 Agent、provider、原生会话 ID 和远端目录。' };
+    }
+    if (target && [...this.remoteTargets.values()].some((existing) => remoteSessionKey(existing) === remoteSessionKey(target))) {
+      return { ok: false, error: '该远端会话已加入当前会议。' };
+    }
     if (this.hostGroups.size >= MAX_HOSTS) {
       return { ok: false, error: `host capacity reached (${MAX_HOSTS}/${MAX_HOSTS})` };
     }
@@ -726,11 +769,13 @@ export class Orchestrator implements OrchestratorBridge {
       cwd: this.cwd,
       homeSource: 'real-home',
     });
-    const id = hostId ?? `${backendId}-host-${this.hostGroups.size}`;
+    const id = hostId ?? (target ? `pocket-vibe-${randomUUID()}` : `${backendId}-host-${this.hostGroups.size}`);
     if (this.hostGroups.has(id)) {
       return { ok: false, error: `host group '${id}' already exists` };
     }
+    if (target) this.remoteTargets.set(id, target);
     const hg = this.createHostGroup(id, backendId);
+    if (target) void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
 
     // Announce the group before the handshake so the renderer can show a
     // "Connecting…" tile. Live invites already add one optimistically, but
@@ -748,17 +793,18 @@ export class Orchestrator implements OrchestratorBridge {
     void (async () => {
       try {
         await hg.start();
-        if (this.closed) return;
+        if (this.closed || (target && this.hostGroups.get(id) !== hg)) return;
         this.flushPendingCrossHostMessages(id);
         await this.snapshotActiveMeeting();
         if (!this.closed) {
           this.safeEmit({
             source: 'system',
             hostId: id,
-            event: { kind: 'session-ready' },
+            event: { kind: 'session-ready', ...(target ? { remoteTarget: target } : {}) },
           });
         }
       } catch (err: unknown) {
+        if (target && (this.closed || this.hostGroups.get(id) !== hg)) return;
         this.diagnostics.log('host-start-failed', {
           hostId: id,
           backendId,
@@ -770,6 +816,7 @@ export class Orchestrator implements OrchestratorBridge {
           hostId: id,
           event: {
             kind: 'session-start-failed',
+            ...(target ? { remoteTarget: target } : {}),
             error: err instanceof Error ? err.message : String(err),
           },
         });
@@ -777,6 +824,15 @@ export class Orchestrator implements OrchestratorBridge {
     })();
 
     return { ok: true, hostId: id };
+  }
+
+  /** A refreshed directory can complete legacy references before join deduplication. */
+  enrichRemoteTargets(directory: PocketVibeRemoteDirectory): void {
+    for (const target of this.remoteTargets.values()) {
+      if (target.device_id) continue;
+      try { Object.assign(target, resolveRemoteTarget(target, directory)); }
+      catch { /* Offline/invalid references retain their identity and fail at start/send. */ }
+    }
   }
 
   /** Remove a host group. Cannot remove the default host. */
@@ -793,9 +849,11 @@ export class Orchestrator implements OrchestratorBridge {
     }
     hg.end();
     this.hostGroups.delete(hostId);
+    const wasRemote = this.remoteTargets.delete(hostId);
     this.crossHostBus.unsubscribeHost(hostId);
     this.pendingCrossHostMessages.delete(hostId);
     this.clearHostAsk(hostId);
+    if (wasRemote) void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
     return { ok: true };
   }
 
@@ -805,12 +863,19 @@ export class Orchestrator implements OrchestratorBridge {
     backendId: string;
     role: 'coordinator' | 'expert';
     backendSession?: BackendSessionSnapshot;
+    remoteTarget?: PocketVibeRemoteTarget;
+    ready: boolean;
+    phase: 'starting' | 'ready' | 'ended' | 'failed';
+    error?: string;
   }> {
     return Array.from(this.hostGroups.entries()).map(([id, hg]) => ({
       id,
       backendId: hg.backendId,
       role: id === this.coordinatorHostId ? 'coordinator' : 'expert',
       backendSession: hg.getHost()?.snapshot?.() ?? undefined,
+      ready: hg.isReady(),
+      ...hg.getLifecycle(),
+      ...(this.remoteTargets.has(id) ? { remoteTarget: { ...this.remoteTargets.get(id)! } } : {}),
     }));
   }
 
@@ -955,6 +1020,14 @@ export class Orchestrator implements OrchestratorBridge {
     });
     if (!authorized.ok) return authorized;
     const command = authorized.command;
+    if(this.sharedExecution && command.kind!=='propose-plan') {
+      try {
+        if(command.kind==='ask-host')return {ok:true,value:await this.sharedExecution.consult(command.hostId,command.question)};
+        if(command.kind==='send-task-message'||command.kind==='follow-up-task'||command.kind==='steer-task')return {ok:true,value:await this.sharedExecution.control(command.taskId,'supplement',command.message)};
+        if(command.kind==='interrupt-task')return {ok:true,value:await this.sharedExecution.control(command.taskId,'stop')};
+        return {ok:false,code:'forbidden',error:'Shared tasks require a visible revised plan or an exact task action; local scheduling is disabled.'};
+      }catch(error){return {ok:false,code:'execution-failed',error:String(error)};}
+    }
     try {
       switch (command.kind) {
         case 'propose-plan': {
@@ -1096,13 +1169,17 @@ export class Orchestrator implements OrchestratorBridge {
       hostId !== this.coordinatorHostId
       && e.source === 'talker'
       && e.event.kind === 'message'
+      && (!this.remoteTargets.has(hostId) || (e.event.message as { type?: string }).type === 'assistant')
     ) {
       // Any talker message from an expert counts as a reply to an outstanding
       // ask_host; disarm the watchdog so the Coordinator isn't falsely told it
       // timed out.
+      const wasAsked = this.pendingHostAsks.has(hostId);
       this.clearHostAsk(hostId);
       const text = extractText(e.event.message);
-      if (text) {
+      // Direct replies from selected native sessions belong to their member's
+      // chat. Only an explicit Coordinator ask should trigger another host turn.
+      if (text && (!this.remoteTargets.has(hostId) || wasAsked)) {
         this.sendHostMessage(
           hostId,
           this.coordinatorHostId,
@@ -1242,6 +1319,15 @@ export class Orchestrator implements OrchestratorBridge {
     this.taskMailbox.restore(journal);
     this.taskProjection = projectMeetingTasks(journal);
     await this.defaultHost().start(greeting);
+    // Restoring references reconnects transports only; it sends no model turn.
+    for (const [id] of this.remoteTargets) {
+      try {
+        await this.hostGroups.get(id)!.start();
+        this.safeEmit({ source: 'system', hostId: id, event: { kind: 'session-ready', remoteTarget: this.remoteTargets.get(id) } });
+      } catch (err) {
+        this.safeEmit({ source: 'system', hostId: id, event: { kind: 'session-start-failed', error: String(err), remoteTarget: this.remoteTargets.get(id) } });
+      }
+    }
     this.flushPendingCrossHostMessages(this.coordinatorHostId);
     // Re-add the host groups that were invited before the previous shutdown.
     // The default host is already up; the rest reconnect asynchronously and
@@ -1489,6 +1575,8 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   sendUserText(text: string) {
+    const error = this.remoteInputError(text);
+    if (error) throw new Error(error);
     const mention = this.resolveHostMention(text);
     if (!mention) {
       const fallback = this.defaultHost();
@@ -1518,12 +1606,15 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   private resolveHostMention(text: string): { hostId: string; host: HostGroup; text: string } | null {
+    const remoteId = remoteMentionIds(text, this.listHosts())[0];
     for (const match of text.matchAll(/@([a-zA-Z0-9._-]+)/g)) {
+      if (match.index && /[a-zA-Z0-9_.+-]/.test(text[match.index - 1])) continue;
       const token = match[1].toLowerCase();
-      const found = Array.from(this.hostGroups.entries()).find(([id, host]) => (
+      const found = remoteId ? [remoteId, this.hostGroups.get(remoteId)!] as const : Array.from(this.hostGroups.entries()).find(([id, host]) => (
         id.toLowerCase() === token || host.backendId.toLowerCase() === token
       ));
-      if (!found || !found[1].isReady()) continue;
+      if (remoteId && token !== remoteId.toLowerCase() && token !== 'pocket-vibe') continue;
+      if (!found || (this.listHosts().find((host) => host.id === found[0])?.remoteTarget && !remoteId) || !found[1].isReady()) continue;
       const start = match.index ?? 0;
       const withoutMention = `${text.slice(0, start)}${text.slice(start + match[0].length)}`
         .replace(/[ \t]{2,}/g, ' ')
@@ -1534,7 +1625,23 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   sendUserImage(content: SDKUserMessage['message']['content']) {
+    const text = typeof content === 'string' ? content : content.filter((block) => block.type === 'text').map((block) => (block as { text: string }).text).join('\n');
+    const error = this.remoteInputError(text, true);
+    if (error) throw new Error(error);
     this.defaultHost().sendUserImage(content);
+  }
+
+  remoteInputError(text: string, hasAttachments = false): string | null {
+    const ids = remoteMentionIds(text, this.listHosts(), hasAttachments);
+    if (hasAttachments && (ids.length || this.hostGroups.get(this.coordinatorHostId)?.backendId === 'pocket-vibe')) return REMOTE_ATTACHMENT_ERROR;
+    if (ids.length > 1) return '请一次明确点名一个远端成员，本次未执行。';
+    if (!ids.length) return null;
+    const id = ids[0];
+    const target = this.remoteTargets.get(id);
+    const host = this.hostGroups.get(id);
+    if (!target || !host) return '所点名的远端成员不可用或不唯一，请重新选择成员；本次未执行。';
+    if (!host.isReady()) return `远端成员「${target.title}」正在连接、连接失败或已停止，请检查该成员状态后重试；本次未执行。`;
+    return null;
   }
 
   resolvePermission(
@@ -1608,7 +1715,7 @@ export class Orchestrator implements OrchestratorBridge {
       allTranscripts.push(...hg.getTranscript());
     }
 
-    this.recapHandle = startRecap({
+    this.recapHandle = this.sharedExecution?null:startRecap({
       transcript: allTranscripts,
       cwd: this.cwd,
       env: this.workerEnv,
@@ -1675,6 +1782,7 @@ export class Orchestrator implements OrchestratorBridge {
 
   /** Manual entry point: renderer-side "Plan meeting" button. */
   async installPlan(tasks: PlanMeetingTaskInput[]): Promise<{ ok: true } | { ok: false; error: string }> {
+    if(this.sharedExecution)return this.proposePlan(tasks);
     let normalized: PlanMeetingTask[];
     try {
       normalized = normalizePlanMeetingTasks(
@@ -1761,6 +1869,10 @@ export class Orchestrator implements OrchestratorBridge {
     tasks: PlanMeetingTaskInput[],
     briefInput?: MeetingPlanBriefInput,
   ): Promise<{ ok: true; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    if(this.sharedExecution) {
+      try {await this.sharedExecution.propose(tasks,normalizeMeetingPlanBrief(briefInput,tasks));return {ok:true};}
+      catch(error){return {ok:false,error:(typeof (error as {code?:unknown})?.code==='string'?String((error as {code:string}).code)+': ':'')+(error instanceof Error?error.message:String(error))};}
+    }
     let normalized: PlanMeetingTask[];
     let appliedDefaults: AppliedTaskDefaults[];
     try {
@@ -1779,7 +1891,7 @@ export class Orchestrator implements OrchestratorBridge {
     if (backendError) return { ok: false, error: backendError };
     const brief = normalizeMeetingPlanBrief(briefInput, normalized);
     const applied = appliedDefaults.length > 0 ? { appliedDefaults } : {};
-    if (!this.autoOrchestration) {
+    if (!this.autoApprovePlans) {
       this.pendingPlan = normalized.map((task) => ({ ...task, deps: [...(task.deps ?? [])] }));
       this.pendingPlanBrief = brief;
       this.safeEmit({
@@ -1807,9 +1919,17 @@ export class Orchestrator implements OrchestratorBridge {
     void this.repository.append('orchestration-mode-changed', { enabled });
   }
 
+  setAutoApprovePlans(enabled:boolean):void {this.autoApprovePlans=enabled;}
+
+  /** Only the coordinator talker; accepted Workers remain owned by their task. */
+  async interruptHostReply():Promise<void> {await this.defaultHost().getHost()?.interrupt();}
+
+  hostSessionSnapshot():BackendSessionSnapshot|undefined {return this.defaultHost().getHost()?.snapshot?.()??undefined;}
+
   async approvePendingPlan(
     approved: boolean,
     revisedTasks?: PlanMeetingTaskInput[],
+    revisedBrief?:MeetingPlanBriefInput,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     let tasks: PlanMeetingTask[] | null = this.pendingPlan;
     if (revisedTasks) {
@@ -1826,6 +1946,7 @@ export class Orchestrator implements OrchestratorBridge {
       const backendError = await this.validateExecutionBackends(tasks);
       if (backendError) return { ok: false, error: backendError };
     }
+    if(approved&&tasks)await this.repository.append('plan-document-approved',{brief:normalizeMeetingPlanBrief(revisedBrief??this.pendingPlanBrief??undefined,tasks)});
     this.pendingPlan = null;
     this.pendingPlanBrief = null;
     if (!tasks) return { ok: false, error: 'no pending plan' };
@@ -1923,6 +2044,7 @@ export class Orchestrator implements OrchestratorBridge {
       }
     | { ok: false; error: string }
   > {
+    if(this.sharedExecution)return {ok:false,error:'共享派活必须提交明确设备与 Agent 的完整计划；请使用 plan_meeting / propose-plan'};
     const request = typeof input === 'string' ? { description: input } : input;
     const description = request.description.trim();
     if (!description) return { ok: false, error: 'description is required' };
@@ -1976,7 +2098,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId,
         specialty,
         reused: false,
-        status: this.autoOrchestration ? 'installed' : 'proposed',
+        status: this.autoApprovePlans ? 'installed' : 'proposed',
         ...(notes?.length ? { appliedDefaults: notes } : {}),
       };
     }

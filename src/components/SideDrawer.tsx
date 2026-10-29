@@ -19,9 +19,19 @@ import {
 import { ApprovalCard } from './ApprovalCard';
 import { FileTree } from './FileTree';
 import { Modal } from './Modal';
+import { RemoteSessionPicker } from './RemoteSessionPicker';
+import { remoteSessionLabel } from '../../electron/backends/pocket-vibe-target';
+import { remotePickerReason } from '../lib/meeting-availability';
 import { toast } from '../lib/toast';
+import type {UnifiedModel} from '../lib/unified-meeting-store';
+import {sharedTranscript,sharedMentionBackends} from '../lib/unified-meeting-store';
+import {bindSharedMention,editSharedMentions,type SharedMention} from '../lib/shared-mentions';
+import {SharedInvitation,SharedApprovals,SharedExecutionReconciliation} from './UnifiedMeetingParts';
 
 interface SideDrawerProps {
+  shared?:UnifiedModel;
+  linkedTaskId?:string;
+  onLinkTask?:(id:string)=>void;
   open: boolean;
   pending: PendingPermission | null;
   /** Resolving flag for the legacy single permission card, sourced from the
@@ -33,23 +43,26 @@ interface SideDrawerProps {
   /** 批准卡片四要素上下文（04 BR-A2：项目/任务/客户端）。 */
   approvalMeta?: { owner: string; backendId?: string; project: string };
   onResolve: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
-  onSend: (text: string) => void;
+  onSend: (text: string,mentions?:SharedMention[],submissionId?:string) => void|Promise<void>;
   onSendAttachments?: (
     staged: StagedAttachment[],
     text: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
+    mentions?:SharedMention[],
+    submissionId?:string,
+  ) => Promise<{ ok: boolean; error?: string;pending?:boolean }>;
   onSubscribeDroppedFiles?: (cb: (files: File[]) => void) => () => void;
   multiAgent?: boolean;
   dispatchMode?: DispatchMode;
   onChangeDispatchMode?: (mode: DispatchMode) => void;
   disabled: boolean;
+  disabledReason?: string;
   sessionId?: string | null;
   onViewFile?: (relativePath: string) => void;
   viewingFilePath?: string | null;
   backends?: BackendInfo[];
   activeBackendIds?: Set<string>;
   onAddHost?: (backendId: string) => void;
-  forceParticipantsTab?: boolean;
+  forceParticipantsTab?: boolean|number;
 }
 
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
@@ -217,6 +230,7 @@ export const SideDrawer = memo(function SideDrawer({
   dispatchMode = 'direct',
   onChangeDispatchMode,
   disabled,
+  disabledReason = '会议未开始',
   sessionId,
   onViewFile,
   viewingFilePath,
@@ -224,18 +238,23 @@ export const SideDrawer = memo(function SideDrawer({
   activeBackendIds = new Set(),
   onAddHost,
   forceParticipantsTab,
+  shared,linkedTaskId,onLinkTask,
 }: SideDrawerProps) {
   // High-frequency meeting streams are subscribed in-component (not threaded
   // through App): transcript/activity append many times per minute during a
   // voice session, and those updates must not re-render the App tree.
-  const transcript = useMeetingSelector(selectTalkerTranscript, shallowEqualArray);
-  const talkerResponding = useMeetingSelector(selectTalkerResponding);
+  const localTranscript = useMeetingSelector(selectTalkerTranscript, shallowEqualArray);
+  const transcript=useMemo(()=>shared?sharedTranscript(shared):localTranscript,[shared,localTranscript]);
+  const localResponding = useMeetingSelector(selectTalkerResponding);
+  const talkerResponding=shared?(shared.view.snapshot.entities.message??[]).some(m=>m.meetingId===shared.meeting.id&&!m.replyTo&&m.route==='host'&&m.executionStatus==='running'):localResponding;
   // The bubble names the host the input was actually routed to (default:
   // the coordinator host), so @mentioning qoder no longer reads "Codex 正在思考".
   const thinkingHostId = useMeetingSelector((s) => s.lastMentionedHostId ?? null);
   const activity = useMeetingSelector(selectMergedActivity, shallowEqualArray);
   const hostGroups = useMeetingSelector((s) => s.hostGroups);
   const [tab, setTab] = useState<Tab>('chat');
+  const [remotePickerSession, setRemotePickerSession] = useState<string | null>(null);
+  useEffect(() => { setRemotePickerSession(null); }, [sessionId]);
   const [text, setText] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
@@ -259,6 +278,14 @@ export const SideDrawer = memo(function SideDrawer({
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0);
   const mentionStartRef = useRef<number>(-1); // position of '@' in text
+  const [sharedMentions,setSharedMentions]=useState<SharedMention[]>([]);
+  const draftVersion=useRef(0);
+  const flight=useRef<{id:string;version:number;fileIds:string[]}|null>(null);
+  const [sending,setSending]=useState(false),[pendingSubmission,setPendingSubmission]=useState<string|null>(null);
+  const updateDraft=(value:string)=>{draftVersion.current++;if(shared)setSharedMentions(current=>editSharedMentions(text,value,current));setText(value);};
+  useEffect(()=>{draftVersion.current++;},[linkedTaskId]);
+  const finishSubmission=()=>{const submitted=flight.current;if(!submitted)return;setStaged(current=>current.filter(file=>!submitted.fileIds.includes(file.id)));if(draftVersion.current===submitted.version){draftVersion.current++;setText('');setSharedMentions([]);setRejected([]);}flight.current=null;setSending(false);setPendingSubmission(null);};
+  useEffect(()=>{if(!pendingSubmission)return;const result=shared?.view.messageSubmissions?.find(s=>s.requestId===pendingSubmission);if(result?.status==='accepted')finishSubmission();else if(result?.status==='rejected'){flight.current=null;setSending(false);setPendingSubmission(null);toast.error(result.error??'原提交已被拒绝，输入保留');}},[shared?.view.messageSubmissions,pendingSubmission]);
 
   // Load skills list on mount
   useEffect(() => {
@@ -277,13 +304,19 @@ export const SideDrawer = memo(function SideDrawer({
   }, [skills, slashFilter]);
 
   const filteredBackends = useMemo(() => {
+    if(shared){const members=sharedMentionBackends(shared,backends);return mentionFilter?members.filter(m=>m.displayName.toLowerCase().includes(mentionFilter.toLowerCase())):members;}
     const participants = backends.filter((backend) => activeBackendIds.has(backend.id));
+    for (const host of hostGroups.values()) {
+      if (!host.remoteTarget) continue;
+      const backend = backends.find((b) => b.id === 'pocket-vibe');
+      if (backend) participants.push({ ...backend, id: host.id, displayName: remoteSessionLabel(host.remoteTarget) });
+    }
     if (!mentionFilter) return participants;
     const lower = mentionFilter.toLowerCase();
     return participants.filter((b) =>
       b.displayName.toLowerCase().includes(lower)
     );
-  }, [activeBackendIds, backends, mentionFilter]);
+  }, [activeBackendIds, backends, hostGroups, mentionFilter,shared]);
 
   // Participants tab shows configured agents only (loggedIn via OAuth or a
   // saved API key — same auth-state split as BackendSettings). Unconfigured
@@ -297,7 +330,7 @@ export const SideDrawer = memo(function SideDrawer({
     const before = text.slice(0, slashStartRef.current);
     const after = text.slice(slashStartRef.current + 1 + slashFilter.length);
     const newText = `${before}/${skill.name} ${after}`;
-    setText(newText);
+    updateDraft(newText);
     setSlashPickerOpen(false);
     setSlashFilter('');
     slashStartRef.current = -1;
@@ -306,19 +339,21 @@ export const SideDrawer = memo(function SideDrawer({
   }, [text, slashFilter]);
 
   const handleMentionSelect = useCallback((backend: BackendInfo) => {
+    draftVersion.current++;
     const before = text.slice(0, mentionStartRef.current);
     const after = text.slice(mentionStartRef.current + 1 + mentionFilter.length);
-    const newText = `${before}@${backend.id} ${after}`;
+    const newText = `${before}@${shared?backend.displayName:backend.id} ${after}`;
+    if(shared){const member=shared.members.find(m=>m.id===backend.id);if(!member)return;const binding=bindSharedMention(member,before.length);setSharedMentions(current=>[...editSharedMentions(text,newText,current).filter(m=>m.end<=binding.start||m.start>=binding.end),binding]);}
     setText(newText);
     setMentionPickerOpen(false);
     setMentionFilter('');
     mentionStartRef.current = -1;
     // Focus textarea after selection
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [text, mentionFilter]);
+  }, [text, mentionFilter,shared]);
 
   const handleTextChange = useCallback((newText: string) => {
-    setText(newText);
+    updateDraft(newText);
     const cursorPos = textareaRef.current?.selectionStart ?? newText.length;
     const beforeCursor = newText.slice(0, cursorPos);
 
@@ -364,7 +399,7 @@ export const SideDrawer = memo(function SideDrawer({
     }
     setMentionPickerOpen(false);
     mentionStartRef.current = -1;
-  }, []);
+  }, [text,shared]);
 
   useEffect(() => {
     if (viewingFilePath) setTab('files');
@@ -396,6 +431,7 @@ export const SideDrawer = memo(function SideDrawer({
     if (backend) return backend.displayName;
     const hg = hostGroups.get(hostId);
     if (hg) {
+      if (hg.remoteTarget) return remoteSessionLabel(hg.remoteTarget);
       const fallback = backends.find((b) => b.id === hg.backendId);
       return fallback?.displayName ?? hg.backendId;
     }
@@ -484,7 +520,7 @@ export const SideDrawer = memo(function SideDrawer({
           rejects.push({ id: uid(), name: f.name, reason: '读取失败' });
         }
       }
-      if (accepted.length > 0) setStaged((prev) => [...prev, ...accepted]);
+      if (accepted.length > 0) {draftVersion.current++;setStaged((prev) => [...prev, ...accepted]);}
       if (rejects.length > 0) setRejected((prev) => [...prev, ...rejects]);
     } finally {
       setStaging(false);
@@ -502,6 +538,7 @@ export const SideDrawer = memo(function SideDrawer({
   }, [onSubscribeDroppedFiles, disabled, totalStagedBytes, staged.length, onSendAttachments]);
 
   const removeStaged = (id: string) => {
+    draftVersion.current++;
     setStaged((prev) => prev.filter((a) => a.id !== id));
   };
 
@@ -510,22 +547,17 @@ export const SideDrawer = memo(function SideDrawer({
   };
 
   const submit = async () => {
+    if(disabled||staging||flight.current)return;
     const trimmed = text.trim();
-    if (staged.length > 0 && onSendAttachments) {
-      const res = await onSendAttachments(staged, trimmed);
-      if (res.ok) {
-        setStaged([]);
-        setText('');
-        setRejected([]);
-      } else {
-        // Without this the user sees the draft stay put and assumes it sent.
-        toast.error(`附件发送失败：${res.error ?? '未知原因'}`);
-      }
-      return;
-    }
-    if (!trimmed) return;
-    onSend(trimmed);
-    setText('');
+    if(!trimmed&&!staged.length)return;
+    const submission={id:crypto.randomUUID(),version:draftVersion.current,fileIds:staged.map(f=>f.id)};
+    // Ref is set before the first await, including before attachment publication.
+    flight.current=submission;setSending(true);
+    try{
+      if(staged.length&&onSendAttachments){const result=await onSendAttachments(structuredClone(staged),shared?text:trimmed,shared?structuredClone(sharedMentions):undefined,submission.id);if(!result.ok)throw Object.assign(new Error(result.error??'附件发送失败'),{pending:result.pending});}
+      else await onSend(shared?text:trimmed,shared?structuredClone(sharedMentions):undefined,submission.id);
+      finishSubmission();
+    }catch(error){if((error as {pending?:boolean})?.pending)setPendingSubmission(submission.id);else{flight.current=null;setSending(false);}toast.error(String(error instanceof Error?error.message:error));}
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -538,14 +570,14 @@ export const SideDrawer = memo(function SideDrawer({
   };
 
   const placeholder = disabled
-    ? 'Join a meeting to chat'
+    ? disabledReason
     : multiAgent
       ? dispatchMode === 'plan'
         ? 'Plan 模式 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
         : '直接派活 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
       : 'Type a message · Enter 发送 · 📎 附件 / 拖放 / 粘贴均可';
 
-  const sendDisabled = disabled || staging || (staged.length === 0 && !text.trim());
+  const sendDisabled = disabled || staging || sending || (staged.length === 0 && !text.trim());
 
   return (
     <aside className={`drawer ${open ? 'drawer-open' : ''}`}>
@@ -568,7 +600,8 @@ export const SideDrawer = memo(function SideDrawer({
         </button>
       </div>
 
-      {tab === 'participants' && (
+      {tab === 'participants' && shared&&<div className="drawer-participants"><SharedInvitation model={shared}/></div>}
+      {tab === 'participants' && !shared&&(
         <div className="drawer-participants">
           <div className="drawer-participants-header">
             <span className="drawer-participants-title">已配置的智能体</span>
@@ -581,6 +614,7 @@ export const SideDrawer = memo(function SideDrawer({
               ＋ 新增
             </button>
           </div>
+          {disabled && <div className="drawer-empty" role="status">{disabledReason}</div>}
           <div className="drawer-participants-list">
             {configuredBackends.length === 0 && (
               <div className="drawer-empty">暂无已配置的智能体。点击「新增」去设置中配置。</div>
@@ -598,8 +632,8 @@ export const SideDrawer = memo(function SideDrawer({
                     </span>
                   </div>
                   {isActive ? (
-                    <span className="drawer-participant-badge">已加入</span>
-                  ) : (
+                    <span className="drawer-participant-badge" title={disabled ? disabledReason : undefined}>{disabled ? '已保存 · 未就绪' : '已加入'}</span>
+                  ) : b.remoteControlMode === 'public' ? null : (
                     <button
                       className="drawer-participant-invite"
                       onClick={() => onAddHost?.(b.id)}
@@ -608,11 +642,18 @@ export const SideDrawer = memo(function SideDrawer({
                         !b.available
                           ? 'CLI 未安装，无法邀请'
                           : disabled
-                            ? '会议未开始'
+                            ? disabledReason
                             : `邀请 ${b.displayName}`
                       }
                     >
                       邀请
+                    </button>
+                  )}
+                  {b.id === 'pocket-vibe' && (
+                    <button className="drawer-participant-invite" disabled={Boolean(remotePickerReason(true, disabled ? disabledReason : '', sessionId ?? null))}
+                      title={remotePickerReason(true, disabled ? disabledReason : '', sessionId ?? null) || '选择远端会话加入当前会议'}
+                      onClick={() => { if (sessionId && !disabled) setRemotePickerSession(sessionId); }}>
+                      选择远端会话
                     </button>
                   )}
                 </div>
@@ -626,12 +667,12 @@ export const SideDrawer = memo(function SideDrawer({
         <div className="drawer-chat">
           <div className="drawer-scroll">
             {transcript.length === 0 && (
-              <div className="drawer-empty">Host 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。</div>
+              <div className="drawer-empty">{disabled ? disabledReason : 'Host 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。'}</div>
             )}
             {transcript.map((e) => {
               const timeLabel = formatMessageTime(e.ts, now);
               const isoTitle = e.ts ? new Date(e.ts).toISOString() : undefined;
-              const authorName = e.role === 'assistant'
+              const authorName = shared?String((e as TranscriptEntry&{source?:string}).source??'Host'):e.role === 'assistant'
                 ? backendNameForHost(e.hostId)
                 : e.role === 'user' ? 'You' : 'System';
               return (
@@ -671,10 +712,11 @@ export const SideDrawer = memo(function SideDrawer({
                       ))}
                     </div>
                   )}
-                  {e.text && <div className="msg-body">{e.text}</div>}
+                  {e.text && <div className="msg-body">{e.text}</div>}{shared&&<SharedExecutionReconciliation model={shared} messageId={e.id}/>}
                 </div>
               );
             })}
+            {shared&&<SharedApprovals model={shared}/>}
             {talkerResponding && (
               <div className="msg msg-assistant msg-thinking" aria-live="polite">
                 <div className="msg-meta">
@@ -756,6 +798,7 @@ export const SideDrawer = memo(function SideDrawer({
                 ))}
               </div>
             )}
+              {shared&&<label className="unified-task-link">关联任务补充<select aria-label="明确关联任务" value={linkedTaskId??''} onChange={e=>onLinkTask?.(e.target.value)}><option value="">普通讨论（默认 Host／@）</option>{shared.tasks.filter(t=>t.status!=='accepted').map(t=><option key={t.id} value={t.id}>{String(t.title)}</option>)}</select></label>}
             <div className="drawer-input-wrap">
               {slashPickerOpen && filteredSkills.length > 0 && (
                 <div className="slash-picker">
@@ -794,7 +837,7 @@ export const SideDrawer = memo(function SideDrawer({
                       <Users size={12} className="slash-picker-icon" />
                       <div className="slash-picker-text">
                         <span className="slash-picker-name">@{backend.displayName}</span>
-                        <span className="slash-picker-desc">{backend.authMode === 'oauth' ? 'OAuth' : backend.authMode === 'apikey' ? 'API Key' : 'None'}</span>
+                        <span className="slash-picker-desc">{backend.sharedStatus ?? (backend.authMode === 'oauth' ? 'OAuth' : backend.authMode === 'apikey' ? 'API Key' : 'None')}</span>
                       </div>
                     </button>
                   ))}
@@ -907,7 +950,8 @@ export const SideDrawer = memo(function SideDrawer({
         </div>
       )}
 
-      {tab === 'files' && (
+      {tab === 'files' && shared&&<div className="drawer-files"><p>文件以用户选入的准确 Git 版本共享。请从任务成果查看文件／Diff，或选择附件发布到已授权资料仓库。</p></div>}
+      {tab === 'files' && !shared&&(
         <div className="drawer-files">
           <FileTree
             sessionId={sessionId ?? null}
@@ -915,6 +959,10 @@ export const SideDrawer = memo(function SideDrawer({
             viewingPath={viewingFilePath ?? null}
           />
         </div>
+      )}
+
+      {remotePickerSession && remotePickerSession === sessionId && (
+        <RemoteSessionPicker sessionId={remotePickerSession} hosts={hostGroups} onClose={() => setRemotePickerSession(null)} />
       )}
 
       {previewImg && (

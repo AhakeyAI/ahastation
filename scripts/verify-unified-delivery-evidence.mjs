@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {join,resolve} from 'node:path';
+const root=resolve(process.argv[2]);
+const [a,b,run]=await Promise.all(['A/station-v2.json','B/station-v2.json','RESULT.json'].map(file=>readFile(join(root,file),'utf8').then(JSON.parse)));
+assert.equal(run.pass,true);
+const task=a.snapshot.entities.task.find(t=>t.id===run.task.id);assert.ok(task);
+const receipt=b.receipts[task.id];assert.equal(receipt.attemptId,task.attemptId);assert.equal(receipt.exitConfirmed,true);
+const native=join(root,'native-state/remote/tasks/codex',task.attemptId);
+const [request,result]=await Promise.all(['station-request.json','result.json'].map(file=>readFile(join(native,file),'utf8').then(JSON.parse)));
+assert.equal(request.textOnly,true,'Text deliveries must disable local file/command tools');
+assert.equal(receipt.finalSummary,result.json.last_message,'Durable final body must preserve native output');
+assert.equal(task.delivery.summary,receipt.finalSummary,'Publication must use canonical body instead of joining streaming fragments');
+assert.equal(task.delivery.report.attemptId,task.attemptId);assert.equal(task.delivery.report.exitConfirmed,true);
+assert.equal(b.snapshot.entities.task.find(t=>t.id===task.id)?.delivery.summary,receipt.finalSummary);
+assert.notEqual(run.discussion.threadId,receipt.nativeThreadId);
+const report={pass:true,source:join(root,'RESULT.json'),scope:'Offline independent verification of the final captured real-model chain; no new model call',taskId:task.id,attemptId:task.attemptId,textOnlyRuntimeConfirmed:true,canonicalFinalBodyExact:true,sameBodyOnBothStations:true,independentDiscussionThread:true};
+await writeFile(join(root,'CONTENT-VALIDATION.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
