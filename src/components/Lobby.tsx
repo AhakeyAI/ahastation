@@ -42,12 +42,12 @@ interface DeviceSnapshot {
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return '刚刚';
+  if (min < 60) return `${min} 分钟前`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return `${hr} 小时前`;
   const days = Math.floor(hr / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days} 天前`;
   return new Date(ts).toLocaleDateString();
 }
 
@@ -78,6 +78,8 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
+  // 多设备协作入口默认收起（C5：协作入口默认关闭），从页脚展开。
+  const [collabOpen, setCollabOpen] = useState(false);
   const [selectedBackend, setSelectedBackend] = useState('codex');
   const [authOpen, setAuthOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -152,7 +154,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
     setOpenError(null);
     try {
       const res = await meetingStore.openSession(cwd);
-      if (!res.ok) setOpenError(res.error ?? 'Failed to open meeting');
+      if (!res.ok) setOpenError(res.error ?? '会议打开失败');
       else onEnterMeeting?.();
     } catch (error) {
       setOpenError(error instanceof Error ? error.message : String(error));
@@ -175,7 +177,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
     setOpenError(null);
     try {
       const result = await meetingStore.openSession(cwd, '', meeting.meetingId);
-      if (!result.ok) setOpenError(result.error ?? 'Failed to recover meeting');
+      if (!result.ok) setOpenError(result.error ?? '会议恢复失败');
       else { setRecoverable((items) => items.filter((item) => item.meetingId !== meeting.meetingId)); onEnterMeeting?.(); }
     } catch (error) {
       setOpenError(error instanceof Error ? error.message : String(error));
@@ -187,7 +189,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
   const handleBackendChange = useCallback(async (backendId: string) => {
     const result = await window.vibeMeet.backendAuth.setDefault(backendId);
     if (!result.ok) {
-      setOpenError(result.error ?? 'This backend cannot coordinate');
+      setOpenError(result.error ?? '这个 CLI 不能担任 Host');
       await reloadBackends();
       return;
     }
@@ -232,7 +234,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
       await reloadBackends();
     } else {
       setLoginStatus('error');
-      setLoginError(res.error ?? 'Login failed');
+      setLoginError(res.error ?? '登录失败');
     }
   }, [reloadBackends]);
 
@@ -245,7 +247,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
       await reloadBackends();
     } else {
       setLoginStatus('error');
-      setLoginError(res.error ?? 'Login failed');
+      setLoginError(res.error ?? '登录失败');
     }
   }, [reloadBackends]);
 
@@ -285,7 +287,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
         setInstallLog((prev) => prev + '\n✓ Installed successfully.\n');
         await reloadBackends();
       } else {
-        setInstallLog((prev) => prev + `\n✗ ${res.error ?? 'Install failed'}\n`);
+        setInstallLog((prev) => prev + `\n✗ ${res.error ?? '安装失败'}\n`);
       }
     } catch (err) {
       setInstallLog((prev) => prev + `\n✗ ${err instanceof Error ? err.message : String(err)}\n`);
@@ -311,19 +313,18 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
   // Build the toggle label
   const toggleLabel = currentBackend
     ? `${currentBackend.displayName} ${backendAuthLabel(currentBackend)}`
-    : 'Not configured';
+    : '未配置';
 
   return (
     <div className="join-screen">
       <div className="join-card lobby-card">
-        <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={()=>onEnterMeeting?.()}/>
         <div className="join-brand">
           <div className="join-logo">
             <img src="icon-96.png" alt="AhaStudio" className="join-logo-img" />
           </div>
           <div>
             <div className="join-title">AhaStudio</div>
-            <div className="join-sub">Pair with AI over screen + voice</div>
+            <div className="join-sub">和 AI 开会写代码：说话、共享屏幕、派活</div>
           </div>
         </div>
 
@@ -341,7 +342,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           {authOpen && (
             <div className="join-auth-body">
               <p className="join-auth-desc">
-                Choose which CLI backend to use as the host. Each backend has its own auth configuration.
+                选择担任 Host 的 CLI，每个 CLI 单独配置认证。
               </p>
 
               {/* Backend selector dropdown */}
@@ -425,14 +426,14 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                     <div className="join-auth-block-title">
                       <KeyRound size={13} aria-hidden="true" /> API Key
                       {currentBackend.loggedIn && (
-                        <span className="join-auth-badge active">Active</span>
+                        <span className="join-auth-badge active">已生效</span>
                       )}
                     </div>
                     <div className="join-auth-row">
                       <input
                         type="password"
                         className="join-auth-input"
-                        placeholder={currentBackend.hasApiKey ? '••••••••••••••••••••••' : 'Enter API key…'}
+                        placeholder={currentBackend.hasApiKey ? '••••••••••••••••••••••' : '输入 API Key…'}
                         value={apiKeyInputs[currentBackend.id] ?? ''}
                         onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [currentBackend.id]: e.target.value }))}
                         onKeyDown={(e) => e.key === 'Enter' && void saveApiKey()}
@@ -445,15 +446,15 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                         onClick={saveApiKey}
                         disabled={apiKeyStatus === 'saving'}
                       >
-                        {apiKeyStatus === 'saving' ? 'Saving…'
-                          : apiKeyStatus === 'saved' ? 'Saved ✓'
-                          : 'Save'}
+                        {apiKeyStatus === 'saving' ? '正在保存…'
+                          : apiKeyStatus === 'saved' ? '已保存 ✓'
+                          : '保存'}
                       </button>
                     </div>
                     <input
                       type="text"
                       className="join-auth-input join-auth-input-full"
-                      placeholder={`Base URL (optional)${currentBackend.baseUrl ? ` — ${currentBackend.baseUrl}` : ''}`}
+                      placeholder={`Base URL（可选）${currentBackend.baseUrl ? `：${currentBackend.baseUrl}` : ''}`}
                       value={baseUrlInput}
                       onChange={(e) => setBaseUrlInput(e.target.value)}
                       onBlur={(e) => {
@@ -473,7 +474,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                           void saveModel(e.target.value);
                         }}
                       >
-                        <option value="">Default model</option>
+                        <option value="">默认模型</option>
                         {currentBackend.models.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
@@ -523,7 +524,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                       <div className="join-auth-block-title">
                         <LogIn size={13} aria-hidden="true" /> {currentBackend.displayName} Account
                         {currentBackend.loggedIn && (
-                          <span className="join-auth-badge active">Active</span>
+                          <span className="join-auth-badge active">已生效</span>
                         )}
                       </div>
                       <button
@@ -538,19 +539,18 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                         }}
                         disabled={loginStatus === 'pending'}
                       >
-                        {loginStatus === 'pending' ? 'Opening browser…'
-                          : loginStatus === 'done' ? 'Logged in ✓'
-                          : currentBackend.loggedIn ? 'Re-authenticate'
-                          : `Log in with ${currentBackend.displayName}`}
+                        {loginStatus === 'pending' ? '正在打开浏览器…'
+                          : loginStatus === 'done' ? '已登录 ✓'
+                          : currentBackend.loggedIn ? '重新登录'
+                          : `登录 ${currentBackend.displayName}`}
                       </button>
                       {loginStatus === 'error' && (
-                        <div className="join-auth-error">{loginError || 'Login failed.'}</div>
+                        <div className="join-auth-error">{loginError || '登录失败。'}</div>
                       )}
                       <div className="join-auth-hint">
-                        Opens a browser window for OAuth. Requires {currentBackend.displayName} CLI
-                        {currentBackend.id === 'claude-code'
-                          ? (currentBackend.claudeCodeCliSource === 'bundled' ? ' bundled with this app' : ' on your PATH')
-                          : ' installed'}.
+                        会打开浏览器完成 OAuth 登录。需要{currentBackend.id === 'claude-code'
+                          ? (currentBackend.claudeCodeCliSource === 'bundled' ? '应用内置的 ' : '本机 PATH 上的 ')
+                          : '已安装的 '}{currentBackend.displayName} CLI。
                       </div>
                     </div>
                   )}
@@ -558,7 +558,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
               ) : currentBackend ? (
                 <div className="join-auth-block">
                   <div className="join-auth-hint">
-                    {currentBackend.installHint ?? `${currentBackend.displayName} is not installed. Install it to use this backend.`}
+                    {currentBackend.installHint ?? `没有安装 ${currentBackend.displayName}，安装后才能使用。`}
                   </div>
                   {currentBackend.installHint && currentBackend.installHint !== 'Bundled with AhaStation' && (
                     <button
@@ -568,7 +568,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                       disabled={installing !== null}
                     >
                       <DownloadCloud size={13} aria-hidden="true" />
-                      {installing === currentBackend.id ? 'Installing…' : `Install ${currentBackend.displayName}`}
+                      {installing === currentBackend.id ? '正在安装…' : `安装 ${currentBackend.displayName}`}
                     </button>
                   )}
                 </div>
@@ -702,7 +702,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           <section className="lobby-section">
             <div className="lobby-section-title">
               <Clock size={13} aria-hidden="true" />
-              <span>Interrupted meetings — confirm to resume</span>
+              <span>中断的会议，确认后恢复</span>
             </div>
             <ul className="lobby-list">
               {recoverable.slice(0, 3).map((meeting) => {
@@ -737,18 +737,18 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                       className="lobby-row"
                       onClick={() => { void recoverMeeting(meeting); }}
                       disabled={opening || !cwd}
-                      title="Restore durable Meeting state; only explicit read-only tasks may resume automatically"
+                      title="恢复会议状态；只有标为只读的任务会自动继续"
                     >
                       <span className="lobby-row-icon" aria-hidden="true"><Clock size={16} /></span>
                       <span className="lobby-row-main">
-                        <span className="lobby-row-name">Resume {label}</span>
+                        <span className="lobby-row-name">恢复 {label}</span>
                         <span className="lobby-row-path">
-                          {parent} · {tasks} saved tasks
-                          {autoReadOnly > 0 ? ` · ${autoReadOnly} read-only auto-resume` : ''}
-                          {needsConfirmation > 0 ? ` · ${needsConfirmation} require confirmation` : ''}
+                          {parent}，{tasks} 个已保存任务
+                          {autoReadOnly > 0 ? `，${autoReadOnly} 个只读任务自动继续` : ''}
+                          {needsConfirmation > 0 ? `，${needsConfirmation} 个需确认` : ''}
                         </span>
                       </span>
-                      <span className="lobby-row-meta">Confirm</span>
+                      <span className="lobby-row-meta">恢复</span>
                     </button>
                   </li>
                 );
@@ -761,7 +761,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           <section className="lobby-section">
             <div className="lobby-section-title">
               <Clock size={13} aria-hidden="true" />
-              <span>Recent meetings</span>
+              <span>最近打开</span>
             </div>
             <ul className="lobby-list">
               {lobby.recent.slice(0, 3).map((r) => {
@@ -802,24 +802,23 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           disabled={opening}
         >
           <FolderOpen size={16} aria-hidden="true" />
-          <span>{opening ? 'Opening…' : 'Open another folder'}</span>
+          <span>{opening ? '正在打开…' : '打开项目文件夹'}</span>
         </button>
 
         <div className="join-hints">
-          <span className="join-hint-item"><Mic size={14} aria-hidden="true" /> Voice on by default</span>
-          <span className="join-hint-sep">·</span>
-          <span className="join-hint-item"><MonitorUp size={14} aria-hidden="true" /> Manual screen snapshots</span>
-          <span className="join-hint-sep">·</span>
-          <span className="join-hint-item">⌥ Interrupt anytime</span>
+          <span className="join-hint-item"><Mic size={14} aria-hidden="true" /> 默认开启语音</span>
+          <span className="join-hint-item"><MonitorUp size={14} aria-hidden="true" /> 屏幕截图手动发送</span>
+          <span className="join-hint-item">按 ⌥ 随时打断</span>
         </div>
 
         {onOpenTerminal && (
-          <button type="button" className="join-cta lobby-local-terminal" onClick={onOpenTerminal}>
-            <Terminal size={16} />打开本地 CLI 工作区
+          <button type="button" className="lobby-local-terminal" onClick={onOpenTerminal}>
+            <Terminal size={16} aria-hidden="true" />
+            <span>打开本地 CLI 工作区</span>
           </button>
         )}
 
-        {(onEnterBoard || onReplayOnboarding) && (
+        {(onEnterBoard || onReplayOnboarding || onEnterMeeting) && (
           <div className="lobby-footer-actions">
             {onEnterBoard && (
               <button type="button" className="lobby-footer-btn" onClick={onEnterBoard}>
@@ -831,7 +830,18 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                 重播首次启动
               </button>
             )}
+            <button
+              type="button"
+              className="lobby-footer-btn"
+              aria-expanded={collabOpen}
+              onClick={() => setCollabOpen((v) => !v)}
+            >
+              {collabOpen ? '收起多设备协作' : '多设备协作（实验）'}
+            </button>
           </div>
+        )}
+        {collabOpen && (
+          <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={() => onEnterMeeting?.()} />
         )}
       </div>
       {pickerModal}

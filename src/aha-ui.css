@@ -17,6 +17,21 @@
 }
 .aha-topbar > * { -webkit-app-region: no-drag; }
 
+.aha-topbar-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--aha-text-secondary);
+  cursor: pointer;
+}
+.aha-topbar-home:hover { background: var(--aha-bg-surface); color: var(--aha-text-primary); }
+.aha-topbar-home:focus-visible { outline: 2px solid var(--aha-info); outline-offset: 1px; }
 .aha-topbar-brand {
   font-size: var(--aha-fs-h2);
   font-weight: 600;

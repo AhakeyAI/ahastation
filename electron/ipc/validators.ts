@@ -51,6 +51,11 @@ export function mainWindowSenderPolicy(
   };
 }
 
+/** Policy: allow when any of the given policies allows. */
+export function anySenderPolicy(...policies: SenderPolicy[]): SenderPolicy {
+  return (senderId) => policies.some((policy) => policy(senderId));
+}
+
 /** Policy: only a registered editor surface (independent editor window OR
  *  the main window while it hosts the editor overlay) may invoke. The
  *  registry lookup is injectable for tests; by default it hits the live

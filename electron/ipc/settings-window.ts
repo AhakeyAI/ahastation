@@ -12,6 +12,11 @@ const __dirname = dirname(__filename);
 
 let settingsWindow: BrowserWindow | null = null;
 
+/** webContents id of the open settings window, for IPC sender policies. */
+export function settingsWindowWebContentsId(): number | null {
+  return settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow.webContents.id : null;
+}
+
 function getThemeBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f2f2f7';
 }

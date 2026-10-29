@@ -64,10 +64,6 @@ export function VoiceGuideModal({ open, onClose, onDismissForever }: VoiceGuideM
             <li>下载完成后切回 AhaStudio，播报会自动用上新音色。</li>
           </ol>
 
-          {/* Screenshot placeholder — slot in step-by-step images later. */}
-          <div className="voice-guide-screenshot" aria-hidden="true">
-            <span>截图位置</span>
-          </div>
 
           <label className="voice-guide-dontshow">
             <input

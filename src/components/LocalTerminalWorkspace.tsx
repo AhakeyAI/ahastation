@@ -74,7 +74,7 @@ export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
     <div className="local-terminal-workspace" data-appearance={appearance} data-sidebar={sidebar} onKeyDownCapture={handleKey}>
       <header className="terminal-workspace-toolbar">
         <button type="button" onClick={onBack} title="返回首页" aria-label="返回首页"><ArrowLeft size={16} /></button>
-        <span className="terminal-workspace-brand">AhaStation</span>
+        <span className="terminal-workspace-brand">AhaStudio</span>
         <button type="button" onClick={() => setSidebar(value => !value)} aria-label="切换目录侧栏" aria-expanded={sidebar}><PanelLeft size={16} /></button>
       </header>
       {sidebar && <aside className="terminal-workspace-sidebar" aria-label="项目目录">

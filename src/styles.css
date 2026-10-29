@@ -494,7 +494,7 @@ button:disabled {
 .join-field { display: flex; flex-direction: column; gap: 8px; }
 .join-field-label {
   font-size: 12px; color: var(--text-secondary);
-  text-transform: uppercase; letter-spacing: 0.06em;
+  text-transform: none; letter-spacing: 0;
 }
 
 .join-cwd {
@@ -523,7 +523,7 @@ button:disabled {
 .join-cta:hover { transform: translateY(-1px); background: #4583ff; }
 .join-cta:active { transform: translateY(0); }
 
-.join-hints { font-size: 12px; color: var(--text-muted); text-align: center; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
+.join-hints { font-size: 12px; color: var(--text-muted); text-align: center; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 16px; }
 .join-hint-item { display: inline-flex; align-items: center; gap: 4px; }
 .join-hint-sep { opacity: 0.5; }
 
@@ -1849,7 +1849,16 @@ html.popout-view #root {
 .stage-tab-menu-hint { padding: 10px; max-width: 300px; font-size: 12px; color: var(--text-secondary); }
 .stage-tab-menu-item small { margin-left: auto; color: var(--text-secondary); font-size: 11px; }
 .stage-tab-menu-item:focus-visible { outline: 2px solid var(--accent, #5686ed); outline-offset: -2px; }
-.lobby-local-terminal { margin-top: 14px; }
+.lobby-local-terminal {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 4px; padding: 11px 18px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+  background: transparent; color: var(--text-primary);
+  font-size: 14px; font-weight: 500;
+  transition: background var(--transition), border-color var(--transition);
+}
+.lobby-local-terminal:hover { background: var(--bg-elevated); }
+.lobby-local-terminal:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .shell-terminal-error, .real-terminal-error { padding: 9px 12px; margin-bottom: 10px; background: #fff1f0; color: #b42318; border: 1px solid #ffd3cf; border-radius: 6px; font-size: 12px; }
 .shell-terminal .xterm, .real-terminal .xterm { height: 100%; }
 .terminal-session-surface { height: 100%; width: 100%; overflow: hidden; }
@@ -1913,8 +1922,8 @@ html.popout-view #root {
 }
 .worker-workbench-sidebar-head strong {
   font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-muted);
 }
 .worker-workbench-collapse,
@@ -1960,8 +1969,8 @@ html.popout-view #root {
 }
 .workbench-section > header strong {
   font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-muted);
 }
 
@@ -2225,8 +2234,8 @@ html.popout-view #root {
   margin-top: 2px;
   font-size: 11px;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .workspace-avatar-worker {
   width: 100%; height: 100%;
@@ -2270,8 +2279,8 @@ html.popout-view #root {
 .workspace-now-label,
 .workspace-feed-label {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--text-muted);
   margin-bottom: 6px;
 }
@@ -2351,7 +2360,7 @@ html.popout-view #root {
 }
 .agent-pill {
   display: inline-flex; align-items: center;
-  font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none;
   padding: 1px 6px; border-radius: 999px; line-height: 1.4;
 }
 .agent-pill-talker {
@@ -2558,19 +2567,19 @@ html.popout-view #root {
 .tile-role { color: var(--text-muted); }
 .tile-muted {
   margin-left: auto; color: var(--warn);
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 10px; text-transform: none; letter-spacing: 0;
 }
 
 /* Specialty badge — bottom-left chip on worker gallery tiles */
 .tile-specialty-badge {
   position: absolute; bottom: 36px; left: 8px; z-index: 2;
-  font-size: 9px; font-weight: 600; letter-spacing: 0.04em;
+  font-size: 9px; font-weight: 600; letter-spacing: 0;
   color: rgba(255, 255, 255, 0.78);
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 2px 6px; border-radius: 999px;
   pointer-events: none;
-  text-transform: uppercase;
+  text-transform: none;
 }
 .tile-specialty-frontend { background: rgba(177, 91, 255, 0.32); border-color: rgba(177, 91, 255, 0.55); color: #f0e1ff; }
 .tile-specialty-backend  { background: rgba(51, 112, 255, 0.32); border-color: rgba(51, 112, 255, 0.55); color: #dde7ff; }
@@ -2622,8 +2631,8 @@ html.popout-view #root {
 .tile-history-header {
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--text-muted, rgba(255,255,255,0.5));
   margin-bottom: 6px;
 }
@@ -2646,7 +2655,7 @@ html.popout-view #root {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tile-history-status {
-  font-size: 9px; text-transform: uppercase;
+  font-size: 9px; text-transform: none;
   padding: 1px 5px; border-radius: 999px;
   background: rgba(255,255,255,0.08);
   color: rgba(255,255,255,0.65);
@@ -2820,7 +2829,7 @@ html.popout-view #root {
   display: flex; align-items: baseline; gap: 6px;
   font-size: 10px; color: var(--text-muted);
 }
-.msg-author { text-transform: uppercase; letter-spacing: 0.06em; }
+.msg-author { text-transform: none; letter-spacing: 0; }
 .msg-time {
   font-size: 10px; color: var(--text-muted); opacity: 0.7;
   text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums;
@@ -3905,7 +3914,7 @@ html.popout-view #root {
   overflow-y: auto;
 }
 .plan-modal-preview-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  font-size: 10px; text-transform: none; letter-spacing: 0;
   color: var(--text-muted); margin-bottom: 4px;
 }
 .plan-modal-preview ul { list-style: none; padding: 0; margin: 0; }
@@ -3979,8 +3988,8 @@ html.popout-view #root {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .plan-brief-doc textarea,
@@ -4088,8 +4097,8 @@ html.popout-view #root {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .task-rail-scroll {
   display: flex;
@@ -4293,7 +4302,7 @@ html.popout-view #root {
   background: rgba(255,255,255,.06);
   color: var(--text-muted);
   font-size: 9px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 .worker-event-kind.is-failed { color: #ffaaa3; }
 .worker-event-kind.is-delivery { color: #86e9b3; }
@@ -4432,8 +4441,8 @@ html.popout-view #root {
   color: var(--accent);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .plan-capacity,
 .plan-diff-note {
@@ -4494,8 +4503,8 @@ html.popout-view #root {
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .plan-task-card button,
 .plan-section-head button {
@@ -4743,8 +4752,8 @@ html.popout-view #root {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .tiles-bar-invite-item {
@@ -5254,7 +5263,7 @@ html.popout-view #root {
 }
 
 .worker-card-pill {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 10px; text-transform: none; letter-spacing: 0;
   padding: 2px 6px; border-radius: 999px;
   font-weight: 600;
 }
@@ -5776,8 +5785,8 @@ html.popout-view #root {
   text-align: left;
   font-weight: 600;
   font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-muted);
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-soft);
@@ -5908,12 +5917,12 @@ html.popout-view #root {
 
 .tile-muted-chip {
   position: absolute; top: 7px; left: 8px; z-index: 2;
-  font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+  font-size: 10px; font-weight: 600; letter-spacing: 0;
   color: var(--warn);
   background: rgba(255, 182, 72, 0.15);
   border: 1px solid rgba(255, 182, 72, 0.4);
   padding: 2px 7px; border-radius: 999px;
-  text-transform: uppercase;
+  text-transform: none;
   pointer-events: none;
 }
 
@@ -5969,8 +5978,8 @@ html.popout-view #root {
 
 .workspace-task-pill {
   display: inline-flex; align-items: center;
-  font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 10px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
   padding: 2px 8px; border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -5996,7 +6005,7 @@ html.popout-view #root {
 }
 .workspace-task-detail-row-block { align-items: flex-start; flex-direction: column; gap: 4px; }
 .workspace-task-detail-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  font-size: 10px; text-transform: none; letter-spacing: 0;
   color: var(--text-muted);
   flex: 0 0 64px;
 }
@@ -6071,8 +6080,8 @@ html.popout-view #root {
 
 .workspace-feed-task-pill {
   display: inline-flex; align-items: center;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 9px; font-weight: 700; letter-spacing: 0;
+  text-transform: none;
   padding: 1px 6px; border-radius: 999px;
   flex-shrink: 0;
 }
@@ -6320,8 +6329,8 @@ html.popout-view #root {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .lobby-list {
@@ -6664,7 +6673,7 @@ html.popout-view #root {
 .delivery-viewer-file-name small {
   color: var(--text-muted);
   font-size: 9px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 .delivery-viewer-file-path {
   font-size: 10.5px;
@@ -8065,8 +8074,8 @@ html.popout-view #root {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .backend-section-count {
@@ -8464,8 +8473,8 @@ html.popout-view #root {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .backend-field-row {
@@ -8721,8 +8730,8 @@ html.popout-view #root {
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .host-group-add-item {
@@ -10774,8 +10783,8 @@ html.popout-view #root {
   font-weight: 600;
   color: var(--text-3);
   margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .ide-manager-section {
@@ -11158,8 +11167,8 @@ html.handheld { --density-scale: 1.2; }
   color: var(--text-muted);
   font-size: 9px;
   font-weight: 760;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .task-rail-header strong { color: var(--text-primary); font-size: 13px; }
 .task-rail-header small {
@@ -11377,8 +11386,8 @@ html.handheld { --density-scale: 1.2; }
   color: var(--aha-info);
   font-size: 8px;
   font-weight: 780;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .task-inspector-identity strong {
   overflow: hidden;
@@ -11590,8 +11599,8 @@ html.handheld { --density-scale: 1.2; }
   color: var(--aha-text-tertiary);
   font-size: 9px;
   font-weight: 750;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .task-overview-hero p {
   margin: 7px 0 0;
@@ -11616,7 +11625,7 @@ html.handheld { --density-scale: 1.2; }
   background: var(--aha-bg-raised);
 }
 .task-overview-metrics span,
-.task-evidence-grid span { color: var(--text-muted); font-size: 8px; text-transform: uppercase; }
+.task-evidence-grid span { color: var(--text-muted); font-size: 8px; text-transform: none; }
 .task-overview-metrics strong { color: var(--text-primary); font-size: 15px; }
 .task-profile-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .task-profile-card {
@@ -11780,7 +11789,7 @@ html.handheld { --density-scale: 1.2; }
   border-radius: 7px;
   background: var(--aha-bg-surface);
 }
-.task-file-evidence li span { color: var(--text-muted); font-size: 8px; text-transform: uppercase; }
+.task-file-evidence li span { color: var(--text-muted); font-size: 8px; text-transform: none; }
 .task-file-evidence li span.is-created { color: var(--aha-run); }
 .task-file-evidence li span.is-deleted { color: var(--aha-danger); }
 .task-file-evidence code,
@@ -11859,7 +11868,7 @@ html.handheld { --density-scale: 1.2; }
   gap: 2px;
 }
 .task-review-evidence-confirmation header strong { color: var(--text-primary); font-size: 11px; }
-.task-review-evidence-confirmation header small { color: var(--aha-attend); font-size: 8px; text-transform: uppercase; }
+.task-review-evidence-confirmation header small { color: var(--aha-attend); font-size: 8px; text-transform: none; }
 .task-review-evidence-confirmation > code,
 .task-review-evidence-hash {
   overflow-wrap: anywhere;
@@ -11898,7 +11907,7 @@ html.handheld { --density-scale: 1.2; }
 }
 .task-permission-clear p { max-width: 280px; margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
 .perm-head > span:last-child { display: flex; flex-direction: column; gap: 2px; }
-.perm-head small { color: var(--aha-attend); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+.perm-head small { color: var(--aha-attend); font-size: 8px; letter-spacing: 0; text-transform: none; }
 .perm-explainer { margin: 9px 0; color: var(--text-muted); font-size: 9px; line-height: 1.45; }
 
 @media (max-width: 1280px) {
@@ -12458,8 +12467,8 @@ html.handheld { --density-scale: 1.2; }
   color: #8b7cff;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .final-meeting-delivery h2,
@@ -13024,10 +13033,24 @@ html.ahabar-view #root {
 .remote-session-error { color: var(--aha-danger); }
 .remote-session-footer { justify-content: flex-end; }
 :root .meeting-resume-banner {
-  display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px;
   flex-wrap: wrap; border-bottom: 1px solid var(--border, #7774);
+  background: var(--bg-panel); font-size: 13px;
+  -webkit-app-region: drag;
 }
-.meeting-resume-banner > div { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
+.meeting-resume-banner > * { -webkit-app-region: no-drag; }
+.platform-mac .meeting-resume-banner { padding-left: 92px; }
+.meeting-resume-banner > .meeting-resume-text { flex: 1; min-width: 200px; display: flex; align-items: baseline; gap: 10px; overflow: hidden; }
+.meeting-resume-text strong { font-weight: 600; white-space: nowrap; }
+.meeting-resume-path { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meeting-resume-banner button {
+  padding: 6px 12px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+  border: 1px solid var(--border-strong); background: transparent; color: var(--text-primary);
+}
+.meeting-resume-banner button:hover:not(:disabled) { background: var(--bg-elevated); }
+.meeting-resume-banner .meeting-resume-continue { background: var(--accent); border-color: var(--accent); color: #fff; }
+.meeting-resume-banner .meeting-resume-continue:hover:not(:disabled) { background: #4583ff; }
+.meeting-resume-banner button:disabled { opacity: 0.55; }
 .meeting-navigation { padding: 4px 20px; }
 /* Shared collaboration stays independent of local meeting view lifecycle. */
 .collaboration-launch { position: fixed; right: 18px; bottom: 18px; z-index: 120; padding: 10px 18px; border-radius: 12px; background: #2854d9; color: white; border: 0; cursor: pointer; }
@@ -13080,3 +13103,84 @@ html.ahabar-view #root {
 .unified-review-dialog fieldset {border:1px solid var(--border);margin:10px 0;min-width:0}
 .unified-review-dialog input:not([type]),.unified-review-dialog input[type="text"],.unified-review-dialog select {max-width:100%;box-sizing:border-box;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);padding:6px}
 .unified-review-dialog input:not([type]) {width:100%}
+
+/* ==========================================================================
+   多设备协作区块（大厅入口 + 设置页）：与大厅、设置的控件同一套令牌。
+   结构来自 SharedMeetingEntry / UnifiedCollaborationSettings，只加样式。
+   ========================================================================== */
+.unified-entry,
+.unified-settings {
+  margin: 12px 0 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.unified-entry h2,
+.unified-settings h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.unified-entry p,
+.unified-settings p {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.unified-entry details,
+.unified-settings details {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.unified-entry summary,
+.unified-settings summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-primary);
+  list-style-position: inside;
+}
+.unified-entry summary:focus-visible,
+.unified-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.unified-entry button,
+.unified-settings button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 8px 0 0;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.unified-entry button:hover,
+.unified-settings button:hover { background: var(--bg-elevated); }
+.unified-entry button:disabled,
+.unified-settings button:disabled { opacity: 0.5; cursor: default; }
+.unified-entry label,
+.unified-settings label { color: var(--text-secondary); font-size: 12px; }
+.unified-entry input,
+.unified-entry select,
+.unified-settings input:not([type="checkbox"]),
+.unified-settings select,
+.unified-settings textarea {
+  margin-top: 4px;
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font-size: 13px;
+}
+.unified-settings label:has(> input[type="checkbox"]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.unified-settings label small { flex-basis: 100%; padding-left: 22px; color: var(--text-muted); font-size: 12px; }

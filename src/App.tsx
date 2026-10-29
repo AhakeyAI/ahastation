@@ -710,7 +710,7 @@ export function App() {
       variant="self"
       speaking={effectiveListening && !muted}
       muted={muted}
-      status={muted ? 'Muted' : effectiveListening ? 'Speaking' : 'Mic idle'}
+      status={muted ? '已静音' : effectiveListening ? '说话中' : '麦克风空闲'}
       ariaLabel="查看我派出的任务"
     />
   ), [effectiveListening, muted]);
@@ -813,7 +813,7 @@ export function App() {
       {/* 单会议收敛（一台设备一个会议，调度所有任务）：掌机模式或确有
           多会话并存时才显示 TabStrip；默认不暴露多会议 Tab。 */}
       {(handheld || tabs.length > 1) && <TabStrip tabs={tabs} />}
-      <div className="meeting-navigation"><button type="button" onClick={goHome}>首页 / 选择目录</button></div>
+      {handheld && <div className="meeting-navigation"><button type="button" onClick={goHome}>首页 / 选择目录</button></div>}
       <MeetingResumeBanner tab={activeTab ?? undefined} error={lastError} onContinue={() => void continueMeeting()} onHome={goHome} />
       {handheld ? (
         <MeetingHeader
@@ -834,6 +834,7 @@ export function App() {
           onChangeViewMode={setView}
           attendCount={attentionCount}
           onOpenExplore={openExplore}
+          onHome={goHome}
           settingsSlot={settingsSlot}
         />
       )}

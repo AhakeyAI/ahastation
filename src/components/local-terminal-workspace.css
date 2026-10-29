@@ -90,3 +90,43 @@
   .terminal-workspace-brand { font-size: 11px; } .terminal-workspace-toolbar { gap: 0; padding: 0 4px; }
   .terminal-directory-session small, .terminal-shortcut-hint { display: none; }
 }
+
+/* macOS：左上角给红绿灯让位（主窗口为 hiddenInset 标题栏）。 */
+.platform-mac .terminal-workspace-toolbar { padding-left: 78px; -webkit-app-region: drag; }
+.platform-mac .terminal-workspace-toolbar > * { -webkit-app-region: no-drag; }
+.platform-mac .local-terminal-workspace[data-sidebar="false"] .terminal-workspace-toolbar { width: 118px; padding-left: 78px; }
+.platform-mac .local-terminal-workspace[data-sidebar="false"] .terminal-workspace-tabs { padding-left: 118px; }
+
+/* 「+」新建终端按钮在浅色栏上几乎看不见。 */
+.local-terminal-workspace .stage-tab-add { color: var(--workspace-muted); opacity: 1; }
+.local-terminal-workspace .stage-tab-add:hover { color: var(--workspace-ink); }
+
+/* 深色外框：与 App 其余部分一致（终端画布仍由 data-appearance 决定）。 */
+.local-terminal-workspace[data-appearance="dark"] {
+  --workspace-line: #2c2c2e;
+  --workspace-sidebar: #1f1f21;
+  --workspace-ink: #ececee;
+  --workspace-muted: #9a9aa0;
+  background: #1c1c1e;
+}
+.local-terminal-workspace[data-appearance="dark"] .terminal-workspace-toolbar button:hover,
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-heading button:hover,
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-row button:last-child:hover,
+.local-terminal-workspace[data-appearance="dark"] .local-terminal-footer button:hover { background: #2c2c2e; color: #fff; }
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-search { background: #2a2a2c; }
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-row:hover,
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-session:hover { background: #29292b; }
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-row.is-selected,
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-session.is-active { background: #323235; color: #fff; }
+.local-terminal-workspace[data-appearance="dark"] .terminal-directory-session { color: #c8c8cc; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-bar,
+.local-terminal-workspace[data-appearance="dark"] .local-terminal-footer { background: #1f1f21; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab { color: #9a9aa0; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab:hover { background: #29292b; color: #ececee; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-active { color: #fff; background: var(--terminal-canvas); box-shadow: inset 0 -2px #0a84ff; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-menu { background: #2c2c2e; color: #ececee; box-shadow: 0 12px 30px #00000066; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-search { color: #ececee; border-bottom-color: #3a3a3c; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-menu-item { color: #e0e0e4; }
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-menu-item:hover,
+.local-terminal-workspace[data-appearance="dark"] .stage-tab-menu-item:focus-visible { background: #3a3a3c; color: #fff; }
+.local-terminal-workspace[data-appearance="dark"] .local-terminal-empty button { background: transparent; border-color: #3a3a3c; color: #d0d0d4; }

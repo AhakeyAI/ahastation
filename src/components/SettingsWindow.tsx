@@ -68,7 +68,7 @@ class SettingsErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
 }
 
 function SettingsWindowInner() {
-  const voicePrefs = useVoicePreferences();
+  const voicePrefs = useVoicePreferences({ autoOpenGuide: false });
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateInfo, setUpdateInfo] = useState<{ latest: string; url: string } | null>(null);
   // Enrollment runs on the main window's mic pipeline — this hook drives the
@@ -109,7 +109,6 @@ function SettingsWindowInner() {
         )}
       </div>
       <div className="settings-window-body">
-        <UnifiedCollaborationSettings />
         <BackendSettings />
         <IDEManagerPanel />
         <MemoryPanel />
@@ -145,6 +144,7 @@ function SettingsWindowInner() {
           onClearEnrollment={voiceLock.handleClearEnrollment}
         />
         <SkillManagerPanel />
+        <UnifiedCollaborationSettings />
         <UpcomingSettingsPanel />
       </div>
       {voicePrefs.guideOpen && (

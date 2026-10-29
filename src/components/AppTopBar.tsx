@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Compass, Mic } from 'lucide-react';
+import { Compass, House, Mic } from 'lucide-react';
 
 export type AppViewMode = 'meeting' | 'tasks';
 
@@ -12,6 +12,8 @@ interface AppTopBarProps {
   settingsSlot?: ReactNode;
   /** 探索页入口（P6，占位版）。 */
   onOpenExplore?: () => void;
+  /** 回到首页选目录；会议留在后台，可从首页再进入。 */
+  onHome?: () => void;
 }
 
 /**
@@ -19,7 +21,7 @@ interface AppTopBarProps {
  * 共享同一份任务真相、切换不丢状态。AhaTalk 路径与额度为占位胶囊（M3-7 /
  * M8-1 后端未建，标「开发中」徽章）。
  */
-export const AppTopBar = memo(function AppTopBar({ viewMode, onChangeViewMode, attendCount, settingsSlot, onOpenExplore }: AppTopBarProps) {
+export const AppTopBar = memo(function AppTopBar({ viewMode, onChangeViewMode, attendCount, settingsSlot, onOpenExplore, onHome }: AppTopBarProps) {
   const [pathOpen, setPathOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
   const pathRef = useRef<HTMLDivElement>(null);
@@ -38,6 +40,11 @@ export const AppTopBar = memo(function AppTopBar({ viewMode, onChangeViewMode, a
 
   return (
     <header className="aha-topbar">
+      {onHome && (
+        <button type="button" className="aha-topbar-home" onClick={onHome} aria-label="返回首页" title="返回首页（会议留在后台）">
+          <House size={15} aria-hidden="true" />
+        </button>
+      )}
       <span className="aha-topbar-brand">AhaStudio</span>
 
       {/* 视图切换器：永远可见，切换不丢状态（04 §8.2 导航规则） */}

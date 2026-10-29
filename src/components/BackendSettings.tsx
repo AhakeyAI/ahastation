@@ -882,7 +882,7 @@ function BackendCard({
                 className="backend-btn backend-btn-sm"
                 onClick={onCheckAuth}
                 disabled={loginStatus === 'pending'}
-                style={{ marginLeft: 8 }}
+                style={{ marginTop: 6 }}
               >
                 检查登录状态
               </button>

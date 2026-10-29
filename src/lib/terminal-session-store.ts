@@ -6,7 +6,11 @@ const listeners = new Set<() => void>();
 let revision = 0;
 const savedFont = Number(localStorage.getItem('aha.terminal.fontSize'));
 let fontSize = savedFont >= 10 && savedFont <= 24 ? savedFont : 14;
-let appearance: TerminalAppearance = localStorage.getItem('aha.terminal.appearance') === 'dark' ? 'dark' : 'light';
+// No saved choice → follow the system theme, like the rest of the app.
+const savedAppearance = localStorage.getItem('aha.terminal.appearance');
+let appearance: TerminalAppearance = savedAppearance === 'dark' || savedAppearance === 'light'
+  ? savedAppearance
+  : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
 function notify() {
   revision++;
