@@ -105,6 +105,9 @@ export function App() {
   // 对话面板默认收起：会议启动或切换会议后先看舞台（任务看板），需要时
   // 从顶栏「对话」展开；拖入文件、点参会者时仍会自动展开。
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The multi-device (collaboration) frame keeps its chat open by default —
+  // its whole surface is the shared conversation.
+  const [sharedDrawerOpen, setSharedDrawerOpen] = useState(true);
   const [ttsOn, setTtsOn] = useState(true);
   const [muted, setMuted] = useState(false);
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
@@ -764,8 +767,8 @@ export function App() {
         snapshotEnabled={share.active && (running||!!sharedModel)}
         onSnapshot={handleSnapshot}
         onInterrupt={sharedModel?()=>setSharedInterrupt(true):interrupt}
-        chatOpen={drawerOpen}
-        onToggleChat={toggleChat}
+        chatOpen={sharedModel ? sharedDrawerOpen : drawerOpen}
+        onToggleChat={sharedModel ? () => setSharedDrawerOpen((v) => !v) : toggleChat}
         onLeave={sharedModel?goHome:leave}
         onToggleCompanion={toggleCompanion}
         handheld={handheld}
@@ -776,7 +779,7 @@ export function App() {
   if (localTerminalOpen) {
     return <LocalTerminalWorkspace onBack={() => setLocalTerminalOpen(false)} />;
   }
-  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view="meeting" onView={() => {}} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={drawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
+  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view="meeting" onView={() => {}} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={sharedDrawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
 
   if (showLobby || (!hasTabs && !boardOnly)) {
     return (
