@@ -29,9 +29,12 @@ export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
 export const safeStorage = {
-  isAsyncEncryptionAvailable: async () => false,
-  encryptStringAsync: async () => Buffer.alloc(0),
-  decryptStringAsync: async () => ({ result: '', shouldReEncrypt: false }),
+  // Async and sync APIs share one reversible test format so stores that mix
+  // them (async writes, sync reads) round-trip; tests that need other
+  // behaviour override these on the imported module.
+  isAsyncEncryptionAvailable: async () => true,
+  encryptStringAsync: async (value) => Buffer.from(`test-encrypted:${value}`),
+  decryptStringAsync: async (value) => ({ result: value.toString().replace('test-encrypted:', ''), shouldReEncrypt: false }),
   isEncryptionAvailable: () => true,
   getSelectedStorageBackend: () => 'gnome_libsecret',
   encryptString: (value) => Buffer.from(`test-encrypted:${value}`),
