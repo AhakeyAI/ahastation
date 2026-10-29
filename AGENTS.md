@@ -1,4 +1,4 @@
-# AhaStation — Codex working notes
+# AhaStudio — Codex working notes
 
 ## Active uncommitted work: pocket-vibe backend (2026-07-26)
 
@@ -61,7 +61,7 @@ break without the other noticing.
   `dist-electron/` first so stale output from deleted sources never ships.
 - `npm run dist:dmg` — full release flow: downloads the speaker model, bundles Codex
   defaults, builds, then runs `electron-builder --mac --arm64 --publish never`.
-  Output lands in `release/` as `AhaStation-<version>-arm64.dmg`.
+  Output lands in `release/` as `AhaStudio-<version>-arm64.dmg`.
 
 ### Cross-platform packaging from macOS
 
@@ -87,6 +87,6 @@ whatever identity the environment provides (`CSC_NAME` / keychain). Two
 safeguards wrap the build:
 
 - `node scripts/verify-macos-signing.mjs` runs at the end of both `dist` and
-  `dist:dmg` and hard-fails the release unless `release/mac-arm64/AhaStation.app`
+  `dist:dmg` and hard-fails the release unless `release/mac-arm64/AhaStudio.app`
   carries a Developer ID Application signature, a TeamIdentifier, and the
   audio-input entitlement.

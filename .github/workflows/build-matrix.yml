@@ -170,7 +170,7 @@ jobs:
           DEB="$(ls release/*arm64*.deb release/ahastation_*_arm64.deb 2>/dev/null | head -n1)"
           echo "Installing $DEB - apt resolves Depends (libgtk-3-0, libnss3, libasound2, …)"
           apt-get install -y "./$DEB"
-          BIN=/opt/AhaStation/ahastation
+          BIN=/opt/AhaStudio/ahastation
           test -x "$BIN"
           # Container is root with no display: --no-sandbox is required as
           # root, --disable-gpu avoids GPU init. --version prints and exits
@@ -233,7 +233,7 @@ jobs:
       - name: Create / update release
         uses: softprops/action-gh-release@v2
         with:
-          name: AhaStation ${{ github.ref_name }}
+          name: AhaStudio ${{ github.ref_name }}
           # Draft=false but prerelease honored for tags like v1.2.0-beta.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}

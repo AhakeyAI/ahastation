@@ -1,4 +1,4 @@
-# AhaStation
+# AhaStudio
 
 **语音会议式 AI 编程协作客户端** — 多个 CLI coding agent（Claude Code / Codex / Kimi / OpenCode / Qoder）以「数字员工参会者」身份加入你的视频会议：你说话，它们听、看、写代码、跑命令，并把进展讲给你听。
 

@@ -312,7 +312,7 @@ export class QoderBackend {
   createSession(config: BackendSessionConfig, emit: (event: BackendSessionEvent) => void): BackendSession {
     const binary = this.resolveBinary();
     if (!binary) {
-      emit({ kind: 'error', error: 'Bundled Qoder CLI is unavailable. Reinstall AhaStation or select a compatible system runtime.' });
+      emit({ kind: 'error', error: 'Bundled Qoder CLI is unavailable. Reinstall AhaStudio or select a compatible system runtime.' });
       emit({ kind: 'ended' });
       return noopSession();
     }
@@ -359,7 +359,7 @@ export class QoderBackend {
 
   async loginOAuth(): Promise<{ ok: boolean; error?: string }> {
     const binary = this.resolveBinary();
-    if (!binary) return { ok: false, error: 'Bundled Qoder CLI is unavailable. Reinstall AhaStation.' };
+    if (!binary) return { ok: false, error: 'Bundled Qoder CLI is unavailable. Reinstall AhaStudio.' };
     return runTerminalLogin(
       binary, ['login'], () => this.checkAuthStatus(), isolatedSubprocessEnv(),
     );

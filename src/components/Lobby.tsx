@@ -308,10 +308,10 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
       <div className="join-card lobby-card">
         <div className="join-brand">
           <div className="join-logo">
-            <img src="icon-96.png" alt="AhaStation" className="join-logo-img" />
+            <img src="icon-96.png" alt="AhaStudio" className="join-logo-img" />
           </div>
           <div>
-            <div className="join-title">AhaStation</div>
+            <div className="join-title">AhaStudio</div>
             <div className="join-sub">Pair with AI over screen + voice</div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 {
   "appId": "com.ahastation.app",
-  "productName": "AhaStation",
+  "productName": "AhaStudio",
   "icon": "build/icon.icns",
   "directories": {
     "output": "release",
@@ -35,12 +35,12 @@
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
     "extendInfo": {
-      "NSMicrophoneUsageDescription": "AhaStation 需要使用麦克风进行语音输入、转写和会议交互。"
+      "NSMicrophoneUsageDescription": "AhaStudio 需要使用麦克风进行语音输入、转写和会议交互。"
     }
   },
   "dmg": {
     "icon": null,
-    "title": "AhaStation ${version}"
+    "title": "AhaStudio ${version}"
   },
   "win": {
     "target": [
@@ -64,7 +64,7 @@
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "executableName": "ahastation",
     "synopsis": "AI meeting orchestrator with four Worker backends",
-    "description": "AhaStation coordinates Claude, OpenCode, Codex and Kimi workers through a journaled delivery verification loop."
+    "description": "AhaStudio coordinates Claude, OpenCode, Codex and Kimi workers through a journaled delivery verification loop."
   },
   "deb": {
     "priority": "optional",
