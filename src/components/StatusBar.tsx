@@ -28,7 +28,6 @@ export const StatusBar = memo(function StatusBar({ clientCount, activeTaskCount,
       </span>
       <ElapsedTime startedAt={startedAt} className="aha-statusbar-item aha-tnum" />
       <span className="aha-statusbar-spacer" />
-      <span className="aha-statusbar-item">AhaTalk · 本地</span>
       <span className="aha-level-pill aha-level-pill-info" title="当前可编排本会话内的 agent；外部会话观察（M7）开发中">
         交互控制
       </span>

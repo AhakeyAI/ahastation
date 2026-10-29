@@ -25,8 +25,8 @@ function createSettingsWindow(focus?: string | null): BrowserWindow {
   const dev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
 
   const win = new BrowserWindow({
-    width: 680,
-    height: 780,
+    width: 880,
+    height: 720,
     title: '设置',
     backgroundColor: getThemeBackgroundColor(),
     transparent: false,

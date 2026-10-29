@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react';
 import { Send, Paperclip, X, FileText, FileType, Image as ImageIcon, FileWarning, FolderOpen, Users, MessageSquare, Settings, Zap } from 'lucide-react';
 import type {
   ActivityEntry,
@@ -63,6 +63,8 @@ interface SideDrawerProps {
   activeBackendIds?: Set<string>;
   onAddHost?: (backendId: string) => void;
   forceParticipantsTab?: boolean|number;
+  /** 输入框上方的会议工具条（共享屏幕 / 截图 / 打断），取代底部菜单栏。 */
+  composerTools?: ReactNode;
 }
 
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
@@ -239,6 +241,7 @@ export const SideDrawer = memo(function SideDrawer({
   onAddHost,
   forceParticipantsTab,
   shared,linkedTaskId,onLinkTask,
+  composerTools,
 }: SideDrawerProps) {
   // High-frequency meeting streams are subscribed in-component (not threaded
   // through App): transcript/activity append many times per minute during a
@@ -742,6 +745,7 @@ export const SideDrawer = memo(function SideDrawer({
             <div ref={endRef} />
           </div>
           <div className="drawer-composer">
+            {composerTools && <div className="composer-tools" role="toolbar" aria-label="会议工具">{composerTools}</div>}
             {multiAgent && onChangeDispatchMode && (
               <div
                 className="dispatch-mode-switch"

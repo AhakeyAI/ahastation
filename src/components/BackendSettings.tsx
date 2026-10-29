@@ -358,7 +358,7 @@ export function BackendSettings() {
     <div className="backend-settings">
       <div className="drawer-settings-row">
         <div className="drawer-settings-label">
-          <div className="drawer-settings-title">后端管理 · Backends</div>
+          <div className="drawer-settings-title">账号与认证</div>
           <div className="drawer-settings-hint">
             配置各 CLI 后端的认证信息。已认证的后端可作为会议 Host 使用。
           </div>

@@ -37,6 +37,8 @@ import { AppTopBar } from './components/AppTopBar';
 import { StatusBar } from './components/StatusBar';
 import { BroadcastStrip } from './components/BroadcastStrip';
 import { UsageStrip } from './components/UsageStrip';
+import { VoiceControl } from './components/VoiceControl';
+import { Camera, Gamepad2, MessageSquare, Monitor, MonitorUp, Square } from 'lucide-react';
 import { MeetingControls } from './components/MeetingControls';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { ExplorePage } from './components/ExplorePage';
@@ -778,7 +780,9 @@ export function App() {
           onOpenTerminal={() => setLocalTerminalOpen(true)}
           onEnterMeeting={() => setShowLobby(false)}
           onReplayOnboarding={() => setOnboardingMode('full')}
+          onOpenExplore={openExplore}
         />
+        {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
         {onboardingMode && (
           <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
         )}
@@ -813,9 +817,35 @@ export function App() {
         />
       ) : (
         <AppTopBar
-          onOpenExplore={openExplore}
           onHome={goHome}
           settingsSlot={settingsSlot}
+          actions={(
+            <>
+              {controlsSlot}
+              <VoiceControl
+                muted={muted}
+                onToggleMute={toggleMute}
+                micSupported={micSupported}
+                listening={effectiveListening}
+                asrMode={asrMode}
+                micStatus={micStatus}
+                micRetryable={micRetryable}
+                onRetryMic={retryMic}
+                ttsOn={ttsOn}
+                onToggleTts={toggleTts}
+              />
+              <button type="button" className={`aha-topbar-toggle${drawerOpen ? ' is-on' : ''}`} onClick={toggleChat}
+                aria-pressed={drawerOpen} title={drawerOpen ? '收起对话' : '展开对话'}>
+                <MessageSquare size={15} aria-hidden="true" />
+                <span>对话</span>
+              </button>
+              <button type="button" className="aha-topbar-toggle" onClick={toggleCompanion}
+                title="开关 AhaBar 悬浮条（待批准快捷键）">
+                <Gamepad2 size={15} aria-hidden="true" />
+                <span>AhaBar</span>
+              </button>
+            </>
+          )}
         />
       )}
 
@@ -909,6 +939,24 @@ export function App() {
           activeBackendIds={activeBackendIds}
           onAddHost={handleAddHost}
           forceParticipantsTab={openParticipantsTabSignal}
+          composerTools={handheld ? undefined : (
+            <>
+              <button type="button" className={`composer-tool${share.active ? ' is-danger' : ''}`} onClick={toggleShare}
+                title={share.active ? '停止共享屏幕' : '共享屏幕给 Host'}>
+                {share.active ? <Monitor size={14} aria-hidden="true" /> : <MonitorUp size={14} aria-hidden="true" />}
+                <span>{share.active ? '停止共享' : '共享屏幕'}</span>
+              </button>
+              <button type="button" className="composer-tool" onClick={handleSnapshot} disabled={!(share.active && running)}
+                title={share.active ? '把当前画面发给 Host' : '先共享屏幕，才能截图'}>
+                <Camera size={14} aria-hidden="true" />
+                <span>截图</span>
+              </button>
+              <button type="button" className="composer-tool" onClick={interrupt} title="打断 Host 当前的回复">
+                <Square size={14} aria-hidden="true" />
+                <span>打断</span>
+              </button>
+            </>
+          )}
         />
 
         {!handheld && agentPanelData && (
@@ -923,7 +971,7 @@ export function App() {
         )}
       </main>
 
-      {toolbar}
+      {handheld && toolbar}
 
       {!handheld && (
         <StatusBar

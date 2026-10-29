@@ -69,7 +69,7 @@ const ICON_SIZE = 20;
  * and writes the fill width straight to the DOM on a rAF throttle — the VAD
  * fires per audio frame, so this must never go through React state.
  */
-function MicMeter({ muted }: { muted: boolean }) {
+export function MicMeter({ muted }: { muted: boolean }) {
   const fillRef = useRef<HTMLDivElement>(null);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;

@@ -14,6 +14,8 @@ interface LobbyProps {
   onEnterMeeting?: () => void;
   /** Replay the full first-launch onboarding flow. */
   onReplayOnboarding?: () => void;
+  /** 探索页（配套硬件与功能），只在启动大厅提供入口。 */
+  onOpenExplore?: () => void;
 }
 
 interface RecoverableMeeting {
@@ -74,7 +76,7 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
@@ -818,11 +820,16 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           </button>
         )}
 
-        {(onEnterBoard || onReplayOnboarding || onEnterMeeting) && (
+        {(onEnterBoard || onReplayOnboarding || onEnterMeeting || onOpenExplore) && (
           <div className="lobby-footer-actions">
             {onEnterBoard && (
               <button type="button" className="lobby-footer-btn" onClick={onEnterBoard}>
                 查看任务看板
+              </button>
+            )}
+            {onOpenExplore && (
+              <button type="button" className="lobby-footer-btn" onClick={onOpenExplore}>
+                探索配套硬件与功能
               </button>
             )}
             {onReplayOnboarding && (
