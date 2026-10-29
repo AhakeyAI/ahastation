@@ -4,6 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { HOOK_EVENTS, type HookAgent } from './protocol.js';
+import { assertPrivateHookFile, ensurePrivateHookDirectory, stageWindowsConfig } from './file-security.js';
 
 type JsonObject = Record<string, any>;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -56,13 +57,20 @@ function checkPath(path: string): void {
     if (dirname(p) === p) break;
   }
 }
-function atomic(path: string, content: string | null): void {
+function atomic(path: string, content: string | null, config = false): void {
   if (content === null) { if (existsSync(path)) unlinkSync(path); return; }
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.${randomUUID()}.tmp`;
-  const fd = openSync(temp, 'wx', existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600);
-  try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
-  try { renameSync(temp, path); } finally { if (existsSync(temp)) unlinkSync(temp); }
+  const before = config ? read(path) : null;
+  try {
+    if (config && process.platform === 'win32') stageWindowsConfig(temp, path, content);
+    else {
+      const fd = openSync(temp, 'wx', existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600);
+      try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
+    }
+    if (config && read(path) !== before) throw new Error('concurrent-config-write');
+    renameSync(temp, path);
+  } finally { if (existsSync(temp)) unlinkSync(temp); }
 }
 function seal(text: string | null, key: Buffer): string {
   const iv = randomBytes(12);
@@ -123,6 +131,12 @@ function validateOptions(options: HookInstallOptions): void {
     || !isAbsolute(options.configDir) || !isAbsolute(options.stateDir)) throw new Error('invalid-hook-install-options');
 }
 
+function withExclusiveLock<T>(path: string, action: () => T): T {
+  const fd = openSync(path, 'wx', 0o600);
+  try { return action(); }
+  finally { closeSync(fd); unlinkSync(path); }
+}
+
 /** No raw backup or config text leaves this module. Diagnostics are codes. */
 function withStore<T>(options: HookInstallOptions, action: (context: {
   configPath: string; manifestPath: string; key: Buffer;
@@ -132,22 +146,27 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
   const configPath = join(resolve(options.configDir), options.agent === 'claude' ? 'settings.json' : 'hooks.json');
   const stateDir = resolve(options.stateDir);
   checkPath(configPath); checkPath(stateDir);
-  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  ensurePrivateHookDirectory(stateDir);
+  const storeLock = join(stateDir, 'install.lock');
+  checkPath(storeLock);
   // Per-config lock also excludes another profile choosing a different stateDir.
   mkdirSync(dirname(configPath), { recursive: true, mode: 0o700 });
   const lock = `${configPath}.aha-studio.lock`;
-  const fd = openSync(lock, 'wx', 0o600);
-  try {
+  // The key, manifests and recovery journals are shared even when config
+  // paths differ. Always acquire the common store lock before the config lock.
+  return withExclusiveLock(storeLock, () => withExclusiveLock(lock, () => {
     const ownerPath = `${configPath}.aha-studio-owner.json`;
     const owner = read(ownerPath);
     if (owner && !same(JSON.parse(owner), { stateDir, profileId: options.profileId })) throw new Error('global-hooks-owned-by-another-profile');
     const keyPath = join(stateDir, 'backup.key');
     checkPath(keyPath);
     if (!existsSync(keyPath)) writeFileSync(keyPath, randomBytes(32), { flag: 'wx', mode: 0o600 });
+    else assertPrivateHookFile(keyPath);
     const key = readFileSync(keyPath);
     const manifestPath = join(stateDir, `${options.agent}.json`);
     const journalPath = join(stateDir, `${options.agent}.transaction`);
     for (const p of [ownerPath, manifestPath, journalPath]) checkPath(p);
+    for (const p of [manifestPath, journalPath]) if (existsSync(p)) assertPrivateHookFile(p);
     // Recovery never overwrites an external edit. It either completes a
     // durable transaction or refuses and leaves encrypted evidence in place.
     const journal = read(journalPath);
@@ -156,7 +175,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
       if (tx.configPath !== configPath || tx.profileId !== options.profileId) throw new Error('transaction-owner-mismatch');
       const current = read(configPath);
       if (current !== tx.before && current !== tx.after) throw new Error('transaction-conflict-manual-recovery-required');
-      atomic(configPath, tx.after);
+      atomic(configPath, tx.after, true);
       atomic(manifestPath, tx.manifest);
       atomic(ownerPath, tx.manifest ? JSON.stringify({ stateDir, profileId: options.profileId }) : null);
       unlinkSync(journalPath);
@@ -167,6 +186,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
       const priorOwner = read(ownerPath);
       const backupPath = join(stateDir, 'backups', `${options.agent}-${Date.now()}-${randomUUID()}.enc`);
       checkPath(backupPath);
+      ensurePrivateHookDirectory(dirname(backupPath));
       atomic(backupPath, seal(JSON.stringify({ configPath, before, priorManifest, priorOwner,
         nextVersion: manifest?.version ?? null }), key));
       const tx = { configPath, profileId: options.profileId, before, after,
@@ -175,7 +195,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
       // Recheck after journaling; editors do not respect our advisory lock.
       if (read(configPath) !== before) { unlinkSync(journalPath); throw new Error('concurrent-config-write'); }
       try {
-        atomic(configPath, after);
+        atomic(configPath, after, true);
         atomic(manifestPath, tx.manifest);
         atomic(ownerPath, manifest ? JSON.stringify({ stateDir, profileId: options.profileId }) : null);
         unlinkSync(journalPath);
@@ -184,7 +204,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
         // A process/power crash is handled by the encrypted journal on retry.
         if (read(configPath) === after) {
           try {
-            atomic(configPath, before); atomic(manifestPath, priorManifest); atomic(ownerPath, priorOwner);
+            atomic(configPath, before, true); atomic(manifestPath, priorManifest); atomic(ownerPath, priorOwner);
             unlinkSync(journalPath);
           } catch { /* Keep the journal; never erase recovery evidence. */ }
         }
@@ -192,7 +212,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
       }
     };
     return action({ configPath, manifestPath, key, transact });
-  } finally { closeSync(fd); unlinkSync(lock); }
+  }));
 }
 
 function loadManifest(path: string, options: HookInstallOptions, configPath: string): Manifest | null {
@@ -267,6 +287,7 @@ export function installGlobalHooks(options: HookInstallOptions) {
 
 export function uninstallGlobalHooks(options: HookInstallOptions) {
   validateOptions(options);
+  if (existsSync(join(options.stateDir, 'install.lock'))) throw new Error('global-hooks-store-busy');
   if (!existsSync(join(options.stateDir, `${options.agent}.json`))
     && !existsSync(join(options.stateDir, `${options.agent}.transaction`))) {
     const configPath = join(options.configDir, options.agent === 'claude' ? 'settings.json' : 'hooks.json');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { performance } from 'node:perf_hooks';
@@ -10,11 +10,16 @@ import { createCipheriv, randomBytes } from 'node:crypto';
 import { installGlobalHooks, uninstallGlobalHooks, parseConfig, probeCodexHooks } from '../dist-electron/global-hooks/installer.js';
 import { GlobalHookHost } from '../dist-electron/global-hooks/host.js';
 import { denyHook, requireNativeHookWorkerAdmission, sanitizeHook } from '../dist-electron/global-hooks/protocol.js';
+import { ensurePrivateHookDirectory } from '../dist-electron/global-hooks/file-security.js';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 
 const relay = resolve('dist-electron/global-hooks/relay.js');
 const fixture = t => {
-  const root = mkdtempSync(join(tmpdir(), 'aha85 中文 space '));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scratch = mkdtempSync(join(tmpdir(), 'aha85 中文 space '));
+  const root = join(scratch, 'private');
+  ensurePrivateHookDirectory(root);
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const configDir = join(root, '.claude');
   mkdirSync(configDir);
   const options = { agent: 'claude', configDir, stateDir: join(root, 'private hooks'),
@@ -120,6 +125,7 @@ test('advisory lock, different profile, and symlink config are refused', t => {
   const { options, path, root } = fixture(t);
   writeFileSync(`${path}.aha-studio.lock`, 'another install');
   assert.throws(() => installGlobalHooks(options), /EEXIST/);
+  assert.equal(existsSync(join(options.stateDir, 'install.lock')), false);
   rmSync(`${path}.aha-studio.lock`);
   installGlobalHooks(options);
   assert.throws(() => installGlobalHooks({ ...options, profileId: 'other', stateDir: join(root, 'other') }), /another-profile/);
@@ -129,6 +135,38 @@ test('advisory lock, different profile, and symlink config are refused', t => {
   catch (e) { if (e.code === 'EPERM') { t.diagnostic('Windows symlink privilege unavailable; rest of lock/profile checks passed'); return; } throw e; }
   assert.throws(() => installGlobalHooks(options), /symlink/);
   assert.equal(readFileSync(join(root, 'target.json'), 'utf8'), '{}');
+});
+
+test('shared store serializes independent configuration installs and releases both locks', t => {
+  const { options, root, path } = fixture(t);
+  const second = { ...options, configDir: join(root, 'other-config'), profileId: 'other' };
+  const secondPath = join(second.configDir, 'settings.json');
+  const originalOpen = fs.openSync;
+  let intercepted = false;
+  let contender;
+  fs.openSync = function(file, ...args) {
+    if (!intercepted && String(file).startsWith(join(options.stateDir, 'backups') + sep) && String(file).endsWith('.tmp')) {
+      intercepted = true;
+      contender = spawnSync(process.execPath, ['tests/fixtures/global-hooks-install.mjs'], {
+        input: JSON.stringify(second), encoding: 'utf8', timeout: 15_000, windowsHide: true,
+      });
+    }
+    return originalOpen.call(this, file, ...args);
+  };
+  syncBuiltinESMExports();
+  try { assert.equal(installGlobalHooks(options).status, 'installed'); }
+  finally { fs.openSync = originalOpen; syncBuiltinESMExports(); }
+  assert.equal(intercepted, true);
+  assert.equal(contender.status, 1);
+  assert.match(JSON.parse(contender.stdout).error, /EEXIST|store-busy/);
+  assert.equal(existsSync(secondPath), false);
+  assert.equal(JSON.parse(readFileSync(join(options.stateDir, 'claude.json'))).profileId, options.profileId);
+  assert.equal(uninstallGlobalHooks(options).status, 'removed');
+  assert.equal(existsSync(path), false);
+  assert.equal(installGlobalHooks(second).status, 'installed');
+  assert.equal(uninstallGlobalHooks(second).status, 'removed');
+  assert.equal(existsSync(secondPath), false);
+  assert.equal(existsSync(join(options.stateDir, 'install.lock')), false);
 });
 
 function interruptedTransaction(options, path) {
@@ -143,7 +181,7 @@ function interruptedTransaction(options, path) {
   const key = readFileSync(join(options.stateDir, 'backup.key'));
   const iv = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(JSON.stringify(JSON.stringify(tx))), cipher.final()]);
-  writeFileSync(join(options.stateDir, 'claude.transaction'), Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64'));
+  writeFileSync(join(options.stateDir, 'claude.transaction'), Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64'), { mode: 0o600 });
 }
 test('journal recovers an interrupted config+manifest transaction without half installation', t => {
   const { options, path } = fixture(t);
@@ -282,7 +320,7 @@ test('uninstall still restores configuration when the current build has no relay
   mkdirSync(join(copyRoot, 'dist-electron/global-hooks'), { recursive: true });
   writeFileSync(join(copyRoot, 'package.json'), '{"type":"module"}');
   copyFileSync('scripts/global-hooks.mjs', join(copyRoot, 'scripts/global-hooks.mjs'));
-  for (const name of ['installer.js', 'protocol.js']) {
+  for (const name of ['installer.js', 'protocol.js', 'file-security.js']) {
     copyFileSync(join('dist-electron/global-hooks', name), join(copyRoot, 'dist-electron/global-hooks', name));
   }
   const result = spawnSync(process.execPath, [join(copyRoot, 'scripts/global-hooks.mjs'), 'uninstall',

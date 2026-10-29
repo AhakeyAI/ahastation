@@ -28,7 +28,9 @@ try {
   const options = { agent: 'codex', configDir: env.CODEX_HOME, stateDir: join(root, 'state'), profileId: 'probe',
     nodePath: process.execPath, relayPath: resolve('dist-electron/global-hooks/relay.js'), version: 'probe-v1', codexBinary: binary };
   installGlobalHooks(options);
-  child = spawn(binary, ['app-server'], { cwd: root, env, windowsHide: true });
+  // hooks/list receives the isolated fixture explicitly. Keep the server cwd
+  // at the stable temp parent so Windows helpers cannot pin the removable root.
+  child = spawn(binary, ['app-server'], { cwd: tmpdir(), env, windowsHide: true });
   child.stderr.resume(); // avoid printing provider/config diagnostics
   let next = 0; const pending = new Map();
   const lines = createInterface({ input: child.stdout });

@@ -17,6 +17,7 @@
 | 路径 | 责任 |
 | --- | --- |
 | `electron/global-hooks/installer.ts` | 严格 JSON 编辑、标记项合并、加密备份、升级/卸载、锁与事务恢复、真实 Codex feature 探测 |
+| `electron/global-hooks/file-security.ts` | Windows 创建时附带访问权限、配置替换前复核；私有状态目录及已有文件权限校验 |
 | `electron/global-hooks/relay.ts` | 普通观察的有界尽力投递；固定受控入口拒绝；CLI stdout 只含协议输出 |
 | `electron/global-hooks/protocol.ts` | IF-1 去敏输入、供应商拒绝映射、不可开启的原生 Worker 准入门 |
 | `electron/global-hooks/host.ts` | 仅 loopback 的观察 ingress、有界队列、授权分类回调、IF-1 snapshot/cursor 与缺口处理 |
@@ -31,8 +32,8 @@ Claude 修改指定配置目录的 `settings.json`；Codex 修改指定配置目
 
 - 严格解析 JSON，拒绝损坏、重复键、错误根类型/事件结构与超过 4MiB 的配置；不以全文字符串替换编辑 JSON/TOML。JSONC 暂不支持，遇到即停写并返回诊断码。解析错误不回显配置片段。
 - 保留其他设置和用户 hooks。未后改时，卸载逐字恢复原文件（含 BOM/CRLF/缩进）；原文件不存在则删除新建配置文件。后改时仅移除仍精确属于本应用的项，保留新增设置、用户 hook、对本应用 command/matcher 的修改；`retainedEdits` 提示人工复查。升级也携带安装后的用户改动，不能恢复成最初的过期快照。
-- 所有配置变更前保存 AES-256-GCM 加密备份；事务记录也加密，随机 IV，密钥单独保存。备份记录上一配置/manifest/owner，支持追溯升级。POSIX 文件 mode 0600、目录 0700；Windows 使用继承 ACL，**没有声称已证明 Windows ACL 或同 OS 用户隔离**。备份密钥与密文都须保管，不能把二者当成对同用户恶意进程的隔离。
-- 每个实际配置路径有 `wx` 排他锁，另有 owner 侧文件，阻止另一 Studio profile/另一 stateDir 叠装。每次只事务处理一家 CLI；两家 CLI 不是跨文件原子事务。多配置 home 需分别显式指定，不能自动枚举/修改其他 profile。
+- 所有配置变更前保存 AES-256-GCM 加密备份；事务记录也加密，随机 IV，密钥单独保存。备份记录上一配置/manifest/owner，支持追溯升级。POSIX 文件 mode 0600、目录 0700；Windows 的配置临时文件通过 .NET Framework 的 [FileStream(FileSecurity) 构造函数](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.-ctor?view=netframework-4.8)在创建时带上原访问规则、继承保护、owner/group，校验成功才写入内容，再原子替换；不靠先写入再收紧权限。新状态目录在创建时仅给当前用户和 SYSTEM 访问；校验已有状态时只接受当前用户所有、允许规则限当前用户/SYSTEM/Administrators 的私有目录及文件。权限提供程序不可用、无法保留原权限或发现已有宽权限文件时拒绝继续。备份密钥与密文都须保管，这不构成对同用户恶意进程或管理员的隔离。
+- 每次操作先取得整个 `stateDir/install.lock`，再取配置路径的 `wx` 排他锁。共享密钥、manifest、journal 的读取/恢复/提交均在状态锁内；不同配置目录共用状态目录时不能并发覆盖记录。一个 stateDir 的同一 agent 只绑定一个配置/profile；需要同时保留多个配置，分别指定独立 stateDir。owner 侧文件继续阻止同一配置由另一 profile/stateDir 叠装。两家 CLI 的配置不是跨文件原子事务。
 - 同目录唯一临时文件、fsync、rename；普通 I/O 失败尽力恢复原配置，进程中断留下加密 journal。下次同 profile 的 install/uninstall 会恢复；若配置已被其他编辑器改动，则拒绝覆盖并保留 journal。备份/锁不能解决不合作编辑器在最后一次比对与 rename 之间的所有 OS 竞态；真实启用时应关闭配置编辑器。没有用时间/PID 猜测删除陈旧锁。
 - 拒绝 symlink/junction 配置及运行时路径；测试机无创建文件 symlink 的权限，因此相应测试报告了能力限制，不能计为已验证 Windows symlink 防护。
 - 卸载清掉所属配置项、owner、manifest、事务锁；保留加密历史、密钥和版本化 runtime 供回滚。若用户改过 command 仍引用 runtime，必须先人工确认再删除；不递归清理其他任务文件。
@@ -81,6 +82,8 @@ Codex 使用 `--agent codex --config-dir <独立CODEX_HOME> --codex-binary <0.15
 
 崩溃恢复：先确认没有正在运行的安装器/宿主，再处理对应 `.lock`，不能凭陈旧时间自动删除。重新执行同 profile 的 install/uninstall 会恢复 journal；遇 `transaction-conflict-manual-recovery-required`，先保留当前用户配置与加密证据，在本机受保护环境人工比对，不用旧备份覆盖后来改动。没有 GUI 自动修复或外传配置。
 
+Windows 安装、配置变更和宿主观察服务启动时需要系统 Windows PowerShell 5.1/.NET Framework 权限 API；只执行内置固定脚本，参数和内容通过 stdin JSON 传入，不加载用户 profile。它不进入逐次 hook relay 路径，不增加每次工具调用的 PowerShell 启动成本。系统能力不可用或旧状态目录/文件权限过宽时拒绝继续，不自动修改已有 ACL。旧实现若已经丢失原文件 ACL，没有保存的原策略就不能猜测恢复；应保留配置和备份，依据已知的原权限处理后再迁移，不能将“字节恢复”当成“权限已恢复”。
+
 ## 验证命令与结果
 
 实际运行于本工作区；以下 npm 使用 `C:\Program Files\nodejs\npm.cmd`，Node 使用相邻 `node.exe`。
@@ -104,6 +107,18 @@ Codex 使用 `--agent codex --config-dir <独立CODEX_HOME> --codex-binary <0.15
 - 重新运行真实二进制的隔离探测：Codex `0.156.1` 的四类 hooks 均发现、零解析错误，信任仍为 untrusted；Claude 仅核版本 `2.1.150`。宿主缺席时实际 Windows command 的 10 次墙钟为 `77.3,74.3,68,65.6,63.3,70.9,67.7,63.6,77.8,64.3` ms，最大 **77.8ms**；卸载通过。没有模型调用或信任变更。日志 `issue-85-review-probe.log`。
 - 发布前 main 仍为 `fcc7ac2`；#135 已到 `086bf58256205e834c894e3d8070e0bc425580f9`，仍 Draft、未合入。此次改动的 terminal adapter 在该候选与 main 间无差异；不将整个候选分支的行为算作本 PR 已验证内容。#135 最新 CI 未启动执行步骤，GitHub 注解是账单/消费额度限制；本 PR 的远端 CI 仍需单独确认。
 - 本次按基础实现发布草稿，使用 `Refs #85`，不自动关闭 #85，不解除 #112 的正式前置，也不表示真实 Claude hook 执行、#72 接线、跨平台无感延迟或 #86/B04 已完成。
+
+### 第二轮审查修复（2026-10-29）
+
+原 head `8a2c581` 复核后发现两处问题：Windows 原子替换会丢失独立 DACL；不同配置目录共用 stateDir 时并发写同一份 manifest/journal，会出现两次安装均成功但一方无法卸载。两者均先用临时配置复现，本轮修复上述共享边界：
+
+- 配置临时文件在创建时携带原访问规则、继承保护、owner/group，并在写内容前核对；安装、升级、卸载、事务恢复与回滚均走此路径。新配置使用私有 ACL；权限提供程序失败时不退回普通 rename 写法。
+- 密钥、manifest、journal、备份目录、版本化 relay 和宿主端点使用私有存储；已有文件的显式宽权限也会拒绝，不能只检查其父目录。
+- `install.lock` 包住共享密钥和所有状态读写，再叠加配置路径锁；竞争者安全失败，已安装配置可正常卸载，随后竞争配置可以安装和卸载。异常退出释放已取得的锁；进程崩溃后仍遵守人工核实陈旧锁的既有规则。
+- 新增 Windows 回归覆盖 DACL 在四条生命周期路径不扩大、权限提供程序失败后原配置不变且可恢复、私有密钥/runtime/端点以及宽权限旧文件拒绝；新增独立子进程的确定性并发安装回归。原有未安装/后改保留/字节恢复/缺 relay 卸载行为继续通过。
+- 最终 `npm run typecheck`、`npm run build` 通过；全量 **976 项，970 通过、6 跳过、0 失败**；其中 hooks 聚焦测试 **21 项通过**。没有把 Windows 的文件 symlink 权限限制算作验证成功，没有宣称 macOS/Linux 远端 CI 已执行。
+- 最终真实 Codex `0.156.1` 隔离探测 exit 0：四类 hook 均被识别，零解析错误，仍为 untrusted，卸载及新建临时根清理成功。宿主缺席的实际 Windows command 10 次墙钟为 `72.3,62.2,69.9,69.5,65,61.5,99.1,68.3,67.2,69.2` ms，最大 `99.1ms`；不改变此前关于跨平台/任意负载延迟的验收限制。两次早期复跑曾在清理阶段报 EBUSY，未计为整项通过；将 app-server 的 cwd 改为稳定的临时父目录，hooks/list 仍显式查询隔离根后，最终脚本完整成功。没有模型调用或自动信任。
+- 原生 Worker 准入继续关闭。文件 ACL 修复不替代 #124 的 Windows 管道创建权限，也不替代 #86/B04；#85 继续保持 OPEN/草稿交付状态。
 
 1. 主协调任务独立审查后统一提交/推送源仓库 PR；刷新 #135/main，尤其复核新的 terminal adapter 启动点，不能用旧 base 覆盖整合修订。
 2. 本任务没有自动修改 `~/.claude` / `~/.codex`，也没有添加自动安装/自动信任/全盘扫描 UI。真实启用须另有明确授权；#72 按已授权扫描和 IF-2 归属服务接入 `classifyAuthorized`，不能简单返回常量 user 或把旧 observer 的推断状态直接当 IF-1。

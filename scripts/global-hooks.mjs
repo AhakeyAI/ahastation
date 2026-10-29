@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Explicit command only; never run from postinstall or application startup.
-import { readFileSync, mkdirSync, writeFileSync, existsSync, lstatSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, lstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installGlobalHooks, uninstallGlobalHooks } from '../dist-electron/global-hooks/installer.js';
+import { assertPrivateHookFile, ensurePrivateHookDirectory } from '../dist-electron/global-hooks/file-security.js';
 
 const [action, ...args] = process.argv.slice(2);
 const values = new Map();
@@ -38,15 +39,18 @@ try {
     : 'uninstall';
   const runtime = resolve(stateDir, 'runtimes', version);
   if (action === 'install') {
+    ensurePrivateHookDirectory(resolve(stateDir));
     for (let p = runtime; ; p = dirname(p)) {
       if (existsSync(p) && lstatSync(p).isSymbolicLink()) throw new Error('symlink-runtime-path');
       if (dirname(p) === p) break;
     }
-    mkdirSync(runtime, { recursive: true, mode: 0o700 });
+    ensurePrivateHookDirectory(dirname(runtime));
+    ensurePrivateHookDirectory(runtime);
     for (const [name, data] of [...files, ['package.json', Buffer.from('{"type":"module"}\n')]]) {
       const target = join(runtime, name);
       if (existsSync(target)) {
         if (lstatSync(target).isSymbolicLink()) throw new Error('symlink-runtime-path');
+        assertPrivateHookFile(target);
         if (!readFileSync(target).equals(data)) throw new Error('installed-runtime-modified');
       } else writeFileSync(target, data, { flag: 'wx', mode: 0o600 });
     }

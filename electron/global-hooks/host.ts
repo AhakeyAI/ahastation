@@ -3,6 +3,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseObservation, type HookAgent, type HookObservationInput } from './protocol.js';
+import { ensurePrivateHookDirectory } from './file-security.js';
 
 export interface ObservationV1 {
   protocol: 'aha.if1'; schemaVersion: 1; eventId: string; publisherEpoch: string;
@@ -50,7 +51,7 @@ export class GlobalHookHost {
   async start(): Promise<void> {
     if (this.used) throw new Error('hook-host-instance-already-used');
     this.used = true; // a new publisher lifecycle must get a new epoch/token
-    mkdirSync(dirname(this.options.endpointPath), { recursive: true, mode: 0o700 });
+    ensurePrivateHookDirectory(dirname(this.options.endpointPath));
     this.lease = openSync(`${this.options.endpointPath}.lock`, 'wx', 0o600);
     const server = createServer((req, res) => {
       const auth = Buffer.from(req.headers.authorization ?? '');
