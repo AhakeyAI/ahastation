@@ -73,6 +73,11 @@ jobs:
       - name: Test suite
         run: npm test
 
+      - name: Build renderer
+        # `npm test` only builds dist-electron; without this the packages ship
+        # no dist/ and the window loads app://bundle/index.html -> blank page.
+        run: npm run build:renderer && node -e "require('fs').statSync('dist/index.html')"
+
       - name: Package (macOS dmg, unsigned in CI)
         if: matrix.os == 'macos-latest'
         run: npx electron-builder --mac --arm64 --publish never
@@ -157,6 +162,11 @@ jobs:
 
       - name: Test suite
         run: npm test
+
+      - name: Build renderer
+        # `npm test` only builds dist-electron; without this the packages ship
+        # no dist/ and the window loads app://bundle/index.html -> blank page.
+        run: npm run build:renderer && node -e "require('fs').statSync('dist/index.html')"
 
       - name: Package (Linux arm64 AppImage + deb)
         # Built inside debian:11; the smoke step below installs and launches
