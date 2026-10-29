@@ -35,5 +35,6 @@
   },
   "mergeStatus": "merged by user on 2026-10-29",
   "mergeCommit": "dda045acc4195daea71063537e3e6aefe1e150b5",
-  "mainCiRun": 40809873905
+  "mainCiRun": 40809873905,
+  "mainCiStatus": "pass; macOS / Windows / Ubuntu tests and packaging all succeeded"
 }
