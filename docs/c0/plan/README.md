@@ -1,6 +1,6 @@
 # 开发计划、项目管理与开工前置
 
-日期：2026-10-23。状态：**计划草案，待项目负责人批准**。
+日期：2026-10-23（R3 更新 2026-10-27：跨设备卡按 `etrnal-dev` 重估，见 §2a；§5 开工前置清单更新状态）。状态：**计划草案，待项目负责人批准**。
 依据：WBS 12（B01–B42 与门 C0/A/B/X/F/H/R）、本目录同级的各设计文档。本文不改 WBS 的范围和门，只做三件事：把 C0 收尾、把门 A 的首批工作拆到可以直接开工的实施卡、定项目管理方式。
 
 ## 1. C0 收尾状态（截至 2026-10-23）
@@ -36,8 +36,8 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 | A-09 | `InputController`：短按 / 长按状态机 + ContextLock + 待发送状态 | B11 | meeting-mode §4、M3 | 3–4 | A-01（Utterance 事件） | 状态机单测；录音中切视图，Utterance 仍引用开始时的对象；失败不自动重发 |
 | A-10 | B06 用量接线：`usage` 信号、Claude / Codex adapter、scheduler 结算 | B06 | b06 WIRING | 2–3 | 无（真实样本等 B04） | WIRING §3 的 8 条测试 |
 | A-11 | sherpa-onnx `utilityProcess` 推理服务（ASR + TTS），模型下载校验 | B05→B11 | meeting-mode M2 | 3–5 | B05 结论 | N5095 上 ASR+TTS 同时运行 CPU 不超过 2 核 |
-| A-12 | 设备密钥 + 可信设备签名链（X1） | B27 | remote-control §4 | 3–4 | 无 | 私钥只在 safeStorage；签名链加入 / 撤销的验证单测 |
-| A-13 | SyncEnvelope + 回执状态机 + 补取（进程内假传输，X2） | B28 | remote-control §5 | 4–6 | A-01、A-12 | 「只有 applied 才显示已停止」；过期 revision 返回 stale；乱序 / 重复 / 缺页测试 |
+| A-12 | 设备密钥 + 可信设备列表 + 新设备由已有设备确认 + 恢复凭据引导（C08） | B27 | remote-control §0.4、§4 | 4–6 | 无 | 私钥只在 safeStorage（异步接口）；签名链加入 / 撤销的验证单测；待确认设备收不到会议内容和任务 |
+| A-13 | 设备消息签名与验签，Station 与 Hub 两侧都要接（ADR 0017）。回执、补取沿用 `etrnal-dev` 已有实现 | B28 | remote-control §0.4、b03 §8.1 | 3–5 | A-12、X0 | 伪造、过期、重放、旧 `basedOn`、非可信设备五种拒绝，都有测试；「只有 applied 才显示已停止」保留 |
 
 ### B04 实测新增的卡（门 B 前必须完成，详见 `../b04-runtime/README.md` F1–F11）
 
@@ -55,6 +55,22 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 
 首批 14 张卡合计约 **35–50 人日**。按 2 人并行约 4–5 周；按 1 人 + Agent 协作约 5–7 周。**这不是发布日期**。2026-10-25 补齐门 A 集成估算：B12-HOST 5–8 人日、B14-GH 3–5、M4 5–8、M6 2–3；与上述 46–67 人日合计为 **61–91 人日**，详见 `cards.csv`。
 
+### 2a. 跨设备卡（R3 重估，2026-10-27）
+
+跨设备改以 `etrnal-dev` 为实现基础（R1、R2 裁决，ADR 0017 / 0018）。原 X3–X8 作废，原 X5「自建 L2 中继（XL）」不再单独做。新卡的完整列表、主责建议和依赖见 `../design/remote-control.md` §0.4 与 `cards.csv`。
+
+- **内部首轮**（Mac 协调、N5095 执行，Claude 与 Codex）：
+  - 包括 A-12、A-13、X1–X6、X8、X11–X13；
+  - 约 **37–59 人日**；
+  - 不含 X0，X0 由 eternal904 修 K01、rebase、拆 PR，需要作者自己估。
+- **首次公开可用前追加**：
+  - X9：macOS 执行端与双向验收；
+  - X10：Hub 改为只见密文，XL；
+  - X7：试用；
+  - 合计约 **19–32 人日**。
+- **关键依赖**：运行时修复（A-14–A-20）合入 → X0 → X1。执行端改走 TS adapter 是跨设备的关键路径。
+- **主责**：`etrnal-dev` 代码的改动由原作者负责，TS 侧与 C0 契约由本仓库负责。上述估算都是 Mac 侧的粗估，要等作者回复后修正。
+
 ### 并行分组（避免同一文件多人改）
 
 | 组 | 卡 | 主要触及目录 |
@@ -63,7 +79,7 @@ C0 门的退出条件是「B01–B07 证据完整；选定一个运行底座；�
 | 界面 | A-05、A-06、A-07 | `src/components/TasksView.tsx`、`src/lib/task-columns.ts`、`ApprovalCard.tsx` |
 | 语音 | A-08、A-09、A-11 | `src/lib/speech-session.ts`、`src/hooks/useVoiceCapture.ts`、新增 `electron/voice/` |
 | 运行时 | A-10 | `electron/backends/claude-code-adapter.ts`、`codex-adapter.ts`、`worker-scheduler.ts` |
-| 跨设备 | A-12、A-13 | 新增 `electron/sync/` |
+| 跨设备 | A-12、A-13、X1、X2、X12 | 新增 `electron/sync/`；`electron/collaboration/`（`etrnal-dev`，与原作者协调） |
 
 PR #49 不按单个巨型 PR 直接续审，拆成四线：① Windows terminal daemon 与持久会话；② 本地终端工作区 UI；③ Worker CLI 桥；④ 品牌图标、主题与研究文档。③ 必须先 rebase 到 A-20 的严格停止语义，验证撤销批准、无新工具调用和进程树退出后再独立评审；①②④ 不携带 Worker 授权语义，可并行。每线都要保留 Windows daemon 与打包 smoke，不能用类型检查代替。
 
@@ -79,6 +95,7 @@ B07 走查 ─▶ A-05 ───────────────────
 A-08 ─▶ A-09 ─▶ M4 ─────────────────────────┘   （读 Issue → 语音澄清 → TODO →
 M6（A-08/A-11 后真机验收）────────────────────┘    当前版本确认 → 重启仍一致）
 B04 严格复验 ─▶ A-14–A-20 ─▶ B10 ─▶ 门 B
+                    └─▶ X0（etrnal-dev rebase / K01）─▶ X1 ─▶ X2、X8 ─▶ 门 X 内部首轮
 ```
 
 门 A 不依赖 B04；**门 B 依赖 B04**。所以 B04 授权越早，门 B 越早。
@@ -156,16 +173,16 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 | --- | --- | --- | --- |
 | P1 | Windows 与 macOS 干净安装基线 | macOS ✅；Windows ✅（安装 / 类型检查 / 构建通过；测试 34 失败由 A-00 处理） | 技术 |
 | P2 | Node 22 固定（CI 与本地一致） | macOS ✅；Windows 便携 Node 22.23.4 已就绪（`%USERPROFILE%\aha-c0\node22`） | 技术 |
-| P3 | CI：Windows + macOS 双平台 typecheck + test | ❓ 需要核对现有 GitHub Actions | 技术 |
+| P3 | CI：Windows + macOS 双平台 typecheck + test | ✅ `build-matrix` 三平台（PR #47）；PR #53 改为 Node 24 | 技术 |
 | P4 | B03 契约评审 | ⏳ 待评审 | 技术负责人 |
-| P5 | B07 原型走查 | ⏳ 待走查 | **用户** |
-| P6 | B04 / 真实冒烟预算与账号授权 | ⏳ | **用户** |
-| P7 | 独立音色是否跨设备一致 | ⏳ | **用户** |
-| P8 | f5d88aa 路由语义确认 | ⏳ | **用户** |
+| P5 | B07 原型走查 | ✅ D7（UX v1 冻结） | — |
+| P6 | B04 / 真实冒烟预算与账号授权 | ✅ D1；B04 已完成 | — |
+| P7 | 独立音色是否跨设备一致 | ✅ D4（同一专家跨设备同一音色） | — |
+| P8 | f5d88aa 路由语义确认 | ✅ D6 | — |
 | P9 | 首个验收 Issue 链接 | ✅ [#48](https://github.com/ShawnyinsGit/ahastation-internal/issues/48) | — |
-| P10 | 是否把 Paseo 纳入跨设备传输候选 | ⏳ | **用户** |
-| P11 | 是否允许在用户仓库写 `.ahastudio/project.json`（跨设备识别项目） | ⏳ | **用户** |
-| P12 | `docs/adr/` 目录与首条 ADR（项目身份） | 可立即做 | 技术 |
+| P10 | 是否把 Paseo 纳入跨设备传输候选 | ✅ 不纳入（B04、D2）；跨设备改用 `etrnal-dev` Hub（G1、R2） | — |
+| P11 | 是否允许在用户仓库写 `.ahastudio/project.json`（跨设备识别项目） | ✅ D8 | — |
+| P12 | `docs/adr/` 目录与首条 ADR（项目身份） | ✅ 统一索引 `docs/adr/README.md`，下一个可用编号 0019 | — |
 | P13 | GitHub Project 看板与 Issue 模板 | 可立即做（需要用户同意在仓库里建 Project 和 Issue） | 技术 |
 | P14 | 第二台设备（macOS Apple Silicon）用于跨设备测试 | 已有 M1 Pro | — |
 
@@ -179,7 +196,8 @@ electron/domain/**、tests/domain/**；不改 electron/meeting-repository.ts
 | 上游快速迭代（Paseo 两周 4 个预发布） | 依赖升级成本 | 高 | 固定版本；只用公开根导出；适配层隔离 |
 | 订阅用量只有百分比 | 不能做精确硬上限 | 确定 | UI 标估算；按单 turn 最大消耗保守预留（B19） |
 | 旧数据迁移误把 Coordinator 接受当用户接受 | 虚报完成 | 中 | A-01 映射规则 + 测试 |
-| 跨设备 E2E 自建工作量大（XL） | 门 X 推迟 | 中 | L1/L3 先做；L2 等 B04 对照 |
+| 跨设备依赖外部协作者（`etrnal-dev`） | X0 未完成时 X1 起的卡都不能开工 | 中 | A-12、X12 不依赖 X0，可以先做；X0 的范围已写在给作者的评论里 |
+| 公开前要把 Hub 改为只见密文（X10，XL） | 公开发布推迟 | 高 | 内部首轮先用受信 Hub + 签名（ADR 0017）；X10 尽早排期，签名链与 A-12 复用 |
 | 单人 + Agent 协作时并行度有限 | 进度 | 中 | 按 §2 并行分组拆，避免同一文件多人改 |
 | Codex 版本门与残留的写死版本不一致（DECISIONS P9） | 真实冒烟必然失败；补丁版本被 Worker 门误拒 | 已确认 | PR #54 合入前按 P9 修 |
 | 板端目标 Debian 11 已停止安全更新（安全源已迁到 `archive.debian.org`） | 板子不再有安全补丁；CI 要改走 archive 镜像（PR #53 已改） | 已确认 | B39 决定板端是否换 Debian 12；在那之前 CI 继续用 archive |
