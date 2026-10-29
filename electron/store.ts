@@ -44,7 +44,7 @@ export interface OpenTabEntry {
 export interface BackendAuthEntry {
   backendId: string;  // 'claude-code' | 'codex' | 'kimi' | 'qoder' | custom ID
   authMode: 'apikey' | 'oauth' | 'none';
-  apiKeyEnc?: string;  // base64 of safeStorage.encryptString(apiKey)
+  apiKeyEnc?: string;  // base64 of safeStorage.encryptStringAsync(apiKey)
   apiKey?: string;     // plaintext in memory only, never written to disk when encryption available
   baseUrl?: string;
   model?: string;
@@ -133,7 +133,7 @@ export interface Settings {
   // `anthropicApiKeyEnc` (Electron safeStorage / OS keychain). The plaintext
   // field is never written to settings.json when encryption is available.
   anthropicApiKey?: string;
-  // Base64 of safeStorage.encryptString(anthropicApiKey). This is the on-disk
+  // Base64 of safeStorage.encryptStringAsync(anthropicApiKey). This is the on-disk
   // form; load() decrypts it back into `anthropicApiKey` and drops this field
   // from the in-memory cache. Present in the type only so JSON round-trips.
   anthropicApiKeyEnc?: string;
@@ -168,23 +168,36 @@ let cached: Settings | null = null;
 let cachedPath: string | null = null;
 
 // --- API key at-rest encryption (S2) ----------------------------------------
-// safeStorage is backed by the OS keychain (Keychain on macOS). It returns
-// false before app `ready` on some platforms, so every call is guarded — a
-// failure degrades to "key absent this session" rather than crashing, and we
-// never wipe an existing ciphertext we couldn't read.
+// safeStorage is backed by the OS keychain (Keychain on macOS, DPAPI on
+// Windows). Electron 45 deprecates the synchronous API and 46 removes it, so
+// only the async API is used: `warmSecrets()` (awaited on app ready, before
+// IPC registration) decrypts every ciphertext once into `decryptedSecrets`,
+// the synchronous readers below consult only that cache, and encryption runs
+// on the async write path. Data written by the old sync encryptString stays
+// readable by decryptStringAsync. Every call is guarded — a failure degrades
+// to "key absent this session" rather than crashing, and we never wipe an
+// existing ciphertext we couldn't read.
 
-function safeStorageAvailable(): boolean {
+const decryptedSecrets = new Map<string, string>(); // ciphertext base64 → plaintext
+let plaintextKeyOnDisk = false;
+
+async function safeStorageAvailable(): Promise<boolean> {
   try {
-    return safeStorage.isEncryptionAvailable();
+    // The async encryptor only initializes after `ready`; waiting here keeps
+    // an early write from dropping the key as "encryption unavailable".
+    await app.whenReady();
+    return await safeStorage.isAsyncEncryptionAvailable();
   } catch {
     return false;
   }
 }
 
-function tryEncryptKey(plain: string): string | null {
+async function tryEncryptKey(plain: string): Promise<string | null> {
   try {
-    if (!safeStorageAvailable()) return null;
-    return safeStorage.encryptString(plain).toString('base64');
+    if (!(await safeStorageAvailable())) return null;
+    const b64 = (await safeStorage.encryptStringAsync(plain)).toString('base64');
+    decryptedSecrets.set(b64, plain);
+    return b64;
   } catch (err) {
     console.warn('[store] safeStorage encrypt failed; key will remain memory-only:', err);
     return null;
@@ -192,31 +205,85 @@ function tryEncryptKey(plain: string): string | null {
 }
 
 function tryDecryptKey(b64: string): string | null {
+  return decryptedSecrets.get(b64) ?? null;
+}
+
+/** Decrypt one ciphertext into the cache. Returns whether the OS asked for
+ *  the value to be re-encrypted (key rotated / better key available). */
+async function decryptIntoCache(b64: string): Promise<{ ok: boolean; reEncrypt: boolean }> {
+  if (decryptedSecrets.has(b64)) return { ok: true, reEncrypt: false };
   try {
-    if (!safeStorageAvailable()) return null;
-    return safeStorage.decryptString(Buffer.from(b64, 'base64'));
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(Buffer.from(b64, 'base64'));
+    decryptedSecrets.set(b64, result);
+    return { ok: true, reEncrypt: shouldReEncrypt };
   } catch (err) {
     console.warn('[store] safeStorage decrypt failed; API key unavailable this session:', err);
-    return null;
+    return { ok: false, reEncrypt: false };
   }
+}
+
+/** Decrypt the at-rest API keys into memory. Call once on app ready, before
+ *  anything reads auth settings. Also finishes the plaintext → ciphertext
+ *  migration and re-encrypts values the OS flagged as stale. */
+export function warmSecrets(): Promise<void> {
+  return withWriteLock(async () => {
+    const current = load();
+    if (!(await safeStorageAvailable())) return;
+    let rewrite = plaintextKeyOnDisk;
+    const next: Settings = { ...current };
+    // In-memory convention for the Anthropic key is plaintext; see load().
+    if (next.anthropicApiKeyEnc) {
+      const { ok, reEncrypt } = await decryptIntoCache(next.anthropicApiKeyEnc);
+      if (ok) {
+        next.anthropicApiKey = tryDecryptKey(next.anthropicApiKeyEnc) ?? undefined;
+        delete next.anthropicApiKeyEnc;
+        rewrite ||= reEncrypt;
+      }
+    }
+    if (next.backendAuth) {
+      const entries: BackendAuthEntry[] = [];
+      for (const entry of next.backendAuth) {
+        if (entry.apiKeyEnc) {
+          const { ok, reEncrypt } = await decryptIntoCache(entry.apiKeyEnc);
+          if (ok && reEncrypt) {
+            // Hand the plaintext to toDiskForm so the rewrite re-encrypts it.
+            const { apiKeyEnc, ...rest } = entry;
+            entries.push({ ...rest, apiKey: tryDecryptKey(apiKeyEnc) ?? undefined });
+            rewrite = true;
+            continue;
+          }
+        } else if (entry.apiKey) {
+          rewrite = true;
+        }
+        entries.push(entry);
+      }
+      next.backendAuth = entries;
+    }
+    if (rewrite) {
+      await persist(next);
+      plaintextKeyOnDisk = false;
+    } else {
+      cached = next;
+    }
+  });
 }
 
 // Map an in-memory Settings (plaintext-key convention) onto its on-disk form:
 // the API key is written encrypted, never as plaintext, whenever safeStorage
 // is available.
-function toDiskForm(s: Settings): Settings {
+async function toDiskForm(s: Settings): Promise<Settings> {
   const { anthropicApiKey, anthropicApiKeyEnc, ...rest } = s;
-  const backendAuth = rest.backendAuth?.map((entry) => {
+  const backendAuth = rest.backendAuth && await Promise.all(rest.backendAuth.map(async (entry) => {
     const { apiKey, apiKeyEnc, ...safe } = entry;
     if (apiKey) {
-      const encrypted = tryEncryptKey(apiKey);
+      const encrypted = await tryEncryptKey(apiKey);
       return encrypted ? { ...safe, apiKeyEnc: encrypted } : safe;
     }
     return apiKeyEnc ? { ...safe, apiKeyEnc } : safe;
-  });
+  }));
   const safeRest: Settings = backendAuth ? { ...rest, backendAuth } : rest;
   if (anthropicApiKey) {
-    const enc = tryEncryptKey(anthropicApiKey);
+    const enc = await tryEncryptKey(anthropicApiKey);
     // safeStorage down → keep the key in memory only. Persisting plaintext is
     // never an acceptable silent fallback.
     return enc ? { ...safeRest, anthropicApiKeyEnc: enc } : safeRest;
@@ -302,22 +369,14 @@ function load(): Settings {
     cached = migrated;
     needsRewrite = true;
   }
-  // Decrypt the at-rest API key into the in-memory plaintext field so every
-  // existing reader (settings-loader, auth) keeps seeing `anthropicApiKey`
-  // unchanged. A legacy plaintext key on disk (no ciphertext) is migrated to
-  // encrypted form on the next write.
-  const hadPlaintextKeyOnDisk =
+  // The at-rest API key is decrypted into the in-memory plaintext field by
+  // warmSecrets(), so every existing reader (settings-loader, auth) keeps
+  // seeing `anthropicApiKey` unchanged. A legacy plaintext key on disk (no
+  // ciphertext) is migrated to encrypted form by warmSecrets().
+  plaintextKeyOnDisk =
     typeof cached.anthropicApiKey === 'string' &&
     cached.anthropicApiKey.length > 0 &&
     !cached.anthropicApiKeyEnc;
-  if (cached.anthropicApiKeyEnc) {
-    const dec = tryDecryptKey(cached.anthropicApiKeyEnc);
-    if (dec !== null) {
-      cached.anthropicApiKey = dec;
-      delete cached.anthropicApiKeyEnc;
-    }
-  }
-  if (hadPlaintextKeyOnDisk && safeStorageAvailable()) needsRewrite = true;
   // One-shot migration: promote legacy auth fields into backendAuth array.
   // If backendAuth doesn't exist yet but legacy auth fields do, create a
   // 'claude-code' entry from them. Idempotent: skips if backendAuth already
@@ -331,13 +390,7 @@ function load(): Settings {
         baseUrl: cached.anthropicBaseUrl,
         model: cached.anthropicModel,
       };
-      if (claudeEntry.apiKey && safeStorageAvailable()) {
-        const enc = tryEncryptKey(claudeEntry.apiKey);
-        if (enc) {
-          claudeEntry.apiKeyEnc = enc;
-          delete claudeEntry.apiKey;
-        }
-      }
+      // The plaintext apiKey is encrypted by toDiskForm on the rewrite below.
       cached = {
         ...cached,
         backendAuth: [claudeEntry],
@@ -346,10 +399,10 @@ function load(): Settings {
       needsRewrite = true;
     }
   }
-  // One fire-and-forget rewrite covers both migrations so two concurrent
-  // persist() calls can't race on the rename.
+  // One fire-and-forget rewrite covers both migrations. It goes through the
+  // write queue (encryption is async now) so it can't race another write.
   if (needsRewrite) {
-    void persist({ ...cached }).catch((err) => {
+    void withWriteLock(() => persist({ ...load() })).catch((err) => {
       console.error('[store] migration write failed:', err);
     });
   }
@@ -361,7 +414,7 @@ async function persist(next: Settings): Promise<void> {
   await fsp.mkdir(dirname(p), { recursive: true });
   // Encrypt the API key for the on-disk copy; the in-memory cache keeps the
   // plaintext convention so readers don't have to decrypt.
-  const onDisk = toDiskForm(next);
+  const onDisk = await toDiskForm(next);
   const tmp = `${p}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
   await fsp.rename(tmp, p);
@@ -484,8 +537,8 @@ export function setBackendAuth(
     }
 
     // Encrypt API key for at-rest storage.
-    if (updated.apiKey && safeStorageAvailable()) {
-      const enc = tryEncryptKey(updated.apiKey);
+    if (updated.apiKey) {
+      const enc = await tryEncryptKey(updated.apiKey);
       if (enc) {
         updated.apiKeyEnc = enc;
         delete updated.apiKey;
