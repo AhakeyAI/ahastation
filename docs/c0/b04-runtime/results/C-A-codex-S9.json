@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S9",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + final-runtime",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:49:50.799Z",
+  "result": "not-supported",
+  "observed": "adapter emits no usage signal (B06 gap: tokenCost hard-coded null)",
+  "evidence": [
+    "results/logs/C-A-codex-S9.json"
+  ]
+}

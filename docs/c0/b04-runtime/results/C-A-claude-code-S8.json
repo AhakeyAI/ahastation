@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "claude-code",
+  "scenario": "S8",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix",
+    "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:31:25.374Z",
+  "result": "pass",
+  "observed": "host process 8380 killed with its tree; resumed native session=true (ef69b1e6-73a9-42be-b39a-34c1d76e8236 -> ef69b1e6-73a9-42be-b39a-34c1d76e8236); child processes 3 -> 0; finished tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-A-claude-code-S8.json"
+  ]
+}

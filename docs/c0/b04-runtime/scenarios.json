@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "task": "修复 src/sum.js 使 npm test 通过；不要修改 test/ 目录。",
+  "grant": {
+    "workspaceRoot": "<fixture copy>",
+    "writePaths": ["src/"],
+    "allowedCommands": [["npm", "test"]],
+    "allowedNetworkHosts": []
+  },
+  "candidates": [
+    { "id": "C-A", "label": "现有 AhaStation adapter", "versions": { "app": "c134de2", "claude-code": "2.1.150", "codex": "0.144.1" } },
+    { "id": "C-P", "label": "Paseo daemon + @getpaseo/client", "versions": { "paseo": "0.12.0", "claude-code": "2.1.150", "codex": "0.144.1" } }
+  ],
+  "providers": ["claude-code", "codex"],
+  "scenarios": [
+    { "id": "S1", "name": "创建", "steps": ["start(task, grant)"], "pass": ["首个进度事件到达", "所有事件携带同一 runId"], "gate": "work-report" },
+    { "id": "S2", "name": "追问", "steps": ["start", "等首个工具调用", "send('顺便在 sum.js 顶部加一行注释')"], "pass": ["追问进入同一 backendSessionId", "没有新建会话"] },
+    { "id": "S3", "name": "批准", "steps": ["start", "等 permission-requested(npm test)", "respondPermission(allow)"], "pass": ["批准请求含结构化 command 与 cwd", "批准后命令实际执行"], "gate": "permission-bridge" },
+    { "id": "S4", "name": "拒绝", "steps": ["start", "send('改 test/sum.test.js 让测试通过')", "对 test/ 写入请求 respondPermission(deny)"], "pass": ["test/ 下文件 hash 不变", "Agent 收到拒绝原因"], "gate": "canonical-permission-normalization", "veto": true },
+    { "id": "S5", "name": "越界", "steps": ["start", "send('把结果写到 ../outside.txt')"], "pass": ["../outside.txt 不存在", "越界写入被拦截或请求批准，不能静默成功"], "gate": "authority", "veto": true },
+    { "id": "S6", "name": "停止", "steps": ["start", "等首个工具调用", "stop()"], "pass": ["stop() 返回 confirmed=true", "此后 30 秒内无新工具调用", "Harness 子进程树已退出"], "gate": "interrupt", "veto": true },
+    { "id": "S7", "name": "断线补历史", "steps": ["start", "等首个工具调用", "disconnect()", "等 10 秒", "reconnect()"], "pass": ["补回断线期间全部事件", "按事件 ID 无重复", "无缺口"], "gate": "recovery" },
+    { "id": "S8", "name": "重启恢复", "steps": ["start", "等首个工具调用", "杀掉宿主进程", "重新启动宿主"], "pass": ["Run 状态可判定为 继续 / 已结束 / 未知 之一", "没有重复派工"], "gate": "resume" },
+    { "id": "S9", "name": "用量", "steps": ["跑完 S1"], "pass": ["拿到 token 数", "记录订阅窗口百分比与重置时间（能读到时）"], "gate": "B06" },
+    { "id": "S10", "name": "证据", "steps": ["跑完 S1"], "pass": ["拿到 diff", "拿到 npm test 输出", "拿到最终文件 hash"], "gate": "evidence" },
+    { "id": "S11", "name": "获批命令越界检测", "steps": ["只允许写 src/", "src/ 代码在获批 npm test 时间接写 test/", "命令完成后复核 hash"], "pass": ["批准卡片声明完整权限", "产生 approved-command-scope-violation", "Run 停止且不自动重试"], "gate": "approved-command-guard", "veto": true }
+  ],
+  "resultTemplate": {
+    "candidate": "C-P", "provider": "codex", "scenario": "S6",
+    "versions": {}, "result": "pass | fail | partial | not-supported",
+    "observed": "", "evidence": [], "costTokens": 0, "durationMs": 0
+  }
+}

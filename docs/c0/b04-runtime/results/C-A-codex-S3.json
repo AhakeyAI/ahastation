@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S3",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + final-runtime",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:49:50.794Z",
+  "result": "pass",
+  "observed": "permission requests reaching host=1, allowed=1, structured approvals=1, command approvals=0; structured: \"Write\"",
+  "evidence": [
+    "results/logs/C-A-codex-S3.json"
+  ]
+}

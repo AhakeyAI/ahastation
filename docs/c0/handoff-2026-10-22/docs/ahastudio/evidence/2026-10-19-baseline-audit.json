@@ -1,0 +1,145 @@
+{
+  "asOf": "2026-10-19",
+  "sourceSha": "bb765223e34cd2ca7c08052cd24b34e9f7bd84ac",
+  "packageVersion": "0.18.4",
+  "nodeVersion": "v25.9.0",
+  "npmVersion": "11.12.1",
+  "trackedLockSha256": "805928d94f14826c88b04518e896592eaa5aaf50177aa5fbfc9b6318547fb672",
+  "workingLockSha256": "322c954250c036de03673e7d4efbdc15ebd5b171187d0faa56c8fe71a9112703",
+  "method": "git archive HEAD to isolated temporary directory; symlink existing node_modules; run typecheck, build, default tests sequentially; then copy two ignored local fixtures and rerun observe-kimi only",
+  "commands": [
+    "npm run typecheck",
+    "npm run build",
+    "npm test",
+    "node --test --test-timeout=120000 --import <same electron-stub loader as package.json> tests/observe-kimi.test.mjs"
+  ],
+  "results": {
+    "typecheck": {
+      "exitCode": 0,
+      "sha256": "f7232b68ec8a64ec23e7bd1b61c80dcbe32dbf4b684f2582da3aebf45701e593",
+      "summary": {}
+    },
+    "build": {
+      "exitCode": 0,
+      "sha256": "13a4caee16b3ce412464e91468430ce8f0de98e4d8bf37ba0e5f9e89c8b1cb68",
+      "summary": {}
+    },
+    "tests": {
+      "exitCode": 1,
+      "sha256": "206cee310174e162ccbb429ca98af9fe9fd9e094a6d5ebd6362443a5aa14e266",
+      "summary": {
+        "tests": 888,
+        "suites": 0,
+        "pass": 871,
+        "fail": 16,
+        "cancelled": 0,
+        "skipped": 1,
+        "todo": 0
+      }
+    },
+    "kimi-local-fixtures": {
+      "exitCode": 0,
+      "sha256": "875824375b999c5525c422b00d98afb6a8a86eebb47cfbbeaf71b5f43a2d37ef",
+      "summary": {
+        "tests": 14,
+        "suites": 0,
+        "pass": 14,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    }
+  },
+  "defaultSuiteFailures": [
+    {
+      "location": "tests/backend-capability-gates.test.mjs:124:1",
+      "test": "a plan cannot select a backend that cannot execute delivery tasks"
+    },
+    {
+      "location": "tests/backend-capability-gates.test.mjs:147:1",
+      "test": "unknown executor backends fail instead of silently falling back to Claude"
+    },
+    {
+      "location": "tests/backend-task-profile.test.mjs:199:1",
+      "test": "scheduler persists effective profile before workspace and session"
+    },
+    {
+      "location": "tests/collaboration-vertical-slice.test.mjs:264:1",
+      "test": "injected-review orchestration drives the complete multi-backend Meeting workflow"
+    },
+    {
+      "location": "tests/meeting-command.test.mjs:15:1",
+      "test": "coordinator can propose a bounded validated plan"
+    },
+    {
+      "location": "tests/multi-backend-worker-smoke.test.mjs:110:1",
+      "test": "one meeting spawns four backend workers in parallel"
+    },
+    {
+      "location": "tests/multi-backend-worker-smoke.test.mjs:216:1",
+      "test": "orchestrator keeps renderer worker-eventId identical to events.jsonl"
+    },
+    {
+      "location": "tests/observe-kimi.test.mjs:106:1",
+      "test": "kimi parse: state.json title wins, provenance session-index"
+    },
+    {
+      "location": "tests/observe-kimi.test.mjs:121:1",
+      "test": "kimi parse: empty title falls back to lastPrompt"
+    },
+    {
+      "location": "tests/observe-kimi.test.mjs:293:1",
+      "test": "correlate: kimi rows — titles, states, noise, unknown without pid"
+    },
+    {
+      "location": "tests/observe-kimi.test.mjs:360:1",
+      "test": "ObserveService.tickOnce: kimi sessions with cwd-associated pids"
+    },
+    {
+      "location": "tests/permission-approval-memory.test.mjs:243:1",
+      "test": "a task-wide allow extends addendum and fingerprints to same-root peers"
+    },
+    {
+      "location": "tests/plan-task-profile.test.mjs:73:1",
+      "test": "legacy plan tasks normalize with conservative non-command authority"
+    },
+    {
+      "location": "tests/task-authority.test.mjs:507:1",
+      "test": "scheduler persists canonical allow before resolving the backend request"
+    },
+    {
+      "location": "tests/task-authority.test.mjs:624:1",
+      "test": "repeated identical authority denials fail the worker instead of burning budget"
+    },
+    {
+      "location": "tests/task-authority.test.mjs:979:1",
+      "test": "distinct denied requests do not accumulate one exhaustion streak"
+    }
+  ],
+  "localFixtures": [
+    {
+      "path": "tests/fixtures/observe/home/.kimi-code/sessions/wd_project-beta_b2c3d4e5f6a7/session_e1a00000-0000-4000-8000-0000000000b2/logs/kimi-code.log",
+      "sha256": "42deac990696055597c7252d1710810dc8356e5bc9d33944db21e19f575eb1fe",
+      "tracked": false,
+      "ignoredBy": "*.log"
+    },
+    {
+      "path": "tests/fixtures/observe/home/.kimi-code/sessions/wd_project-alpha_a1b2c3d4e5f6/session_e1a00000-0000-4000-8000-0000000000b1/logs/kimi-code.log",
+      "sha256": "af36e354890ec8d31e5443c89fb5bf43ec98c9f970e1930e1cb6cdf39e5d48b1",
+      "tracked": false,
+      "ignoredBy": "*.log"
+    }
+  ],
+  "interpretation": "Default tracked-file suite has 16 failures. Adding two fixtures makes all 14 Kimi tests pass, including the 4 original Kimi failures. The other 12 original failures remain unresolved; the full suite after adding fixtures was not rerun in this audit.",
+  "g0Passed": false,
+  "notVerified": [
+    "npm ci from tracked lockfile",
+    "real paid Workers",
+    "runtime app interaction",
+    "signed/notarized DMG",
+    "non-development machine installation"
+  ],
+  "rawLogRetention": "Temporary local directory only; summary and log hashes retained here. Raw log availability is not guaranteed.",
+  "rawLogDirectory": "/var/folders/d9/v_g81yq92q1_jcxnkcfljc3c0000gn/T/ahastudio-plan-audit-20261019-8uanpbyo"
+}

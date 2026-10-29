@@ -1,0 +1,88 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "HOST",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + final-runtime",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-26T01:50:37.601Z",
+  "result": "pass",
+  "observed": "turnStatusCompleted=1 messageEvents=1 discoveredModels=3; Host turn-status completed is terminal",
+  "models": [
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.2"
+  ],
+  "events": [
+    {
+      "at": 13286,
+      "kind": "turn-status",
+      "status": "started"
+    },
+    {
+      "at": 48641,
+      "kind": "message",
+      "type": "assistant"
+    },
+    {
+      "at": 49504,
+      "kind": "turn-status",
+      "status": "completed"
+    }
+  ],
+  "protocolUsage": [
+    {
+      "method": "thread/tokenUsage/updated",
+      "params": {
+        "threadId": "01a175e5-3081-71d1-a8cd-c1dd4b243e01",
+        "turnId": "01a175e5-3263-7cc3-8422-14e121c05b72",
+        "tokenUsage": {
+          "total": {
+            "totalTokens": 16838,
+            "inputTokens": 16832,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 6,
+            "reasoningOutputTokens": 0
+          },
+          "last": {
+            "totalTokens": 16838,
+            "inputTokens": 16832,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 6,
+            "reasoningOutputTokens": 0
+          },
+          "modelContextWindow": 258400
+        }
+      }
+    },
+    {
+      "method": "account/rateLimits/updated",
+      "params": {
+        "rateLimits": {
+          "limitId": "codex",
+          "limitName": null,
+          "normalModelSlug": null,
+          "primary": {
+            "usedPercent": 20,
+            "windowDurationMins": 10080,
+            "resetsAt": 1793518095
+          },
+          "secondary": null,
+          "credits": {
+            "hasCredits": false,
+            "unlimited": false,
+            "balance": "0"
+          },
+          "individualLimit": null,
+          "spendControlReached": null,
+          "planType": "prolite",
+          "rateLimitReachedType": null
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S3",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T04:17:26.478Z",
+  "result": "pass",
+  "observed": "permission requests reaching host=9, allowed=9, command approvals=8; structured: \"Bash\"",
+  "evidence": [
+    "results/logs/C-A2-codex-S3.json"
+  ]
+}
