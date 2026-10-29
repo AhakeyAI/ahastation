@@ -2631,18 +2631,19 @@ class MeetingStore {
         ...w,
         activity: appendCapped(
           w.activity,
-          [{ id: uid(), kind: 'system', title: 'Worker turn complete', detail: msg?.subtype ?? '', ts: Date.now(), source }],
+          [{ id: uid(), kind: 'system', title: '本轮完成', detail: msg?.subtype ?? '', ts: Date.now(), source }],
           MAX_ACTIVITY,
         ),
       }));
       return;
     }
-    if (type === 'system') {
+    // thinking_tokens is a high-frequency progress counter, not activity.
+    if (type === 'system' && msg?.subtype !== 'thinking_tokens') {
       this.updateWorker(slot, source, (w) => ({
         ...w,
         activity: appendCapped(
           w.activity,
-          [{ id: uid(), kind: 'system', title: 'System', detail: msg?.subtype ?? '', ts: Date.now(), source }],
+          [{ id: uid(), kind: 'system', title: '系统', detail: msg?.subtype ?? '', ts: Date.now(), source }],
           MAX_ACTIVITY,
         ),
       }));
