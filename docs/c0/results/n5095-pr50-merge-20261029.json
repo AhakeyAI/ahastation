@@ -5,7 +5,7 @@
   "state": "merged",
   "mergeCommit": "b571b2ca28e4998854ef0a33a8db840f8db230c0",
   "mainCiRun": 40895162845,
-  "mainCiStatus": "in_progress",
+  "mainCiStatus": "blocked-runner-provisioning; attempts 1 and 2 produced no job steps",
   "pr56": {
     "state": "open",
     "baseRefName": "docs/c0-handoff-2026-10-22",
