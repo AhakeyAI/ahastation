@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 let server,browser,origin;
 before(async()=>{const reservation=reserveSocket();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));server=await createServer({server:{watch:null,host:'127.0.0.1',port,strictPort:true,open:false},logLevel:'error'});await server.listen();origin='http://127.0.0.1:'+server.httpServer.address().port;browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});});
 after(async()=>{await browser?.close();await server?.close();});
-async function page(){const p=await browser.newPage({viewport:{width:1408,height:810}});await p.goto(origin+'/?ui-fixture=unified',{waitUntil:'domcontentloaded',timeout:60000});await p.getByRole('button',{name:'Chat',exact:true}).first().click({timeout:60000});return p;}
+async function page(){const p=await browser.newPage({viewport:{width:1408,height:810}});await p.goto(origin+'/?ui-fixture=unified',{waitUntil:'domcontentloaded',timeout:60000});await p.getByRole('button',{name:'对话',exact:true}).first().click({timeout:60000});return p;}
 async function delaySends(p){await p.evaluate(()=>{window.__sends=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command'&&p?.action==='message.send'){window.__sends.push(p);await new Promise(r=>setTimeout(r,700));}return original(a,p);};});}
 async function capture(p,name){if(process.env.STATION_UI_EVIDENCE_DIR){await mkdir(process.env.STATION_UI_EVIDENCE_DIR,{recursive:true});await p.screenshot({path:join(process.env.STATION_UI_EVIDENCE_DIR,name+'.png')});}}
 
