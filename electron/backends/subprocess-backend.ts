@@ -345,8 +345,14 @@ export function resolveBinaryFromPath(binaryName: string): string | null {
       stdio: ['pipe', 'pipe', 'ignore'],
       env: { ...process.env, PATH: augmentedPath() },
     });
-    const found = result.trim().split('\n')[0]?.trim();
-    if (found && existsSync(found)) return found;
+    // npm installs a Unix Shell script beside its Windows .cmd launcher;
+    // `where` can list that extensionless script first. It is not a Win32
+    // executable (ConPTY fails asynchronously with error 193). Keep PATH
+    // order, but only select launchers supported on the current platform.
+    const found = result.split(/\r?\n/).map((line) => line.trim()).find((candidate) =>
+      (process.platform !== 'win32' || /\.(exe|com|cmd|bat)$/i.test(candidate))
+      && existsSync(candidate));
+    if (found) return found;
   } catch { /* not found in PATH */ }
 
   // 2. Known install locations (platform-specific)
@@ -363,13 +369,10 @@ export function resolveBinaryFromPath(binaryName: string): string | null {
       // npm global installs (multiple extensions)
       `${process.env.APPDATA}\\npm\\${binaryName}.cmd`,
       `${process.env.APPDATA}\\npm\\${binaryName}.exe`,
-      `${process.env.APPDATA}\\npm\\${binaryName}.ps1`,
       // Scoop shims
       `${home}\\scoop\\shims\\${binaryName}.exe`,
       `${home}\\scoop\\apps\\${binaryName}\\current\\${binaryName}.exe`,
-      // Kimi installer canonical location (also used by WSL-compatible
-      // Windows developer installs which may ship an extensionless shim).
-      `${home}\\.kimi-code\\bin\\${binaryName}`,
+      // Kimi installer canonical native Windows executable.
       `${home}\\.kimi-code\\bin\\${binaryName}.exe`,
       // Chocolatey
       `C:\\ProgramData\\chocolatey\\bin\\${binaryName}.exe`,
