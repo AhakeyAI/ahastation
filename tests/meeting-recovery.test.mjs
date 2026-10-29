@@ -11,6 +11,15 @@ import { MeetingRepository } from '../dist-electron/meeting-repository.js';
 import { Orchestrator } from '../dist-electron/orchestrator.js';
 import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
 import { getBackendRegistry, resetBackendRegistry } from '../dist-electron/backends/registry.js';
+import { testMeetingsPath } from './electron-stub-impl.mjs';
+
+async function waitForEvent(predicate, message) {
+  const deadline = Date.now() + 10_000;
+  while (!predicate()) {
+    if (Date.now() > deadline) assert.fail(message);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 function fakeSessionFactory() {
   return {
@@ -60,7 +69,7 @@ test('recoverable snapshots convert running tasks to interrupted without replayi
     assert.equal(recovered.state.tasks[0].status, 'interrupted');
     assert.equal(recovered.state.hosts[0].backendSession.sessionId, 'thread-1');
   } finally {
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -75,7 +84,7 @@ test('recovered repositories continue the durable event sequence', async () => {
     await resumed.append('meeting-recovered', {});
     assert.deepEqual((await MeetingRepository.replay(meetingId)).map((event) => event.seq), [1, 2]);
   } finally {
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -98,7 +107,7 @@ test('user-confirmed recovery projects interrupted tasks but spawns no workers',
     assert.equal(events.some((event) => event.event.kind === 'worker-spawned'), false);
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -131,7 +140,7 @@ test('the user can explicitly resolve or restart an interrupted task', async () 
     assert.equal(latestPlan.event.plan.nodes.some((node) => node.id === 'retry-task'), true);
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -279,7 +288,7 @@ test('canonical WorkerEvent and delivery state are journaled before renderer emi
     )), true);
     await orchestrator.snapshotActiveMeeting();
     const snapshot = JSON.parse(
-      readFileSync(`/tmp/meetings/${meetingId}/snapshot.json`, 'utf8'),
+      readFileSync(`${testMeetingsPath(meetingId)}/snapshot.json`, 'utf8'),
     );
     assert.equal(snapshot.schemaVersion, 3);
     assert.equal(snapshot.state.coordinatorHostId, 'default');
@@ -300,7 +309,7 @@ test('canonical WorkerEvent and delivery state are journaled before renderer emi
     await orchestrator.end();
     await rm(worktreeRoot, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -321,7 +330,7 @@ test('recovery sequence advances past journal events written after the last snap
       [1, 2, 3],
     );
   } finally {
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -344,7 +353,7 @@ test('a durable accepted task never regresses because of a late plan event', asy
       .find((entry) => entry.meetingId === meetingId);
     assert.equal(recovered.state.tasks[0].status, 'accepted');
   } finally {
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -388,7 +397,7 @@ test('only explicit read-only running tasks auto-resume after durable authorizat
     assert.ok(authorization.seq < spawned.seq);
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -432,7 +441,7 @@ test('side-effecting recovered tasks send no Backend prompt before user confirma
     );
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -443,7 +452,7 @@ const snapshotTmps = (dir) => readdirSync(dir).filter((name) => /^snapshot\.json
 
 test('snapshot replaces atomically and reaps only stale orphan tmp files', async () => {
   const meetingId = `snapshot-tmp-${randomUUID()}`;
-  const dir = `/tmp/meetings/${meetingId}`;
+  const dir = `${testMeetingsPath(meetingId)}`;
   try {
     const repository = new MeetingRepository(meetingId);
     await repository.snapshot({ status: 'active', cwd: '/workspace', hosts: [], tasks: [] });
@@ -471,7 +480,7 @@ test('snapshot replaces atomically and reaps only stale orphan tmp files', async
 
 test('listRecoverable falls back to the newest snapshot tmp when the rename never landed', async () => {
   const meetingId = `snapshot-orphan-${randomUUID()}`;
-  const dir = `/tmp/meetings/${meetingId}`;
+  const dir = `${testMeetingsPath(meetingId)}`;
   try {
     // Crash window reproduction: a fully serialized tmp, no snapshot.json.
     mkdirSync(dir, { recursive: true });
@@ -499,7 +508,7 @@ test('listRecoverable falls back to the newest snapshot tmp when the rename neve
 
 test('listRecoverable rebuilds an active meeting from the journal when no projection exists', async () => {
   const meetingId = `journal-fallback-${randomUUID()}`;
-  const dir = `/tmp/meetings/${meetingId}`;
+  const dir = `${testMeetingsPath(meetingId)}`;
   try {
     // Crash before the first snapshot save: only the journal exists.
     const repository = new MeetingRepository(meetingId);
@@ -528,7 +537,7 @@ test('listRecoverable rebuilds an active meeting from the journal when no projec
 
 test('a journal without a cwd anchor is not offered for recovery', async () => {
   const meetingId = `journal-anchorless-${randomUUID()}`;
-  const dir = `/tmp/meetings/${meetingId}`;
+  const dir = `${testMeetingsPath(meetingId)}`;
   try {
     const repository = new MeetingRepository(meetingId);
     await repository.append('meeting-created', {});
@@ -613,13 +622,13 @@ test('recovery re-adds invited host groups like live invites', async () => {
     );
     // addHost snapshots after the handshake, so by the time session-ready
     // was emitted the expert's live session handle is durable.
-    const snapshot = JSON.parse(readFileSync(`/tmp/meetings/${meetingId}/snapshot.json`, 'utf8'));
+    const snapshot = JSON.parse(readFileSync(`${testMeetingsPath(meetingId)}/snapshot.json`, 'utf8'));
     const expert = snapshot.state.hosts.find((host) => host.id === 'expert');
     assert.equal(expert.backendId, 'claude-code');
     assert.equal(expert.backendSession.sessionId, 'thread-recovered');
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
     await rm(runtime.dir, { recursive: true, force: true });
   }
 });
@@ -658,13 +667,13 @@ test('a re-added host still mid-handshake keeps its recovered resume handle', as
     await orchestrator.start();
     // start()'s closing snapshot ran while the expert had no live session
     // yet; the recovered handle must survive rather than being blanked out.
-    const snapshot = JSON.parse(readFileSync(`/tmp/meetings/${meetingId}/snapshot.json`, 'utf8'));
+    const snapshot = JSON.parse(readFileSync(`${testMeetingsPath(meetingId)}/snapshot.json`, 'utf8'));
     const expert = snapshot.state.hosts.find((host) => host.id === 'expert');
     assert.ok(expert, 're-added expert missing from the snapshot hosts list');
     assert.equal(expert.backendSession.sessionId, 'thread-expert');
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
     await rm(runtime.dir, { recursive: true, force: true });
   }
 });
@@ -735,26 +744,25 @@ test('terminal hosts use the renderer session scope and normalize process failur
       kind: 'worker-signal',
       signal: { kind: 'failed', code: 'runtime-crash', message: 'qoder crashed', retryable: true },
     });
-    // safeEmit appends to the journal before the emit callback fires;
-    // let the async append settle before asserting.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.ok(events.some((item) => (
+    await waitForEvent(() => events.some((item) => (
       item.hostId === 'qoder'
       && item.event.kind === 'error'
       && item.event.error === 'qoder crashed'
     )), 'error event for terminal failure');
-    assert.ok(events.some((item) => (
+    await waitForEvent(() => events.some((item) => (
       item.hostId === 'qoder'
       && item.event.kind === 'turn-status'
       && item.event.status === 'completed'
-    )));
+    )), 'turn-status completed event');
 
     terminalEmit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.ok(events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'), 'ended event');
+    await waitForEvent(
+      () => events.some((item) => item.hostId === 'qoder' && item.event.kind === 'ended'),
+      'ended event',
+    );
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
     await rm(runtime.dir, { recursive: true, force: true });
   }
 });

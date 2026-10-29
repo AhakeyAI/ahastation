@@ -5,6 +5,7 @@
 
 import { createRequire } from 'node:module';
 import { getSettings } from './store.js';
+import { getBackendRegistry } from './backends/registry.js';
 
 const require_ = createRequire(import.meta.url);
 
@@ -41,6 +42,19 @@ function detectLanguage(text: string): 'zh' | 'en' {
   return cjk > latin * 0.3 ? 'zh' : 'en';
 }
 
+export function selectAsrPolishModel(
+  configuredModel: string | undefined,
+  availableModels: readonly string[] | undefined,
+): string | null {
+  const configured = configuredModel?.trim();
+  if (configured) return configured;
+  const models = (availableModels ?? []).map((model) => model.trim()).filter(Boolean);
+  return models.find((model) => model === 'sonnet')
+    ?? models.find((model) => model.toLowerCase().includes('sonnet'))
+    ?? models[0]
+    ?? null;
+}
+
 function getClientAndModel(): { client: AnthropicClient; model: string } | null {
   const settings = getSettings();
   if (settings.authMode !== 'apikey' || !settings.anthropicApiKey) return null;
@@ -52,7 +66,11 @@ function getClientAndModel(): { client: AnthropicClient; model: string } | null 
       apiKey: settings.anthropicApiKey,
       baseURL: settings.anthropicBaseUrl || undefined,
     });
-    const model = settings.anthropicModel || 'claude-sonnet-4-20250514';
+    const model = selectAsrPolishModel(
+      settings.anthropicModel,
+      getBackendRegistry().get('claude-code')?.capabilities.models,
+    );
+    if (!model) return null;
     return { client, model };
   } catch (err) {
     console.warn('[asr-polish] failed to load Anthropic SDK:', err);

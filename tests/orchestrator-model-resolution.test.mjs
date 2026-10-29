@@ -15,10 +15,9 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { Orchestrator } from '../dist-electron/orchestrator.js';
 import { getBackendRegistry } from '../dist-electron/backends/registry.js';
 import { setBackendAuth, updateSettings } from '../dist-electron/store.js';
+import { testSettingsPath } from './electron-stub-impl.mjs';
 
-// The electron stub maps userData to /tmp, so the store reads/writes
-// /tmp/settings.json in tests. Preserve any pre-existing file across the run.
-const SETTINGS_PATH = '/tmp/settings.json';
+const SETTINGS_PATH = testSettingsPath();
 
 function preserveSettingsFile(t) {
   const prior = existsSync(SETTINGS_PATH) ? readFileSync(SETTINGS_PATH) : null;
@@ -58,7 +57,7 @@ function effectiveProfile(model, backendId = 'codex') {
   return {
     schemaVersion: 1,
     backendId,
-    runtimeVersion: '0.144.1',
+    runtimeVersion: '0.156.1',
     model,
     unsupported: [],
     downgraded: [],

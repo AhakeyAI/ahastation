@@ -100,6 +100,9 @@ export function buildCliArgs(
   if (options.settingSources !== undefined) {
     args.push(`--setting-sources=${options.settingSources.join(',')}`);
   }
+  if (typeof options.settingsPath === 'string' && options.settingsPath) {
+    args.push('--settings', options.settingsPath);
+  }
   if (options.permissionMode) args.push('--permission-mode', options.permissionMode);
   if (extra.hasCanUseTool) args.push('--permission-prompt-tool', 'stdio');
   return args;

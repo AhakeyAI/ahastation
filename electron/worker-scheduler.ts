@@ -61,6 +61,7 @@ import {
   type TaskWorkspaceManager,
 } from './task-workspace.js';
 import { snapshotDeliveryFiles } from './delivery-snapshot.js';
+import { ApprovedCommandGuard } from './approved-command-guard.js';
 import {
   compileContextPackage,
   freezeContextPackage,
@@ -4377,6 +4378,15 @@ export class WorkerScheduler {
       const sessionFactory = this.opts.resolveSessionFactory?.(handle.backendId)
         ?? this.opts.sessionFactory;
       const sessionAttempt = handle.attempt;
+      const approvedCommandGuard = handle.backendId === 'codex' && handle.authorityGrant
+        ? new ApprovedCommandGuard({
+            workspaceRoot: workerCwd,
+            writePaths: () => [
+              ...(handle.authorityGrant?.writePaths ?? []),
+              ...(handle.authorityAddendum?.writePaths ?? []),
+            ],
+          })
+        : undefined;
       handle.session = sessionFactory({
         cwd: workerCwd,
         autoApproveScope: handle.authorityGrant ? 'off' : this.autoApproveScope,
@@ -4395,6 +4405,7 @@ export class WorkerScheduler {
           // Terminal-mode adapters key their pty on the worker id so the
           // renderer stage terminal can attach; SDK adapters ignore it.
           workerId: handle.id,
+          ...(approvedCommandGuard ? { approvedCommandGuard } : {}),
           ...(handle.backendSession?.sessionId
             ? { resumeSessionId: handle.backendSession.sessionId }
             : {}),

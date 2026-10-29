@@ -122,6 +122,13 @@ export type UserContentBlock =
 // ── Session configuration ──────────────────────────────────────────────────────
 // Passed to `CliBackend.createSession()` to configure a new session.
 
+export interface ApprovedCommandBoundaryGuard {
+  before(commandId: string): Promise<void>;
+  after(commandId: string): Promise<void>;
+  cancel(commandId: string): void;
+  clear(): void;
+}
+
 export interface BackendSessionConfig {
   /** Working directory for the session. */
   cwd: string;

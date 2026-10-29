@@ -2,8 +2,17 @@
 // imports touch at module load time. The test never reaches code that calls
 // these — they exist only so `import { app } from 'electron'` resolves.
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+export const TEST_USER_DATA_DIR = mkdtempSync(join(tmpdir(), 'ahastation-electron-stub-'));
+export const testMeetingsPath = (meetingId) => join(TEST_USER_DATA_DIR, 'meetings', meetingId);
+export const testSettingsPath = () => join(TEST_USER_DATA_DIR, 'settings.json');
+process.once('exit', () => rmSync(TEST_USER_DATA_DIR, { recursive: true, force: true }));
+
 export const app = {
-  getPath: () => '/tmp',
+  getPath: () => TEST_USER_DATA_DIR,
   isPackaged: false,
 };
 export const ipcMain = { handle: () => {}, on: () => {} };

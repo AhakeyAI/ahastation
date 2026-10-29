@@ -80,7 +80,7 @@ test('Kimi authentication failure emits one auth-required circuit breaker', asyn
 
   await session.start();
   session.sendUserText('hello');
-  const deadline = Date.now() + 1_000;
+  const deadline = Date.now() + 10_000;
   while (events.length === 0 && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

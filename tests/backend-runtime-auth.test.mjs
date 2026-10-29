@@ -77,7 +77,7 @@ test('Codex auth status accepts a successful CLI status probe', async () => {
 test('Codex auth status trusts exit zero when the CLI writes success to stderr', async () => {
   const backend = new CodexBackend({
     resolveBinary: () => '/fake/codex',
-    // Codex 0.144.1 writes "Logged in using ChatGPT" to stderr, so
+    // Codex 0.156.1 writes "Logged in using ChatGPT" to stderr, so
     // execFileSync returns an empty stdout string on a successful probe.
     execFile: () => '',
   });

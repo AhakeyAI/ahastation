@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { terminateProcessTree } from './process-tree.js';
 
 export interface CodexAppServerNotification {
   method: string;
@@ -20,7 +21,34 @@ export interface CodexAppServerReady {
   account: Record<string, unknown>;
 }
 
-export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.144.1';
+export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.156.1';
+
+// A-14/G8: the gate is a verified interval, not a single pinned version.
+// Stable releases inside the interval are accepted; anything older or newer
+// is rejected until the weekly handshake and adapter contracts re-validate it.
+export const CODEX_APP_SERVER_MIN_VERSION = '0.156.1';
+export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = '0.157.0';
+
+function parseCodexVersion(version: string): [number, number, number] | null {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function compareCodexVersions(left: [number, number, number], right: [number, number, number]): number {
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] - right[i];
+  }
+  return 0;
+}
+
+export function isSupportedCodexAppServerVersion(version: string | null): boolean {
+  if (!version) return false;
+  const parsed = parseCodexVersion(version);
+  const min = parseCodexVersion(CODEX_APP_SERVER_MIN_VERSION);
+  const max = parseCodexVersion(CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION);
+  if (!parsed || !min || !max) return false;
+  return compareCodexVersions(parsed, min) >= 0 && compareCodexVersions(parsed, max) < 0;
+}
 
 /** True when the subprocess env carries an explicit OpenAI-compatible API key. */
 export function hasCodexApiKeyCredentials(env: NodeJS.ProcessEnv | undefined): boolean {
@@ -28,6 +56,7 @@ export function hasCodexApiKeyCredentials(env: NodeJS.ProcessEnv | undefined): b
 }
 
 interface AppServerProcess {
+  readonly pid?: number;
   stdin: { write(data: string): unknown; end?(): unknown };
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -86,10 +115,10 @@ export class CodexAppServerTransport {
     });
     const userAgent = String(initialized.userAgent ?? '');
     const runtimeVersion = extractCodexRuntimeVersion(userAgent);
-    if (runtimeVersion !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+    if (!isSupportedCodexAppServerVersion(runtimeVersion)) {
       throw new Error(
         `Unsupported Codex app-server runtime ${runtimeVersion ?? 'unknown'}; `
-        + `AhaStation requires ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+        + `AhaStation supports >=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}`,
       );
     }
     this.notify('initialized');
@@ -145,7 +174,7 @@ export class CodexAppServerTransport {
     }
     this.pending.clear();
     this.process?.stdin.end?.();
-    this.process?.kill('SIGTERM');
+    if (this.process) terminateProcessTree(this.process);
     this.process = null;
   }
 
