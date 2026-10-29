@@ -13578,3 +13578,26 @@ html.ahabar-view #root {
 .composer-tool.is-danger { border-color: color-mix(in srgb, var(--aha-danger) 50%, transparent); color: var(--aha-danger); }
 .aha-topbar .mtg-approve-toggle { height: 30px; }
 .settings-window-body .drawer-settings > * + .drawer-settings-row { margin-top: 18px; }
+
+/* Full-window overlays sit above drag regions (.join-screen, .aha-topbar…).
+   Electron only subtracts no-drag elements from the draggable area, so an
+   overlay without it leaves its buttons inside the OS drag region and clicks
+   never arrive (探索页的关闭按钮就是这样失效的). */
+.aha-modal-backdrop,
+.aha-onboarding,
+.aha-explore,
+.ui-modal-backdrop,
+.settings-modal-backdrop,
+.img-preview-backdrop,
+.picker-backdrop,
+.modal-backdrop,
+.plan-modal-backdrop,
+.perm-modal-backdrop,
+.editor-overlay,
+.dirpicker-backdrop,
+.onboarding-overlay { -webkit-app-region: no-drag; }
+.aha-explore-head { -webkit-app-region: drag; }
+.aha-explore-head button { -webkit-app-region: no-drag; }
+/* The close/minimize prompt blocks the window close until answered, so it
+   must sit above every overlay (探索页 350, onboarding, modals). */
+.minimize-prompt-backdrop { z-index: 1050; }

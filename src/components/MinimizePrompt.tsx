@@ -33,7 +33,7 @@ export function MinimizePrompt() {
   };
 
   return (
-    <div className="perm-modal-backdrop" role="dialog" aria-modal="true" aria-label="开启 AhaBar 提醒？">
+    <div className="perm-modal-backdrop minimize-prompt-backdrop" role="dialog" aria-modal="true" aria-label="开启 AhaBar 提醒？">
       <div className="perm-modal minimize-prompt">
         <h3 className="minimize-prompt-title">开启 AhaBar 提醒？</h3>
         <p className="minimize-prompt-copy">

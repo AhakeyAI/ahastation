@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { X } from 'lucide-react';
 
 interface ExplorePageProps {
@@ -9,11 +10,17 @@ interface ExplorePageProps {
  * 社区配置包。首版静态展示 + 「开发中」徽章，无后端依赖。
  */
 export function ExplorePage({ onClose }: ExplorePageProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div className="aha-explore" role="dialog" aria-label="探索">
       <header className="aha-explore-head">
         <h2 className="aha-explore-title">探索</h2>
-        <button type="button" className="aha-icon-btn" onClick={onClose} aria-label="关闭探索">
+        <button type="button" className="aha-icon-btn" onClick={onClose} aria-label="关闭探索" title="关闭（Esc）" autoFocus>
           <X size={16} />
         </button>
       </header>
