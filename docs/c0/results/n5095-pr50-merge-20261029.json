@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-29T14:48:22Z",
+  "pr": 50,
+  "state": "merged",
+  "mergeCommit": "b571b2ca28e4998854ef0a33a8db840f8db230c0",
+  "mainCiRun": 40895162845,
+  "mainCiStatus": "in_progress",
+  "pr56": {
+    "state": "open",
+    "baseRefName": "docs/c0-handoff-2026-10-22",
+    "mergeable": "MERGEABLE",
+    "note": "PR #56 did not automatically retarget to main after PR #50 merged; no automatic merge or base edit was performed."
+  }
+}
