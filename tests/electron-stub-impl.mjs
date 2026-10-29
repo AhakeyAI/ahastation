@@ -43,5 +43,6 @@ export const safeStorage = {
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };
 export const webContents = { fromId: () => null, getAllWebContents: () => [] };
+export const net = { fetch: (...args) => globalThis.fetch(...args) };
 
-export default { app, ipcMain, dialog, desktopCapturer, systemPreferences, shell, BrowserWindow, safeStorage, screen, nativeTheme, webContents };
+export default { app, ipcMain, dialog, desktopCapturer, systemPreferences, shell, BrowserWindow, safeStorage, screen, nativeTheme, webContents, net };

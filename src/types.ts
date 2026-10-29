@@ -1417,6 +1417,9 @@ export interface VibeMeetApi {
     close: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
     list: () => Promise<{ ok: true; windows: Array<{ hostId: string; backendId: string; sessionId: string; focused: boolean }> } | { ok: false; error: string }>;
   };
+  /** Per-agent subscription quota. Optional: an older preload without the
+   *  namespace degrades to an empty usage strip. */
+  rateLimits?: import('./lib/rate-limits').RateLimitsApi;
   ideRegistry: {
     list: () => Promise<{ ok: true; state: IdeRegistryState } | { ok: false; error: string }>;
     setDefault: (id: string) => Promise<{ ok: boolean; error?: string }>;

@@ -6,6 +6,7 @@ import { useCrossProjectTasks } from './hooks/useCrossProjectTasks';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useBrowser } from './hooks/useBrowser';
 import { useStageWindows } from './hooks/useStageWindows';
+import { BOARD_TAB_ID, stageWindowStore } from './lib/stage-window-store';
 import { cancelSpeech, isSpeechActive } from './hooks/useSpeech';
 import { useAsr } from './hooks/useAsr';
 import { useVoiceLock } from './hooks/useVoiceLock';
@@ -31,11 +32,11 @@ import { TabStrip } from './components/TabStrip';
 import { MeetingResumeBanner } from './components/MeetingResumeBanner';
 import { meetingAvailability } from './lib/meeting-availability';
 import { watchBackendList } from './lib/backend-refresh';
-import { MeetingHeader, type MeetingView } from './components/MeetingHeader';
+import { MeetingHeader } from './components/MeetingHeader';
 import { AppTopBar } from './components/AppTopBar';
 import { StatusBar } from './components/StatusBar';
 import { BroadcastStrip } from './components/BroadcastStrip';
-import { ObservedStrip } from './components/ObservedStrip';
+import { UsageStrip } from './components/UsageStrip';
 import { MeetingControls } from './components/MeetingControls';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { ExplorePage } from './components/ExplorePage';
@@ -105,7 +106,6 @@ export function App() {
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
   const [multiAgent, setMultiAgent] = useState(true);
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>('direct');
-  const [view, setView] = useState<MeetingView>('meeting');
   // P3 agent 详情面板（右侧滑出）：'user' 忽略，hostId/workerId 打开详情
   const [agentPanelId, setAgentPanelId] = useState<string | null>(null);
   // P6 探索页
@@ -173,35 +173,21 @@ export function App() {
     return active + (pendingPermission ? 1 : 0) + (workers.pendingPlan ? 1 : 0);
   }, [workers.plan, pendingPermission, workers.pendingPlan]);
 
-  // The embedded browser is a native WebContentsView painted above the
-  // renderer, so no amount of CSS can tuck it behind the task board. Drop it
-  // while the board is up; the request counter restores it once the board
-  // (and any other overlay) is gone.
-  useEffect(() => {
-    if (view !== 'tasks') return;
-    return requestHideBrowser();
-  }, [view]);
-
   const handleOpenTaskFromBoard = useCallback((sessionId: string, taskId: string) => {
     void meetingStore.setActive(sessionId);
     setTaskFocus((prev) => ({ taskId, seq: (prev?.seq ?? 0) + 1 }));
-    setView('meeting');
   }, []);
 
   const handleOpenPlanFromBoard = useCallback((sessionId: string) => {
     void meetingStore.setActive(sessionId);
-    setView('meeting');
   }, []);
 
   const enterBoardOnly = useCallback(() => {
     meetingStore.dismissRestoreHydration();
     setShowLobby(false);
     setBoardOnly(true);
-    setView('tasks');
+    void stageWindowStore.setActiveWindow(BOARD_TAB_ID);
   }, []);
-
-  /** 观察条点击 → 切到任务看板（观察会话的唯一操作面）。 */
-  const handleOpenTasksView = useCallback(() => setView('tasks'), []);
 
   const handleOnboardingFinish = useCallback((mode: OnboardingMode) => {
     setOnboardingMode(null);
@@ -781,7 +767,7 @@ export function App() {
   if (localTerminalOpen) {
     return <LocalTerminalWorkspace onBack={() => setLocalTerminalOpen(false)} />;
   }
-  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view={view} onView={setView} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={drawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
+  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view="meeting" onView={() => {}} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={drawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
 
   if (showLobby || (!hasTabs && !boardOnly)) {
     return (
@@ -804,7 +790,7 @@ export function App() {
 
   return (
     <div
-      className={`mtg${dragDrop.dropActive ? ' mtg-dropping' : ''}${view === 'tasks' ? ' is-tasks-view' : ''}`}
+      className={`mtg${dragDrop.dropActive ? ' mtg-dropping' : ''}`}
       onDragEnter={dragDrop.onDragEnter}
       onDragOver={dragDrop.onDragOver}
       onDragLeave={dragDrop.onDragLeave}
@@ -823,32 +809,23 @@ export function App() {
           onChangeAutoApproveScope={setAutoApproveScope}
           multiAgent={multiAgent}
           onToggleMultiAgent={toggleMultiAgent}
-          view={view}
-          onChangeView={setView}
-          attentionCount={attentionCount}
           settingsSlot={settingsSlot}
         />
       ) : (
         <AppTopBar
-          viewMode={view}
-          onChangeViewMode={setView}
-          attendCount={attentionCount}
           onOpenExplore={openExplore}
           onHome={goHome}
           settingsSlot={settingsSlot}
         />
       )}
 
-      {!handheld && view === 'meeting' && (
+      {!handheld && (
         <BroadcastStrip briefings={workers.coordinatorBriefings} onInterrupt={onBargeIn} />
       )}
 
-      {/* 「观察中」横条：会议模式下外部会话一览。挂在 BroadcastStrip 旁、
-          .mtg-main 之上 —— 不进 stage 的 CSS grid（行槽是固定的，插入会
-          挤压画廊/工作区布局）；空数据或老 preload 时组件自身不渲染。 */}
-      {!handheld && view === 'meeting' && (
-        <ObservedStrip onOpenTasks={handleOpenTasksView} />
-      )}
+      {/* 额度条：各 AI 剩余额度（对标 Orca 状态栏额度）。挂在 BroadcastStrip 旁、
+          .mtg-main 之上，不进 stage 的 CSS grid。外部会话改在任务看板里看。 */}
+      {!handheld && <UsageStrip />}
 
       <main className="mtg-main">
         <section className="stage-wrap">
@@ -899,6 +876,14 @@ export function App() {
             onBrowserForward={browser.goForward}
             onBrowserReload={browser.reload}
             customAvatars={customAvatars}
+            boardAttention={attentionCount}
+            boardContent={(
+              <TasksView
+                data={crossProjectTasks}
+                onOpenTask={handleOpenTaskFromBoard}
+                onOpenPlan={handleOpenPlanFromBoard}
+              />
+            )}
           />
         </section>
 
@@ -926,7 +911,7 @@ export function App() {
           forceParticipantsTab={openParticipantsTabSignal}
         />
 
-        {!handheld && view === 'meeting' && agentPanelData && (
+        {!handheld && agentPanelData && (
           <AgentDetailPanel
             worker={agentPanelData.worker}
             hostGroup={agentPanelData.hostGroup}
@@ -938,17 +923,6 @@ export function App() {
         )}
       </main>
 
-      {/* The board is a sibling rather than a replacement: unmounting
-          .mtg-main would tear down the stage's browser viewport ref and the
-          inspector's local state every time the user glances at their tasks. */}
-      {view === 'tasks' && (
-        <TasksView
-          data={crossProjectTasks}
-          onOpenTask={handleOpenTaskFromBoard}
-          onOpenPlan={handleOpenPlanFromBoard}
-        />
-      )}
-
       {toolbar}
 
       {!handheld && (
@@ -957,7 +931,6 @@ export function App() {
           activeTaskCount={activeTaskCount}
           cwd={cwd}
           startedAt={activeOpenedAt}
-          viewLabel={view === 'meeting' ? '会议模式' : '任务模式'}
         />
       )}
 

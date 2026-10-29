@@ -5,7 +5,7 @@
 import { browserStore } from './browser-store';
 import { terminalSessionStore } from './terminal-session-store';
 
-export type StageWindowType = 'activity' | 'browser' | 'terminal' | 'file';
+export type StageWindowType = 'board' | 'activity' | 'browser' | 'terminal' | 'file';
 
 export interface StageWindowOptions {
   workerId?: string;
@@ -41,11 +41,20 @@ function genId(): string {
   return `sw-${Date.now()}-${nextId++}`;
 }
 
-const ACTIVITY_TAB_ID = 'activity-default';
+export const BOARD_TAB_ID = 'board-default';
+export const ACTIVITY_TAB_ID = 'activity-default';
+
+/** Pinned tabs: the task board opens first; neither can be closed. */
+export function isPinnedStageWindow(id: string): boolean {
+  return id === BOARD_TAB_ID || id === ACTIVITY_TAB_ID;
+}
 
 const initialState: StageWindowState = {
-  windows: [{ id: ACTIVITY_TAB_ID, type: 'activity', title: '工作区' }],
-  activeWindowId: ACTIVITY_TAB_ID,
+  windows: [
+    { id: BOARD_TAB_ID, type: 'board', title: '任务看板' },
+    { id: ACTIVITY_TAB_ID, type: 'activity', title: '工作区' },
+  ],
+  activeWindowId: BOARD_TAB_ID,
 };
 
 class StageWindowStore {
@@ -72,8 +81,8 @@ class StageWindowStore {
   }
 
   async createWindow(type: StageWindowType, opts?: StageWindowOptions): Promise<void> {
-    if (type === 'activity') {
-      this.setActiveWindow(ACTIVITY_TAB_ID);
+    if (type === 'board' || type === 'activity') {
+      await this.setActiveWindow(type === 'board' ? BOARD_TAB_ID : ACTIVITY_TAB_ID);
       return;
     }
 
@@ -136,7 +145,7 @@ class StageWindowStore {
   }
 
   async closeWindow(id: string): Promise<void> {
-    if (id === ACTIVITY_TAB_ID) return;
+    if (isPinnedStageWindow(id)) return;
     const win = this.state.windows.find((w) => w.id === id);
     if (!win) return;
 
@@ -162,7 +171,7 @@ class StageWindowStore {
     if (newActiveId === id) {
       newActiveId = newWindows.length > 0
         ? newWindows[newWindows.length - 1].id
-        : ACTIVITY_TAB_ID;
+        : BOARD_TAB_ID;
     }
 
     this.update({ windows: newWindows, activeWindowId: newActiveId });

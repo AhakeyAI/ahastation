@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
-import { Activity, Globe, Terminal, FileText, X, Plus, SquareArrowOutUpRight } from 'lucide-react';
-import type { StageWindow, StageWindowType, StageWindowOptions } from '../lib/stage-window-store';
+import { Activity, Globe, Terminal, FileText, X, Plus, SquareArrowOutUpRight, LayoutGrid } from 'lucide-react';
+import { isPinnedStageWindow, type StageWindow, type StageWindowType, type StageWindowOptions } from '../lib/stage-window-store';
 import { requestHideBrowser } from '../lib/browser-store';
 import type { LocalCliInfo } from '../types';
 import { terminalSessionStore } from '../lib/terminal-session-store';
@@ -14,12 +14,14 @@ interface StageTabBarProps {
   onCreate: (type: StageWindowType, opts?: StageWindowOptions) => void;
   onPopOut?: (id: string) => void;
   localOnly?: boolean;
+  /** Pending-attention count shown on a tab (the board's 待处理 badge). */
+  badges?: Record<string, number>;
 }
 
-const ACTIVITY_TAB_ID = 'activity-default';
 const PHASE_LABELS = { starting: '启动中', running: '运行中', exited: '已退出', error: '错误', closing: '关闭中' };
 
 const ICON_MAP: Record<StageWindowType, typeof Globe> = {
+  board: LayoutGrid,
   activity: Activity,
   browser: Globe,
   terminal: Terminal,
@@ -34,6 +36,7 @@ export function StageTabBar({
   onCreate,
   onPopOut,
   localOnly = false,
+  badges,
 }: StageTabBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -111,7 +114,7 @@ export function StageTabBar({
       <div className="stage-tab-list" role="tablist" aria-label="工作区标签页">
         {windows.map((win) => {
           const Icon = ICON_MAP[win.type];
-          const isActivity = win.id === ACTIVITY_TAB_ID;
+          const isPinned = isPinnedStageWindow(win.id);
           const state = win.localCliId ? terminalSessionStore.getState(win.id) : null;
           return (
             <div
@@ -132,12 +135,15 @@ export function StageTabBar({
                 {win.localCliId ? <TerminalProfileIcon id={win.localCliId === 'shell' ? win.shellId : win.localCliId} size={14} /> : <Icon size={14} />}
               </span>
               <span className="stage-tab-title">{win.title}</span>
+              {(badges?.[win.id] ?? 0) > 0 && (
+                <span className="stage-tab-badge" aria-label={`${badges![win.id]} 项待处理`}>{badges![win.id]}</span>
+              )}
               {state && <span className={`stage-tab-status is-${state.error ? 'error' : state.phase}`}
                 aria-label={state.error ? '错误' : PHASE_LABELS[state.phase]}
                 title={state.error ?? (state.phase === 'exited' ? `退出码：${state.exitCode ?? '未知'}` : PHASE_LABELS[state.phase])}>
                 {state.error ? '错误' : PHASE_LABELS[state.phase]}
               </span>}
-              {!isActivity && !win.localCliId && onPopOut && (
+              {!isPinned && !win.localCliId && onPopOut && (
                 <button
                   type="button"
                   className="stage-tab-popout"
@@ -148,7 +154,7 @@ export function StageTabBar({
                   <SquareArrowOutUpRight size={11} />
                 </button>
               )}
-              {!isActivity && (
+              {!isPinned && (
                 <button
                   type="button"
                   className="stage-tab-close"

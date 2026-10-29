@@ -565,6 +565,7 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
     { registerOpenCodeEditorIpc },
     { registerIdeFilesIpc },
     { registerIdeRegistryIpc },
+    { registerRateLimitsIpc },
     { registerIdePtyIpc },
     { registerWorkerPtyIpc },
     { registerShellPtyIpc },
@@ -594,6 +595,7 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
     import('./ipc/opencode-editor.js'),
     import('./ipc/ide-files.js'),
     import('./ipc/ide-registry.js'),
+    import('./ipc/rate-limits.js'),
     import('./ipc/ide-pty.js'),
     import('./ipc/worker-pty.js'),
     import('./ipc/shell-pty.js'),
@@ -624,6 +626,7 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
   registerOpenCodeEditorIpc(ctx);
   registerIdeFilesIpc();
   registerIdeRegistryIpc(ctx);
+  registerRateLimitsIpc(ctx);
   registerIdePtyIpc(ctx);
   registerWorkerPtyIpc(ctx);
   registerShellPtyIpc(ctx);

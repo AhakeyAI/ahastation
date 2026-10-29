@@ -282,6 +282,16 @@ const api = {
     close: (hostId) => ipcRenderer.invoke('opencode-editor:close', { hostId }),
     list: () => ipcRenderer.invoke('opencode-editor:list'),
   },
+  // Per-agent subscription quota (Claude / Codex / Kimi) for the usage strip.
+  rateLimits: {
+    get: () => ipcRenderer.invoke('rate-limits:get'),
+    refresh: () => ipcRenderer.invoke('rate-limits:refresh'),
+    onUpdate: (cb) => {
+      const listener = (_, state) => cb(state);
+      ipcRenderer.on('rate-limits:update', listener);
+      return () => ipcRenderer.removeListener('rate-limits:update', listener);
+    },
+  },
   ideRegistry: {
     list: () => ipcRenderer.invoke('ide-registry:list'),
     setDefault: (id) => ipcRenderer.invoke('ide-registry:set-default', { id }),

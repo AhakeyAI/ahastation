@@ -10,8 +10,6 @@ interface StatusBarProps {
   cwd: string | null;
   /** 会议开始时间戳（ms）；计时 tick 由 ElapsedTime 自行驱动。 */
   startedAt: number | null;
-  /** 当前视图（会议/任务）。 */
-  viewLabel: string;
 }
 
 /**
@@ -20,7 +18,7 @@ interface StatusBarProps {
  * spawn 的 agent，无观察层接入前恒为「交互控制」以下的展示级徽章；
  * 观察层（M7）落地后按真实级别渲染。
  */
-export const StatusBar = memo(function StatusBar({ clientCount, activeTaskCount, cwd, startedAt, viewLabel }: StatusBarProps) {
+export const StatusBar = memo(function StatusBar({ clientCount, activeTaskCount, cwd, startedAt }: StatusBarProps) {
   return (
     <footer className="aha-statusbar">
       <span className="aha-statusbar-item aha-tnum">{clientCount} 个客户端连接中</span>
@@ -31,7 +29,6 @@ export const StatusBar = memo(function StatusBar({ clientCount, activeTaskCount,
       <ElapsedTime startedAt={startedAt} className="aha-statusbar-item aha-tnum" />
       <span className="aha-statusbar-spacer" />
       <span className="aha-statusbar-item">AhaTalk · 本地</span>
-      <span className="aha-level-pill aha-level-pill-meet">{viewLabel}</span>
       <span className="aha-level-pill aha-level-pill-info" title="当前可编排本会话内的 agent；外部会话观察（M7）开发中">
         交互控制
       </span>

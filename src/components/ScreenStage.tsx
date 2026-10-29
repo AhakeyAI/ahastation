@@ -20,7 +20,7 @@ import type {
   MeetingDelivery,
   MeetingPlan,
 } from '../types';
-import type { StageWindow, StageWindowType, StageWindowOptions } from '../lib/stage-window-store';
+import { ACTIVITY_TAB_ID, BOARD_TAB_ID, type StageWindow, type StageWindowType, type StageWindowOptions } from '../lib/stage-window-store';
 import { computeWorkerCapacity } from '../lib/worker-capacity';
 import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
 import { FileViewer } from './FileViewer';
@@ -93,9 +93,12 @@ interface ScreenStageProps {
   onBrowserReload?: (tabId: string) => void;
   /** Map of iconId → custom avatar data URL */
   customAvatars?: Map<string, string | null>;
+  /** Task board rendered by the pinned 「任务看板」 tab (the stage default). */
+  boardContent?: ReactNode;
+  /** 待批准 + 待确认 count, badged on the board tab. */
+  boardAttention?: number;
 }
 
-const ACTIVITY_TAB_ID = 'activity-default';
 
 export const ScreenStage = memo(function ScreenStage({
   share,
@@ -139,6 +142,8 @@ export const ScreenStage = memo(function ScreenStage({
   onBrowserForward,
   onBrowserReload,
   customAvatars,
+  boardContent,
+  boardAttention = 0,
 }: ScreenStageProps) {
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -212,10 +217,8 @@ export const ScreenStage = memo(function ScreenStage({
     setInspectorOpenSeq((seq) => seq + 1);
     setInspectorHeight(76);
     setInspectorFullscreen(false);
-    if (activeWindowId !== ACTIVITY_TAB_ID) {
-      onSelectWindow(ACTIVITY_TAB_ID);
-    }
-  }, [focusSeq, focusTaskId, activeWindowId, onSelectWindow]);
+    // Opened from the board tab: keep the board under the docked inspector.
+  }, [focusSeq, focusTaskId]);
 
   // Auto-open a stage terminal window when a terminal-mode worker spawns, so
   // the human can supervise the TUI without manually clicking each worker
@@ -277,6 +280,7 @@ export const ScreenStage = memo(function ScreenStage({
 
   const activeWindow = stageWindows.find((w) => w.id === activeWindowId) ?? null;
   const isActivityTab = activeWindow?.type === 'activity' || activeWindowId === ACTIVITY_TAB_ID;
+  const isBoardTab = activeWindow?.type === 'board';
   const selectedTaskWorker = selectedTaskId
     ? workers.find((worker) => worker.role !== 'talker' && worker.id === selectedTaskId)
     : undefined;
@@ -326,6 +330,8 @@ export const ScreenStage = memo(function ScreenStage({
     ? 'stage-sharing'
     : isActivityTab
       ? 'stage-default'
+      : isBoardTab
+        ? 'stage-default stage-board'
       : activeWindow?.type === 'browser'
         ? 'stage-browser'
         : activeWindow?.type === 'file'
@@ -380,6 +386,7 @@ export const ScreenStage = memo(function ScreenStage({
             onClose={onCloseWindow}
             onCreate={(type, opts) => onCreateWindow(type, { ...opts, cwd })}
             onPopOut={onPopOutWindow}
+            badges={{ [BOARD_TAB_ID]: boardAttention }}
           />
 
           <div className="stage-content">
@@ -400,6 +407,8 @@ export const ScreenStage = memo(function ScreenStage({
                   onRevise={onReviseDelivery}
                 />
               </div>
+            ) : isBoardTab ? (
+              <div className="stage-board-content">{boardContent}</div>
             ) : isActivityTab && (
               <ActivityTabContent
                 workers={workers}
