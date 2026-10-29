@@ -33,7 +33,7 @@ test('app scratch dirs are ignored through .git/info/exclude, leaving the tree c
 
 test('the exclude entry is written once and resolves through a linked worktree', async (t) => {
   const { dir, git } = repo(t);
-  const wt = join(dir, '..', `${dir.split('/').pop()}-wt`);
+  const wt = `${dir}-wt`;
   t.after(() => rmSync(wt, { recursive: true, force: true }));
   git('worktree', 'add', '-q', wt);
   await maybeAppendGitignore(wt, '.vibe-assets');
