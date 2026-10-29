@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, KeyRound, LogIn, Mic, MonitorUp } from 'lucide-react';
+import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, KeyRound, LogIn, Mic, MonitorUp, Terminal } from 'lucide-react';
 import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
 import type { BackendInfo } from '../types';
@@ -9,6 +9,7 @@ interface LobbyProps {
   lastError?: string | null;
   /** Zero-session entry into the main UI, landing on the task board. */
   onEnterBoard?: () => void;
+  onOpenTerminal?: () => void;
   /** Replay the full first-launch onboarding flow. */
   onReplayOnboarding?: () => void;
 }
@@ -71,7 +72,7 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onReplayOnboarding }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
@@ -798,6 +799,12 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
           <span className="join-hint-sep">·</span>
           <span className="join-hint-item">⌥ Interrupt anytime</span>
         </div>
+
+        {onOpenTerminal && (
+          <button type="button" className="join-cta lobby-local-terminal" onClick={onOpenTerminal}>
+            <Terminal size={16} />打开本地 CLI 工作区
+          </button>
+        )}
 
         {(onEnterBoard || onReplayOnboarding) && (
           <div className="lobby-footer-actions">

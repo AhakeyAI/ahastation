@@ -316,6 +316,8 @@ const api = {
   },
   // Main-window bottom-drawer shell. Renderer owns create/kill lifecycle.
   shellPty: {
+    listClis: () => ipcRenderer.invoke('shell-pty:list-clis', {}),
+    listShells: () => ipcRenderer.invoke('shell-pty:list-shells', {}),
     create: (opts) => ipcRenderer.invoke('shell-pty:create', opts ?? {}),
     input: (ptyId, data) => ipcRenderer.invoke('shell-pty:input', { ptyId, data }),
     resize: (ptyId, rows, cols) =>

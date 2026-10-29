@@ -3,8 +3,18 @@
 // useSyncExternalStore compatibility.
 
 import { browserStore } from './browser-store';
+import { terminalSessionStore } from './terminal-session-store';
 
 export type StageWindowType = 'activity' | 'browser' | 'terminal' | 'file';
+
+export interface StageWindowOptions {
+  workerId?: string;
+  title?: string;
+  /** Manual local terminal; 'shell' starts the default interactive shell. */
+  localCliId?: string;
+  shellId?: string;
+  cwd?: string;
+}
 
 export interface StageWindow {
   id: string;
@@ -14,6 +24,9 @@ export interface StageWindow {
   filePath?: string;
   /** For terminal windows: the worker id whose activity should be displayed */
   workerId?: string;
+  localCliId?: string;
+  shellId?: string;
+  cwd?: string;
 }
 
 export interface StageWindowState {
@@ -58,7 +71,7 @@ class StageWindowStore {
     this.notify();
   }
 
-  async createWindow(type: StageWindowType, opts?: { workerId?: string; title?: string }): Promise<void> {
+  async createWindow(type: StageWindowType, opts?: StageWindowOptions): Promise<void> {
     if (type === 'activity') {
       this.setActiveWindow(ACTIVITY_TAB_ID);
       return;
@@ -103,7 +116,11 @@ class StageWindowStore {
         type: 'terminal',
         title: opts?.title ?? '终端',
         workerId: opts?.workerId,
+        localCliId: opts?.localCliId,
+        shellId: opts?.shellId,
+        cwd: opts?.cwd,
       };
+      await browserStore.setVisible(false);
       this.update({
         windows: [...this.state.windows, window],
         activeWindowId: id,
@@ -122,6 +139,13 @@ class StageWindowStore {
     if (id === ACTIVITY_TAB_ID) return;
     const win = this.state.windows.find((w) => w.id === id);
     if (!win) return;
+
+    if (win.localCliId) {
+      // The session owns create/terminate ordering and displays close failures.
+      // A never-mounted tab has no process to terminate.
+      try { await terminalSessionStore.close(win.id); }
+      catch { return; }
+    }
 
     if (win.type === 'browser' && win.browserTabId) {
       // Clean up the browser title subscription to prevent memory leak
