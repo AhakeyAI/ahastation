@@ -26,7 +26,7 @@ import { LocalTerminalWorkspace } from './components/LocalTerminalWorkspace';
 import { UnifiedMeetingFrame } from './components/UnifiedMeetingFrame';
 import {SharedApprovals} from './components/UnifiedMeetingParts';
 import {useUnifiedMeeting,projectShared,selectSharedMeeting,sendShared,sharedMentionBackends,sharedRequest} from './lib/unified-meeting-store';
-import { Onboarding, ONBOARDED_STORAGE_KEY, type OnboardingMode } from './components/Onboarding';
+import { ONBOARDED_STORAGE_KEY } from './lib/project-rooms';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
 import { MeetingResumeBanner } from './components/MeetingResumeBanner';
@@ -124,16 +124,18 @@ export function App() {
   const [boardOnly, setBoardOnly] = useState(false);
   const [localTerminalOpen, setLocalTerminalOpen] = useState(false);
   const [showLobby, setShowLobby] = useState(false);
-  /** First launch ever → full 4-step flow; later cold starts → scan-only
-   *  splash. Suppressed under the dev visual fixtures so screenshots of the
-   *  Lobby/meeting stay deterministic. */
-  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(() => {
+  /** Never scanned on this machine → the lobby's 项目室 leads with the scan
+   *  guide. The old scan overlay (4-step first launch / cold-start splash) is
+   *  folded into the lobby; later launches rely on the observation layer's
+   *  automatic scan plus a reminder there. Off under the dev visual fixtures
+   *  so Lobby screenshots stay deterministic. */
+  const [firstLaunch, setFirstLaunch] = useState<boolean>(() => {
     if (import.meta.env.DEV
-      && new URLSearchParams(window.location.search).has('ui-fixture')) return null;
+      && new URLSearchParams(window.location.search).has('ui-fixture')) return false;
     try {
-      return window.localStorage.getItem(ONBOARDED_STORAGE_KEY) ? 'splash' : 'full';
+      return !window.localStorage.getItem(ONBOARDED_STORAGE_KEY);
     } catch {
-      return 'full';
+      return true;
     }
   });
   /** Bumped every time the task board asks the meeting view to open a task, so
@@ -196,16 +198,12 @@ export function App() {
     void stageWindowStore.setActiveWindow(BOARD_TAB_ID);
   }, []);
 
-  const handleOnboardingFinish = useCallback((mode: OnboardingMode) => {
-    setOnboardingMode(null);
-    if (mode !== 'full') return;
+  const handleFirstScanDone = useCallback(() => {
+    setFirstLaunch(false);
     try {
       window.localStorage.setItem(ONBOARDED_STORAGE_KEY, '1');
-    } catch { /* private mode etc. — the flow simply replays next launch */ }
-    // First-launch finish with no session lands on the task board (Feature:
-    // zero-project entry); with restored tabs the meeting view stays.
-    if (!hasTabs) enterBoardOnly();
-  }, [hasTabs, enterBoardOnly]);
+    } catch { /* private mode etc. — the guide simply shows again next launch */ }
+  }, []);
 
   // Once a real session exists the zero-session entry is over — closing all
   // tabs then returns to the Lobby (the only place that opens folders).
@@ -789,13 +787,12 @@ export function App() {
           onEnterBoard={enterBoardOnly}
           onOpenTerminal={() => setLocalTerminalOpen(true)}
           onEnterMeeting={() => setShowLobby(false)}
-          onReplayOnboarding={() => setOnboardingMode('full')}
+          onReplayOnboarding={() => setFirstLaunch(true)}
+          firstLaunch={firstLaunch}
+          onFirstScanDone={handleFirstScanDone}
           onOpenExplore={openExplore}
         />
         {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
-        {onboardingMode && (
-          <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
-        )}
         <MinimizePrompt />
         <ToastViewport />
       </>
@@ -1053,9 +1050,6 @@ export function App() {
       />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
-      {onboardingMode && (
-        <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
-      )}
 
       {(lastError || micError || updateInfo) && (
         <div className="banner-stack">
@@ -1094,9 +1088,6 @@ export function App() {
         </div>
       )}
 
-      {onboardingMode && (
-        <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
-      )}
 
       <MinimizePrompt />
     </div>

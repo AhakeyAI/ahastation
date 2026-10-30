@@ -510,6 +510,21 @@ class MeetingStore {
   private selectionRevision = 0;
   /** User's preferred default backend for new sessions (set from Lobby). */
   defaultBackendId: string | null = null;
+  /** Folders just cloned or created from 新建项目室: the meeting opens with the
+   *  empty-project kickoff without waiting for the board / Issue check. */
+  private freshProjects = new Set<string>();
+
+  markFreshProject(cwd: string): void {
+    this.freshProjects.add(cwd.replace(/\/+$/, ''));
+  }
+
+  isFreshProject(cwd: string | null | undefined): boolean {
+    return !!cwd && this.freshProjects.has(cwd.replace(/\/+$/, ''));
+  }
+
+  clearFreshProject(cwd: string): void {
+    this.freshProjects.delete(cwd.replace(/\/+$/, ''));
+  }
   /** Sticky empty state returned by getSnapshot() when no slot is active.
    *  Held as a stable reference so useSyncExternalStore's identity check
    *  doesn't fire spurious renders. */

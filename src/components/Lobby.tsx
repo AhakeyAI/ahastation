@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, KeyRound, LogIn, Mic, MonitorUp, Terminal } from 'lucide-react';
+import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, FolderPlus, KeyRound, LogIn, Mic, MonitorUp, Terminal } from 'lucide-react';
 import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
 import type { BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
 import {SharedMeetingEntry} from './SharedMeetingEntry';
+import { ProjectRooms } from './ProjectRooms';
+import { useObservedTasks } from '../hooks/useObservedTasks';
+import { buildRooms, type ProjectRoom, type RepoInfo } from '../lib/project-rooms';
+import { CreateRoomDialog } from './CreateRoomDialog';
+import { rememberTerminalFolder } from './LocalTerminalWorkspace';
 
 interface LobbyProps {
   lastError?: string | null;
@@ -16,6 +21,9 @@ interface LobbyProps {
   onReplayOnboarding?: () => void;
   /** 探索页（配套硬件与功能），只在启动大厅提供入口。 */
   onOpenExplore?: () => void;
+  /** Never scanned on this machine: 项目室 leads with the scan guide. */
+  firstLaunch?: boolean;
+  onFirstScanDone?: () => void;
 }
 
 interface RecoverableMeeting {
@@ -76,7 +84,7 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore, firstLaunch = false, onFirstScanDone }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
@@ -187,6 +195,42 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
       setOpening(false);
     }
   }, [opening, onEnterMeeting]);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const observed = useObservedTasks();
+  // folder → repository, so a repo's worktrees and sub-folders share one room.
+  const [repos, setRepos] = useState<Record<string, RepoInfo>>({});
+  const roomFolders = useMemo(() => [...new Set([
+    ...lobby.recent.map((r) => r.path),
+    ...recoverable.map((m) => (typeof m.state.cwd === 'string' ? m.state.cwd : '')),
+    ...observed.sessions.filter((s) => !s.isNoise).map((s) => s.cwd),
+  ].filter(Boolean))], [lobby.recent, recoverable, observed]);
+  useEffect(() => {
+    const missing = roomFolders.filter((cwd) => !(cwd in repos));
+    if (!missing.length || !window.vibeMeet.projects) return;
+    let cancelled = false;
+    void window.vibeMeet.projects.resolveRepos(missing).then((res) => {
+      if (!cancelled && res.ok) setRepos((prev) => ({ ...prev, ...res.repos }));
+    }).catch(() => { /* rooms fall back to one per folder */ });
+    return () => { cancelled = true; };
+  }, [roomFolders, repos]);
+  const rooms = useMemo(() => buildRooms({
+    recent: lobby.recent,
+    recoverable: recoverable.map((m) => ({
+      meetingId: m.meetingId,
+      cwd: typeof m.state.cwd === 'string' ? m.state.cwd : '',
+      updatedAt: typeof m.state.updatedAt === 'number' ? m.state.updatedAt : undefined,
+    })),
+    sessions: observed.sessions,
+    repos,
+  }), [lobby.recent, recoverable, observed, repos]);
+
+  const openRoom = useCallback((room: ProjectRoom) => {
+    const meeting = room.recoverableMeetingId
+      ? recoverable.find((m) => m.meetingId === room.recoverableMeetingId)
+      : undefined;
+    void (meeting ? recoverMeeting(meeting) : openCwd(room.cwd));
+  }, [recoverable, recoverMeeting, openCwd]);
 
   const handleBackendChange = useCallback(async (backendId: string) => {
     const result = await window.vibeMeet.backendAuth.setDefault(backendId);
@@ -700,98 +744,14 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           )}
         </section>
 
-        {recoverable.length > 0 && (
-          <section className="lobby-section">
-            <div className="lobby-section-title">
-              <Clock size={13} aria-hidden="true" />
-              <span>中断的会议，确认后恢复</span>
-            </div>
-            <ul className="lobby-list">
-              {recoverable.slice(0, 3).map((meeting) => {
-                const cwd = typeof meeting.state.cwd === 'string' ? meeting.state.cwd : '';
-                const { label, parent } = shortPath(cwd);
-                const tasks = Array.isArray(meeting.state.tasks) ? meeting.state.tasks.length : 0;
-                const savedTasks = Array.isArray(meeting.state.tasks)
-                  ? meeting.state.tasks.filter(
-                      (task): task is Record<string, unknown> => Boolean(task && typeof task === 'object'),
-                    )
-                  : [];
-                const autoReadOnly = savedTasks.filter((task) => {
-                  const recovery = task.recovery;
-                  return Boolean(
-                    recovery
-                    && typeof recovery === 'object'
-                    && (recovery as Record<string, unknown>).autoResume === true,
-                  );
-                }).length;
-                const needsConfirmation = savedTasks.filter((task) => {
-                  const recovery = task.recovery;
-                  return Boolean(
-                    recovery
-                    && typeof recovery === 'object'
-                    && (recovery as Record<string, unknown>).classification === 'requires-user',
-                  );
-                }).length;
-                return (
-                  <li key={meeting.meetingId}>
-                    <button
-                      type="button"
-                      className="lobby-row"
-                      onClick={() => { void recoverMeeting(meeting); }}
-                      disabled={opening || !cwd}
-                      title="恢复会议状态；只有标为只读的任务会自动继续"
-                    >
-                      <span className="lobby-row-icon" aria-hidden="true"><Clock size={16} /></span>
-                      <span className="lobby-row-main">
-                        <span className="lobby-row-name">恢复 {label}</span>
-                        <span className="lobby-row-path">
-                          {parent}，{tasks} 个已保存任务
-                          {autoReadOnly > 0 ? `，${autoReadOnly} 个只读任务自动继续` : ''}
-                          {needsConfirmation > 0 ? `，${needsConfirmation} 个需确认` : ''}
-                        </span>
-                      </span>
-                      <span className="lobby-row-meta">恢复</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {lobby.recent.length > 0 && (
-          <section className="lobby-section">
-            <div className="lobby-section-title">
-              <Clock size={13} aria-hidden="true" />
-              <span>最近打开</span>
-            </div>
-            <ul className="lobby-list">
-              {lobby.recent.slice(0, 3).map((r) => {
-                const { label, parent } = shortPath(r.path);
-                return (
-                  <li key={r.path}>
-                    <button
-                      type="button"
-                      className="lobby-row"
-                      onClick={() => openCwd(r.path)}
-                      disabled={opening}
-                      title={r.path}
-                    >
-                      <span className="lobby-row-icon" aria-hidden="true">
-                        <FolderOpen size={16} />
-                      </span>
-                      <span className="lobby-row-main">
-                        <span className="lobby-row-name">{label}</span>
-                        <span className="lobby-row-path">{parent}</span>
-                      </span>
-                      <span className="lobby-row-meta">{formatRelative(r.lastOpenedAt)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
+        <ProjectRooms
+          rooms={rooms}
+          observed={observed}
+          firstLaunch={firstLaunch}
+          opening={opening}
+          onOpen={openRoom}
+          onScanned={() => onFirstScanDone?.()}
+        />
 
         {(lastError || openError) && (
           <div className="join-error">{openError ?? lastError}</div>
@@ -799,12 +759,12 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
 
         <button
           type="button"
-          className="join-cta lobby-cta"
-          onClick={pickAndOpen}
+          className={`join-cta lobby-cta${firstLaunch ? ' is-secondary' : ''}`}
+          onClick={() => setCreateOpen(true)}
           disabled={opening}
         >
-          <FolderOpen size={16} aria-hidden="true" />
-          <span>{opening ? '正在打开…' : '打开项目文件夹'}</span>
+          <FolderPlus size={16} aria-hidden="true" />
+          <span>{opening ? '正在打开…' : '新建项目室'}</span>
         </button>
 
         <div className="join-hints">
@@ -813,12 +773,6 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           <span className="join-hint-item">按 ⌥ 随时打断</span>
         </div>
 
-        {onOpenTerminal && (
-          <button type="button" className="lobby-local-terminal" onClick={onOpenTerminal}>
-            <Terminal size={16} aria-hidden="true" />
-            <span>打开本地 CLI 工作区</span>
-          </button>
-        )}
 
         {(onEnterBoard || onReplayOnboarding || onEnterMeeting || onOpenExplore) && (
           <div className="lobby-footer-actions">
@@ -852,6 +806,21 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
         )}
       </div>
       {pickerModal}
+      <CreateRoomDialog
+        open={createOpen}
+        recent={lobby.recent.map((r) => r.path)}
+        onClose={() => setCreateOpen(false)}
+        onReady={(path, mode, fresh) => {
+          setCreateOpen(false);
+          if (mode === 'cli') {
+            rememberTerminalFolder(path);
+            onOpenTerminal?.();
+            return;
+          }
+          if (fresh) meetingStore.markFreshProject(path);
+          void openCwd(path);
+        }}
+      />
     </div>
   );
 }

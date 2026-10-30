@@ -14,6 +14,15 @@ function readDirectories(): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 20) : [];
   } catch { return []; }
 }
+/** Make `path` the CLI workspace's selected folder before it opens (used by
+ *  新建项目室 → 只开 CLI 工作区). */
+export function rememberTerminalFolder(path: string): void {
+  try {
+    localStorage.setItem('aha.terminal.cwd', path);
+    const next = [path, ...readDirectories().filter((item) => item !== path)].slice(0, 20);
+    localStorage.setItem('aha.terminal.directories', JSON.stringify(next));
+  } catch { /* storage unavailable: the workspace falls back to its default folder */ }
+}
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 const phaseLabels = { starting: '启动中', running: '运行中', exited: '已退出', error: '错误', closing: '关闭中' };
 

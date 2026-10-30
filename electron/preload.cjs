@@ -282,6 +282,19 @@ const api = {
     close: (hostId) => ipcRenderer.invoke('opencode-editor:close', { hostId }),
     list: () => ipcRenderer.invoke('opencode-editor:list'),
   },
+  // Lobby project rooms: repo grouping (read-only git) and create / clone.
+  projects: {
+    resolveRepos: (cwds) => ipcRenderer.invoke('projects:resolve-repos', { cwds }),
+    defaultParent: (recent) => ipcRenderer.invoke('projects:default-parent', { recent }),
+    create: (parentPath, name, git) => ipcRenderer.invoke('projects:create', { parentPath, name, git }),
+    clone: (url, parentPath) => ipcRenderer.invoke('projects:clone', { url, parentPath }),
+    abortClone: () => ipcRenderer.invoke('projects:clone-abort'),
+    onCloneProgress: (cb) => {
+      const listener = (_, payload) => cb(payload);
+      ipcRenderer.on('projects:clone-progress', listener);
+      return () => ipcRenderer.removeListener('projects:clone-progress', listener);
+    },
+  },
   // Per-agent subscription quota (Claude / Codex / Kimi) for the usage strip.
   rateLimits: {
     get: () => ipcRenderer.invoke('rate-limits:get'),

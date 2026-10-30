@@ -1420,6 +1420,8 @@ export interface VibeMeetApi {
   /** Per-agent subscription quota. Optional: an older preload without the
    *  namespace degrades to an empty usage strip. */
   rateLimits?: import('./lib/rate-limits').RateLimitsApi;
+  /** Lobby project rooms. Optional: an older preload groups rooms by folder. */
+  projects?: import('./lib/project-rooms').ProjectsApi;
   ideRegistry: {
     list: () => Promise<{ ok: true; state: IdeRegistryState } | { ok: false; error: string }>;
     setDefault: (id: string) => Promise<{ ok: boolean; error?: string }>;
