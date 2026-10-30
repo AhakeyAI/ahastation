@@ -3,7 +3,7 @@ import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import {
   cloneFolderName,
@@ -66,12 +66,12 @@ test('worktrees and sub-folders resolve to their main repository; another clone 
   mkdirSync(plain);
 
   const repos = await resolveRepos([main, wt, join(main, 'pkg'), join(parent, 'app-copy'), plain]);
-  assert.equal(repos[main].repoRoot, main);
-  assert.equal(repos[wt].repoRoot, main);
+  assert.equal(resolve(repos[main].repoRoot), main);
+  assert.equal(resolve(repos[wt].repoRoot), main);
   assert.equal(repos[wt].worktree, true);
   assert.equal(repos[wt].branch, 'feature-x');
-  assert.equal(repos[join(main, 'pkg')].repoRoot, main);
-  assert.equal(repos[join(parent, 'app-copy')].repoRoot, join(parent, 'app-copy'));
+  assert.equal(resolve(repos[join(main, 'pkg')].repoRoot), main);
+  assert.equal(resolve(repos[join(parent, 'app-copy')].repoRoot), join(parent, 'app-copy'));
   assert.equal(repos[plain].repoRoot, null);
 });
 

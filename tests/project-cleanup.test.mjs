@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { join, resolve } from 'node:path';
 
 import {
   parseWorktreePorcelain,
@@ -10,12 +11,15 @@ import {
   runProjectCleanup,
 } from '../dist-electron/project-cleanup.js';
 
-const ROOT = '/repo/app';
+const ROOT = resolve('/repo/app');
+const CLEAN = resolve('/repo/wt-clean');
+const DIRTY = resolve('/repo/wt-dirty');
+const LOCKED = resolve('/repo/wt-locked');
 const PORCELAIN = [
   `worktree ${ROOT}`, 'HEAD aaa', 'branch refs/heads/main', '',
-  'worktree /repo/wt-clean', 'HEAD bbb', 'branch refs/heads/agent/clean', '',
-  'worktree /repo/wt-dirty', 'HEAD ccc', 'branch refs/heads/agent/dirty', '',
-  'worktree /repo/wt-locked', 'HEAD ddd', 'branch refs/heads/agent/locked', 'locked', '',
+  `worktree ${CLEAN}`, 'HEAD bbb', 'branch refs/heads/agent/clean', '',
+  `worktree ${DIRTY}`, 'HEAD ccc', 'branch refs/heads/agent/dirty', '',
+  `worktree ${LOCKED}`, 'HEAD ddd', 'branch refs/heads/agent/locked', 'locked', '',
 ].join('\n');
 
 function fakeGit(calls) {
@@ -23,7 +27,7 @@ function fakeGit(calls) {
     calls.push([cwd, ...args]);
     const cmd = args.join(' ');
     if (cmd === 'worktree list --porcelain') return { ok: true, stdout: PORCELAIN, stderr: '' };
-    if (cmd === 'status --porcelain') return { ok: true, stdout: cwd === '/repo/wt-dirty' ? ' M a.ts\n' : '', stderr: '' };
+    if (cmd === 'status --porcelain') return { ok: true, stdout: cwd === DIRTY ? ' M a.ts\n' : '', stderr: '' };
     if (cmd.startsWith('rev-list --count main..')) return { ok: true, stdout: cmd.endsWith('agent/clean') ? '0\n' : '3\n', stderr: '' };
     if (cmd.startsWith('worktree remove') || cmd.startsWith('branch -D')) return { ok: true, stdout: '', stderr: '' };
     return { ok: false, stdout: '', stderr: `unexpected ${cmd}` };
@@ -39,9 +43,9 @@ const SNAPSHOT = {
   scannedAt: 1,
   sessions: [
     session('term-main', ROOT, { pid: 4001, tty: 's001' }),
-    session('term-wt', '/repo/wt-clean/src', { pid: 4002, tty: 's002' }),
+    session('term-wt', join(CLEAN, 'src'), { pid: 4002, tty: 's002' }),
     session('desktop', ROOT, { pid: 4003 }),
-    session('elsewhere', '/other/project', { pid: 4004, tty: 's004' }),
+    session('elsewhere', resolve('/other/project'), { pid: 4004, tty: 's004' }),
   ],
 };
 
@@ -60,7 +64,7 @@ test('plan lists only this repo, flags desktop sessions and risky worktrees', as
   assert.deepEqual(plan.sessions.map((s) => s.id).sort(), ['desktop', 'term-main', 'term-wt']);
   assert.equal(plan.sessions.find((s) => s.id === 'desktop').closable, false);
   assert.equal(plan.sessions.find((s) => s.id === 'term-wt').place, 'agent/clean');
-  assert.deepEqual(plan.worktrees.map((w) => w.path), ['/repo/wt-clean', '/repo/wt-dirty', '/repo/wt-locked']);
+  assert.deepEqual(plan.worktrees.map((w) => w.path), [CLEAN, DIRTY, LOCKED]);
   const dirty = plan.worktrees.find((w) => w.branch === 'agent/dirty');
   assert.equal(dirty.dirty, true);
   assert.equal(dirty.unmerged, 3);
@@ -71,7 +75,7 @@ test('cleanup ends only tty sessions and never touches the main folder', async (
   const calls = [];
   const killed = [];
   const res = await runProjectCleanup(
-    { repoRoot: ROOT, sessionIds: ['term-main', 'desktop', 'elsewhere'], worktreePaths: ['/repo/wt-clean', ROOT, '/repo/wt-locked'] },
+    { repoRoot: ROOT, sessionIds: ['term-main', 'desktop', 'elsewhere'], worktreePaths: [CLEAN, ROOT, LOCKED] },
     SNAPSHOT,
     { git: fakeGit(calls), kill: (pid) => killed.push(pid), sleep: async () => {} },
   );
@@ -80,14 +84,14 @@ test('cleanup ends only tty sessions and never touches the main folder', async (
   const byId = Object.fromEntries(res.result.sessions.map((r) => [r.id, r.ok]));
   assert.deepEqual(byId, { 'term-main': true, desktop: false, elsewhere: false });
   const wt = Object.fromEntries(res.result.worktrees.map((r) => [r.id, r.ok]));
-  assert.deepEqual(wt, { '/repo/wt-clean': true, [ROOT]: false, '/repo/wt-locked': false });
+  assert.deepEqual(wt, { [CLEAN]: true, [ROOT]: false, [LOCKED]: false });
   const mutations = calls.filter(([, a]) => a === 'worktree' || a === 'branch').map((c) => c.slice(1).join(' '));
-  assert.ok(mutations.includes('worktree remove --force /repo/wt-clean'));
+  assert.ok(mutations.includes(`worktree remove --force ${CLEAN}`));
   assert.ok(mutations.includes('branch -D agent/clean'));
   assert.ok(!mutations.some((m) => m.includes('branch -D main') || m.endsWith(` ${ROOT}`)));
 });
 
 test('a folder that is not the repository main folder is refused', async () => {
-  const res = await planProjectCleanup('/repo/wt-clean', SNAPSHOT, { git: fakeGit([]) });
+  const res = await planProjectCleanup(CLEAN, SNAPSHOT, { git: fakeGit([]) });
   assert.equal(res.ok, false);
 });
