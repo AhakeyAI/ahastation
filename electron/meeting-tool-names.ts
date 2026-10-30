@@ -36,3 +36,12 @@ export type MeetingToolName = (typeof MEETING_TOOLS)[keyof typeof MEETING_TOOLS]
 export const MEETING_TOOL_NAMES: ReadonlySet<string> = new Set<string>(
   Object.values(MEETING_TOOLS),
 );
+
+/** Internal, hash-bound Coordinator review; handlers still enforce role and evidence. */
+export const REVIEW_MODE_TOOLS: ReadonlySet<string> = new Set<string>([
+  MEETING_TOOLS.INSPECT_DELIVERY_REVIEW,
+  MEETING_TOOLS.GET_DELIVERY_REVIEW_CHUNK,
+  MEETING_TOOLS.SUBMIT_DELIVERY_CHUNK_REVIEW,
+  MEETING_TOOLS.COMPLETE_DELIVERY_REVIEW,
+  MEETING_TOOLS.REQUEST_DELIVERY_REWORK,
+]);

@@ -22,6 +22,8 @@ for(const pattern of [
 run(process.execPath, ['--test', '--test-concurrency=1', '--test-timeout=120000',
   '--import',"data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./')); await import(pathToFileURL('./tests/fixtures/offline-backends.mjs').href);",
   'tests/async-credentials.test.mjs','tests/collaboration-entry-gate.test.mjs',
+  'tests/claude-internal-review-permissions.test.mjs',
+  'tests/codex-compatibility-update.test.mjs',
   'tests/collaboration-public-gate.test.mjs',
   'tests/collaboration-shutdown.test.mjs',
   'tests/collaboration-startup-lifecycle.test.mjs',

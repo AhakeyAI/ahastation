@@ -15,6 +15,8 @@ import { errorMessage, redactSecrets } from './format-error.js';
 import { classifyToolRisk, type AutoApproveScope } from './auto-approve-policy.js';
 import { randomUUID } from 'node:crypto';
 import type { WorkerAdapterSignal } from './worker-protocol.js';
+import { REVIEW_MODE_TOOLS } from './meeting-tool-names.js';
+import { hasRegisteredInProcTool } from './claude-cli/inproc-mcp.js';
 
 function isClaudeAuthError(message: string): boolean {
   return /authentication[_\s-]?failed|unauthorized|\b401\b|please (?:log|sign) in|auth(?:entication)? required/i.test(message);
@@ -130,9 +132,19 @@ export class ClaudeSession {
 
   async start(): Promise<void> {
     if (this.q) return;
+    // The driver captures its in-process servers at construction. Later caller
+    // configuration changes cannot grant a new exception or retarget an old one.
+    const internalReviewTools = new Set([...REVIEW_MODE_TOOLS].filter(name =>
+      hasRegisteredInProcTool(this.sessionOptions.mcpServers?.meeting, 'meeting', name),
+    ).map(name => 'mcp__meeting__' + name));
     const canUseTool: CanUseTool = async (toolName, input, options) => {
       if (this.closed) {
         return { behavior: 'deny', message: 'session ended', interrupt: true };
+      }
+      if (internalReviewTools.has(toolName)) {
+        // The registered local handler owns role, review and frozen-evidence checks.
+        // Do not ask the user to approve each internal review step first.
+        return { behavior: 'allow', updatedInput: input };
       }
       if (this.autoApproveScope !== 'off') {
         // 'all' scope: most tools auto-approved, but ALWAYS_DESTRUCTIVE

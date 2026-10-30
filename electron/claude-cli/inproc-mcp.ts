@@ -83,6 +83,8 @@ class InProcMcpServerImpl implements InProcMcpServer {
     for (const t of tools) this.tools.set(t.name, t);
   }
 
+  hasTool(name: string): boolean { return this.tools.has(name); }
+
   async dispatch(message: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     const method = typeof message.method === 'string' ? message.method : '';
     const hasId = 'id' in message && message.id !== null && message.id !== undefined;
@@ -168,6 +170,15 @@ class InProcMcpServerImpl implements InProcMcpServer {
       });
     }
   }
+}
+
+/** A tool name or a user-configured MCP namespace cannot claim an app-owned tool. */
+export function hasRegisteredInProcTool(config: unknown, serverName: string, toolName: string): boolean {
+  if (!config || typeof config !== 'object') return false;
+  const server = config as { type?: unknown; name?: unknown; instance?: unknown };
+  return server.type === 'sdk' && server.name === serverName
+    && server.instance instanceof InProcMcpServerImpl
+    && server.instance.name === serverName && server.instance.hasTool(toolName);
 }
 
 /** Mirrors the retired SDK's createSdkMcpServer return shape

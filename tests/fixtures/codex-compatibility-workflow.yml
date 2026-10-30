@@ -1,0 +1,94 @@
+name: codex-compatibility
+
+on:
+  schedule:
+    - cron: '17 18 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: codex-compatibility
+  cancel-in-progress: false
+
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install pinned project dependencies
+        run: npm ci
+
+      - name: Build adapter fixtures
+        run: npm run build:electron
+
+      - name: Install latest Codex outside the project
+        run: npm install --prefix "$RUNNER_TEMP/codex-latest" --no-package-lock --no-save @openai/codex@latest
+
+      - name: Run initialize handshake and adapter contracts without a model turn
+        shell: bash
+        run: |
+          set +e
+          VERSION="$(node -p "require('$RUNNER_TEMP/codex-latest/node_modules/@openai/codex/package.json').version")"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          node --test --test-timeout=120000 --import "data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));" tests/codex-adapter.test.mjs tests/codex-app-server-transport.test.mjs
+          CONTRACT_STATUS=$?
+          echo "CONTRACT_STATUS=$CONTRACT_STATUS" >> "$GITHUB_ENV"
+          node scripts/check-codex-compatibility.mjs \
+            --binary "$RUNNER_TEMP/codex-latest/node_modules/.bin/codex" \
+            --expected-version "$VERSION" \
+            --out "$RUNNER_TEMP/codex-compat-result.json"
+          HANDSHAKE_STATUS=$?
+          echo "HANDSHAKE_STATUS=$HANDSHAKE_STATUS" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Prepare verified-range update or failure card
+        shell: bash
+        run: |
+          SUMMARY="$(node scripts/prepare-codex-compatibility-update.mjs \
+            --version "$VERSION" \
+            --result "$RUNNER_TEMP/codex-compat-result.json" \
+            --contract-status "$CONTRACT_STATUS")"
+          echo "$SUMMARY"
+          echo "UPDATE_REQUIRED=$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(String(s.updateRequired))' "$SUMMARY")" >> "$GITHUB_ENV"
+
+      - name: Upload compatibility evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-compat-${{ env.VERSION }}-${{ github.run_id }}
+          path: |
+            docs/plans/codex-compatibility-*.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Open a human-review compatibility PR
+        if: env.UPDATE_REQUIRED == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="ci/codex-compat-${VERSION//./-}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add electron/backends/codex-app-server-transport.ts "docs/plans/codex-compatibility-$VERSION.md"
+          if [[ "$HANDSHAKE_STATUS" == "0" && "$CONTRACT_STATUS" == "0" ]]; then
+            TITLE="chore(codex): verify $VERSION and expand compatible range"
+          else
+            TITLE="chore(codex): investigate $VERSION compatibility failure"
+          fi
+          git commit -m "$TITLE"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "$TITLE" \
+            --body-file "docs/plans/codex-compatibility-$VERSION.md"

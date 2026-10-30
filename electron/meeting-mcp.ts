@@ -6,6 +6,7 @@
 // MCP shape can evolve without dragging the orchestrator class into the diff.
 
 import { createSdkMcpServer, tool } from './claude-cli/inproc-mcp.js';
+import { REVIEW_MODE_TOOLS } from './meeting-tool-names.js';
 import { z } from 'zod';
 import {
   MEETING_TOOLS,
@@ -161,14 +162,6 @@ export interface OrchestratorBridge {
     sourceAttempt?: number,
   ): Promise<{ id: string; status: string }>;
 }
-
-const REVIEW_MODE_TOOLS: ReadonlySet<string> = new Set<string>([
-  MEETING_TOOLS.INSPECT_DELIVERY_REVIEW,
-  MEETING_TOOLS.GET_DELIVERY_REVIEW_CHUNK,
-  MEETING_TOOLS.SUBMIT_DELIVERY_CHUNK_REVIEW,
-  MEETING_TOOLS.COMPLETE_DELIVERY_REVIEW,
-  MEETING_TOOLS.REQUEST_DELIVERY_REWORK,
-]);
 
 type ToolHandler = (...args: never[]) => Promise<unknown>;
 
