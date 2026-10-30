@@ -3,7 +3,7 @@ import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import {
   cloneFolderName,
@@ -66,12 +66,14 @@ test('worktrees and sub-folders resolve to their main repository; another clone 
   mkdirSync(plain);
 
   const repos = await resolveRepos([main, wt, join(main, 'pkg'), join(parent, 'app-copy'), plain]);
-  assert.equal(resolve(repos[main].repoRoot), main);
-  assert.equal(resolve(repos[wt].repoRoot), main);
+  // Git expands Windows 8.3 aliases (RUNNER~1) as well as path separators.
+  const canonical = (path) => realpathSync.native(path);
+  assert.equal(canonical(repos[main].repoRoot), canonical(main));
+  assert.equal(canonical(repos[wt].repoRoot), canonical(main));
   assert.equal(repos[wt].worktree, true);
   assert.equal(repos[wt].branch, 'feature-x');
-  assert.equal(resolve(repos[join(main, 'pkg')].repoRoot), main);
-  assert.equal(resolve(repos[join(parent, 'app-copy')].repoRoot), join(parent, 'app-copy'));
+  assert.equal(canonical(repos[join(main, 'pkg')].repoRoot), canonical(main));
+  assert.equal(canonical(repos[join(parent, 'app-copy')].repoRoot), canonical(join(parent, 'app-copy')));
   assert.equal(repos[plain].repoRoot, null);
 });
 
