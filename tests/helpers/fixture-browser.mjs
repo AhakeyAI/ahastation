@@ -1,9 +1,3 @@
-/** Finish Vite's initial module work before opening a cold fixture page. */
-export async function warmFixtureServer(server) {
-  await server.warmupRequest('/src/main.tsx');
-  await server.waitForRequestsIdle();
-}
-
 /** Keep genuine fixture failures visible, with script/network evidence. No retries. */
 export async function openFixtureConversation(browser, origin, viewport) {
   const page = await browser.newPage({ viewport });

@@ -6,9 +6,9 @@ import {createServer} from 'vite';
 import {mkdir} from 'node:fs/promises';
 import {createServer as reserveSocket} from 'node:net';
 import {chromium} from 'playwright';
-import {warmFixtureServer,openFixtureConversation} from './helpers/fixture-browser.mjs';
+import {openFixtureConversation} from './helpers/fixture-browser.mjs';
 let server,browser,origin;
-before(async()=>{const reservation=reserveSocket();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));server=await createServer({server:{watch:null,host:'127.0.0.1',port,strictPort:true,open:false},logLevel:'error'});await server.listen();await warmFixtureServer(server);origin='http://127.0.0.1:'+server.httpServer.address().port;browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});});
+before(async()=>{const reservation=reserveSocket();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));server=await createServer({server:{watch:null,host:'127.0.0.1',port,strictPort:true,open:false},logLevel:'error'});await server.listen();origin='http://127.0.0.1:'+server.httpServer.address().port;browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});});
 after(async()=>{await browser?.close();await server?.close();});
 async function page(){return openFixtureConversation(browser,origin,{width:1600,height:1100});}
 async function delaySends(p){await p.evaluate(()=>{window.__sends=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command'&&p?.action==='message.send'){window.__sends.push(p);await new Promise(r=>setTimeout(r,700));}return original(a,p);};});}
