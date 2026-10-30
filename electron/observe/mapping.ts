@@ -58,21 +58,21 @@ export interface ClaudePidFileEntry {
   cwd?: string;
 }
 
-export async function loadClaudePidFiles(homeDir: string): Promise<Map<number, ClaudePidFileEntry>> {
+export async function loadClaudePidFiles(homeDir: string, configDir = join(homeDir, '.claude')): Promise<Map<number, ClaudePidFileEntry>> {
   const result = new Map<number, ClaudePidFileEntry>();
-  const dir = join(homeDir, '.claude', 'sessions');
+  const dir = join(configDir, 'sessions');
   let files: string[];
   try {
     files = await fs.readdir(dir);
   } catch {
     return result; // directory absent on this machine — expected, degrade
   }
-  for (const file of files) {
+  for (const file of files.slice(0, 2000)) {
     const match = /^(\d+)\.json$/.exec(file);
     if (!match) continue;
     const filePath = join(dir, file);
     const stat = await lstatSafe(filePath);
-    if (!stat || !stat.isFile() || stat.isSymbolicLink()) continue;
+    if (!stat || !stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024) continue;
     try {
       const parsed = asRecord(parseJsonLine(await fs.readFile(filePath, 'utf8')));
       const sessionId = asString(parsed?.sessionId);

@@ -437,7 +437,7 @@ test('collision: live CLI pid + dead desktop side → CLI rules win', () => {
   assert.ok(session.evidence.includes('desktop-host:app-server not running'));
 });
 
-test('collision: both sides stale → CLI-side stale outcome (idle pidless → hidden)', () => {
+test('collision: both sides stale → unknown, not proven ended', () => {
   const row = mergedRow('c4', {
     cliMtime: Date.now() - 20 * 60_000, // outside the done window
     chatPids: [55555],
@@ -445,7 +445,7 @@ test('collision: both sides stale → CLI-side stale outcome (idle pidless → h
     desktopTitle: '桌面标题',
   });
   const [session] = collisionCorrelate([row], {}); // no host, no association
-  assert.equal(session.state, 'idle');
+  assert.equal(session.state, 'unknown');
   assert.equal(session.pid, undefined);
   // Recency tie-break: the rollout is fresher (no chat-process updates).
   assert.equal(session.title, 'rollout 标题');
@@ -494,6 +494,8 @@ async function runDesktopService(options = {}) {
   const published = [];
   const service = new ObserveService({
     homeDir: HOME,
+    configRoots: { claude: join(HOME, '.claude'), codex: join(HOME, '.codex') },
+    getAccess: () => ({ enabled: true, roots: ['/Users/test/work', '/tmp'] }),
     publish: (snap) => published.push(snap),
     now: () => Date.now(),
     snapshotProvider: async () => snapshot,
@@ -510,43 +512,14 @@ async function runDesktopService(options = {}) {
   return published[0];
 }
 
-test('ObserveService: desktop threads publish; CLI rollout ids never duplicate as desktop rows', async () => {
+test('S2 reads native rollouts without authorizing global desktop titles/process files', async () => {
   const snap = await runDesktopService();
-  const codexIds = snap.sessions
-    .filter((s) => s.clientKind === 'codex')
-    .map((s) => s.nativeSessionId);
-  // a2/a3 carry global-state descriptions AND CLI rollouts; each collision
-  // merges into ONE row (codex-merged), so no id ever appears twice.
-  assert.equal(new Set(codexIds).size, codexIds.length);
-
-  const byId = new Map(snap.sessions.map((s) => [s.nativeSessionId, s]));
-  assert.equal(byId.get(DESK_LIVE).state, 'active');
-  assert.equal(byId.get(DESK_LIVE).pid, CHAT_PID);
-  assert.equal(byId.get(DESK_IDLE).state, 'idle');
-  assert.equal(byId.get(DESK_IDLE).pid, HOST_PID);
-
-  // The colliding a3 row keeps its rollout evidence as the anchor AND gains
-  // the live desktop host: host-backed idle, visible while ChatGPT.app runs
-  // (the old winner-take-all dropped the host pid behind the fresher
-  // rollout and the board hid the row).
-  const cliRow = byId.get(CLI_WITH_DESCRIPTION);
-  assert.match(cliRow.evidence[0], /rollout-.*\.jsonl$/);
-  assert.equal(cliRow.state, 'idle');
-  assert.equal(cliRow.pid, HOST_PID);
-  assert.ok(cliRow.evidence.includes(`desktop-host:app-server pid ${HOST_PID}`));
-});
-
-test('ObserveService: self-excluded host pid drops host backing (own adapter children stay hidden)', async () => {
-  const snap = await runDesktopService({
-    getSelfExclusion: () => ({ pids: new Set([HOST_PID]), sessionIds: new Set() }),
-  });
-  const byId = new Map(snap.sessions.map((s) => [s.nativeSessionId, s]));
-  // Host excluded → host-backed idle degrades to unknown (board hides it).
-  assert.equal(byId.get(DESK_IDLE).state, 'unknown');
-  assert.equal(byId.get(DESK_IDLE).pid, undefined);
-  // The live chat pid is not excluded and still owns its row.
-  assert.equal(byId.get(DESK_LIVE).state, 'active');
-  assert.equal(byId.get(DESK_LIVE).pid, CHAT_PID);
+  const codex = snap.sessions.filter((s) => s.clientKind === 'codex');
+  assert.equal(codex.length, 3);
+  assert.equal(new Set(codex.map((s) => s.id)).size, codex.length);
+  assert.equal(snap.sessions.some((s) => s.nativeSessionId === DESK_LIVE), false);
+  assert.equal(snap.sessions.some((s) => s.title === '整理发布前检查清单'), false);
+  assert.equal(codex.some((s) => s.pid === HOST_PID), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -586,7 +559,8 @@ test('desktop scan: missing files → no threads; corrupt file → partial join 
 
 test('ObserveService: home without codex desktop files publishes zero rows, never throws', async () => {
   const home = mkdtempSync(join(tmpdir(), 'observe-desktop-none-'));
-  const snap = await runDesktopService({ homeDir: home });
+  const snap = await runDesktopService({ homeDir: home,
+    configRoots: { claude: join(home, '.claude'), codex: join(home, '.codex') } });
   assert.equal(snap.sessions.length, 0);
 });
 

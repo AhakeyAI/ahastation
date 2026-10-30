@@ -372,54 +372,15 @@ test('correlate: kimi rows — titles, states, noise, unknown without pid', asyn
 // ObserveService end-to-end (tmp kimi home, fake ps + lsof)
 // ---------------------------------------------------------------------------
 
-test('ObserveService.tickOnce: kimi sessions with cwd-associated pids', async () => {
+test('S2 consent does not authorize the legacy Kimi source', async () => {
   const home = makeKimiHome();
   const published = [];
   const service = new ObserveService({
     homeDir: home,
+    getAccess: () => ({ enabled: true, roots: [home] }),
     publish: (snap) => published.push(snap),
-    now: () => Date.now(),
     snapshotProvider: async () => snapshot,
-    execImpl: async (cmd) => {
-      if (cmd === 'lsof') return { stdout: lsofText, stderr: '' };
-      throw new Error('no ps in tests');
-    },
-    realpathImpl: async (p) => p,
   });
   await service.tickOnce();
-  service.stop();
-  assert.equal(published.length, 1);
-  const bySid = new Map(published[0].sessions.map((s) => [s.nativeSessionId, s]));
-  assert.equal(bySid.size, 2);
-  assert.equal(bySid.get(KIMI_TITLED).pid, 5101);
-  assert.equal(bySid.get(KIMI_TITLED).state, 'waiting');
-  assert.equal(bySid.get(KIMI_PROMPT).pid, 5102);
-  assert.equal(bySid.get(KIMI_PROMPT).state, 'active');
-  assert.equal(bySid.get(KIMI_PROMPT).activity, 'thinking');
-  assert.equal(bySid.get(KIMI_TITLED).clientKind, 'kimi');
-});
-
-test('ObserveService: self-exclusion by pid degrades kimi to unknown', async () => {
-  const home = makeKimiHome();
-  const published = [];
-  const service = new ObserveService({
-    homeDir: home,
-    publish: (snap) => published.push(snap),
-    now: () => Date.now(),
-    snapshotProvider: async () => snapshot,
-    execImpl: async (cmd) => {
-      if (cmd === 'lsof') return { stdout: lsofText, stderr: '' };
-      throw new Error('no ps in tests');
-    },
-    realpathImpl: async (p) => p,
-    getSelfExclusion: () => ({ pids: new Set([5101]), sessionIds: new Set([KIMI_PROMPT]) }),
-  });
-  await service.tickOnce();
-  service.stop();
-  const bySid = new Map(published[0].sessions.map((s) => [s.nativeSessionId, s]));
-  // Own session id → gone entirely.
-  assert.equal(bySid.has(KIMI_PROMPT), false);
-  // Own pid → no association; file-only evidence degrades to unknown.
-  assert.equal(bySid.get(KIMI_TITLED).pid, undefined);
-  assert.equal(bySid.get(KIMI_TITLED).state, 'unknown');
+  assert.deepEqual(published[0].sessions, []);
 });

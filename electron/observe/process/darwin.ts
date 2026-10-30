@@ -76,12 +76,34 @@ export function parsePsOutput(text: string, capturedAt = Date.now()): ProcessSna
 export async function captureProcessSnapshot(
   execImpl: ExecImpl = defaultExec,
 ): Promise<ProcessSnapshot> {
+  if (process.platform === 'win32') {
+    const { stdout } = await execImpl('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,Name | ConvertTo-Json -Compress'],
+    { timeoutMs: PS_TIMEOUT_MS, maxBuffer: PS_MAX_BUFFER });
+    return parseWindowsProcesses(stdout);
+  }
   const { stdout } = await execImpl(
     'ps',
     ['-axo', 'pid,ppid,tt,%cpu,rss,comm,args'],
     { timeoutMs: PS_TIMEOUT_MS, maxBuffer: PS_MAX_BUFFER },
   );
   return parsePsOutput(stdout);
+}
+
+/** Windows has no reliable per-process cwd/CPU percentage here. Never invent either. */
+export function parseWindowsProcesses(text: string): ProcessSnapshot {
+  const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  const byPid: ProcessSnapshot['byPid'] = new Map();
+  const childrenOf = new Map<number, number[]>();
+  for (const row of rows) {
+    if (!row || !Number.isSafeInteger(row.ProcessId) || row.ProcessId <= 0 || !Number.isSafeInteger(row.ParentProcessId)) continue;
+    const pid = row.ProcessId, ppid = row.ParentProcessId;
+    const command = typeof row.CommandLine === 'string' ? row.CommandLine : String(row.Name ?? '');
+    byPid.set(pid, { pid, ppid, command, comm: String(row.Name ?? ''), cpuPct: 0, rssKb: 0, tty: '??' });
+    childrenOf.set(ppid, [...(childrenOf.get(ppid) ?? []), pid]);
+  }
+  return { byPid, childrenOf, capturedAt: Date.now() };
 }
 
 const SCRIPT_EXTENSIONS = ['.js', '.mjs', '.cjs'];

@@ -1,101 +1,39 @@
-// observe-service.ts — dual-tick scheduler for the observation layer.
-//
-// Fast tick (2s): shared ps snapshot + state inference + full-snapshot
-// publish. Slow tick (10s): title sources (Codex session_index, Claude PID
-// files). When no session is active the loop backs off to the slow cadence.
-// Codex Desktop (ChatGPT.app code mode) threads are scanned alongside the
-// three CLI observers: their state is pure process/host liveness, so their
-// signals cache on the two state files' markers while liveness is
-// re-evaluated from the fresh ps snapshot every tick.
-// State files carry mtime+size change markers so unchanged transcripts are
-// never re-parsed (codedash change-marker polling; no fs.watch).
-//
-// The service is Electron-free: homeDir / publish / self-exclusion are
-// injected, so `node --test` exercises it through dist-electron. Every
-// observer scan and subprocess call is independently fault-isolated — one
-// broken client can never kill a scan cycle.
-
+// Consent-gated, read-only Claude/Codex session discovery. Full snapshots are
+// volatile: native client files and the IF-2 registry are never modified.
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { canReadProject, withinDirectory, NO_SCAN_ACCESS, type ScanAccess } from './scan-access.js';
+import { readOwnership, ownershipKey, type OwnershipIndex } from './ownership.js';
+import { clientRoots, readSessionIdentity } from './session-identity.js';
+import { readStudioHistory } from './studio-history.js';
+import { projectObservation } from './observation-projection.js';
 import { correlate } from './correlate.js';
-import {
-  associate,
-  associationKey,
-  detectCodexDesktopHostPids,
-  detectMcpServerPids,
-  loadClaudePidFiles,
-  mcpHeldRolloutPaths,
-  type Association,
-  type ClaudePidFileEntry,
-} from './mapping.js';
-import {
-  captureProcessSnapshot,
-  findClientPids,
-  lsofOpenFiles,
-  type ProcessSnapshot,
-} from './process/darwin.js';
-import {
-  listClaudeTranscripts,
-  parseClaudeTranscript,
-  type StateFileRef,
-} from './statefiles/claude-projects.js';
-import {
-  listCodexDesktopThreads,
-  parseCodexDesktopThread,
-} from './statefiles/codex-desktop.js';
-import {
-  listCodexRollouts,
-  loadCodexTitles,
-  parseCodexRollout,
-} from './statefiles/codex-sessions.js';
-import {
-  listKimiSessions,
-  parseKimiSession,
-  type KimiSessionRef,
-} from './statefiles/kimi-sessions.js';
-import type {
-  ClientKind,
-  CodexDesktopTailSignals,
-  CodexTailSignals,
-  ObservedFileSignal,
-  ObservedSession,
-  ObservedSnapshot,
-  ObservedTitleSource,
-  SelfExclusion,
-} from './types.js';
-import { defaultExec, lstatSafe, type ExecImpl } from './util.js';
+import { associate, extractSessionIdFromCommand, associationKey, detectMcpServerPids,
+  loadClaudePidFiles, mcpHeldRolloutPaths, type Association, type ClaudePidFileEntry } from './mapping.js';
+import { captureProcessSnapshot, findClientPids, lsofOpenFiles, type ProcessSnapshot } from './process/darwin.js';
+import { listClaudeTranscripts, parseClaudeTranscript } from './statefiles/claude-projects.js';
+import { listCodexRollouts, parseCodexRollout } from './statefiles/codex-sessions.js';
+import type { ClientKind, CodexDesktopTailSignals, CodexTailSignals, ObservedFileSignal,
+  ObservedSession, ObservedSnapshot, SelfExclusion } from './types.js';
+import { defaultExec, type ExecImpl } from './util.js';
 
 export interface ObserveServiceOptions {
   homeDir: string;
+  userData?: string;
+  getAccess?: () => ScanAccess;
+  configRoots?: ReturnType<typeof clientRoots>;
+  /** Trusted local IF-1 full snapshot, when the host producer is available. */
+  getHookSnapshot?: () => unknown;
   publish: (snapshot: ObservedSnapshot) => void;
-  /** App-spawned workers to hide: own process tree + own session ids. */
   getSelfExclusion?: () => SelfExclusion;
   fastMs?: number;
   slowMs?: number;
   now?: () => number;
   execImpl?: ExecImpl;
-  /** Test seam: replace the live ps capture. */
   snapshotProvider?: () => Promise<ProcessSnapshot>;
-  /** Test seam: replace fs.realpath. */
   realpathImpl?: (path: string) => Promise<string>;
 }
-
-interface FileMarker {
-  mtimeMs: number;
-  sizeBytes: number;
-  signal: ObservedFileSignal | null;
-}
-
-const DEFAULT_FAST_MS = 2_000;
-const DEFAULT_SLOW_MS = 10_000;
-
-/** mtime+size change marker for one file; 'absent' for missing/symlinked
- * (fail-closed — the symlink case is never read). */
-function fileMarker(stat: Awaited<ReturnType<typeof lstatSafe>>): string {
-  return stat && stat.isFile() && !stat.isSymbolicLink()
-    ? `${stat.mtimeMs}:${stat.size}`
-    : 'absent';
-}
+interface FileMarker { mtimeMs: number; sizeBytes: number; signal: ObservedFileSignal | null }
 
 /** Merge CLI rollout signals with Codex Desktop thread signals, keeping one
  * row per thread id. The same id can exist in both worlds — the desktop app
@@ -181,45 +119,31 @@ function mergeCollidingSignals(
 }
 
 export class ObserveService {
-  private readonly homeDir: string;
-  private readonly publish: (snapshot: ObservedSnapshot) => void;
-  private readonly getSelfExclusion: () => SelfExclusion;
-  private readonly fastMs: number;
-  private readonly slowMs: number;
+  private readonly options: ObserveServiceOptions;
+  private readonly getAccess: () => ScanAccess;
+  private readonly roots: ReturnType<typeof clientRoots>;
   private readonly now: () => number;
   private readonly execImpl: ExecImpl;
-  private readonly snapshotProvider: () => Promise<ProcessSnapshot>;
   private readonly realpathImpl: (path: string) => Promise<string>;
-
-  private readonly claudeMarkers = new Map<string, FileMarker>();
-  private readonly codexMarkers = new Map<string, FileMarker>();
-  private readonly kimiMarkers = new Map<string, FileMarker>();
-  private readonly realpathCache = new Map<string, string>();
-  private indexTitles = new Map<string, string>();
-  private titleSources = new Map<string, 'global-state' | 'session-index'>();
-  private indexMarker: string | null = null;
+  private readonly markers = {
+    'claude-code': new Map<string, FileMarker>(),
+    codex: new Map<string, FileMarker>(),
+  };
   private pidFileMap = new Map<number, ClaudePidFileEntry>();
-  private desktopMarker: string | null = null;
-  private desktopSignalsCache: ObservedFileSignal[] = [];
-
+  private lastPidRefresh = Number.NEGATIVE_INFINITY;
+  private generation = 0;
   private running = false;
   private ticking = false;
   private timer: NodeJS.Timeout | null = null;
-  private lastSlowAt = Number.NEGATIVE_INFINITY;
   private lastSessions: ObservedSession[] = [];
 
   constructor(options: ObserveServiceOptions) {
-    this.homeDir = options.homeDir;
-    this.publish = options.publish;
-    this.getSelfExclusion = options.getSelfExclusion
-      ?? (() => ({ pids: new Set(), sessionIds: new Set() }));
-    this.fastMs = options.fastMs ?? DEFAULT_FAST_MS;
-    this.slowMs = options.slowMs ?? DEFAULT_SLOW_MS;
+    this.options = options;
+    this.getAccess = options.getAccess ?? (() => NO_SCAN_ACCESS);
+    this.roots = options.configRoots ?? clientRoots(options.homeDir);
     this.now = options.now ?? Date.now;
     this.execImpl = options.execImpl ?? defaultExec;
-    this.snapshotProvider = options.snapshotProvider
-      ?? (() => captureProcessSnapshot(this.execImpl));
-    this.realpathImpl = options.realpathImpl ?? ((path: string) => fs.realpath(path));
+    this.realpathImpl = options.realpathImpl ?? ((path) => fs.realpath(path));
   }
 
   start(): void {
@@ -227,250 +151,186 @@ export class ObserveService {
     this.running = true;
     void this.loop();
   }
-
   stop(): void {
     this.running = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
   }
-
-  get sessions(): ObservedSession[] {
-    return this.lastSessions;
+  /** Invalidate in-flight reads as well as cached/visible content. */
+  invalidate(): void {
+    this.generation++;
+    this.markers['claude-code'].clear(); this.markers.codex.clear();
+    this.pidFileMap.clear(); this.lastPidRefresh = Number.NEGATIVE_INFINITY;
+    this.lastSessions = [];
+    this.options.publish({ sessions: [], scannedAt: this.now(), access: this.getAccess(), studioTasks: [] });
   }
+  get sessions(): ObservedSession[] { return this.lastSessions; }
 
   private async loop(): Promise<void> {
     while (this.running) {
-      try {
-        await this.tickOnce();
-      } catch {
-        // A tick must never kill the loop; next cycle rescans everything.
-      }
+      try { await this.tickOnce(); } catch { /* Retry on the next tick. */ }
       if (!this.running) return;
-      // Idle backoff: nothing active → drop to the slow cadence.
-      const active = this.lastSessions.some((session) => session.state === 'active');
-      const delay = active ? this.fastMs : Math.max(this.fastMs, this.slowMs);
-      await new Promise<void>((resolve) => {
-        this.timer = setTimeout(resolve, delay);
-      });
+      const active = this.lastSessions.some((s) => s.state === 'active');
+      const delay = active ? this.options.fastMs ?? 2_000 : this.options.slowMs ?? 10_000;
+      await new Promise<void>((resolve) => { this.timer = setTimeout(resolve, delay); });
     }
   }
 
-  /** One full scan cycle. Public so tests and the smoke script can drive
-   * the service without timers. */
   async tickOnce(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;
     try {
+      const access = this.getAccess();
+      const generation = this.generation;
+      const accessToken = JSON.stringify(access);
+      const current = () => generation === this.generation && JSON.stringify(this.getAccess()) === accessToken;
+      if (!access.enabled || !access.roots.length) {
+        this.invalidate();
+        return;
+      }
       const now = this.now();
-      const selfExclusion = this.getSelfExclusion();
+      const ownership: OwnershipIndex = this.options.userData
+        ? await readOwnership(join(this.options.userData, 'sessions', 'owned.json'))
+        : { available: true, pending: false, origins: new Map() };
+      const history = this.options.userData
+        ? await readStudioHistory(this.options.userData, access, this.realpathImpl)
+        : { tasks: [], internalIds: new Set<string>() };
+      const injected = this.options.getSelfExclusion?.() ?? { pids: new Set<number>(), sessionIds: new Set<string>() };
+      const self: SelfExclusion = { pids: new Set(injected.pids), sessionIds: new Set([...injected.sessionIds, ...history.internalIds]) };
+      if (!current()) return;
 
-      // Shared process snapshot; ps failure degrades to "no processes".
       let snapshot: ProcessSnapshot;
-      try {
-        snapshot = await this.snapshotProvider();
-      } catch {
-        snapshot = { byPid: new Map(), childrenOf: new Map(), capturedAt: now };
+      try { snapshot = await (this.options.snapshotProvider?.() ?? captureProcessSnapshot(this.execImpl)); }
+      catch { snapshot = { byPid: new Map(), childrenOf: new Map(), capturedAt: now }; }
+      const frontier = [...self.pids];
+      for (let i = 0; i < frontier.length; i++) {
+        for (const child of snapshot.childrenOf.get(frontier[i]) ?? []) {
+          if (!self.pids.has(child)) { self.pids.add(child); frontier.push(child); }
+        }
       }
-
-      // Slow-tick refresh: title sources + PID files.
-      if (now - this.lastSlowAt >= this.slowMs) {
-        await this.refreshSlowInputs();
-        this.lastSlowAt = now;
+      for (const pid of self.pids) {
+        const command = snapshot.byPid.get(pid)?.command;
+        const id = command ? extractSessionIdFromCommand(command) : null;
+        if (id) self.sessionIds.add(id);
       }
-
-      // Per-observer scans, independently fault-isolated.
-      const claudeSignals = await this.scanObserver('claude-code');
-      const codexSignals = await this.scanObserver('codex');
-      const kimiSignals = await this.scanObserver('kimi');
-      const desktopSignals = await this.scanCodexDesktop();
+      // PID files contain routing metadata, not global prompts/titles.
+      if (now - this.lastPidRefresh >= (this.options.slowMs ?? 10_000)) {
+        this.pidFileMap = await loadClaudePidFiles(this.options.homeDir, this.roots.claude);
+        this.lastPidRefresh = now;
+      }
       const signals = [
-        ...claudeSignals,
-        ...mergeCodexDesktopSignals(codexSignals, desktopSignals),
-        ...kimiSignals,
+        ...await this.scanObserver('claude-code', access, ownership, self.sessionIds, current),
+        ...await this.scanObserver('codex', access, ownership, self.sessionIds, current),
       ];
-
-      // Codex Desktop host (`codex app-server`): excluded from CLI
-      // candidates by the app-server token exclusion; the app's own adapter
-      // children are dropped by the self-exclusion pid tree.
-      const codexDesktopHostPid = detectCodexDesktopHostPids(snapshot)
-        .find((pid) => !selfExclusion.pids.has(pid));
-
-      // Client processes (exclusion list already drops mcp-server & co).
+      if (!current()) return;
       const claudePids = findClientPids(snapshot, ['claude']);
       const codexPids = findClientPids(snapshot, ['codex']);
-      const kimiPids = findClientPids(snapshot, ['kimi-code']);
       const mcpPids = detectMcpServerPids(snapshot);
-
-      // One batched lsof for every pid we care about.
-      const lsofPids = Array.from(new Set([...claudePids, ...codexPids, ...kimiPids, ...mcpPids]))
-        .filter((pid) => !selfExclusion.pids.has(pid));
-      const lsofByPid = await lsofOpenFiles(lsofPids, this.execImpl);
-      const suppressedPaths = mcpHeldRolloutPaths(lsofByPid, mcpPids);
-
+      const lsofPids = [...new Set([...claudePids, ...codexPids, ...mcpPids])].filter((pid) => !self.pids.has(pid));
+      const lsofByPid = process.platform === 'win32' ? new Map() : await lsofOpenFiles(lsofPids, this.execImpl);
       const realpathOf = await this.buildRealpathResolver(signals, lsofByPid);
-
-      // PID ↔ session association per client.
       const associations = new Map<string, Association>();
       const clients: Array<{ kind: ClientKind; pids: number[] }> = [
-        { kind: 'claude-code', pids: claudePids },
-        { kind: 'codex', pids: codexPids },
-        { kind: 'kimi', pids: kimiPids },
+        { kind: 'claude-code', pids: claudePids }, { kind: 'codex', pids: codexPids },
       ];
       for (const client of clients) {
-        const clientSignals = signals.filter((signal) => signal.clientKind === client.kind);
-        const clientAssociations = associate({
-          clientKind: client.kind,
-          pids: client.pids,
-          signals: clientSignals,
-          snapshot,
-          lsofByPid,
+        for (const [id, association] of associate({ clientKind: client.kind, pids: client.pids,
+          signals: signals.filter((s) => s.clientKind === client.kind), snapshot, lsofByPid,
           pidFileMap: client.kind === 'claude-code' ? this.pidFileMap : undefined,
-          realpathOf,
-          selfExclusion,
-        });
-        for (const [sessionId, association] of clientAssociations) {
-          associations.set(associationKey(client.kind, sessionId), association);
+          realpathOf, selfExclusion: self })) {
+          associations.set(associationKey(client.kind, id), association);
         }
       }
-
-      this.lastSessions = correlate({
-        signals,
-        associations,
-        snapshot,
-        realpathOf,
-        now,
-        selfSessionIds: selfExclusion.sessionIds,
-        suppressedPaths,
-        codexDesktopHostPid,
-      });
-      this.publish({ sessions: this.lastSessions, scannedAt: this.now() });
-    } finally {
-      this.ticking = false;
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
-  private async refreshSlowInputs(): Promise<void> {
-    // Codex titles (session_index + global-state): reload when either changed.
-    try {
-      const indexPath = join(this.homeDir, '.codex', 'session_index.jsonl');
-      const globalPath = join(this.homeDir, '.codex', '.codex-global-state.json');
-      const [indexStat, globalStat] = await Promise.all([lstatSafe(indexPath), lstatSafe(globalPath)]);
-      const marker = `${fileMarker(indexStat)}|${fileMarker(globalStat)}`;
-      if (this.indexMarker !== marker) {
-        const { titles, sources } = await loadCodexTitles(this.homeDir);
-        this.indexTitles = titles;
-        this.titleSources = sources;
-        this.indexMarker = marker;
+      const sessions = correlate({ signals, associations, snapshot, realpathOf, now,
+        selfSessionIds: self.sessionIds, suppressedPaths: mcpHeldRolloutPaths(lsofByPid, mcpPids) });
+      let hookSnapshot: unknown = null;
+      try { hookSnapshot = this.options.getHookSnapshot?.() ?? null; }
+      catch { hookSnapshot = {}; } // An unavailable configured producer cannot assert a state.
+      const next: ObservedSession[] = [];
+      const seen = new Set<string>();
+      for (const session of sessions) {
+        if (!current()) return;
+        if (!await canReadProject(session.cwd, access, this.realpathImpl)) continue;
+        const agent = session.clientKind === 'claude-code' ? 'claude' : 'codex';
+        const origin = ownership.origins.get(ownershipKey(agent, session.nativeSessionId));
+        if (origin === 'worker' || origin === 'station') continue;
+        const unresolved = !ownership.available || (!origin && ownership.pending);
+        session.origin = origin ?? (unresolved ? 'unknown' : 'user');
+        session.ownership = unresolved ? 'unresolved' : origin ? 'owned' : 'unowned';
+        if (unresolved) { session.state = 'unknown'; session.activity = 'unknown'; }
+        const projected = projectObservation(session, hookSnapshot);
+        if (projected.origin === 'worker' || projected.origin === 'station' || seen.has(projected.id)) continue;
+        seen.add(projected.id); next.push(projected);
       }
-    } catch {
-      this.indexTitles = new Map();
-      this.titleSources = new Map();
-    }
-    // Claude PID files: tiny directory (absent on some versions — degrades).
-    try {
-      this.pidFileMap = await loadClaudePidFiles(this.homeDir);
-    } catch {
-      this.pidFileMap = new Map();
-    }
-  }
-
-  /** Codex Desktop threads (ChatGPT.app code mode): global-state
-   * descriptions joined with chat-spawned processes. Cached on the two
-   * source files' mtime+size markers — process liveness is evaluated
-   * per-tick downstream in correlate, so a cached signal never goes stale. */
-  private async scanCodexDesktop(): Promise<ObservedFileSignal[]> {
-    try {
-      const globalPath = join(this.homeDir, '.codex', '.codex-global-state.json');
-      const procsPath = join(this.homeDir, '.codex', 'process_manager', 'chat_processes.json');
-      const [globalStat, procsStat] = await Promise.all([lstatSafe(globalPath), lstatSafe(procsPath)]);
-      const marker = `${fileMarker(globalStat)}|${fileMarker(procsStat)}`;
-      if (marker === this.desktopMarker) return this.desktopSignalsCache;
-      const threads = await listCodexDesktopThreads(this.homeDir);
-      const signals: ObservedFileSignal[] = [];
-      for (const thread of threads) {
-        const signal = parseCodexDesktopThread(thread);
-        if (signal) signals.push(signal);
+      // Directory grants and revocation are checked again after every async read.
+      if (!current()) return;
+      if (this.options.userData) {
+        const latest = await readOwnership(join(this.options.userData, 'sessions', 'owned.json'));
+        if (!current()) return;
+        if (latest.token !== ownership.token || latest.available !== ownership.available) {
+          this.invalidate(); // A concurrent launch/binding must not briefly become a user row.
+          return;
+        }
       }
-      this.desktopMarker = marker;
-      this.desktopSignalsCache = signals;
-      return signals;
-    } catch {
-      return []; // per-observer isolation
-    }
+      this.lastSessions = next;
+      this.options.publish({ sessions: next, scannedAt: this.now(), access, studioTasks: history.tasks,
+        diagnostics: ownership.available ? [] : ['ownership-unavailable'] });
+    } finally { this.ticking = false; }
   }
 
-  private async scanObserver(kind: ClientKind): Promise<ObservedFileSignal[]> {
+  private async scanObserver(kind: 'claude-code' | 'codex', access: ScanAccess,
+    ownership: OwnershipIndex, selfIds: Set<string>, current: () => boolean): Promise<ObservedFileSignal[]> {
+    const markers = this.markers[kind];
     try {
+      const config = kind === 'claude-code' ? this.roots.claude : this.roots.codex;
+      const root = await fs.realpath(config);
       const refs = kind === 'claude-code'
-        ? await listClaudeTranscripts(this.homeDir)
-        : kind === 'codex'
-          ? await listCodexRollouts(this.homeDir)
-          : await listKimiSessions(this.homeDir);
-      const markers = kind === 'claude-code'
-        ? this.claudeMarkers
-        : kind === 'codex'
-          ? this.codexMarkers
-          : this.kimiMarkers;
+        ? await listClaudeTranscripts(this.options.homeDir, 500, config)
+        : await listCodexRollouts(this.options.homeDir, 500, config);
       const signals: ObservedFileSignal[] = [];
       for (const ref of refs) {
-        const cached = markers.get(ref.filePath);
-        if (cached && cached.mtimeMs === ref.mtimeMs && cached.sizeBytes === ref.sizeBytes) {
-          // mtime+size change marker: unchanged file, reuse the parse.
-          if (cached.signal) signals.push(this.withFreshTitle(cached.signal));
-          continue;
-        }
-        const signal = await this.parseRef(kind, ref);
-        markers.set(ref.filePath, { mtimeMs: ref.mtimeMs, sizeBytes: ref.sizeBytes, signal });
-        if (signal) signals.push(signal);
+        if (!current()) return [];
+        try {
+          if (!withinDirectory(root, await fs.realpath(ref.filePath))) continue;
+          const identity = await readSessionIdentity(ref.filePath, kind);
+          if (!identity || selfIds.has(identity.sessionId)
+            || !await canReadProject(identity.cwd, access, this.realpathImpl) || !current()) {
+            markers.delete(ref.filePath); continue;
+          }
+          const origin = ownership.origins.get(ownershipKey(kind === 'claude-code' ? 'claude' : 'codex', identity.sessionId));
+          if (origin === 'worker' || origin === 'station') { markers.delete(ref.filePath); continue; }
+          if (!ownership.available || (!origin && ownership.pending)) {
+            // Do not read internal messages while launch/ownership is unresolved.
+            markers.delete(ref.filePath);
+            signals.push({ ...ref, clientKind: kind, nativeSessionId: identity.sessionId, cwd: identity.cwd,
+              tailSignals: kind === 'claude-code'
+                ? { kind: 'claude', trailingRealUser: false, unclosedToolUse: false, messagesSeen: 0 }
+                : { kind: 'codex', generating: false, pendingFunctionCalls: 0, sawTaskComplete: false, isExec: false, turnCount: 0 } });
+            continue;
+          }
+          const cached = markers.get(ref.filePath);
+          const signal = cached && cached.mtimeMs === ref.mtimeMs && cached.sizeBytes === ref.sizeBytes
+            ? cached.signal : kind === 'claude-code' ? await parseClaudeTranscript(ref) : await parseCodexRollout(ref, new Map());
+          if (!current()) return [];
+          markers.set(ref.filePath, { mtimeMs: ref.mtimeMs, sizeBytes: ref.sizeBytes, signal });
+          if (signal?.nativeSessionId === identity.sessionId && signal.cwd === identity.cwd) signals.push(signal);
+        } catch { markers.delete(ref.filePath); }
       }
-      // Evict markers for files that fell out of the scan window.
       const scanned = new Set(refs.map((ref) => ref.filePath));
-      for (const key of Array.from(markers.keys())) {
-        if (!scanned.has(key)) markers.delete(key);
-      }
+      for (const key of markers.keys()) if (!scanned.has(key)) markers.delete(key);
       return signals;
-    } catch {
-      return []; // per-observer isolation
-    }
+    } catch { markers.clear(); return []; }
   }
 
-  private async parseRef(kind: ClientKind, ref: StateFileRef): Promise<ObservedFileSignal | null> {
-    if (kind === 'claude-code') return parseClaudeTranscript(ref);
-    if (kind === 'codex') return parseCodexRollout(ref, this.indexTitles, this.titleSources);
-    return parseKimiSession(ref as KimiSessionRef);
-  }
-
-  /** Re-attach the latest Codex title to a cached signal. */
-  private withFreshTitle(signal: ObservedFileSignal): ObservedFileSignal {
-    if (signal.clientKind !== 'codex') return signal;
-    const title = this.indexTitles.get(signal.nativeSessionId);
-    if (!title || title === signal.title) return signal;
-    return { ...signal, title, titleSource: this.titleSources.get(signal.nativeSessionId) };
-  }
-
-  private async buildRealpathResolver(
-    signals: ObservedFileSignal[],
-    lsofByPid: Map<number, { cwd?: string }>,
-  ): Promise<(path: string) => string> {
-    const paths = new Set<string>();
-    for (const signal of signals) paths.add(signal.cwd);
-    for (const entry of lsofByPid.values()) {
-      if (entry.cwd) paths.add(entry.cwd);
-    }
+  private async buildRealpathResolver(signals: ObservedFileSignal[], lsofByPid: Map<number, { cwd?: string }>) {
+    // Resolve afresh per scan: a changed mount/symlink must not reuse old access.
+    const paths = new Set(signals.map((s) => s.cwd));
+    for (const entry of lsofByPid.values()) if (entry.cwd) paths.add(entry.cwd);
+    const resolved = new Map<string, string>();
     for (const path of paths) {
-      if (this.realpathCache.has(path)) continue;
-      try {
-        this.realpathCache.set(path, await this.realpathImpl(path));
-      } catch {
-        this.realpathCache.set(path, path); // unresolvable → use as-is
-      }
+      try { resolved.set(path, await this.realpathImpl(path)); }
+      catch { resolved.set(path, path); }
     }
-    return (path: string) => this.realpathCache.get(path) ?? path;
+    return (path: string) => resolved.get(path) ?? path;
   }
 }
