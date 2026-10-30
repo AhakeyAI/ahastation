@@ -124,7 +124,11 @@ export function RealTerminal({ workerId, readOnly = false, onOutput }: RealTermi
 
   return (
     <div className="real-terminal" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {error && <div className="real-terminal-error">{error}</div>}
+      {error && (/^No live PTY/.test(error)
+        // The process is gone (stopped worker, app restarted): nothing to
+        // replay, which is a state rather than a failure.
+        ? <div className="real-terminal-note">终端进程已经结束，没有可回放的画面。</div>
+        : <div className="real-terminal-error">{error}</div>)}
       <div
         ref={containerRef}
         style={{ flex: 1, minHeight: 120, opacity: exited ? 0.7 : 1 }}

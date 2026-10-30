@@ -266,6 +266,20 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         }));
       }
 
+      // A fresh meeting in a project room continues the last one's kickoff:
+      // the experts come back, their unfinished sub-agents show as stopped
+      // (重新开始), and the workspace notes are kept. Crash recovery already
+      // carries all of this in `recovery`.
+      const carry = recovery ? null : await MeetingRepository.latestEndedKickoff(resolvedCwd);
+      const carriedHosts = carry
+        ? parseRecoveredHosts(carry.hosts).filter((host) => host.id !== 'default' && host.profile)
+        : [];
+      const carriedHostIds = new Set(carriedHosts.map((host) => host.id));
+      const carriedOwnedTasks = carry
+        ? parseRecoveredOwnedTasks(carry.ownedTasks).filter((task) => carriedHostIds.has(task.ownerHostId))
+        : [];
+      const carriedNotes = carry ? parseRecoveredMeetingNotes(carry.meetingNotes) : undefined;
+
       // Pre-bind sessionId into the emit closure so every event this
       // orchestrator emits is automatically routed to the right renderer slot.
       const orch = new Orchestrator({
@@ -314,9 +328,9 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         // resume handles above are keyed by the same host ids. Profiles and
         // owned sub-agent tasks come from the same snapshot so a restart
         // keeps the 子 Agent tab and 重新开始.
-        recoveredHosts: recovery ? parseRecoveredHosts(recovery.state.hosts) : undefined,
-        recoveredOwnedTasks: recovery ? parseRecoveredOwnedTasks(recovery.state.ownedTasks) : undefined,
-        recoveredMeetingNotes: recovery ? parseRecoveredMeetingNotes(recovery.state.meetingNotes) : undefined,
+        recoveredHosts: recovery ? parseRecoveredHosts(recovery.state.hosts) : carriedHosts,
+        recoveredOwnedTasks: recovery ? parseRecoveredOwnedTasks(recovery.state.ownedTasks) : carriedOwnedTasks,
+        recoveredMeetingNotes: recovery ? parseRecoveredMeetingNotes(recovery.state.meetingNotes) : carriedNotes,
       });
 
       const result = ctx.registry.open(sessionId, resolvedCwd, orch);

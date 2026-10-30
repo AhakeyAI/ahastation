@@ -1629,10 +1629,7 @@ export class Orchestrator implements OrchestratorBridge {
           };
         })
         .filter((mailbox) => mailbox.taskId),
-      ownedTasks: [...this.taskOwners.entries()].flatMap(([taskId, ownerHostId]) => {
-        const input = this.ownedTaskInputs.get(taskId);
-        return input ? [{ taskId, ownerHostId, input: structuredClone(input) }] : [];
-      }),
+      ownedTasks: this.ownedTasksSnapshot(),
       meetingNotes: structuredClone(this.meetingNotes),
       reviewSessions: this.coordinatorReviewDriver.snapshot(),
       integrationQueue: this.integrationQueue.snapshot(),
@@ -1842,9 +1839,15 @@ export class Orchestrator implements OrchestratorBridge {
     const cleanupPromises: Promise<void>[] = [
       this.repository.snapshot({
         status: 'ended',
+        cwd: this.cwd,
         coordinatorHostId: this.coordinatorHostId,
         hosts: this.listHosts(),
         workers: this.meetingScheduler.describeWorkers(),
+        // The next meeting in this folder picks these up (sessions:open), so
+        // quitting the app keeps the expert, its unfinished sub-agents and
+        // the workspace notes. Finished sub-agents don't come back.
+        ownedTasks: this.ownedTasksSnapshot(new Set(['done', 'accepted']), true),
+        meetingNotes: structuredClone(this.meetingNotes),
       }).then(() => this.repository.flush()),
     ];
     if (this.recapHandle) cleanupPromises.push(this.recapHandle.done);
@@ -1968,6 +1971,29 @@ export class Orchestrator implements OrchestratorBridge {
     );
     await this.snapshotActiveMeeting();
     return { ok: true, taskId: nextId };
+  }
+
+  private ownedTasksSnapshot(
+    skipStatuses?: ReadonlySet<string>,
+    latestAttemptOnly = false,
+  ): { taskId: string; ownerHostId: string; input: PlanMeetingTaskInput }[] {
+    const live = new Map(this.meetingScheduler.snapshot().map((task) => [task.id, task.status]));
+    // 重新开始 makes `<task>-rN`; once a newer attempt exists the older one
+    // has nothing left to restart.
+    const attempt = (id: string) => Number(/-r(\d+)$/.exec(id)?.[1] ?? 1);
+    const baseOf = (id: string) => id.replace(/-r\d+$/, '');
+    const latest = new Map<string, number>();
+    for (const taskId of this.taskOwners.keys()) {
+      latest.set(baseOf(taskId), Math.max(latest.get(baseOf(taskId)) ?? 0, attempt(taskId)));
+    }
+    return [...this.taskOwners.entries()].flatMap(([taskId, ownerHostId]) => {
+      const input = this.ownedTaskInputs.get(taskId);
+      if (!input) return [];
+      if (latestAttemptOnly && attempt(taskId) < (latest.get(baseOf(taskId)) ?? 0)) return [];
+      const status = live.get(taskId);
+      if (skipStatuses && status && skipStatuses.has(status)) return [];
+      return [{ taskId, ownerHostId, input: structuredClone(input) }];
+    });
   }
 
   /** Replay expert ownership and workspace notes from the recovered snapshot. */
