@@ -61,6 +61,7 @@ import {
 import {
   type ActiveReviewGate,
   type DecisionCreationResult,
+  type MeetingNotes,
   type OrchestratorBridge,
   type SaveMemoryResult,
   type SteerResult,
@@ -158,8 +159,33 @@ import {
   assessTaskRecovery,
   type TaskRecoveryAction,
 } from './task-recovery.js';
+import type { HostProfile } from './orchestrator-types.js';
 
 export const MAX_HOSTS = 3;
+
+/** Kickoff for an empty project (docs/design/2026-10-30-project-rooms-and-kickoff.md):
+ *  brainstorm = read-only research; develop = code in a worktree. */
+export type KickoffMode = 'brainstorm' | 'develop';
+
+/** Native-CLI worker backend for an expert's backend, so the sub-agent shows
+ *  its real terminal in the stage. Falls back to the expert's own backend. */
+export function terminalWorkerBackendFor(backendId: string): string {
+  const terminal: Record<string, string> = {
+    'claude-code': 'claude-code-terminal',
+    codex: 'codex-terminal',
+    kimi: 'kimi-code-terminal',
+    qoder: 'qoder-terminal',
+  };
+  return terminal[backendId] ?? backendId;
+}
+
+export function kickoffTaskPrompt(mode: KickoffMode, profile: HostProfile): string {
+  return mode === 'brainstorm'
+    ? `你是「${profile.title} ${profile.name}」派出的调研子 Agent。项目刚开始，还没有 Issue 和计划。只读调查当前目录：README、目录结构、已有代码和文档；`
+      + '整理出项目现状、可能的目标用户与要解决的问题、三个可选方向及各自取舍。不要修改任何文件。把结论写进最终工作报告，专家会继续给你派后续调研。'
+    : `你是「${profile.title} ${profile.name}」派出的开发子 Agent。项目刚开始。先只读了解目录和已有代码，再按项目语言搭最小可运行骨架`
+      + '（README 说明如何运行、一个可执行入口、一条能跑的测试）。只改工作树里的文件；不确定的选型写进工作报告让专家决定。专家会继续给你派后续开发。';
+}
 
 export type {
   OrchestratorEvent,
@@ -248,6 +274,13 @@ export class Orchestrator implements OrchestratorBridge {
    * This can move via setCoordinator; execution stays on DEFAULT_HOST_ID.
    */
   private coordinatorHostId = DEFAULT_HOST_ID;
+  /** AME-D14 职能＋名字 for experts; the coordinator stays 助理. */
+  private hostProfiles = new Map<string, HostProfile>();
+  /** taskId → expert hostId that owns it (AME-D14 sub-agent ownership). */
+  private taskOwners = new Map<string, string>();
+  /** Plan input of each expert-owned task, so a stopped sub-agent can restart. */
+  private ownedTaskInputs = new Map<string, PlanMeetingTaskInput>();
+  private meetingNotes: MeetingNotes = { conclusions: [], decisions: [], workItems: [], todos: [] };
   /**
    * Single authoritative task graph and worker pool for the whole Meeting.
    * Always bound to the default HostGroup — setCoordinator does not migrate it.
@@ -744,7 +777,7 @@ export class Orchestrator implements OrchestratorBridge {
   /** Add a new host group to this meeting. Returns the host group id.
    *  The host's talker session is started asynchronously — the renderer shows
    *  a "Connecting…" placeholder until the session-ready event arrives. */
-  addHost(backendId: string, hostId?: string, remoteTarget?: PocketVibeRemoteTarget): { ok: true; hostId: string } | { ok: false; error: string } {
+  addHost(backendId: string, hostId?: string, remoteTarget?: PocketVibeRemoteTarget, profile?: HostProfile): { ok: true; hostId: string } | { ok: false; error: string } {
     if (this.closed) return { ok: false, error: 'orchestrator is closed' };
     const target = remoteTarget === undefined ? undefined : parsePocketVibeRemoteTarget(remoteTarget);
     if (remoteTarget !== undefined && (backendId !== 'pocket-vibe' || !target)) {
@@ -774,6 +807,7 @@ export class Orchestrator implements OrchestratorBridge {
       return { ok: false, error: `host group '${id}' already exists` };
     }
     if (target) this.remoteTargets.set(id, target);
+    if (profile) this.hostProfiles.set(id, profile);
     const hg = this.createHostGroup(id, backendId);
     if (target) void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
 
@@ -784,7 +818,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.safeEmit({
       source: 'system',
       hostId: id,
-      event: { kind: 'host-added', backendId },
+      event: { kind: 'host-added', backendId, ...(profile ? { profile } : {}) },
     });
 
     // Fire-and-forget the talker transport handshake. Starting a Host must not
@@ -1014,6 +1048,7 @@ export class Orchestrator implements OrchestratorBridge {
     const authorized = authorizeMeetingCommand(raw, {
       hostId,
       role: hostId === this.coordinatorHostId ? 'coordinator' : 'expert',
+      ownsTask: (taskId) => this.isTaskOwnedBy(taskId, hostId),
     }, {
       defaultBackendId: this.defaultWorkerBackendId(),
       ...this.normalizePlanOptions(),
@@ -1165,6 +1200,9 @@ export class Orchestrator implements OrchestratorBridge {
   /** Handle events from a HostGroup, tagging with hostId before re-emitting. */
   private onHostGroupEvent(hostId: string, e: OrchestratorEvent) {
     this.safeEmit({ ...e, hostId });
+    if (e.source === 'system' && e.event.kind === 'coordinator-briefing') {
+      this.forwardBriefingToOwner(e.event.briefing);
+    }
     if (
       hostId !== this.coordinatorHostId
       && e.source === 'talker'
@@ -1781,6 +1819,130 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   /** Manual entry point: renderer-side "Plan meeting" button. */
+  // ---- Empty-project kickoff, expert-owned sub-agents, meeting notes -------
+
+  isTaskOwnedBy(taskId: string, hostId: string): boolean {
+    return this.taskOwners.get(taskId) === hostId;
+  }
+
+  getHostProfile(hostId: string): HostProfile | undefined {
+    return this.hostProfiles.get(hostId);
+  }
+
+  updateMeetingNotes(notes: MeetingNotes): void {
+    this.meetingNotes = notes;
+    const updatedAt = Date.now();
+    this.safeEmit({ source: 'system', event: { kind: 'meeting-notes-updated', notes, updatedAt } });
+  }
+
+  getMeetingNotes(): MeetingNotes {
+    return this.meetingNotes;
+  }
+
+  /**
+   * User confirmed the kickoff card (AME-D23 stage confirmation): invite the
+   * expert, install one sub-agent task it owns on a native-CLI worker, then
+   * brief the expert and the coordinator. The task goes through the same
+   * backend validation and authority envelope as any installed plan.
+   */
+  async startKickoff(input: {
+    mode: KickoffMode;
+    expertBackendId: string;
+    profile: HostProfile;
+  }): Promise<{ ok: true; expertHostId: string; taskId: string } | { ok: false; error: string }> {
+    if (this.closed) return { ok: false, error: 'orchestrator is closed' };
+    const expertHostId = `expert-${randomUUID().slice(0, 8)}`;
+    const added = this.addHost(input.expertBackendId, expertHostId, undefined, input.profile);
+    if (!added.ok) return added;
+    const taskId = `kickoff-${input.mode}-${randomUUID().slice(0, 6)}`;
+    const title = input.mode === 'brainstorm' ? '调研项目现状与方向' : '搭建最小可运行骨架';
+    const task: PlanMeetingTaskInput = {
+      id: taskId,
+      title,
+      prompt: kickoffTaskPrompt(input.mode, input.profile),
+      deps: [],
+      executorBackendId: terminalWorkerBackendFor(input.expertBackendId),
+      ...(input.mode === 'brainstorm'
+        ? { workspaceMode: 'read-only' as const }
+        : { workspaceMode: 'git-worktree' as const, writePaths: ['.'] }),
+    };
+    const installed = await this.installPlan([task]);
+    if (!installed.ok) {
+      this.removeHost(expertHostId);
+      return installed;
+    }
+    this.taskOwners.set(taskId, expertHostId);
+    this.ownedTaskInputs.set(taskId, task);
+    void this.repository.append('kickoff-started', { mode: input.mode, expertHostId, taskId, profile: input.profile });
+    this.safeEmit({ source: 'system', hostId: expertHostId, event: { kind: 'task-owner-assigned', taskId, title } });
+    const who = `${input.profile.title} ${input.profile.name}`;
+    // Queued on the cross-host bus until the expert's talker is ready.
+    this.sendHostMessage(this.coordinatorHostId, expertHostId,
+      `(kickoff) 你是本场会议的「${who}」。用户选择了${input.mode === 'brainstorm' ? '讨论脑暴' : '开始开发'}。`
+      + `你名下有一个子 Agent 任务 ${taskId}「${title}」，它在共享区原生 CLI 里工作，用户只能看不能直接输入。`
+      + `需要它做后续工作时，用 send_task_message 或 follow_up_task 给 ${taskId} 派具体、可验收的小任务；它的进展会转给你。`
+      + '与用户讨论时简短、专业；需要用户拍板的事交给助理统一询问。');
+    this.hostGroups.get(this.coordinatorHostId)?.getHost()?.sendUserText(
+      `(kickoff) 用户选择了${input.mode === 'brainstorm' ? '讨论脑暴' : '开始开发'}。「${who}」已入会（hostId ${expertHostId}），`
+      + `并派出子 Agent 任务 ${taskId}「${title}」。请你主持讨论：先用一两句话欢迎并说明接下来怎么聊，`
+      + '然后每轮有实质进展就调用 update_meeting_notes 更新工作区纪要（核心结论、决策、待派工的工作项、零碎 TODO）。',
+      'high',
+    );
+    return { ok: true, expertHostId, taskId };
+  }
+
+  /** The user took over an expert's sub-agent and hands it back: the owner reads
+   *  the user's changes before directing it again (same rule as document
+   *  takeover in AME; CLI takeover itself changes AME-D32/D33/Q20, 2026-10-30). */
+  handBackTask(taskId: string, note?: string): { ok: true } | { ok: false; error: string } {
+    const owner = this.taskOwners.get(taskId);
+    if (!owner) return { ok: false, error: 'task has no owning expert' };
+    const host = this.hostGroups.get(owner)?.getHost();
+    if (!host) return { ok: false, error: 'owning expert is not connected' };
+    void this.repository.append('task-handed-back', { taskId, owner });
+    host.sendUserText(
+      `(handback) 用户刚才接管了你的子 Agent ${taskId}，现在交还给你。${note ? `用户留言：${note}。` : ''}`
+      + '先让它看一下工作树里用户改了什么（git status、git diff），基于最新内容再用 follow_up_task 继续派活，不要覆盖用户的改动。',
+      'high',
+    );
+    return { ok: true };
+  }
+
+  /** A stopped (failed / ended) expert sub-agent: install a fresh attempt of
+   *  the same task under the same expert. Running ones go through takeover. */
+  async restartOwnedTask(taskId: string): Promise<{ ok: true; taskId: string } | { ok: false; error: string }> {
+    const owner = this.taskOwners.get(taskId);
+    const input = this.ownedTaskInputs.get(taskId);
+    if (!owner || !input) return { ok: false, error: 'task has no owning expert' };
+    const base = taskId.replace(/-r\d+$/, '');
+    let n = 2;
+    while (this.taskOwners.has(`${base}-r${n}`)) n += 1;
+    const nextId = `${base}-r${n}`;
+    const installed = await this.installPlan([{ ...input, id: nextId }]);
+    if (!installed.ok) return installed;
+    this.taskOwners.set(nextId, owner);
+    this.ownedTaskInputs.set(nextId, { ...input, id: nextId });
+    void this.repository.append('owned-task-restarted', { from: taskId, to: nextId, owner });
+    const title = input.title ?? nextId;
+    this.safeEmit({ source: 'system', hostId: owner, event: { kind: 'task-owner-assigned', taskId: nextId, title } });
+    this.hostGroups.get(owner)?.getHost()?.sendUserText(
+      `(restart) 你名下的子 Agent ${taskId} 已停止，用户让它重新开始，新任务是 ${nextId}「${title}」。后续用 send_task_message / follow_up_task 给 ${nextId} 派活。`,
+      'normal',
+    );
+    return { ok: true, taskId: nextId };
+  }
+
+  private forwardBriefingToOwner(briefing: { taskId?: string; workerId?: string; title: string; summary: string; kind: string }): void {
+    const taskId = briefing.taskId ?? briefing.workerId;
+    const owner = taskId ? this.taskOwners.get(taskId) : undefined;
+    if (!owner || owner === this.coordinatorHostId) return;
+    this.hostGroups.get(owner)?.getHost()?.sendUserText(
+      `(your sub-agent ${taskId}) ${briefing.kind}: ${briefing.title}\n${briefing.summary}\n`
+      + '这是你名下子 Agent 的进展。需要它继续就用 send_task_message / follow_up_task；有结论就简短告诉大家。',
+      'normal',
+    );
+  }
+
   async installPlan(tasks: PlanMeetingTaskInput[]): Promise<{ ok: true } | { ok: false; error: string }> {
     if(this.sharedExecution)return this.proposePlan(tasks);
     let normalized: PlanMeetingTask[];

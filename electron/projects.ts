@@ -201,3 +201,44 @@ export function abortClone(): void {
   activeClone = null;
   current?.child.kill('SIGTERM');
 }
+
+// ---- GitHub (read-only status; Issue creation only after user confirmation) ----
+
+function gh(cwd: string, args: string[], timeout = 15_000): Promise<{ ok: boolean; stdout: string; stderr: string; missing: boolean }> {
+  return new Promise((res) => {
+    execFile('gh', args, { cwd, timeout, env: gitEnv(), windowsHide: true }, (error, stdout, stderr) => {
+      res({ ok: !error, stdout: String(stdout), stderr: String(stderr), missing: (error as NodeJS.ErrnoException | null)?.code === 'ENOENT' });
+    });
+  });
+}
+
+export interface GithubStatus {
+  /** origin points at github.com. */
+  github: boolean;
+  /** gh CLI installed and could query the repo. */
+  queried: boolean;
+  openIssues: number | null;
+  openPrs: number | null;
+}
+
+/** Read-only: does this project already have open Issues / PRs? Unknown stays null (never counted as empty). */
+export async function githubStatus(cwd: string): Promise<GithubStatus> {
+  const remote = await git(cwd, ['config', '--get', 'remote.origin.url']);
+  const github = remote.ok && /github\.com[:/]/.test(remote.stdout);
+  if (!github) return { github: false, queried: false, openIssues: null, openPrs: null };
+  const count = async (kind: 'issue' | 'pr'): Promise<number | null> => {
+    const r = await gh(cwd, [kind, 'list', '--state', 'open', '--limit', '1', '--json', 'number']);
+    if (!r.ok) return null;
+    try { return (JSON.parse(r.stdout) as unknown[]).length; } catch { return null; }
+  };
+  const [openIssues, openPrs] = await Promise.all([count('issue'), count('pr')]);
+  return { github, queried: openIssues !== null || openPrs !== null, openIssues, openPrs };
+}
+
+/** External write: runs only from the board's confirmation dialog with the box ticked (AME-D08 / Q12). */
+export async function createGithubIssue(cwd: string, title: string, body: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const r = await gh(cwd, ['issue', 'create', '--title', title, '--body', body], 30_000);
+  if (r.ok) return { ok: true, url: r.stdout.trim().split('\n').pop() ?? '' };
+  if (r.missing) return { ok: false, error: '没有找到 gh 命令，先安装 GitHub CLI 并运行 gh auth login' };
+  return { ok: false, error: r.stderr.trim().split('\n').pop() || '创建 Issue 失败' };
+}

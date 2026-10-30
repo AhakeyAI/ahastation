@@ -14,6 +14,10 @@ export interface StageWindowOptions {
   localCliId?: string;
   shellId?: string;
   cwd?: string;
+  /** Where the tab belongs: 'cli-workspace' or `meeting:<cwd>`. Unscoped tabs show everywhere. */
+  scope?: string;
+  /** Expert sub-agent tab (AME-D14): owning expert's hostId. */
+  subagentOwner?: string;
 }
 
 export interface StageWindow {
@@ -27,6 +31,8 @@ export interface StageWindow {
   localCliId?: string;
   shellId?: string;
   cwd?: string;
+  scope?: string;
+  subagentOwner?: string;
 }
 
 export interface StageWindowState {
@@ -128,6 +134,8 @@ class StageWindowStore {
         localCliId: opts?.localCliId,
         shellId: opts?.shellId,
         cwd: opts?.cwd,
+        ...(opts?.scope ? { scope: opts.scope } : {}),
+        ...(opts?.subagentOwner ? { subagentOwner: opts.subagentOwner } : {}),
       };
       await browserStore.setVisible(false);
       this.update({

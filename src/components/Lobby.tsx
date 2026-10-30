@@ -207,7 +207,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
   ].filter(Boolean))], [lobby.recent, recoverable, observed]);
   useEffect(() => {
     const missing = roomFolders.filter((cwd) => !(cwd in repos));
-    if (!missing.length || !window.vibeMeet.projects) return;
+    if (!missing.length || !window.vibeMeet.projects?.resolveRepos) return;
     let cancelled = false;
     void window.vibeMeet.projects.resolveRepos(missing).then((res) => {
       if (!cancelled && res.ok) setRepos((prev) => ({ ...prev, ...res.repos }));
@@ -767,40 +767,8 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           <span>{opening ? '正在打开…' : '新建项目室'}</span>
         </button>
 
-        <div className="join-hints">
-          <span className="join-hint-item"><Mic size={14} aria-hidden="true" /> 默认开启语音</span>
-          <span className="join-hint-item"><MonitorUp size={14} aria-hidden="true" /> 屏幕截图手动发送</span>
-          <span className="join-hint-item">按 ⌥ 随时打断</span>
-        </div>
 
 
-        {(onEnterBoard || onReplayOnboarding || onEnterMeeting || onOpenExplore) && (
-          <div className="lobby-footer-actions">
-            {onEnterBoard && (
-              <button type="button" className="lobby-footer-btn" onClick={onEnterBoard}>
-                查看任务看板
-              </button>
-            )}
-            {onOpenExplore && (
-              <button type="button" className="lobby-footer-btn" onClick={onOpenExplore}>
-                探索配套硬件与功能
-              </button>
-            )}
-            {onReplayOnboarding && (
-              <button type="button" className="lobby-footer-btn" onClick={onReplayOnboarding}>
-                重播首次启动
-              </button>
-            )}
-            <button
-              type="button"
-              className="lobby-footer-btn"
-              aria-expanded={collabOpen}
-              onClick={() => setCollabOpen((v) => !v)}
-            >
-              {collabOpen ? '收起多设备协作' : '多设备协作（实验）'}
-            </button>
-          </div>
-        )}
         {collabOpen && (
           <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={() => onEnterMeeting?.()} />
         )}

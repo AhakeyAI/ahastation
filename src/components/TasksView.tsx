@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,10 +11,30 @@ import {
   LoaderCircle,
   RotateCcw,
   ShieldAlert,
+  Plus,
+  X,
+  ListTodo,
 } from 'lucide-react';
 import type { AggregatedTask, CrossProjectTasks } from '../lib/meeting-store';
 import { dependencyGateShortLabel } from '../lib/dependency-gate';
-import { TASK_COLUMNS, type TaskColumnId } from '../lib/task-columns';
+import {
+  DEFAULT_LANES,
+  SUB_STATUS_META,
+  SUB_STATUSES,
+  subStatusForObserved,
+  TASK_COLUMNS,
+  UNSORTED_LANE_ID,
+  laneFor,
+  laneHint,
+  parseLanes,
+  type BoardLane,
+  type BoardSubStatus,
+  type TaskColumnId,
+} from '../lib/task-columns';
+import { useBacklog } from '../lib/backlog-store';
+import { projectKeyOf, useRepoRoots } from '../lib/repo-roots';
+import { splitPath } from '../lib/project-rooms';
+import type { BacklogItem } from '../lib/project-rooms';
 import { useObservedTasks } from '../hooks/useObservedTasks';
 import type {
   ObservedClientKind,
@@ -32,6 +52,9 @@ interface TasksViewProps {
   onOpenTask: (sessionId: string, taskId: string) => void;
   /** Focus the owning project so its plan-approval modal comes up. */
   onOpenPlan: (sessionId: string) => void;
+  /** The meeting's project folder: the board opens filtered to it (its
+   *  repository, worktrees included). Unset = all projects. */
+  project?: string | null;
 }
 
 const ALL = '__all__';
@@ -66,7 +89,8 @@ function TaskCard({ task, onOpen }: { task: AggregatedTask; onOpen: () => void }
       <strong className="tasks-card-title">{task.title}</strong>
       <span className="tasks-card-meta">
         <StatusIcon status={task.status} blocked={Boolean(task.blockedReason)} />
-        {task.blockedReason ?? task.statusLabel}
+        <em className={`tasks-sub-chip is-${task.sub}`}>{SUB_STATUS_META[task.sub].label}</em>
+        {task.blockedReason ?? (task.statusLabel !== SUB_STATUS_META[task.sub].label ? task.statusLabel : '')}
       </span>
       <span className="tasks-card-foot">
         <em>{task.backendId ?? 'Backend 待定'}</em>
@@ -96,28 +120,11 @@ export const OBSERVED_CLIENT_LABEL: Record<ObservedClientKind, string> = {
   kimi: 'Kimi',
 };
 
-/** A done session leaves the board once it falls outside this window — the
- *  board is action-oriented; stale file-only history is S1 material. */
-const RECENTLY_DONE_WINDOW_MS = 30 * 60_000;
+export { subStatusForObserved };
 
-/** Board column for an observed session, or null when it shouldn't render.
- *  `unknown` (file-only, no process) never shows. `idle` shows only when the
- *  row is backed by a live process (session.pid set) — the Codex Desktop
- *  host-backed idle ("window open, nothing running"); stale file-only CLI
- *  idle stays hidden (history surface, S1). `done` only while recent. */
 export function columnForObserved(session: ObservedSession, now: number): TaskColumnId | null {
-  switch (session.state) {
-    case 'waiting':
-      return 'attention';
-    case 'active':
-      return 'active';
-    case 'idle':
-      return session.pid !== undefined ? 'active' : null;
-    case 'done':
-      return now - session.lastActiveAt <= RECENTLY_DONE_WINDOW_MS ? 'settled' : null;
-    default:
-      return null;
-  }
+  const sub = subStatusForObserved(session, now);
+  return sub ? SUB_STATUS_META[sub].parent : null;
 }
 
 export function formatObservedAge(ts: number): string {
@@ -173,97 +180,186 @@ function ObservedTaskCard({ session }: { session: ObservedSession }) {
  *  (external CLI windows) mix into the same columns after orchestrated cards. */
 export function TasksView(props:TasksViewProps){return props.shared?<SharedTaskBoard model={props.shared} onOpen={id=>props.onOpenTask(props.shared!.meeting.id,id)} onPlan={()=>props.onOpenPlan(props.shared!.meeting.id)}/>:<LocalTasksView {...props}/>;}
 function SharedTaskBoard({model,onOpen,onPlan}:{model:UnifiedModel;onOpen:(id:string)=>void;onPlan:()=>void}){return <main className="tasks-view"><header className="tasks-header"><h2>{String(model.meeting.title)} · 任务</h2>{!model.meeting.planApproved&&<button onClick={onPlan}>审阅当前计划</button>}</header><div className="tasks-board">{[['attention','待批准／待确认'],['active','执行／等待'],['settled','成果／已完成']].map(([column,label])=><section className={'tasks-column tasks-column-'+column} key={column}><header className="tasks-column-head">{label}</header><div className="tasks-column-body">{model.tasks.filter(t=>{const state=t.status==='accepted'||t.status==='delivered'?'settled':t.stopRequested||['stopped','approval','reconcile'].includes(String(t.status))?'attention':'active';return state===column;}).map(t=><button className="tasks-card" key={t.id} onClick={()=>onOpen(t.id)}><strong>{String(t.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</span><span>{sharedPhase(t)}</span></button>)}</div></section>)}</div></main>;}
-function LocalTasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
+function BacklogCard({ item }: { item: BacklogItem }) {
+  return (
+    <div className="tasks-card tasks-card-backlog" title={item.source ?? item.cwd}>
+      <span className="tasks-card-project">{item.projectName}</span>
+      <strong className="tasks-card-title">{item.title}</strong>
+      <span className="tasks-card-meta">
+        <ListTodo size={13} />
+        <em className="tasks-sub-chip is-backlog">{item.kind === 'todo' ? 'TODO' : '待派工'}</em>
+        {item.source && <span className="tasks-card-source">{item.source}</span>}
+      </span>
+      <span className="tasks-card-foot">
+        {item.issueUrl
+          ? <a href={item.issueUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>GitHub Issue ↗</a>
+          : item.issueError ? <em className="tasks-card-issue-error" title={item.issueError}>Issue 未创建</em> : <em>仅看板</em>}
+        <button type="button" className="tasks-card-remove" aria-label="移除这张卡片" title="移除"
+          onClick={() => void window.vibeMeet.projects?.backlogRemove?.(item.id)}>
+          <X size={11} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+const LANES_KEY = 'aha.board.lanes';
+
+function readLanes(): BoardLane[] {
+  try { return parseLanes(window.localStorage.getItem(LANES_KEY)); } catch { return DEFAULT_LANES; }
+}
+
+/** 「＋ 泳道」: split any sub-status (or a parent status) into its own lane. */
+function LaneMenu({ lanes, onAdd, onReset }: { lanes: BoardLane[]; onAdd: (lane: BoardLane) => void; onReset: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const has = (m: BoardLane['match']) => lanes.some((l) => JSON.stringify(l.match) === JSON.stringify(m));
+  const isDefault = JSON.stringify(lanes) === JSON.stringify(DEFAULT_LANES);
+  return (
+    <div className="tasks-lane-menu" ref={ref}>
+      <button type="button" className="tasks-lane-add" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <Plus size={13} aria-hidden="true" /> 泳道
+      </button>
+      {open && (
+        <div className="tasks-lane-pop" role="menu" aria-label="新建泳道">
+          <p className="tasks-lane-pop-hint">把某个状态单独拆成一列。默认 4 列。</p>
+          {TASK_COLUMNS.map((parent) => (
+            <div className="tasks-lane-group" key={parent.id}>
+              <button type="button" role="menuitem" className="tasks-lane-parent"
+                disabled={has({ kind: 'parent', parent: parent.id })}
+                onClick={() => { onAdd({ id: `p-${parent.id}`, title: parent.title, match: { kind: 'parent', parent: parent.id } }); setOpen(false); }}>
+                {parent.title}
+              </button>
+              {SUB_STATUSES.filter((sub) => SUB_STATUS_META[sub].parent === parent.id).map((sub) => (
+                <button type="button" role="menuitem" key={sub} className="tasks-lane-sub"
+                  disabled={has({ kind: 'sub', sub })}
+                  onClick={() => { onAdd({ id: `s-${sub}`, title: SUB_STATUS_META[sub].label, match: { kind: 'sub', sub } }); setOpen(false); }}>
+                  {SUB_STATUS_META[sub].label}
+                </button>
+              ))}
+            </div>
+          ))}
+          {!isDefault && (
+            <button type="button" className="tasks-lane-reset" onClick={() => { onReset(); setOpen(false); }}>恢复默认 4 列</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type LaneCard =
+  | { kind: 'task'; task: AggregatedTask }
+  | { kind: 'plan'; plan: CrossProjectTasks['pendingPlans'][number] }
+  | { kind: 'backlog'; item: BacklogItem }
+  | { kind: 'observed'; session: ObservedSession; noise: boolean };
+
+function LocalTasksView({ data, onOpenTask, onOpenPlan, project }: TasksViewProps) {
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [backendFilter, setBackendFilter] = useState<string>(ALL);
-  const [noiseOpen, setNoiseOpen] = useState<Partial<Record<TaskColumnId, boolean>>>({});
+  const [noiseOpen, setNoiseOpen] = useState<Record<string, boolean>>({});
+  const [lanes, setLanesState] = useState<BoardLane[]>(readLanes);
   const observed = useObservedTasks();
+  const backlog = useBacklog();
 
-  // Column-visible observed rows (unknown state and stale done are dropped),
-  // sorted by lastActiveAt desc so they append after orchestrated cards.
+  const setLanes = (next: BoardLane[]) => {
+    setLanesState(next);
+    try { window.localStorage.setItem(LANES_KEY, JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
+  };
+
   const boardableObserved = useMemo(() => {
     const now = Date.now();
-    const rows: Array<{ session: ObservedSession; column: TaskColumnId }> = [];
+    const rows: Array<{ session: ObservedSession; sub: BoardSubStatus }> = [];
     for (const session of observed.sessions) {
-      const column = columnForObserved(session, now);
-      if (column) rows.push({ session, column });
+      const sub = subStatusForObserved(session, now);
+      if (sub) rows.push({ session, sub });
     }
     rows.sort((a, b) => b.session.lastActiveAt - a.session.lastActiveAt);
     return rows;
   }, [observed]);
 
+  // Projects are repositories: a repo's worktrees and sub-folders filter together.
+  const folders = useMemo(() => [
+    ...(project ? [project] : []),
+    ...data.tasks.map((t) => t.cwd),
+    ...data.pendingPlans.map((p) => p.cwd),
+    ...backlog.map((b) => b.cwd),
+    ...boardableObserved.map(({ session }) => session.cwd),
+  ], [project, data, backlog, boardableObserved]);
+  const repoVersion = useRepoRoots(folders);
+  const currentProject = project ? projectKeyOf(project) : null;
+
+  // Each meeting's board opens on its own project; switching meetings re-applies it.
+  useEffect(() => { setProjectFilter(currentProject ?? ALL); }, [currentProject]);
+
   const projects = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const t of data.tasks) seen.set(t.cwd, t.projectName);
-    for (const p of data.pendingPlans) seen.set(p.cwd, p.projectName);
-    // Projects with ONLY observed sessions still get a filter chip.
-    for (const { session } of boardableObserved) {
-      if (!seen.has(session.cwd)) seen.set(session.cwd, session.projectName);
+    for (const cwd of folders) {
+      const key = projectKeyOf(cwd);
+      if (!seen.has(key)) seen.set(key, splitPath(key).name);
     }
     return [...seen.entries()].map(([cwd, name]) => ({ cwd, name }));
-  }, [data, boardableObserved]);
+    // repoVersion: re-key when repository answers arrive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders, repoVersion]);
 
   const backends = useMemo(() => {
     const seen = new Set<string>();
     for (const t of data.tasks) if (t.backendId) seen.add(t.backendId);
-    // clientKind shares the backendId vocabulary (claude-code / codex).
     for (const { session } of boardableObserved) seen.add(session.clientKind);
     return [...seen].sort();
   }, [data.tasks, boardableObserved]);
 
-  const visible = useMemo(() => data.tasks.filter((t) => (
-    (projectFilter === ALL || t.cwd === projectFilter)
-    && (backendFilter === ALL || t.backendId === backendFilter)
-  )), [data.tasks, projectFilter, backendFilter]);
+  const inProject = (cwd: string) => projectFilter === ALL || projectKeyOf(cwd) === projectFilter;
 
-  const visibleObserved = useMemo(() => boardableObserved.filter(({ session }) => (
-    (projectFilter === ALL || session.cwd === projectFilter)
-    && (backendFilter === ALL || session.clientKind === backendFilter)
-  )), [boardableObserved, projectFilter, backendFilter]);
-
-  const visiblePlans = data.pendingPlans.filter(
-    (p) => projectFilter === ALL || p.cwd === projectFilter,
-  );
-
-  const byColumn = useMemo(() => {
-    const map = new Map<TaskColumnId, AggregatedTask[]>(
-      TASK_COLUMNS.map((c) => [c.id, [] as AggregatedTask[]]),
-    );
-    for (const task of visible) map.get(task.column)?.push(task);
-    return map;
-  }, [visible]);
-
-  const observedByColumn = useMemo(() => {
-    const map = new Map<TaskColumnId, { normal: ObservedSession[]; noise: ObservedSession[] }>(
-      TASK_COLUMNS.map((c) => [c.id, { normal: [], noise: [] }]),
-    );
-    for (const row of visibleObserved) {
-      const bucket = map.get(row.column);
-      if (!bucket) continue;
-      (row.session.isNoise ? bucket.noise : bucket.normal).push(row.session);
+  const byLane = useMemo(() => {
+    const map = new Map<string, LaneCard[]>();
+    const push = (sub: BoardSubStatus, card: LaneCard) => {
+      const id = laneFor(sub, lanes);
+      map.set(id, [...(map.get(id) ?? []), card]);
+    };
+    for (const plan of data.pendingPlans) if (inProject(plan.cwd)) push('plan-approval', { kind: 'plan', plan });
+    if (backendFilter === ALL) {
+      for (const item of backlog) if (inProject(item.cwd)) push('backlog', { kind: 'backlog', item });
+    }
+    for (const task of data.tasks) {
+      if (inProject(task.cwd) && (backendFilter === ALL || task.backendId === backendFilter)) push(task.sub, { kind: 'task', task });
+    }
+    for (const { session, sub } of boardableObserved) {
+      if (inProject(session.cwd) && (backendFilter === ALL || session.clientKind === backendFilter)) {
+        push(sub, { kind: 'observed', session, noise: session.isNoise || sub === 'observed-idle' });
+      }
     }
     return map;
-  }, [visibleObserved]);
+    // inProject closes over projectFilter; repoVersion re-keys folders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, backlog, boardableObserved, lanes, projectFilter, backendFilter, repoVersion]);
 
-  const observedNormalCount = visibleObserved.reduce(
-    (sum, row) => sum + (row.session.isNoise ? 0 : 1),
-    0,
-  );
-  const total = visible.length + visiblePlans.length + observedNormalCount;
+  const shownLanes = byLane.has(UNSORTED_LANE_ID)
+    ? [...lanes, { id: UNSORTED_LANE_ID, title: '未归类', match: { kind: 'parent', parent: 'todo' } } as BoardLane]
+    : lanes;
+  const total = [...byLane.values()].reduce((n, cards) => n + cards.filter((c) => !(c.kind === 'observed' && c.noise)).length, 0);
 
   return (
     <main className="tasks-view">
       <header className="tasks-toolbar">
         <div className="tasks-toolbar-lead">
           <strong>任务</strong>
-          <span>{total} 项 · {projects.length} 个项目</span>
+          <span>{total} 项，{projects.length} 个项目</span>
         </div>
         <div className="tasks-filters">
           <label className="tasks-filter">
             <span>项目</span>
             <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+              {currentProject && <option value={currentProject}>本项目室（{splitPath(currentProject).name}）</option>}
               <option value={ALL}>全部项目</option>
-              {projects.map((p) => (
+              {projects.filter((p) => p.cwd !== currentProject).map((p) => (
                 <option key={p.cwd} value={p.cwd}>{p.name}</option>
               ))}
             </select>
@@ -277,71 +373,68 @@ function LocalTasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
               ))}
             </select>
           </label>
+          <LaneMenu lanes={lanes} onAdd={(lane) => setLanes([...lanes, lane])} onReset={() => setLanes(DEFAULT_LANES)} />
         </div>
       </header>
 
-      <div className="tasks-board">
-        {TASK_COLUMNS.map((column) => {
-          const items = byColumn.get(column.id) ?? [];
-          const plans = column.id === 'attention' ? visiblePlans : [];
-          const observedBucket = observedByColumn.get(column.id) ?? { normal: [], noise: [] };
-          const count = items.length + plans.length + observedBucket.normal.length;
-          const isNoiseOpen = Boolean(noiseOpen[column.id]);
+      <div className="tasks-board" style={{ gridTemplateColumns: `repeat(${shownLanes.length}, minmax(220px, 1fr))` }}>
+        {shownLanes.map((lane) => {
+          const cards = byLane.get(lane.id) ?? [];
+          const normal = cards.filter((c) => !(c.kind === 'observed' && c.noise));
+          const noise = cards.filter((c): c is Extract<LaneCard, { kind: 'observed' }> => c.kind === 'observed' && c.noise);
+          const isNoiseOpen = Boolean(noiseOpen[lane.id]);
+          const parent = lane.match.kind === 'parent' ? lane.match.parent : SUB_STATUS_META[lane.match.sub].parent;
+          const removable = lane.id !== UNSORTED_LANE_ID && lanes.length > 1;
           return (
-            <section className={`tasks-column tasks-column-${column.id}`} key={column.id}>
+            <section className={`tasks-column tasks-column-${parent}${lane.match.kind === 'sub' ? ' is-sub-lane' : ''}`} key={lane.id}>
               <header className="tasks-column-head">
                 <div>
-                  <strong>{column.title}</strong>
-                  <small>{column.hint}</small>
+                  <strong>{lane.title}</strong>
+                  <small>{lane.id === UNSORTED_LANE_ID ? '它们的泳道被移除了' : laneHint(lane)}</small>
                 </div>
-                <span className="tasks-column-count">{count}</span>
+                <span className="tasks-column-count">{normal.length}</span>
+                {removable && (
+                  <button type="button" className="tasks-lane-remove" aria-label={`移除泳道 ${lane.title}`} title="移除这一列"
+                    onClick={() => setLanes(lanes.filter((l) => l.id !== lane.id))}>
+                    <X size={11} />
+                  </button>
+                )}
               </header>
               <div className="tasks-column-scroll">
-                {plans.map((plan) => (
-                  <button
-                    type="button"
-                    key={`plan:${plan.sessionId}`}
-                    className="tasks-card is-plan"
-                    onClick={() => onOpenPlan(plan.sessionId)}
-                    title={plan.cwd}
-                  >
-                    <span className="tasks-card-project">{plan.projectName}</span>
-                    <strong className="tasks-card-title">计划待批准</strong>
-                    <span className="tasks-card-meta">
-                      <ShieldAlert size={13} />
-                      {plan.taskCount} 个任务等待你确认
-                    </span>
-                  </button>
-                ))}
-                {items.map((task) => (
-                  <TaskCard
-                    key={task.key}
-                    task={task}
-                    onOpen={() => onOpenTask(task.sessionId, task.taskId)}
-                  />
-                ))}
-                {observedBucket.normal.map((session) => (
-                  <ObservedTaskCard key={`obs:${session.id}`} session={session} />
-                ))}
-                {observedBucket.noise.length > 0 && (
+                {normal.map((card) => {
+                  if (card.kind === 'plan') {
+                    return (
+                      <button type="button" key={`plan:${card.plan.sessionId}`} className="tasks-card is-plan"
+                        onClick={() => onOpenPlan(card.plan.sessionId)} title={card.plan.cwd}>
+                        <span className="tasks-card-project">{card.plan.projectName}</span>
+                        <strong className="tasks-card-title">计划待批准</strong>
+                        <span className="tasks-card-meta">
+                          <ShieldAlert size={13} />
+                          <em className="tasks-sub-chip is-plan-approval">计划待批准</em>
+                          {card.plan.taskCount} 个任务
+                        </span>
+                      </button>
+                    );
+                  }
+                  if (card.kind === 'backlog') return <BacklogCard key={`bl:${card.item.id}`} item={card.item} />;
+                  if (card.kind === 'task') {
+                    return <TaskCard key={card.task.key} task={card.task} onOpen={() => onOpenTask(card.task.sessionId, card.task.taskId)} />;
+                  }
+                  return <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session} />;
+                })}
+                {noise.length > 0 && (
                   <div className="tasks-noise-group">
-                    <button
-                      type="button"
-                      className="tasks-noise-toggle"
-                      onClick={() => setNoiseOpen((prev) => ({
-                        ...prev,
-                        [column.id]: !prev[column.id],
-                      }))}
-                    >
+                    <button type="button" className="tasks-noise-toggle"
+                      onClick={() => setNoiseOpen((prev) => ({ ...prev, [lane.id]: !prev[lane.id] }))}>
                       {isNoiseOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                      噪声 · {observedBucket.noise.length}
+                      {noise.every((c) => !c.session.isNoise) ? '空闲会话' : '空闲和噪声'} {noise.length}
                     </button>
-                    {isNoiseOpen && observedBucket.noise.map((session) => (
-                      <ObservedTaskCard key={`obs:${session.id}`} session={session} />
+                    {isNoiseOpen && noise.map((card) => (
+                      <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session} />
                     ))}
                   </div>
                 )}
-                {count === 0 && observedBucket.noise.length === 0 && (
+                {normal.length === 0 && noise.length === 0 && (
                   <p className="tasks-column-empty">暂无</p>
                 )}
               </div>

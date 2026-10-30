@@ -9,13 +9,14 @@
 // (diff / verification / permissions) still opens the full TaskInspector dock
 // via onOpenInspector.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { meetingStore, type DeliverySnapshot, type WorkerState } from '../lib/meeting-store';
 import { useMeetingSelector } from '../hooks/useMeetingSelector';
 import type { RendererTaskSnapshot } from '../types';
 import { RealTerminal } from './RealTerminal';
 import { TerminalTurnConfirmBar } from './TerminalTurnConfirmBar';
 import { TaskMailboxPanel } from './TaskMailboxPanel';
+import { Modal } from './Modal';
 
 const STATUS_LABEL: Record<string, string> = {
   idle: '空闲',
@@ -48,6 +49,46 @@ interface WorkerWorkbenchProps {
     | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
     | { ok: false; error: string }
   >;
+  /** Expert sub-agent tab (AME-D14): watch-only until the user takes over. */
+  subagent?: { ownerTitle: string; ownerName: string; taskTitle: string };
+}
+
+// Same rule as the terminal adapter (TRUST_PROMPT_PATTERN): spaces may arrive as
+// cursor-forward escapes, so normalize before matching.
+const TRUST_PROMPT = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created/i;
+function matchable(text: string): string {
+  return text
+    .replace(/\x1b\[(\d*)C/g, ' ')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+function messageText(payload: unknown): string {
+  if (typeof payload === 'string') return payload;
+  const text = (payload as { text?: unknown; message?: unknown } | null)?.text ?? (payload as { message?: unknown } | null)?.message;
+  return typeof text === 'string' ? text : '';
+}
+
+/** The expert's assignments to its sub-agent, oldest first, with delivery state. */
+function assignmentsOf(snapshot: RendererTaskSnapshot | null): { id: string; text: string; state: 'done' | 'current' | 'queued' }[] {
+  if (!snapshot) return [];
+  const items: { id: string; text: string; state: 'done' | 'current' | 'queued' }[] = [
+    { id: 'goal', text: snapshot.task.title, state: 'done' },
+  ];
+  const sent = snapshot.mailbox
+    .filter((m) => m.sender === 'coordinator' && (m.kind === 'instruction' || m.kind === 'follow-up' || m.kind === 'steer'))
+    .sort((a, b) => a.seq - b.seq);
+  for (const m of sent) {
+    const text = messageText(m.payload);
+    if (text) items.push({ id: m.id, text, state: m.status === 'acknowledged' ? 'done' : m.status === 'delivered' ? 'current' : 'queued' });
+  }
+  // The newest item it has received is what it works on now; earlier ones are done.
+  let current = -1;
+  items.forEach((item, index) => { if (item.state !== 'queued') current = index; });
+  items.forEach((item, index) => {
+    if (item.state !== 'queued') item.state = index === current ? 'current' : 'done';
+  });
+  return items;
 }
 
 export function WorkerWorkbench({
@@ -56,8 +97,58 @@ export function WorkerWorkbench({
   onOpenInspector,
   onAcceptDelivery,
   onReviseDelivery,
+  subagent,
 }: WorkerWorkbenchProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [takenOver, setTakenOver] = useState(false);
+  const [takeoverOpen, setTakeoverOpen] = useState(false);
+  const [takeoverError, setTakeoverError] = useState<string | null>(null);
+  const [trustPrompt, setTrustPrompt] = useState(false);
+  const outputTail = useRef('');
+  const trustAnswered = useRef(false);
+  const watchOnly = Boolean(subagent) && !takenOver;
+
+  const handleOutput = useCallback((text: string) => {
+    if (trustAnswered.current) return;
+    outputTail.current = (outputTail.current + matchable(text)).slice(-6000);
+    if (TRUST_PROMPT.test(outputTail.current)) setTrustPrompt(true);
+  }, []);
+
+  // Claude asks once per new worktree; a click here is an explicit user answer,
+  // not a takeover. The cursor starts on the first option, and versions differ
+  // in whether "No, exit" or "Yes, I trust" comes first, so pick by text: move
+  // down only when the Yes option is listed below the No option, then confirm.
+  const answerTrust = useCallback(() => {
+    trustAnswered.current = true;
+    setTrustPrompt(false);
+    const tail = outputTail.current;
+    const yes = tail.search(/yes,?\s*(i\s*)?trust|yes,?\s*proceed/i);
+    const no = tail.search(/no,?\s*exit/i);
+    const keys = yes > -1 && no > -1 && yes > no ? '\x1b[B' : '';
+    if (keys) void window.vibeMeet.workerPty.input(workerId, keys);
+    window.setTimeout(() => { void window.vibeMeet.workerPty.input(workerId, '\r'); }, 200);
+  }, [workerId]);
+
+  const restart = useCallback(async () => {
+    setTakeoverError(null);
+    const res = await window.vibeMeet.sessions.restartOwnedTask?.(sessionId, workerId);
+    if (res && !res.ok) { setTakeoverError(res.error); return; }
+    setTakeoverOpen(false);
+  }, [sessionId, workerId]);
+
+  const takeOver = useCallback(async () => {
+    setTakeoverError(null);
+    const res = await window.vibeMeet.tasks.interrupt(sessionId, workerId, '用户接管子 Agent');
+    if (!res.ok) { setTakeoverError(res.error ?? '打断失败'); return; }
+    setTakenOver(true);
+    setTakeoverOpen(false);
+  }, [sessionId, workerId]);
+
+  const handBack = useCallback(async () => {
+    const res = await window.vibeMeet.sessions.handBackTask?.(sessionId, workerId);
+    if (res && !res.ok) { setTakeoverError(res.error); return; }
+    setTakenOver(false);
+  }, [sessionId, workerId]);
 
   const worker = useMeetingSelector((s) => s.workers.get(workerId));
   const currentDelivery = useMeetingSelector(
@@ -95,14 +186,74 @@ export function WorkerWorkbench({
   const snapshot = projection?.snapshot ?? null;
   const status = worker?.status ?? snapshot?.task.status ?? 'pending';
 
+  const assignments = assignmentsOf(snapshot);
+  // A sub-agent that already stopped has nothing to interrupt: offer a restart instead.
+  const stopped = ['failed', 'done', 'interrupted', 'accepted'].includes(String(status));
+  const stopReason = worker?.summary || snapshot?.task.summary || null;
+
   return (
     <div
-      className={`worker-workbench${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+      className={`worker-workbench${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${subagent ? ' is-subagent' : ''}`}
       data-status={status}
     >
       <div className="worker-workbench-terminal">
-        <RealTerminal workerId={workerId} />
+        {subagent && (
+          <div className={`subagent-bar${takenOver ? ' is-taken-over' : ''}`}>
+            {takenOver ? (
+              <>
+                <span><strong>你在操作子 Agent</strong>，{subagent.ownerName}暂停给它派活</span>
+                <button type="button" className="subagent-bar-btn" onClick={() => void handBack()}>交还给{subagent.ownerName}</button>
+              </>
+            ) : (
+              <>
+                <span><strong>{subagent.ownerTitle} {subagent.ownerName}</strong> 正在让子 Agent 做：{subagent.taskTitle}</span>
+                <span className="subagent-bar-note">{stopped ? '已停止' : '只能看，不能直接输入'}</span>
+                <button type="button" className="subagent-bar-btn" onClick={() => setTakeoverOpen(true)}>{stopped ? '重新开始…' : '接管'}</button>
+              </>
+            )}
+          </div>
+        )}
+        {subagent && trustPrompt && (
+          <div className="subagent-trust" role="alert">
+            <span>Claude 在问是否信任这个工作树（AhaStudio 为这个任务新建的目录）。</span>
+            <button type="button" className="subagent-bar-btn" onClick={answerTrust}>信任并继续</button>
+          </div>
+        )}
+        {takeoverError && <div className="subagent-trust is-error" role="alert">{takeoverError}</div>}
+        <RealTerminal workerId={workerId} readOnly={watchOnly} onOutput={subagent ? handleOutput : undefined} />
       </div>
+      {takeoverOpen && subagent && (
+        <Modal open ariaLabel="接管子 Agent" className="subagent-takeover" onClose={() => setTakeoverOpen(false)}>
+          <h2>{stopped ? '子 Agent 已经停止' : '接管子 Agent'}</h2>
+          {stopped && (
+            <p className="subagent-stopped">
+              它{status === 'failed' ? '运行失败' : '已经结束'}了，没有正在进行的工作可以打断。
+              {stopReason ? `原因：${stopReason}` : ''}
+            </p>
+          )}
+          <p>{subagent.ownerName}给它安排过这些事：</p>
+          <ol className="subagent-assignments">
+            {assignments.map((item) => (
+              <li key={item.id} className={`is-${item.state}`}>
+                <span aria-hidden="true">{item.state === 'done' ? '✓' : item.state === 'current' ? '▶' : '·'}</span>
+                <span>{item.text}{item.state === 'current' ? '（进行中）' : item.state === 'queued' ? '（排队中）' : ''}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="subagent-takeover-note">
+            {stopped
+              ? `重新开始会按同样的任务再派一个子 Agent，仍由${subagent.ownerName}负责。`
+              : `接管会先打断子 Agent 当前的工作。交还时${subagent.ownerName}会先看你改了什么再继续。`}
+          </p>
+          {takeoverError && <p className="subagent-trust is-error">{takeoverError}</p>}
+          <div className="subagent-takeover-actions">
+            {stopped
+              ? <button type="button" className="subagent-takeover-primary" onClick={() => void restart()}>重新开始</button>
+              : <button type="button" className="subagent-takeover-primary" onClick={() => void takeOver()}>打断并接管</button>}
+            <button type="button" className="subagent-takeover-secondary" onClick={() => setTakeoverOpen(false)}>{stopped ? '关闭' : '继续看'}</button>
+          </div>
+        </Modal>
+      )}
 
       <aside className="worker-workbench-sidebar" aria-label="Host 协作侧栏">
         <div className="worker-workbench-sidebar-head">
@@ -123,7 +274,8 @@ export function WorkerWorkbench({
         {snapshot && <WorkbenchTaskContext snapshot={snapshot} status={status} />}
 
         {snapshot && (
-          <TaskMailboxPanel sessionId={sessionId} taskId={workerId} snapshot={snapshot} />
+          <TaskMailboxPanel sessionId={sessionId} taskId={workerId} snapshot={snapshot} readOnly={watchOnly}
+            coordinatorLabel={subagent ? `${subagent.ownerTitle} ${subagent.ownerName}` : undefined} />
         )}
 
         <WorkbenchDeliverySummary

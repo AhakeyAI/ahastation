@@ -26,6 +26,7 @@ import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
 import { FileViewer } from './FileViewer';
 import { BrowserStage } from './BrowserStage';
 import { StageTabBar } from './StageTabBar';
+import { MeetingNotesPanel } from './MeetingNotesPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { ShellTerminal } from './ShellTerminal';
 import { RealTerminal } from './RealTerminal';
@@ -97,6 +98,8 @@ interface ScreenStageProps {
   boardContent?: ReactNode;
   /** 待批准 + 待确认 count, badged on the board tab. */
   boardAttention?: number;
+  /** Expert-owned sub-agent tasks (AME-D14): taskId → owner hostId + title. */
+  ownedTasks?: Map<string, { hostId: string; title: string }> | null;
 }
 
 
@@ -144,6 +147,7 @@ export const ScreenStage = memo(function ScreenStage({
   customAvatars,
   boardContent,
   boardAttention = 0,
+  ownedTasks,
 }: ScreenStageProps) {
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -235,9 +239,14 @@ export const ScreenStage = memo(function ScreenStage({
       if (!isTerminalWorkerBackendId(w.backendId)) continue;
       if (autoOpenedTerminals.current.has(w.id)) continue;
       autoOpenedTerminals.current.add(w.id);
-      void onCreateWindow('terminal', { workerId: w.id, title: w.title });
+      const owned = ownedTasks?.get(w.id);
+      const owner = owned ? hostGroups.get(owned.hostId)?.profile : undefined;
+      // An expert's sub-agent opens as the third tab (子 Agent), selected.
+      void onCreateWindow('terminal', owned
+        ? { workerId: w.id, title: `子 Agent · ${owner?.name ?? '专家'}`, subagentOwner: owned.hostId }
+        : { workerId: w.id, title: w.title });
     }
-  }, [workers, onCreateWindow]);
+  }, [workers, onCreateWindow, ownedTasks, hostGroups]);
 
   const handleInspectorPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     dragState.current = { pointerId: event.pointerId, startY: event.clientY };
@@ -410,6 +419,8 @@ export const ScreenStage = memo(function ScreenStage({
             ) : isBoardTab ? (
               <div className="stage-board-content">{boardContent}</div>
             ) : isActivityTab && (
+              <div className="stage-workspace-content">
+              <MeetingNotesPanel cwd={cwd} />
               <ActivityTabContent
                 workers={workers}
                 hostGroups={hostGroups}
@@ -424,6 +435,7 @@ export const ScreenStage = memo(function ScreenStage({
                 sessionId={sessionId}
                 onOpenTask={handleSelectTask}
               />
+              </div>
             )}
 
             {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'browser' && browserViewportRef && onBrowserOpenTab && onBrowserCloseTab && onBrowserSetActive && onBrowserNavigate && onBrowserBack && onBrowserForward && onBrowserReload && (
@@ -452,11 +464,17 @@ export const ScreenStage = memo(function ScreenStage({
                     cwd={activeWindow.cwd} />
                 ) : terminalPtyWorker ? (
                   <WorkerWorkbench
+                    key={terminalPtyWorker.id}
                     workerId={terminalPtyWorker.id}
                     sessionId={sessionId!}
                     onOpenInspector={handleOpenInspectorFromWorkbench}
                     onAcceptDelivery={onAcceptDelivery}
                     onReviseDelivery={onReviseDelivery}
+                    subagent={activeWindow.subagentOwner ? {
+                      ownerTitle: hostGroups.get(activeWindow.subagentOwner)?.profile?.title ?? '专家',
+                      ownerName: hostGroups.get(activeWindow.subagentOwner)?.profile?.name ?? '',
+                      taskTitle: ownedTasks?.get(terminalPtyWorker.id)?.title ?? terminalPtyWorker.title,
+                    } : undefined}
                   />
                 ) : (
                   <TerminalPanel commands={terminalCommands} />

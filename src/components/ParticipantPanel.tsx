@@ -220,6 +220,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(talker.id) : undefined}
                   iconId={hg.iconId}
                   customAvatar={avatar}
+                  roleLabel={isCoordinator ? '助理' : hg.profile ? `${hg.profile.title} ${hg.profile.name}` : '专家'}
                 />
                 {actions}
               </div>
@@ -267,25 +268,9 @@ export const ParticipantPanel = memo(function ParticipantPanel({
           );
         })}
 
-        {taskWorkers.map((worker) => {
-          const iconId = workerIconId(worker.backendId);
-          return (
-            <div key={worker.id} className="tiles-gallery-tile-wrap tiles-gallery-worker-wrap">
-              <WorkerCard
-                worker={worker}
-                depTitles={titleByWorkerId}
-                mode="gallery"
-                selected={false}
-                speaking={false}
-                onSelect={onSelectParticipant ? () => onSelectParticipant(worker.id) : undefined}
-                onResolvePermission={onResolvePermission}
-                onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(worker.id) : undefined}
-                iconId={iconId}
-                customAvatar={customAvatars?.get(iconId) ?? null}
-              />
-            </div>
-          );
-        })}
+        {/* Workers (including experts' sub-agents) are not participants: the
+            user meets the assistant and experts; workers live on the board
+            and in the stage's 子 Agent tab. */}
 
         {/* Invite button - opens participants tab */}
         {onOpenParticipantsTab && (

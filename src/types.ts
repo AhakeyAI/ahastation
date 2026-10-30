@@ -901,7 +901,9 @@ export type RendererEvent =
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget }
-  | { kind: 'host-added'; backendId: string; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'host-added'; backendId: string; profile?: { title: string; name: string }; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'meeting-notes-updated'; notes: MeetingNotes; updatedAt: number; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'task-owner-assigned'; taskId: string; title: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget };
 
@@ -1180,6 +1182,17 @@ export interface SessionsApi {
       | 'resolve-integration-conflict'
       | 'abandon-task',
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Empty-project kickoff: invite the expert and start its sub-agent (AME-D14, D23). */
+  kickoff?: (
+    sessionId: string | null,
+    mode: 'brainstorm' | 'develop',
+    expertBackendId: string,
+    title: string,
+    name: string,
+  ) => Promise<{ ok: true; expertHostId: string; taskId: string } | { ok: false; error: string }>;
+  meetingNotes?: (sessionId: string | null) => Promise<{ ok: true; notes: MeetingNotes } | { ok: false; error: string }>;
+  handBackTask?: (sessionId: string | null, taskId: string, note?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  restartOwnedTask?: (sessionId: string | null, taskId: string) => Promise<{ ok: true; taskId: string } | { ok: false; error: string }>;
   addHost: (
     sessionId: string | null,
     backendId: string,
@@ -1770,4 +1783,17 @@ export interface PendingPermission {
   toolName: string;
   input: Record<string, unknown>;
   toolUseID: string;
+}
+
+export interface MeetingNoteItem {
+  text: string;
+  source?: string;
+}
+
+/** Coordinator's live meeting notes (工作区 tab). */
+export interface MeetingNotes {
+  conclusions: MeetingNoteItem[];
+  decisions: MeetingNoteItem[];
+  workItems: MeetingNoteItem[];
+  todos: MeetingNoteItem[];
 }

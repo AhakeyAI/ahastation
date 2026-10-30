@@ -78,7 +78,24 @@ export type SteerResult =
 
 /** Capabilities the MCP tool callbacks need from the Orchestrator. Each
  *  method maps to one tool's behaviour so the bridge stays narrow. */
+export interface MeetingNoteItem {
+  text: string;
+  /** Who said or decided it, or the round it came from. */
+  source?: string;
+}
+
+export interface MeetingNotes {
+  conclusions: MeetingNoteItem[];
+  decisions: MeetingNoteItem[];
+  workItems: MeetingNoteItem[];
+  todos: MeetingNoteItem[];
+}
+
 export interface OrchestratorBridge {
+  /** AME-D14: true when `hostId` is the expert that owns `taskId`. */
+  isTaskOwnedBy?(taskId: string, hostId: string): boolean;
+  /** Coordinator's live meeting notes for the 工作区 tab. */
+  updateMeetingNotes?(notes: MeetingNotes): void;
   // Talker tools
   delegateSingleTask(input: string | {
     description: string;
@@ -437,7 +454,7 @@ export function buildTalkerMcp(
         'Durably queue a Coordinator instruction for one task. Success means queued, not acknowledged.',
         taskMessageArgsSchema,
         async ({ taskId, message, executorBackendId }) => {
-          if (!canCoordinate()) return denied();
+          if (!canCoordinate() && !bridge.isTaskOwnedBy?.(taskId, hostId)) return denied();
           try {
             const queued = await bridge.sendTaskMessage(taskId, message, executorBackendId);
             return { content: [{ type: 'text', text: `queued ${queued.id} for ${taskId}; acknowledgement pending` }] };
@@ -456,7 +473,7 @@ export function buildTalkerMcp(
         'Durably queue a FIFO follow-up. It waits for the current Worker turn boundary and does not interrupt tools.',
         taskMessageArgsSchema,
         async ({ taskId, message, executorBackendId }) => {
-          if (!canCoordinate()) return denied();
+          if (!canCoordinate() && !bridge.isTaskOwnedBy?.(taskId, hostId)) return denied();
           try {
             const queued = await bridge.queueTaskFollowUp(taskId, message, executorBackendId);
             return { content: [{ type: 'text', text: `follow-up ${queued.id} queued for ${taskId}` }] };
@@ -475,7 +492,7 @@ export function buildTalkerMcp(
         'Durably queue an urgent steering instruction, then interrupt only the current model turn at a safe boundary.',
         taskMessageArgsSchema,
         async ({ taskId, message }) => {
-          if (!canCoordinate()) return denied();
+          if (!canCoordinate() && !bridge.isTaskOwnedBy?.(taskId, hostId)) return denied();
           const result = await bridge.steerWorker(taskId, message);
           if (!result.ok) {
             const available = result.availableTaskIds?.length
@@ -622,6 +639,22 @@ export function buildTalkerMcp(
           const r = await bridge.saveMemory(args);
           if (!r.ok) return { content: [{ type: 'text', text: `save_memory rejected: ${r.error}` }] };
           return { content: [{ type: 'text', text: `saved ${args.category}: ${r.preview ?? ''}` }] };
+        },
+      ),
+      tool(
+        MEETING_TOOLS.UPDATE_MEETING_NOTES,
+        'Replace the meeting notes shown to the user in the 工作区 tab. Call after each substantive exchange. Write only what the discussion established: conclusions (facts the user confirmed), decisions (with who decided), workItems (work packages to schedule later), todos (small follow-ups). Plain Chinese, one idea per item; cite the source turn or speaker. Do not invent progress.',
+        {
+          conclusions: z.array(z.object({ text: z.string().trim().min(1).max(2_000), source: z.string().trim().max(200).optional() })).max(60),
+          decisions: z.array(z.object({ text: z.string().trim().min(1).max(2_000), source: z.string().trim().max(200).optional() })).max(60),
+          workItems: z.array(z.object({ text: z.string().trim().min(1).max(2_000), source: z.string().trim().max(200).optional() })).max(60),
+          todos: z.array(z.object({ text: z.string().trim().min(1).max(2_000), source: z.string().trim().max(200).optional() })).max(60),
+        },
+        async (notes) => {
+          if (!canCoordinate()) return denied();
+          if (!bridge.updateMeetingNotes) return { content: [{ type: 'text', text: 'error: meeting notes are unavailable' }] };
+          bridge.updateMeetingNotes(notes);
+          return { content: [{ type: 'text', text: 'meeting notes updated' }] };
         },
       ),
       tool(

@@ -176,7 +176,11 @@ export type OrchestratorOnlyEvent =
    *  recovery re-add), before its talker handshake settles. Carries the
    *  backend id so the renderer can seed the participant tile; the hostId
    *  travels on the OrchestratorEvent envelope. */
-  | { kind: 'host-added'; backendId: string }
+  | { kind: 'host-added'; backendId: string; profile?: HostProfile }
+  /** Coordinator's live meeting notes for the 工作区 tab (update_meeting_notes). */
+  | { kind: 'meeting-notes-updated'; notes: import('./meeting-mcp.js').MeetingNotes; updatedAt: number }
+  /** An expert now owns a sub-agent task (AME-D14); hostId is the expert. */
+  | { kind: 'task-owner-assigned'; taskId: string; title: string }
   /** The user @mentioned (or default-routed to) a host from the meeting chat.
    *  Purely a renderer hint: it names the optimistic "thinking" bubble after
    *  the routed host. hostId travels on the OrchestratorEvent envelope. */
@@ -362,4 +366,10 @@ export interface WorkerHandle {
 export interface RecentFileEdit {
   workerId: string;
   ts: number;
+}
+
+/** AME-D14: experts show as 职能＋名字 (e.g. 产品专家 小禾). */
+export interface HostProfile {
+  title: string;
+  name: string;
 }

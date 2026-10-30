@@ -32,6 +32,11 @@ const api = {
     listRecoverable: () => ipcRenderer.invoke('sessions:list-recoverable'),
     resolveRecoveredTask: (sessionId, taskId, action) =>
       ipcRenderer.invoke('sessions:resolve-recovered-task', { sessionId, taskId, action }),
+    kickoff: (sessionId, mode, expertBackendId, title, name) =>
+      ipcRenderer.invoke('sessions:kickoff', { sessionId, mode, expertBackendId, title, name }),
+    meetingNotes: (sessionId) => ipcRenderer.invoke('sessions:meeting-notes', { sessionId }),
+    handBackTask: (sessionId, taskId, note) => ipcRenderer.invoke('sessions:handback-task', { sessionId, taskId, note }),
+    restartOwnedTask: (sessionId, taskId) => ipcRenderer.invoke('sessions:restart-owned-task', { sessionId, taskId }),
     addHost: (sessionId, backendId, hostId, remoteTarget) =>
       ipcRenderer.invoke('sessions:add-host', { sessionId, backendId, hostId, remoteTarget }),
     remoteSessions: (refresh = false) =>
@@ -289,6 +294,15 @@ const api = {
     create: (parentPath, name, git) => ipcRenderer.invoke('projects:create', { parentPath, name, git }),
     clone: (url, parentPath) => ipcRenderer.invoke('projects:clone', { url, parentPath }),
     abortClone: () => ipcRenderer.invoke('projects:clone-abort'),
+    githubStatus: (cwd) => ipcRenderer.invoke('projects:github-status', { cwd }),
+    backlogList: () => ipcRenderer.invoke('backlog:list'),
+    backlogAdd: (cwd, items, createIssues) => ipcRenderer.invoke('backlog:add', { cwd, items, createIssues }),
+    backlogRemove: (id) => ipcRenderer.invoke('backlog:remove', { id }),
+    onBacklogChanged: (cb) => {
+      const listener = (_, items) => cb(items);
+      ipcRenderer.on('backlog:changed', listener);
+      return () => ipcRenderer.removeListener('backlog:changed', listener);
+    },
     onCloneProgress: (cb) => {
       const listener = (_, payload) => cb(payload);
       ipcRenderer.on('projects:clone-progress', listener);

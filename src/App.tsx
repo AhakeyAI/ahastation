@@ -6,7 +6,7 @@ import { useCrossProjectTasks } from './hooks/useCrossProjectTasks';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useBrowser } from './hooks/useBrowser';
 import { useStageWindows } from './hooks/useStageWindows';
-import { BOARD_TAB_ID, stageWindowStore } from './lib/stage-window-store';
+import { BOARD_TAB_ID, stageWindowStore, type StageWindowOptions, type StageWindowType } from './lib/stage-window-store';
 import { cancelSpeech, isSpeechActive } from './hooks/useSpeech';
 import { useAsr } from './hooks/useAsr';
 import { useVoiceLock } from './hooks/useVoiceLock';
@@ -34,9 +34,11 @@ import { meetingAvailability } from './lib/meeting-availability';
 import { watchBackendList } from './lib/backend-refresh';
 import { MeetingHeader } from './components/MeetingHeader';
 import { AppTopBar } from './components/AppTopBar';
-import { StatusBar } from './components/StatusBar';
 import { BroadcastStrip } from './components/BroadcastStrip';
 import { UsageStrip } from './components/UsageStrip';
+import { KickoffCard, KICKOFF_EXPERTS, type KickoffMode } from './components/KickoffCard';
+import { useBacklog } from './lib/backlog-store';
+import type { GithubStatus } from './lib/project-rooms';
 import { VoiceControl } from './components/VoiceControl';
 import { Camera, Gamepad2, MessageSquare, Monitor, MonitorUp, Square } from 'lucide-react';
 import { MeetingControls } from './components/MeetingControls';
@@ -90,6 +92,21 @@ export function App() {
   const lastError = useMeetingSelector((s) => s.lastError);
   const pendingPermission = useMeetingSelector(selectFirstPendingPermission);
   const cwd = workers.cwd;
+  const ownedTasks = useMeetingSelector((s) => s.ownedTasks ?? null);
+  const backlog = useBacklog();
+  // GitHub status per project, read-only (gh issue/pr list --limit 1).
+  const [githubStatus, setGithubStatus] = useState<Record<string, GithubStatus>>({});
+  useEffect(() => {
+    if (!cwd || cwd in githubStatus || !window.vibeMeet.projects?.githubStatus) return;
+    let cancelled = false;
+    void window.vibeMeet.projects.githubStatus(cwd).then((res) => {
+      if (!cancelled && res.ok) setGithubStatus((prev) => ({ ...prev, [cwd]: res.status }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [cwd, githubStatus]);
+  const [kickoffBusy, setKickoffBusy] = useState(false);
+  const [kickoffError, setKickoffError] = useState<string | null>(null);
+  const [kickoffDismissed, setKickoffDismissed] = useState<Record<string, boolean>>({});
   const tabs = useTabs();
   const crossProjectTasks = useCrossProjectTasks();
   const { state: share, start: startShare, startSystemPicker, stop: stopShare, captureFrame, videoRef } = useScreenShare();
@@ -156,8 +173,66 @@ export function App() {
     void window.vibeMeet.setOrchestrationMode(activeTab.id, multiAgent);
   }, [activeTab?.id, activeTab?.placeholder, multiAgent]);
 
+  // Stage tabs are shared across contexts; terminals carry a scope so the CLI
+  // workspace's and other meetings' terminals stay out of this meeting.
+  const meetingScope = `meeting:${cwd ?? ''}`;
+  const meetingWindows = useMemo(
+    () => stageWindows.windows.filter((w) => !w.scope || w.scope === meetingScope),
+    [stageWindows.windows, meetingScope],
+  );
+  const meetingActiveWindowId = meetingWindows.some((w) => w.id === stageWindows.activeWindowId)
+    ? stageWindows.activeWindowId
+    : BOARD_TAB_ID;
+  const createMeetingWindow = useCallback(
+    (type: StageWindowType, opts?: StageWindowOptions) => stageWindows.createWindow(type, { ...opts, scope: meetingScope }),
+    // createWindow is a stable callback; the wrapper object is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stageWindows.createWindow, meetingScope],
+  );
+
+  // Empty project → kickoff card (docs/design/2026-10-30-project-rooms-and-kickoff.md).
+  // Unknown GitHub state never counts as empty; a fresh clone/create always does.
+  const kickoffDismissKey = cwd ? `aha.kickoff.done:${cwd}` : '';
+  const kickoffVisible = useMemo(() => {
+    if (!cwd || !meetingGate.ready || ownedTasks?.size) return false;
+    if (kickoffDismissed[cwd]) return false;
+    try { if (window.localStorage.getItem(kickoffDismissKey)) return false; } catch { /* storage off: show */ }
+    const boardEmpty = !crossProjectTasks.tasks.some((t) => t.cwd === cwd)
+      && !crossProjectTasks.pendingPlans.some((p) => p.cwd === cwd)
+      && !backlog.some((b) => b.cwd === cwd);
+    if (!boardEmpty) return false;
+    if (meetingStore.isFreshProject(cwd)) return true;
+    const gh = githubStatus[cwd];
+    if (!gh) return false;
+    return !gh.github || (gh.queried && gh.openIssues === 0 && gh.openPrs === 0);
+  }, [cwd, meetingGate.ready, ownedTasks, kickoffDismissed, kickoffDismissKey, crossProjectTasks, backlog, githubStatus]);
+
+  const dismissKickoff = useCallback(() => {
+    if (!cwd) return;
+    setKickoffDismissed((prev) => ({ ...prev, [cwd]: true }));
+    try { window.localStorage.setItem(`aha.kickoff.done:${cwd}`, String(Date.now())); } catch { /* per-viewer only */ }
+    meetingStore.clearFreshProject(cwd);
+  }, [cwd]);
+
+  const startKickoff = useCallback(async (mode: KickoffMode, expertBackendId: string) => {
+    const kickoff = window.vibeMeet.sessions.kickoff;
+    if (!kickoff) { setKickoffError('当前版本不支持开场流程'); return; }
+    setKickoffBusy(true);
+    setKickoffError(null);
+    const expert = KICKOFF_EXPERTS[mode];
+    try {
+      const res = await kickoff(meetingGate.sessionId ?? null, mode, expertBackendId, expert.title, expert.name);
+      if (res.ok) dismissKickoff();
+      else setKickoffError(res.error);
+    } catch (err) {
+      setKickoffError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setKickoffBusy(false);
+    }
+  }, [meetingGate.sessionId, dismissKickoff]);
+
   const attentionCount = useMemo(
-    () => crossProjectTasks.tasks.filter((t) => t.column === 'attention').length
+    () => crossProjectTasks.tasks.filter((t) => t.column === 'confirm').length
       + crossProjectTasks.pendingPlans.length,
     [crossProjectTasks],
   );
@@ -886,11 +961,12 @@ export function App() {
             onRequestFinalMeetingRework={(reason: string) => workers.requestFinalMeetingRework(reason)}
             viewingFile={viewingFile}
             onCloseFileView={() => setViewingFile(null)}
-            stageWindows={stageWindows.windows}
-            activeWindowId={stageWindows.activeWindowId}
+            stageWindows={meetingWindows}
+            activeWindowId={meetingActiveWindowId}
             onSelectWindow={stageWindows.setActiveWindow}
             onCloseWindow={stageWindows.closeWindow}
-            onCreateWindow={stageWindows.createWindow}
+            onCreateWindow={createMeetingWindow}
+            ownedTasks={ownedTasks}
             onPopOutWindow={(id: string) => {
               if (window.vibeMeet?.popoutStage) {
                 const win = stageWindows.windows.find((w) => w.id === id);
@@ -915,6 +991,7 @@ export function App() {
                 data={crossProjectTasks}
                 onOpenTask={handleOpenTaskFromBoard}
                 onOpenPlan={handleOpenPlanFromBoard}
+                project={boardOnly ? null : cwd}
               />
             )}
           />
@@ -976,18 +1053,10 @@ export function App() {
 
       {handheld && toolbar}
 
-      {/* 额度条：各 AI 剩余额度（对标 Orca 状态栏额度），放在底部状态栏上方，
-          面板向上展开。外部会话改在任务看板里看。 */}
+      {/* 底部状态栏 = 各 AI 剩余额度（对标 Orca 状态栏额度），面板向上展开。
+          客户端数、活跃任务、目录和计时已移除。 */}
       {!handheld && <UsageStrip placement="bottom" />}
 
-      {!handheld && (
-        <StatusBar
-          clientCount={workers.hostGroups.size}
-          activeTaskCount={activeTaskCount}
-          cwd={cwd}
-          startedAt={activeOpenedAt}
-        />
-      )}
 
       {handheld && permModalOpen && pendingPermission && (
         <Modal
@@ -1050,6 +1119,14 @@ export function App() {
       />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
+      {/* 空项目开场：弹窗询问先脑暴还是开发，不占用看板标签。 */}
+      {kickoffVisible && (
+        <Modal open ariaLabel="这个项目还是空的，先做什么？" className="kickoff-modal"
+          closeOnBackdrop={false} onClose={kickoffBusy ? undefined : dismissKickoff}>
+          <KickoffCard backends={backends} busy={kickoffBusy} error={kickoffError}
+            onStart={(mode, backendId) => void startKickoff(mode, backendId)} onSkip={dismissKickoff} />
+        </Modal>
+      )}
 
       {(lastError || micError || updateInfo) && (
         <div className="banner-stack">

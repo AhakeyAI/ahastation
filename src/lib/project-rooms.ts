@@ -5,6 +5,7 @@
 // Kimi). Rooms are ordered by most recent activity.
 
 import type { ObservedClientKind, ObservedSession, ObservedState } from './observed-store';
+import { subStatusForObserved } from './task-columns';
 
 export interface RoomSeat {
   id: string;
@@ -54,6 +55,35 @@ export interface ProjectsApi {
   clone: (url: string, parentPath: string) => Promise<{ ok: true; path: string } | { ok: false; error: string }>;
   abortClone: () => Promise<{ ok: boolean }>;
   onCloneProgress: (cb: (payload: { line: string }) => void) => () => void;
+  githubStatus: (cwd: string) => Promise<{ ok: true; status: GithubStatus } | { ok: false; error: string }>;
+  backlogList: () => Promise<{ ok: true; items: BacklogItem[] } | { ok: false; error: string }>;
+  backlogAdd: (
+    cwd: string,
+    items: { title: string; kind: 'work-item' | 'todo'; source?: string }[],
+    createIssues: boolean,
+  ) => Promise<{ ok: true; items: BacklogItem[] } | { ok: false; error: string }>;
+  backlogRemove: (id: string) => Promise<{ ok: boolean }>;
+  onBacklogChanged: (cb: (items: BacklogItem[]) => void) => () => void;
+}
+
+export interface GithubStatus {
+  github: boolean;
+  queried: boolean;
+  openIssues: number | null;
+  openPrs: number | null;
+}
+
+/** Board 「待执行 / 待派工」 card confirmed from the meeting notes. */
+export interface BacklogItem {
+  id: string;
+  cwd: string;
+  projectName: string;
+  title: string;
+  kind: 'work-item' | 'todo';
+  source?: string;
+  createdAt: number;
+  issueUrl?: string;
+  issueError?: string;
 }
 
 /** Set once this machine has done its first scan; unset = lead with the scan
@@ -127,7 +157,11 @@ export function buildRooms({ recent, recoverable, sessions, repos }: RoomSources
     r.recoverableMeetingId ??= meeting.meetingId;
     if (meeting.updatedAt) r.lastActiveAt = Math.max(r.lastActiveAt, meeting.updatedAt);
   }
-  const ordered = [...sessions].filter((s) => !s.isNoise && s.cwd).sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+  // Same visibility rule as the board: dead (file-only) sessions never sit in a room.
+  const now = Date.now();
+  const ordered = [...sessions]
+    .filter((s) => !s.isNoise && s.cwd && subStatusForObserved(s, now) !== null)
+    .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   for (const s of ordered) {
     const cwd = normalize(s.cwd);
     const r = room(cwd);

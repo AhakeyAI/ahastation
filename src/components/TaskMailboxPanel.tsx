@@ -29,10 +29,16 @@ export function TaskMailboxPanel({
   sessionId,
   taskId,
   snapshot,
+  readOnly = false,
+  coordinatorLabel,
 }: {
   sessionId: string;
   taskId: string;
   snapshot: RendererTaskSnapshot;
+  /** Hide follow-up / steering / interrupt (expert sub-agent tab: the expert directs it). */
+  readOnly?: boolean;
+  /** Who 'coordinator' messages come from here (an expert directing its sub-agent). */
+  coordinatorLabel?: string;
 }) {
   const [followUp, setFollowUp] = useState('');
   const [steering, setSteering] = useState('');
@@ -69,7 +75,7 @@ export function TaskMailboxPanel({
 
   return (
     <div className="task-mailbox-panel">
-      <section className="task-control-stack" aria-label="Task message controls">
+      {!readOnly && <section className="task-control-stack" aria-label="Task message controls">
         <label>
           <span><CornerDownRight size={14} /> Follow-up</span>
           <textarea
@@ -133,7 +139,7 @@ export function TaskMailboxPanel({
           <Octagon size={14} /> Interrupt Task
         </button>
         {feedback && <p className="task-control-feedback" role="status">{feedback}</p>}
-      </section>
+      </section>}
 
       <section className="task-message-list" aria-label="Task mailbox">
         <header>
@@ -147,7 +153,7 @@ export function TaskMailboxPanel({
             {messages.map((message) => (
               <li key={message.id}>
                 <div>
-                  <strong>{message.sender}</strong>
+                  <strong>{message.sender === 'coordinator' && coordinatorLabel ? coordinatorLabel : message.sender}</strong>
                   <span>{message.kind}</span>
                   <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
                 </div>

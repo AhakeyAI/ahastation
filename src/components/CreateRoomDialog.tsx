@@ -39,7 +39,7 @@ export function CreateRoomDialog({ open, recent, onClose, onReady }: CreateRoomD
     setProgress('');
     setUrl('');
     setName('');
-    void window.vibeMeet.projects?.defaultParent(recent).then((res) => { if (res.ok) setParent(res.path); });
+    void window.vibeMeet.projects?.defaultParent?.(recent).then((res) => { if (res.ok) setParent(res.path); });
     // `recent` only seeds the default location when the dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -48,7 +48,7 @@ export function CreateRoomDialog({ open, recent, onClose, onReady }: CreateRoomD
 
   useEffect(() => {
     if (!busy || step !== 'clone') return;
-    return window.vibeMeet.projects?.onCloneProgress(({ line }) => setProgress(line));
+    return window.vibeMeet.projects?.onCloneProgress?.(({ line }) => setProgress(line));
   }, [busy, step]);
 
   useEffect(() => {

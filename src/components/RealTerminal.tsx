@@ -13,6 +13,10 @@ import '@xterm/xterm/css/xterm.css';
 
 interface RealTerminalProps {
   workerId: string;
+  /** Watch-only: keystrokes are not sent to the PTY (expert sub-agent tab until takeover). */
+  readOnly?: boolean;
+  /** Decoded PTY output, for prompts the surrounding UI answers (e.g. Claude's trust dialog). */
+  onOutput?: (text: string) => void;
 }
 
 function base64ToUint8Array(b64: string): Uint8Array {
@@ -24,7 +28,15 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
-export function RealTerminal({ workerId }: RealTerminalProps) {
+export function RealTerminal({ workerId, readOnly = false, onOutput }: RealTerminalProps) {
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const onOutputRef = useRef(onOutput);
+  onOutputRef.current = onOutput;
+  const termRef = useRef<Terminal | null>(null);
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.disableStdin = readOnly;
+  }, [readOnly]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [exited, setExited] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +47,12 @@ export function RealTerminal({ workerId }: RealTerminalProps) {
     setExited(false);
     setError(null);
 
-    const term = new Terminal({ cursorBlink: true, scrollback: 5000 });
+    const term = new Terminal({ cursorBlink: true, scrollback: 5000, disableStdin: readOnlyRef.current });
+    termRef.current = term;
+    const decoder = new TextDecoder();
+    const emitOutput = (bytes: Uint8Array) => {
+      if (onOutputRef.current) onOutputRef.current(decoder.decode(bytes, { stream: true }));
+    };
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
@@ -57,7 +74,11 @@ export function RealTerminal({ workerId }: RealTerminalProps) {
         setError(res.error ?? '无法连接到终端');
         return;
       }
-      if (res.replay) term.write(base64ToUint8Array(res.replay));
+      if (res.replay) {
+        const bytes = base64ToUint8Array(res.replay);
+        term.write(bytes);
+        emitOutput(bytes);
+      }
       sendResize(); // sync initial dimensions
     }).catch((err) => {
       if (!disposed) setError(String(err));
@@ -65,13 +86,16 @@ export function RealTerminal({ workerId }: RealTerminalProps) {
 
     // Uplink: user keystrokes take over the TUI directly.
     const dataSub = term.onData((data) => {
+      if (readOnlyRef.current) return;
       void window.vibeMeet.workerPty.input(workerId, data);
     });
 
     // Downlink: pty output events, filtered to this worker.
     const disposeData = window.vibeMeet.workerPty.onData((e) => {
       if (e.workerId !== workerId) return;
-      term.write(base64ToUint8Array(e.data));
+      const bytes = base64ToUint8Array(e.data);
+      term.write(bytes);
+      emitOutput(bytes);
     });
     const disposeExit = window.vibeMeet.workerPty.onExit((e) => {
       if (e.workerId !== workerId) return;
@@ -93,6 +117,7 @@ export function RealTerminal({ workerId }: RealTerminalProps) {
       disposeExit();
       // Detach only — the pty keeps running for the worker session.
       void window.vibeMeet.workerPty.detach(workerId);
+      termRef.current = null;
       term.dispose();
     };
   }, [workerId]);

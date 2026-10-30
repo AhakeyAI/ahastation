@@ -37,7 +37,8 @@ export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
   useSyncExternalStore(terminalSessionStore.subscribe, terminalSessionStore.getSnapshot);
   const fontSize = terminalSessionStore.getFontSize();
   const appearance = terminalSessionStore.getAppearance();
-  const windows = stage.windows.filter((win) => win.localCliId);
+  // Only this workspace's terminals; meeting terminals stay in their meeting.
+  const windows = stage.windows.filter((win) => win.localCliId && win.scope === 'cli-workspace');
   const active = windows.find((win) => win.id === stage.activeWindowId) ?? windows.at(-1);
   const selectedCwd = cwd ?? active?.cwd ?? defaultCwd;
   const folders = [...new Set([...directories, ...windows.flatMap(win => win.cwd ? [win.cwd] : []), ...(selectedCwd ? [selectedCwd] : [])])];
@@ -103,7 +104,7 @@ export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
                 <button type="button" title={path} onClick={() => selectFolder(path)}><FolderOpen size={15} /><span>{folderName(path)}</span></button>
                 <button type="button" title="在此目录打开终端" aria-label={`在 ${folderName(path)} 打开终端`} onClick={() => {
                   selectFolder(path);
-                  stage.createWindow('terminal', { localCliId: 'shell', shellId: 'default', cwd: path, title: '终端' });
+                  stage.createWindow('terminal', { localCliId: 'shell', shellId: 'default', cwd: path, title: '终端', scope: 'cli-workspace' });
                 }}><Plus size={14} /></button>
               </div>
               {(query && !path.toLowerCase().includes(query.toLowerCase()) ? matchingTabs : tabs).map(win => {
@@ -123,7 +124,7 @@ export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
       <div className="terminal-workspace-tabs">
         <StageTabBar windows={windows} activeWindowId={active?.id ?? null}
           onSelect={selectTab} onClose={stage.closeWindow} localOnly
-          onCreate={(type, opts) => stage.createWindow(type, { ...opts, cwd: selectedCwd ?? opts?.cwd })} />
+          onCreate={(type, opts) => stage.createWindow(type, { ...opts, cwd: selectedCwd ?? opts?.cwd, scope: 'cli-workspace' })} />
       </div>
       <main className="local-terminal-body">
         {active ? (

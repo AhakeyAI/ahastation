@@ -423,6 +423,43 @@ export function registerSessionsIpc(ctx: IpcContext): void {
 
   /** Add a host group to an existing session. The session's Orchestrator
    *  creates a new HostGroup tied to the specified backend. */
+  // Empty-project kickoff: the user's 开始 click is the stage confirmation (AME-D23).
+  ipcMain.handle('sessions:kickoff', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    const mode = p.mode === 'develop' ? 'develop' : p.mode === 'brainstorm' ? 'brainstorm' : null;
+    const title = typeof p.title === 'string' ? p.title.trim().slice(0, 20) : '';
+    const name = typeof p.name === 'string' ? p.name.trim().slice(0, 20) : '';
+    if (!mode || typeof p.expertBackendId !== 'string' || !title || !name) {
+      return { ok: false, error: 'mode, expertBackendId, title and name are required' };
+    }
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.startKickoff({ mode, expertBackendId: p.expertBackendId, profile: { title, name } });
+  });
+
+  ipcMain.handle('sessions:handback-task', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    if (typeof p.taskId !== 'string') return { ok: false, error: 'taskId is required' };
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.handBackTask(p.taskId, typeof p.note === 'string' ? p.note.slice(0, 2000) : undefined);
+  });
+
+  ipcMain.handle('sessions:restart-owned-task', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    if (typeof p.taskId !== 'string') return { ok: false, error: 'taskId is required' };
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.restartOwnedTask(p.taskId);
+  });
+
+  ipcMain.handle('sessions:meeting-notes', async (_e, payload: unknown) => {
+    const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
+    const orch = ctx.getOrchestrator(typeof sessionId === 'string' ? sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return { ok: true, notes: orch.getMeetingNotes() };
+  });
+
   ipcMain.handle('sessions:add-host', async (_e, payload: unknown) => {
     if (typeof payload !== 'object' || payload === null) {
       return { ok: false, error: 'payload must be an object' };

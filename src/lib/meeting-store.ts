@@ -27,16 +27,19 @@ import type {
   WorkerTaskHistoryEntry,
   PocketVibeRemoteTarget,
   PocketVibeRemoteHost,
+  MeetingNotes,
 } from '../types';
 import { remoteSessionLabel, remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../../electron/backends/pocket-vibe-target';
 import { MEETING_TOOL_NAMES } from '../../electron/meeting-tool-names';
 import { redactSecrets } from '../../electron/format-error';
 import {
-  columnForTask,
+  subStatusForTask,
+  SUB_STATUS_META,
   projectNameFromCwd,
   resolveBoardTaskStatus,
   WORKER_STATUS_LABEL,
   type TaskColumnId,
+  type BoardSubStatus,
 } from './task-columns';
 import { extractText, extractToolUses, uid } from './sdk-message';
 import { isSpeechActive, type SpeakHandle } from './speech-session';
@@ -237,6 +240,12 @@ export interface MeetingState {
    *  one answering. Set by the main-process user-mentioned-host event;
    *  cleared optimistically on every local send. */
   lastMentionedHostId?: string | null;
+  /** Coordinator's live meeting notes (工作区 tab), null until the first update. */
+  meetingNotes?: { notes: MeetingNotes; updatedAt: number } | null;
+  /** Sub-agent tasks owned by an expert: taskId → owner hostId + title. Their
+   *  workers stay out of the participant list; the stage shows them as the
+   *  third tab (子 Agent). */
+  ownedTasks?: Map<string, { hostId: string; title: string }>;
 }
 
 /** One host group: a host agent + its worker pool. Collapsible in the
@@ -255,6 +264,8 @@ export interface HostGroupState {
   workerIds: AgentSource[];
   /** Whether the worker list is collapsed in the UI. Default true. */
   collapsed: boolean;
+  /** AME-D14: experts show as 职能＋名字 (e.g. 产品专家 小禾). */
+  profile?: { title: string; name: string };
 }
 
 /** Map a backendId to its canonical iconId. Falls back to the backendId itself. */
@@ -314,6 +325,8 @@ export interface AggregatedTask {
   title: string;
   status: WorkerStatus;
   column: TaskColumnId;
+  /** Finest-grain state; drives the card chip and user-split lanes. */
+  sub: BoardSubStatus;
   statusLabel: string;
   backendId: string | null;
   deps: string[];
@@ -869,6 +882,10 @@ class MeetingStore {
               : status === 'integration-conflict'
                 ? '集成冲突待处理'
                 : null;
+        const sub = subStatusForTask(status, {
+          permission: Boolean(worker?.pendingPermission),
+          diagnostic: Boolean(node.workspaceDiagnostic),
+        });
         tasks.push({
           key: `${slot.id}\u0000${node.id}`,
           sessionId: slot.id,
@@ -877,7 +894,8 @@ class MeetingStore {
           taskId: node.id,
           title: node.title,
           status,
-          column: columnForTask(status, Boolean(worker?.pendingPermission || node.workspaceDiagnostic)),
+          column: SUB_STATUS_META[sub].parent,
+          sub,
           statusLabel: WORKER_STATUS_LABEL[status],
           backendId: worker?.backendId ?? node.executorBackendId ?? null,
           deps: node.deps,
@@ -1606,6 +1624,19 @@ class MeetingStore {
       });
       return;
     }
+    if (e.kind === 'meeting-notes-updated') {
+      this.mutateSlot(slot.id, (s) => ({ ...s, meetingNotes: { notes: e.notes, updatedAt: e.updatedAt } }));
+      return;
+    }
+    if (e.kind === 'task-owner-assigned') {
+      const hostId = e.hostId ?? 'default';
+      this.mutateSlot(slot.id, (s) => {
+        const ownedTasks = new Map(s.ownedTasks ?? []);
+        ownedTasks.set(e.taskId, { hostId, title: e.title });
+        return { ...s, ownedTasks };
+      });
+      return;
+    }
     if (e.kind === 'host-added') {
       // Upsert the host group so the Participants gallery can render its tile.
       // Live invites already seed it optimistically in addHostGroup(); on
@@ -1613,8 +1644,9 @@ class MeetingStore {
       const hostId = e.hostId ?? 'default';
       this.mutateSlot(slot.id, (s) => {
         const existing = s.hostGroups.get(hostId);
-        if (existing?.backendId === e.backendId) return s;
+        if (existing?.backendId === e.backendId && (!e.profile || existing.profile)) return s;
         const hostGroups = new Map(s.hostGroups);
+        const profile = e.profile ?? existing?.profile;
         hostGroups.set(hostId, {
           id: hostId,
           backendId: e.backendId,
@@ -1622,6 +1654,7 @@ class MeetingStore {
           hostWorkerId: `host-${hostId}`,
           workerIds: existing?.workerIds ?? [],
           collapsed: existing?.collapsed ?? true,
+          ...(profile ? { profile } : {}),
         });
         return { ...s, hostGroups };
       });
