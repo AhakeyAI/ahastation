@@ -5,7 +5,9 @@
 import { z } from 'zod';
 import { abortClone, cloneProject, createProject, defaultProjectParent, githubStatus, resolveRepos } from '../projects.js';
 import { addBacklog, listBacklog, removeBacklog } from '../backlog.js';
+import { planProjectCleanup, runProjectCleanup } from '../project-cleanup.js';
 import type { IpcContext } from './context.js';
+import { sendToAppWindows } from '../room-windows.js';
 import { emptyPayloadSchema, handleSecure, mainWindowSenderPolicy } from './validators.js';
 
 const absPath = z.string().min(1).max(4096);
@@ -13,8 +15,7 @@ const absPath = z.string().min(1).max(4096);
 export function registerProjectsIpc(ctx: IpcContext): void {
   const mainOnly = mainWindowSenderPolicy(() => ctx.liveWindow()?.webContents.id ?? null);
   const backlogChanged = async () => {
-    const win = ctx.liveWindow();
-    if (win && !win.isDestroyed()) win.webContents.send('backlog:changed', await listBacklog());
+    sendToAppWindows(ctx.liveWindow(), 'backlog:changed', await listBacklog());
   };
 
   // Read-only: origin + `gh issue/pr list --limit 1`. Unknown counts stay null.
@@ -81,6 +82,27 @@ export function registerProjectsIpc(ctx: IpcContext): void {
       const win = ctx.liveWindow();
       if (win && !win.isDestroyed()) win.webContents.send('projects:clone-progress', { line });
     }),
+  });
+
+  // 结束会话并删除分支: plan is read-only; cleanup re-plans before acting and
+  // only touches what the plan allows (tty-owned sessions, linked worktrees).
+  handleSecure('projects:cleanup-plan', {
+    schema: z.object({ cwd: absPath }).strict(),
+    authorize: mainOnly,
+    handler: async (payload) => planProjectCleanup(payload.cwd, ctx.getObservedSnapshot()),
+  });
+
+  handleSecure('projects:cleanup', {
+    schema: z.object({
+      cwd: absPath,
+      sessionIds: z.array(z.string().min(1).max(128)).max(100),
+      worktreePaths: z.array(absPath).max(100),
+    }).strict(),
+    authorize: mainOnly,
+    handler: async (payload) => runProjectCleanup(
+      { repoRoot: payload.cwd, sessionIds: payload.sessionIds, worktreePaths: payload.worktreePaths },
+      ctx.getObservedSnapshot(),
+    ),
   });
 
   handleSecure('projects:clone-abort', {

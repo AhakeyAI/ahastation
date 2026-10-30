@@ -243,8 +243,14 @@ interface OrchestratorOpts {
   /** Host groups invited before the previous shutdown (from the recovered
    *  snapshot's `hosts` list). `start()` re-adds every non-default entry so
    *  invited agents come back with the meeting; 'default' is always created
-   *  by the constructor and must be skipped here. */
-  recoveredHosts?: Array<{ id: string; backendId: string }>;
+   *  by the constructor and must be skipped here. `profile` is the expert's
+   *  职能＋名字 when the snapshot recorded one. */
+  recoveredHosts?: Array<{ id: string; backendId: string; profile?: HostProfile }>;
+  /** Expert-owned sub-agent tasks from the previous snapshot. Without this,
+   *  a restarted app loses the 子 Agent tab and 重新开始. */
+  recoveredOwnedTasks?: Array<{ taskId: string; ownerHostId: string; input: PlanMeetingTaskInput }>;
+  /** Workspace-tab notes from the previous snapshot. */
+  recoveredMeetingNotes?: MeetingNotes;
   /** How long an active review may sit without Coordinator progress before the
    * stall budget is charged. Set to 0 to disable the watchdog in tests. */
   reviewStallTimeoutMs?: number;
@@ -316,7 +322,9 @@ export class Orchestrator implements OrchestratorBridge {
   private resumeBackendSessions: Record<string, BackendSessionSnapshot>;
   private remoteTargets = new Map<string, PocketVibeRemoteTarget>();
   private recoveredTasks: Array<Record<string, unknown>>;
-  private recoveredHosts: Array<{ id: string; backendId: string }>;
+  private recoveredHosts: Array<{ id: string; backendId: string; profile?: HostProfile }>;
+  private recoveredOwnedTasks: Array<{ taskId: string; ownerHostId: string; input: PlanMeetingTaskInput }>;
+  private recoveredMeetingNotes: MeetingNotes | null;
   private recoveredPlanVersion: number;
   private saveMemoryCallsThisSession = 0;
   private autoOrchestration = false;
@@ -399,6 +407,8 @@ export class Orchestrator implements OrchestratorBridge {
     this.resumeBackendSessions = opts.resumeBackendSessions ?? {};
     this.recoveredTasks = opts.recoveredTasks ?? [];
     this.recoveredHosts = opts.recoveredHosts ?? [];
+    this.recoveredOwnedTasks = opts.recoveredOwnedTasks ?? [];
+    this.recoveredMeetingNotes = opts.recoveredMeetingNotes ?? null;
     this.recoveredPlanVersion = Number.isSafeInteger(opts.recoveredPlanVersion)
       && (opts.recoveredPlanVersion ?? 0) >= 0
       ? opts.recoveredPlanVersion!
@@ -891,11 +901,25 @@ export class Orchestrator implements OrchestratorBridge {
     return { ok: true };
   }
 
+  /** Re-emit the plan state a freshly attached renderer cannot rebuild from
+   *  hosts and transcript alone (a second window, or a reload). */
+  republishState(): void {
+    if (this.meetingScheduler) this.meetingScheduler.republishPlan();
+    else if (this.recoveredTasks.length > 0) this.emitRecoveredPlan();
+    if (this.pendingPlan) {
+      this.safeEmit({
+        source: 'system',
+        event: { kind: 'plan-proposed', tasks: this.pendingPlan, brief: this.pendingPlanBrief ?? undefined },
+      });
+    }
+  }
+
   /** List all host groups with their ids and backend ids. */
   listHosts(): Array<{
     id: string;
     backendId: string;
     role: 'coordinator' | 'expert';
+    profile?: HostProfile;
     backendSession?: BackendSessionSnapshot;
     remoteTarget?: PocketVibeRemoteTarget;
     ready: boolean;
@@ -909,6 +933,7 @@ export class Orchestrator implements OrchestratorBridge {
       backendSession: hg.getHost()?.snapshot?.() ?? undefined,
       ready: hg.isReady(),
       ...hg.getLifecycle(),
+      ...(this.hostProfiles.has(id) ? { profile: this.hostProfiles.get(id)! } : {}),
       ...(this.remoteTargets.has(id) ? { remoteTarget: { ...this.remoteTargets.get(id)! } } : {}),
     }));
   }
@@ -1374,7 +1399,7 @@ export class Orchestrator implements OrchestratorBridge {
     // meeting must still recover when one invited runtime is gone.
     for (const host of this.recoveredHosts) {
       if (host.id === DEFAULT_HOST_ID) continue;
-      const result = this.addHost(host.backendId, host.id);
+      const result = this.addHost(host.backendId, host.id, undefined, host.profile);
       if (!result.ok) {
         this.diagnostics.log('host-recovery-skipped', {
           hostId: host.id,
@@ -1383,6 +1408,10 @@ export class Orchestrator implements OrchestratorBridge {
         });
       }
     }
+    // Ownership and notes live in the snapshot, not only in this process.
+    // Restore them before read-only auto-resume so a respawned sub-agent is
+    // already tagged as the expert's when its terminal tab opens.
+    this.restoreKickoffState();
     // A worker may have asked a question while the Coordinator host was still
     // starting; those messages are durable but undelivered. Re-deliver now.
     await this.meetingScheduler.redeliverPendingWorkerQuestions();
@@ -1390,6 +1419,7 @@ export class Orchestrator implements OrchestratorBridge {
       this.meetingScheduler.emitRecoveredState();
       await this.autoResumeRecoveredReadOnlyTasks();
     }
+    this.announceStoppedOwnedWorkers();
     if (this.finalMeetingDelivery || this.finalMeetingDecision) {
       this.safeEmit({
         source: 'system',
@@ -1599,6 +1629,11 @@ export class Orchestrator implements OrchestratorBridge {
           };
         })
         .filter((mailbox) => mailbox.taskId),
+      ownedTasks: [...this.taskOwners.entries()].flatMap(([taskId, ownerHostId]) => {
+        const input = this.ownedTaskInputs.get(taskId);
+        return input ? [{ taskId, ownerHostId, input: structuredClone(input) }] : [];
+      }),
+      meetingNotes: structuredClone(this.meetingNotes),
       reviewSessions: this.coordinatorReviewDriver.snapshot(),
       integrationQueue: this.integrationQueue.snapshot(),
       planVersion: this.meetingScheduler.getPlanVersion(),
@@ -1833,6 +1868,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.meetingNotes = notes;
     const updatedAt = Date.now();
     this.safeEmit({ source: 'system', event: { kind: 'meeting-notes-updated', notes, updatedAt } });
+    void this.snapshotActiveMeeting().catch((err) => console.error('[orchestrator] notes snapshot failed:', err));
   }
 
   getMeetingNotes(): MeetingNotes {
@@ -1888,6 +1924,7 @@ export class Orchestrator implements OrchestratorBridge {
       + '然后每轮有实质进展就调用 update_meeting_notes 更新工作区纪要（核心结论、决策、待派工的工作项、零碎 TODO）。',
       'high',
     );
+    await this.snapshotActiveMeeting();
     return { ok: true, expertHostId, taskId };
   }
 
@@ -1929,7 +1966,68 @@ export class Orchestrator implements OrchestratorBridge {
       `(restart) 你名下的子 Agent ${taskId} 已停止，用户让它重新开始，新任务是 ${nextId}「${title}」。后续用 send_task_message / follow_up_task 给 ${nextId} 派活。`,
       'normal',
     );
+    await this.snapshotActiveMeeting();
     return { ok: true, taskId: nextId };
+  }
+
+  /** Replay expert ownership and workspace notes from the recovered snapshot. */
+  private restoreKickoffState(): void {
+    if (this.recoveredMeetingNotes) {
+      this.meetingNotes = this.recoveredMeetingNotes;
+      this.safeEmit({
+        source: 'system',
+        event: { kind: 'meeting-notes-updated', notes: this.meetingNotes, updatedAt: Date.now() },
+      });
+    }
+    for (const owned of this.recoveredOwnedTasks) {
+      if (!owned?.taskId || !owned.ownerHostId || !owned.input?.prompt) continue;
+      this.taskOwners.set(owned.taskId, owned.ownerHostId);
+      this.ownedTaskInputs.set(owned.taskId, owned.input);
+      const title = owned.input.title ?? owned.taskId;
+      this.safeEmit({
+        source: 'system',
+        hostId: owned.ownerHostId,
+        event: { kind: 'task-owner-assigned', taskId: owned.taskId, title },
+      });
+    }
+  }
+
+  /** A recovered sub-agent whose process is gone stays on the stage as stopped,
+   *  so 重新开始 is reachable without a live terminal. Running ones are left
+   *  to the scheduler's own worker-spawned event. */
+  private announceStoppedOwnedWorkers(): void {
+    const live = new Map(this.meetingScheduler.snapshot().map((task) => [task.id, task]));
+    const stopped = new Set<WorkerStatusKind>(['failed', 'done', 'interrupted', 'accepted']);
+    for (const [taskId] of this.taskOwners) {
+      const input = this.ownedTaskInputs.get(taskId);
+      if (!input) continue;
+      const task = live.get(taskId);
+      const status = task?.status ?? 'interrupted';
+      if (!stopped.has(status)) continue;
+      const backendId = task?.executorBackendId ?? input.executorBackendId;
+      if (!backendId) continue;
+      const title = task?.title || input.title || taskId;
+      this.safeEmit({
+        source: 'talker',
+        event: {
+          kind: 'worker-spawned',
+          workerId: taskId,
+          title,
+          deps: task?.deps ?? [...(input.deps ?? [])],
+          specialty: 'general',
+          backendId,
+        },
+      });
+      this.safeEmit({
+        source: taskId,
+        event: {
+          kind: 'worker-ended',
+          workerId: taskId,
+          status,
+          ...(task?.summary ? { summary: task.summary } : {}),
+        },
+      });
+    }
   }
 
   private forwardBriefingToOwner(briefing: { taskId?: string; workerId?: string; title: string; summary: string; kind: string }): void {

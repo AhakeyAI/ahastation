@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { usePtyTerminal } from '../hooks/usePtyTerminal';
 import { stageWindowStore } from '../lib/stage-window-store';
 import { terminalSessionStore } from '../lib/terminal-session-store';
+import { toast } from '../lib/toast';
+import type { ContinueSessionRequest } from '../types';
 
 interface ShellTerminalProps {
   cwd?: string;
@@ -13,14 +15,21 @@ interface ShellTerminalProps {
   shellId?: string;
   /** A tab owns its process until explicitly closed, including across mounts. */
   terminalId?: string;
+  continueSession?: ContinueSessionRequest;
+  initialPrompt?: string;
 }
 
-export function ShellTerminal({ cwd, cliId, shellId, terminalId }: ShellTerminalProps) {
-  if (terminalId) return <PersistentShellTerminal cwd={cwd} cliId={cliId} shellId={shellId} terminalId={terminalId} />;
+export function ShellTerminal({ cwd, cliId, shellId, terminalId, continueSession, initialPrompt }: ShellTerminalProps) {
+  if (terminalId) {
+    return <PersistentShellTerminal cwd={cwd} cliId={cliId} shellId={shellId} terminalId={terminalId}
+      continueSession={continueSession} initialPrompt={initialPrompt} />;
+  }
   return <LegacyShellTerminal cwd={cwd} cliId={cliId} />;
 }
 
-function PersistentShellTerminal({ cwd, cliId, shellId, terminalId }: ShellTerminalProps & { terminalId: string }) {
+function PersistentShellTerminal({
+  cwd, cliId, shellId, terminalId, continueSession, initialPrompt,
+}: ShellTerminalProps & { terminalId: string }) {
   const container = useRef<HTMLDivElement>(null);
   useSyncExternalStore(terminalSessionStore.subscribe, terminalSessionStore.getSnapshot);
   const state = terminalSessionStore.getState(terminalId);
@@ -30,7 +39,9 @@ function PersistentShellTerminal({ cwd, cliId, shellId, terminalId }: ShellTermi
     const session = terminalSessionStore.acquire(terminalId, {
       expectedPtyId: `local-${terminalId}`,
       attach: async (size) => {
-        const result = await api.create({ cwd, cliId, shellId, terminalId, ...size });
+        const result = await api.create({ cwd, cliId, shellId, terminalId, ...size,
+          ...(continueSession ? { continueSession } : {}), ...(initialPrompt ? { initialPrompt } : {}) });
+        if (result.ok && result.notice) toast.info(result.notice);
         return result.ok ? result : { ok: false, error: result.error ?? '无法启动终端' };
       },
       input: async (id, data) => { const result = await api.input(id, data); if (!result.ok) throw new Error(result.error ?? '输入失败'); },

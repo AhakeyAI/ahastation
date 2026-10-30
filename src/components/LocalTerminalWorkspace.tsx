@@ -26,7 +26,7 @@ export function rememberTerminalFolder(path: string): void {
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 const phaseLabels = { starting: '启动中', running: '运行中', exited: '已退出', error: '错误', closing: '关闭中' };
 
-export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
+export function LocalTerminalWorkspace({ onBack, backLabel = '返回首页' }: { onBack: () => void; backLabel?: string }) {
   const stage = useStageWindows();
   const { pickCwd, pickerModal } = usePickCwd();
   const [directories, setDirectories] = useState(readDirectories);
@@ -83,7 +83,7 @@ export function LocalTerminalWorkspace({ onBack }: { onBack: () => void }) {
   return (
     <div className="local-terminal-workspace" data-appearance={appearance} data-sidebar={sidebar} onKeyDownCapture={handleKey}>
       <header className="terminal-workspace-toolbar">
-        <button type="button" onClick={onBack} title="返回首页" aria-label="返回首页"><ArrowLeft size={16} /></button>
+        <button type="button" onClick={onBack} title={backLabel} aria-label={backLabel}><ArrowLeft size={16} /></button>
         <span className="terminal-workspace-brand">AhaStudio</span>
         <button type="button" onClick={() => setSidebar(value => !value)} aria-label="切换目录侧栏" aria-expanded={sidebar}><PanelLeft size={16} /></button>
       </header>

@@ -1,6 +1,7 @@
 import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen, Tray, Menu } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { closeAllRoomWindows, openRoomWindow, sendToAppWindows } from './room-windows.js';
 import { homedir } from 'node:os';
 import { existsSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -310,13 +311,13 @@ function createWindow() {
 
 function emitToRenderer(e: IpcEmittedEvent) {
   const win = liveWindow();
-  if (!win) return;
   // Flatten { source, event } onto each event so the renderer's RendererEvent
   // shape stays a single object with an extra `source` field. sessionId is
   // pre-bound by the per-slot emit wrapper created in sessions:open so the
   // renderer can route the event to the right MeetingState slot. hostId is
   // added by the orchestrator's safeEmit wrapper (defaults to 'default').
-  win.webContents.send('session:event', { ...e.event, source: e.source, sessionId: e.sessionId, hostId: e.hostId });
+  // Room windows (room-windows.ts) watch the same meetings, so they get the stream too.
+  sendToAppWindows(win, 'session:event', { ...e.event, source: e.source, sessionId: e.sessionId, hostId: e.hostId });
   // Companion screen tap (Phase 8): the same orchestrator stream feeds the
   // pixel-office model — point-to-point to the companion window inside.
   getCompanionFeed()?.onOrchestratorEvent(e);
@@ -625,6 +626,20 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
   registerBrowserIpc(browserTabManager);
   registerBackendAuthIpc();
   registerPopoutWindowIpc();
+  // A project room in its own full window, to watch two rooms side by side.
+  handleSecure('app:open-room-window', {
+    schema: z.object({ cwd: z.string().min(1).max(4096) }).strict(),
+    authorize: mainWindowSenderPolicy(() => liveWindow()?.webContents.id ?? null),
+    handler: ({ cwd }) => {
+      if (!registry.findByCwd(cwd)) return { ok: false, error: '这个项目室的会议没有在运行' };
+      openRoomWindow(cwd, `AhaStudio — ${basename(cwd) || cwd}`, {
+        preloadPath: join(__dirname, 'preload.cjs'),
+        backgroundColor: getThemeBackgroundColor(),
+        ...(isDev ? { devServerUrl: process.env.VITE_DEV_SERVER_URL! } : {}),
+      });
+      return { ok: true };
+    },
+  });
   registerOpenCodeEditorIpc(ctx);
   registerIdeFilesIpc();
   registerIdeRegistryIpc(ctx);
@@ -727,10 +742,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // bar, then minimizes (minimize path) or hides the window (close path —
   // hiding instead of destroying keeps sessions and the voice link alive,
   // which is the point of enabling the bar). 'hide' replays the original
-  // minimize/close semantics. `never` persists the 不再提示 opt-out.
+  // minimize/close semantics; 'quit' exits the app; 'cancel' leaves the
+  // window as it was. `never` persists the 不再提示 opt-out.
   handleSecure('app:minimize-choice', {
     schema: z.object({
-      action: z.enum(['ahabar', 'hide']),
+      action: z.enum(['ahabar', 'hide', 'quit', 'cancel']),
       never: z.boolean(),
     }).strict(),
     authorize: mainWindowSenderPolicy(() => liveWindow()?.webContents.id ?? null),
@@ -739,7 +755,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       if (!pending) return { ok: false, error: 'No minimize prompt pending' };
       minimizePromptPending = null;
       clearTimeout(pending.failsafe);
-      if (choice.never) {
+      if (choice.never && choice.action !== 'cancel') {
         await updateSettings({ ahaBarPromptDisabled: true }).catch((err) => {
           console.warn('[main] failed to persist ahaBarPromptDisabled:', err);
         });
@@ -763,6 +779,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         case 'close':
           suppressNextClose = true;
           win.close();
+          break;
+        case 'quit':
+          app.quit();
+          break;
+        case 'stay':
           break;
       }
       return { ok: true };
@@ -961,6 +982,7 @@ app.on('before-quit', (event) => {
     import('./ipc/popout-window.js')
       .then(({ closeAllPopoutWindows }) => closeAllPopoutWindows())
       .catch(() => { /* ignore */ });
+    closeAllRoomWindows();
 
     try {
       if (sharedRuntime && !await sharedRuntime.shutdown()) {

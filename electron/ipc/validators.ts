@@ -16,6 +16,7 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { resolveEditorContextByWebContentsId } from '../ide/ide-window-manager.js';
+import { isRoomWindowSender } from '../room-window-senders.js';
 
 export type SenderPolicy = (senderId: number) => boolean;
 
@@ -40,14 +41,15 @@ export function parsePayload<Schema extends z.ZodType>(
   return { ok: true, data: parsed.data };
 }
 
-/** Policy: only the main window's webContents may invoke. The lookup is
- *  injected so the policy itself stays a pure sender-id predicate. */
+/** Policy: only a full app window may invoke — the main window, or a project
+ *  room window (same renderer and preload, see room-windows.ts). The lookup
+ *  is injected so the policy itself stays a pure sender-id predicate. */
 export function mainWindowSenderPolicy(
   getMainWebContentsId: () => number | null,
 ): SenderPolicy {
   return (senderId) => {
     const mainId = getMainWebContentsId();
-    return mainId !== null && senderId === mainId;
+    return (mainId !== null && senderId === mainId) || isRoomWindowSender(senderId);
   };
 }
 

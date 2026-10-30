@@ -49,3 +49,31 @@ test('backlog cards persist, never create Issues unless asked, and can be remove
   await removeBacklog(created[0].id);
   assert.equal((await listBacklog()).some((c) => c.id === created[0].id), false);
 });
+
+test('a stopped expert sub-agent restarts as a new attempt owned by the same expert', async () => {
+  const { Orchestrator } = await import('../dist-electron/orchestrator.js');
+  const { randomUUID } = await import('node:crypto');
+  const events = [];
+  const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {} });
+  const orchestrator = new Orchestrator({ emit: (e) => events.push(e), cwd: '/tmp', meetingId: `restart-${randomUUID()}`, sessionFactory: fake });
+  try {
+    const task = { id: 'kickoff-brainstorm-abc', title: '调研项目现状与方向', prompt: '只读调研', deps: [], workspaceMode: 'read-only' };
+    assert.deepEqual(await orchestrator.installPlan([task]), { ok: true });
+    // startKickoff records these after a real expert host starts; seed them directly.
+    orchestrator.taskOwners.set(task.id, 'default');
+    orchestrator.ownedTaskInputs.set(task.id, task);
+
+    const first = await orchestrator.restartOwnedTask(task.id);
+    assert.deepEqual(first, { ok: true, taskId: 'kickoff-brainstorm-abc-r2' });
+    assert.equal(orchestrator.isTaskOwnedBy('kickoff-brainstorm-abc-r2', 'default'), true);
+    const second = await orchestrator.restartOwnedTask('kickoff-brainstorm-abc-r2');
+    assert.deepEqual(second, { ok: true, taskId: 'kickoff-brainstorm-abc-r3' });
+
+    await new Promise((r) => setTimeout(r, 50));
+    const assigned = events.filter((e) => e.event?.kind === 'task-owner-assigned').map((e) => e.event.taskId);
+    assert.deepEqual(assigned, ['kickoff-brainstorm-abc-r2', 'kickoff-brainstorm-abc-r3']);
+    assert.deepEqual(await orchestrator.restartOwnedTask('not-owned'), { ok: false, error: 'task has no owning expert' });
+  } finally {
+    await orchestrator.close?.();
+  }
+});

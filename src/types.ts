@@ -9,6 +9,15 @@ export interface LocalCliInfo {
   binaryPath: string;
 }
 
+/** Continue an observed CLI session in a local terminal tab: 'fork' branches a
+ *  session still running elsewhere, 'resume' reopens one nobody is running. */
+export interface ContinueSessionRequest {
+  observedId: string;
+  mode: 'fork' | 'resume';
+  /** End the original process once the branch session is up (terminal-owned only). */
+  endOriginal?: boolean;
+}
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -1207,6 +1216,8 @@ export interface SessionsApi {
   listHosts: (
     sessionId: string | null,
   ) => Promise<{ ok: true; hosts: HostMeta[] } | { ok: false; error: string }>;
+  /** Ask main to re-emit plan state for a renderer that just attached. */
+  republish?: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
   setCoordinator: (
     sessionId: string | null,
     hostId: string,
@@ -1452,7 +1463,7 @@ export interface VibeMeetApi {
   app: {
     /** Fired when main intercepts a minimize/close to ask about AhaBar. */
     onMinimizePrompt: (cb: (payload: { kind: 'minimize' | 'close' }) => void) => () => void;
-    minimizeChoice: (choice: { action: 'ahabar' | 'hide'; never: boolean }) => Promise<{ ok: boolean; error?: string }>;
+    minimizeChoice: (choice: { action: 'ahabar' | 'hide' | 'quit' | 'cancel'; never: boolean }) => Promise<{ ok: boolean; error?: string }>;
   };
   companion: CompanionApi;
   /** Floating AhaBar window bridge (preload-companion.cjs only). */
@@ -1501,8 +1512,12 @@ export interface VibeMeetApi {
       cliId?: string;
       shellId?: string;
       terminalId?: string;
+      /** Continue an observed session: fork it if still running elsewhere, else resume. */
+      continueSession?: ContinueSessionRequest;
+      /** First prompt for claude / codex; other CLIs ignore it. */
+      initialPrompt?: string;
     }) => Promise<
-      | { ok: true; ptyId: string; replay: string; sequence: number; exited?: boolean; exitCode?: number | null }
+      | { ok: true; ptyId: string; replay: string; sequence: number; exited?: boolean; exitCode?: number | null; notice?: string }
       | { ok: false; error?: string }
     >;
     input: (ptyId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
@@ -1518,6 +1533,8 @@ export interface VibeMeetApi {
     onEvent: (cb: (msg: { hostId: string; payload: EditorWindowEvent }) => void) => () => void;
   };
   popoutSession: (tabId: string) => Promise<{ ok: boolean }>;
+  /** Open a running project room in its own full AhaStudio window. */
+  openRoomWindow?: (cwd: string) => Promise<{ ok: boolean; error?: string }>;
   popoutStage: (windowId: string, type: string) => Promise<{ ok: boolean }>;
   browser: BrowserApi;
   steerWorker: (
@@ -1619,7 +1636,8 @@ export interface AhaBarApi {
   ) => Promise<{ ok: boolean; error?: string }>;
   focusMain: () => Promise<{ ok: boolean }>;
   copyResume: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  setExpanded: (expanded: boolean) => Promise<{ ok: boolean }>;
+  /** `height` is the bar's measured content height; main clamps it. */
+  setExpanded: (expanded: boolean, height?: number) => Promise<{ ok: boolean }>;
   setGhost: (ghost: boolean) => Promise<{ ok: boolean }>;
 }
 

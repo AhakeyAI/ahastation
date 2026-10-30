@@ -17,6 +17,9 @@ import { promises as fs, constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { Orchestrator } from '../orchestrator.js';
+import type { HostProfile } from '../orchestrator-types.js';
+import type { MeetingNotes } from '../meeting-mcp.js';
+import type { PlanMeetingTaskInput } from '../meeting-tools.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
 import { formatError } from '../format-error.js';
 import {
@@ -97,6 +100,76 @@ export function flushOpenTabsNow(ctx: IpcContext): void {
   }
   snapshotPendingCtx = null;
   writeSnapshotNow(ctx);
+}
+
+function parseHostProfile(value: unknown): HostProfile | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const title = (value as { title?: unknown }).title;
+  const name = (value as { name?: unknown }).name;
+  if (typeof title !== 'string' || typeof name !== 'string') return undefined;
+  const trimmedTitle = title.trim();
+  const trimmedName = name.trim();
+  if (!trimmedTitle || !trimmedName || trimmedTitle.length > 40 || trimmedName.length > 40) return undefined;
+  return { title: trimmedTitle, name: trimmedName };
+}
+
+function parseRecoveredHosts(value: unknown): Array<{ id: string; backendId: string; profile?: HostProfile }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((host) => {
+    if (!host || typeof host !== 'object') return [];
+    const id = (host as { id?: unknown }).id;
+    const backendId = (host as { backendId?: unknown }).backendId;
+    if (typeof id !== 'string' || typeof backendId !== 'string') return [];
+    const profile = parseHostProfile((host as { profile?: unknown }).profile);
+    return [{ id, backendId, ...(profile ? { profile } : {}) }];
+  });
+}
+
+function parseRecoveredOwnedTasks(value: unknown): Array<{
+  taskId: string;
+  ownerHostId: string;
+  input: PlanMeetingTaskInput;
+}> {
+  if (!Array.isArray(value)) return [];
+  const idOk = (id: string) => /^[a-zA-Z0-9._-]{1,80}$/.test(id);
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const taskId = (entry as { taskId?: unknown }).taskId;
+    const ownerHostId = (entry as { ownerHostId?: unknown }).ownerHostId;
+    const input = (entry as { input?: unknown }).input;
+    if (typeof taskId !== 'string' || !idOk(taskId)) return [];
+    if (typeof ownerHostId !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(ownerHostId)) return [];
+    if (!input || typeof input !== 'object') return [];
+    const prompt = (input as { prompt?: unknown }).prompt;
+    const id = (input as { id?: unknown }).id;
+    if (typeof id !== 'string' || typeof prompt !== 'string') return [];
+    if (!prompt || prompt.length > 20_000) return [];
+    return [{ taskId, ownerHostId, input: input as PlanMeetingTaskInput }];
+  }).slice(0, 32);
+}
+
+function parseNoteItems(value: unknown): Array<{ text: string; source?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const text = (item as { text?: unknown }).text;
+    if (typeof text !== 'string' || !text.trim() || text.length > 2_000) return [];
+    const source = (item as { source?: unknown }).source;
+    return [{ text, ...(typeof source === 'string' && source.length <= 200 ? { source } : {}) }];
+  }).slice(0, 50);
+}
+
+function parseRecoveredMeetingNotes(value: unknown): MeetingNotes | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const notes = value as Record<string, unknown>;
+  const parsed: MeetingNotes = {
+    conclusions: parseNoteItems(notes.conclusions),
+    decisions: parseNoteItems(notes.decisions),
+    workItems: parseNoteItems(notes.workItems),
+    todos: parseNoteItems(notes.todos),
+  };
+  const empty = parsed.conclusions.length + parsed.decisions.length + parsed.workItems.length + parsed.todos.length === 0;
+  return empty ? undefined : parsed;
 }
 
 export function registerSessionsIpc(ctx: IpcContext): void {
@@ -238,16 +311,12 @@ export function registerSessionsIpc(ctx: IpcContext): void {
             )
           : undefined,
         // Invited host groups ride along so start() can re-add them; the
-        // resume handles above are keyed by the same host ids.
-        recoveredHosts: recovery
-          ? (Array.isArray(recovery.state.hosts) ? recovery.state.hosts : [])
-              .filter((host): host is Record<string, unknown> => typeof host === 'object' && host !== null)
-              .flatMap((host) => (
-                typeof host.id === 'string' && typeof host.backendId === 'string'
-                  ? [{ id: host.id, backendId: host.backendId }]
-                  : []
-              ))
-          : undefined,
+        // resume handles above are keyed by the same host ids. Profiles and
+        // owned sub-agent tasks come from the same snapshot so a restart
+        // keeps the 子 Agent tab and 重新开始.
+        recoveredHosts: recovery ? parseRecoveredHosts(recovery.state.hosts) : undefined,
+        recoveredOwnedTasks: recovery ? parseRecoveredOwnedTasks(recovery.state.ownedTasks) : undefined,
+        recoveredMeetingNotes: recovery ? parseRecoveredMeetingNotes(recovery.state.meetingNotes) : undefined,
       });
 
       const result = ctx.registry.open(sessionId, resolvedCwd, orch);
@@ -514,6 +583,16 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
     return { ok: true, hosts: orch.listHosts() };
+  });
+
+  ipcMain.handle('sessions:republish', async (_e, payload: unknown) => {
+    const sessionId = typeof (payload as { sessionId?: string })?.sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId
+      : null;
+    const orch = sessionId ? ctx.getOrchestrator(sessionId) : null;
+    if (!orch) return { ok: false, error: 'session not found' };
+    orch.republishState();
+    return { ok: true };
   });
 
   ipcMain.handle('sessions:remote-sessions', async (_e, payload: { refresh?: boolean } | undefined) => {

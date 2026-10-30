@@ -766,3 +766,93 @@ test('terminal hosts use the renderer session scope and normalize process failur
     await rm(runtime.dir, { recursive: true, force: true });
   }
 });
+
+test('recovery keeps expert ownership so a stopped sub-agent can restart', async () => {
+  const runtime = fakeHostRuntime();
+  const events = [];
+  const meetingId = `recovery-owned-${randomUUID()}`;
+  const taskId = 'kickoff-develop-ab12cd';
+  const input = {
+    id: taskId,
+    title: '搭建最小可运行骨架',
+    prompt: '只改工作树',
+    deps: [],
+    executorBackendId: 'claude-code-terminal',
+    workspaceMode: 'read-only',
+  };
+  resetBackendRegistry();
+  getBackendRegistry().register(fakeCoordinatingBackend(runtime.binary));
+  const orchestrator = new Orchestrator({
+    emit: (event) => events.push(event),
+    cwd: '/tmp',
+    meetingId,
+    sessionFactory() { return fakeSessionFactory(); },
+    recoveredHosts: [
+      { id: 'default', backendId: 'claude-code' },
+      { id: 'expert-1', backendId: 'claude-code', profile: { title: '研发专家', name: '小石' } },
+    ],
+    recoveredTasks: [{
+      id: taskId,
+      title: input.title,
+      prompt: input.prompt,
+      status: 'failed',
+      summary: 'worker cannot be interrupted in failed',
+      deps: [],
+      executorBackendId: 'claude-code-terminal',
+    }],
+    recoveredOwnedTasks: [{ taskId, ownerHostId: 'expert-1', input }],
+    recoveredMeetingNotes: {
+      conclusions: [{ text: '先做最小骨架', source: '用户' }],
+      decisions: [],
+      workItems: [],
+      todos: [],
+    },
+  });
+  try {
+    await orchestrator.start();
+    assert.equal(orchestrator.isTaskOwnedBy(taskId, 'expert-1'), true);
+    assert.equal(orchestrator.getHostProfile('expert-1')?.name, '小石');
+    assert.equal(orchestrator.getMeetingNotes().conclusions[0].text, '先做最小骨架');
+    assert.ok(events.some((event) => (
+      event.event.kind === 'host-added'
+      && event.hostId === 'expert-1'
+      && event.event.profile?.name === '小石'
+    )));
+    assert.ok(events.some((event) => (
+      event.event.kind === 'task-owner-assigned'
+      && event.event.taskId === taskId
+      && event.hostId === 'expert-1'
+    )));
+    assert.ok(events.some((event) => (
+      event.event.kind === 'worker-spawned'
+      && event.event.workerId === taskId
+      && event.event.backendId === 'claude-code-terminal'
+    )));
+    assert.ok(events.some((event) => (
+      event.event.kind === 'worker-ended'
+      && event.event.workerId === taskId
+      && event.event.status === 'failed'
+      && event.event.summary === 'worker cannot be interrupted in failed'
+    )));
+    const snapshot = JSON.parse(readFileSync(`${testMeetingsPath(meetingId)}/snapshot.json`, 'utf8'));
+    assert.equal(snapshot.state.ownedTasks[0].taskId, taskId);
+    assert.equal(snapshot.state.ownedTasks[0].ownerHostId, 'expert-1');
+    assert.equal(snapshot.state.hosts.find((host) => host.id === 'expert-1').profile.name, '小石');
+    assert.equal(snapshot.state.meetingNotes.conclusions[0].text, '先做最小骨架');
+    // Ownership survived the restart, so 重新开始 installs a new attempt
+    // under the same expert instead of "task has no owning expert".
+    const restarted = await orchestrator.restartOwnedTask(taskId);
+    assert.equal(restarted.ok, true);
+    assert.equal(restarted.taskId, `${taskId}-r2`);
+    assert.equal(orchestrator.isTaskOwnedBy(restarted.taskId, 'expert-1'), true);
+    assert.ok(events.some((event) => (
+      event.event.kind === 'task-owner-assigned'
+      && event.event.taskId === restarted.taskId
+      && event.hostId === 'expert-1'
+    )));
+  } finally {
+    await orchestrator.end();
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
+    await rm(runtime.dir, { recursive: true, force: true });
+  }
+});

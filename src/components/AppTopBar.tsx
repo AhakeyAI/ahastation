@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from 'react';
 import { House } from 'lucide-react';
+import { isRoomWindow } from '../lib/room-window';
 
 interface AppTopBarProps {
   /** Meeting controls on the right: 自动批准, voice, 对话 / AhaBar toggles. */
@@ -16,10 +17,11 @@ interface AppTopBarProps {
  * AhaBar 和设置。AhaTalk 路径进了设置列表，探索入口移到启动大厅。
  */
 export const AppTopBar = memo(function AppTopBar({ actions, settingsSlot, onHome }: AppTopBarProps) {
+  const room = isRoomWindow();
   return (
     <header className="aha-topbar">
       {onHome && (
-        <button type="button" className="aha-topbar-home" onClick={onHome} aria-label="返回首页" title="返回首页（会议留在后台）">
+        <button type="button" className="aha-topbar-home" onClick={onHome} aria-label={room ? '关闭这个窗口' : '返回首页'} title={room ? '关闭这个窗口（会议继续在主窗口运行）' : '返回首页（会议留在后台）'}>
           <House size={15} aria-hidden="true" />
         </button>
       )}

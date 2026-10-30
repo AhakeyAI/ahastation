@@ -5,7 +5,7 @@
 export type MinimizePromptKind = 'minimize' | 'close';
 
 export interface MinimizeChoice {
-  action: 'ahabar' | 'hide';
+  action: 'ahabar' | 'hide' | 'quit' | 'cancel';
   never: boolean;
 }
 
@@ -13,7 +13,9 @@ export type MinimizeOutcome =
   | 'open-ahabar-minimize'
   | 'open-ahabar-hide'
   | 'minimize'
-  | 'close';
+  | 'close'
+  | 'quit'
+  | 'stay';
 
 /** Whether intercepting a minimize/close to ask about AhaBar makes sense.
  *  No point asking when the bar is already floating or the user checked
@@ -30,11 +32,14 @@ export function shouldPromptMinimize(input: {
  *  bar first, then minimizes (minimize path) or hides the window (close path —
  *  hiding instead of destroying keeps live sessions and the voice link up,
  *  which is the whole point of enabling the bar). 'hide' replays the original
- *  minimize/close semantics unchanged. */
+ *  minimize/close semantics unchanged. 'quit' exits the app outright, so
+ *  closing never requires turning the bar on; 'cancel' keeps the window. */
 export function resolveMinimizeOutcome(
   kind: MinimizePromptKind,
   choice: MinimizeChoice,
 ): MinimizeOutcome {
+  if (choice.action === 'quit') return 'quit';
+  if (choice.action === 'cancel') return 'stay';
   if (choice.action === 'ahabar') {
     return kind === 'minimize' ? 'open-ahabar-minimize' : 'open-ahabar-hide';
   }

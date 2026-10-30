@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, RefreshCw, Radar, X } from 'lucide-react';
+import { ChevronDown, EyeOff, RefreshCw, Radar, Trash2, X } from 'lucide-react';
 import { TerminalProfileIcon } from './TerminalProfileIcon';
 import { ROOMS_PREVIEW, roomStatus, visibleSeats, type ProjectRoom } from '../lib/project-rooms';
 import type { ObservedClientKind, ObservedSnapshot } from '../lib/observed-store';
@@ -92,6 +92,59 @@ function RoomTile({ room, disabled, onOpen }: { room: ProjectRoom; disabled: boo
   );
 }
 
+/** Tile plus its close menu: hide the room only, or end its sessions and
+ *  delete worktree branches (real folders only). */
+function RoomCell({ room, disabled, onOpen, onHide, onCleanup }: {
+  room: ProjectRoom;
+  disabled: boolean;
+  onOpen: () => void;
+  onHide: () => void;
+  onCleanup: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const cellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (cellRef.current && e.target instanceof Node && !cellRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
+  return (
+    <div className={`room-cell${menuOpen ? ' is-menu-open' : ''}`} ref={cellRef}>
+      <RoomTile room={room} disabled={disabled} onOpen={onOpen} />
+      <button
+        type="button"
+        className="room-close"
+        aria-label={`关闭项目室 ${room.name}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title="关闭项目室"
+        onClick={() => setMenuOpen((v) => !v)}
+      >
+        <X size={13} />
+      </button>
+      {menuOpen && (
+        <div className="room-menu" role="menu" aria-label={`关闭 ${room.name}`}>
+          <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onHide(); }}>
+            <EyeOff size={14} aria-hidden="true" />
+            <span><strong>只从项目室隐藏</strong><small>会话、文件和分支都不动</small></span>
+          </button>
+          {!room.other && (
+            <button type="button" role="menuitem" className="is-danger" onClick={() => { setMenuOpen(false); onCleanup(); }}>
+              <Trash2 size={14} aria-hidden="true" />
+              <span><strong>结束会话并删除分支…</strong><small>先列出来，由你勾选再执行</small></span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ProjectRoomsProps {
   rooms: ProjectRoom[];
   observed: ObservedSnapshot;
@@ -99,6 +152,11 @@ interface ProjectRoomsProps {
   firstLaunch: boolean;
   opening: boolean;
   onOpen: (room: ProjectRoom) => void;
+  /** Rooms the user hid; listed under 「已隐藏」 so they can come back. */
+  hiddenRooms: ProjectRoom[];
+  onHide: (room: ProjectRoom) => void;
+  onRestore: (room: ProjectRoom) => void;
+  onCleanup: (room: ProjectRoom) => void;
   /** A user-started scan finished (marks onboarding done). */
   onScanned: () => void;
 }
@@ -111,8 +169,9 @@ interface ProjectRoomsProps {
  * - 之后启动：观察层自动扫描，不弹窗；有结果时出一条提醒，点「查看」才展开。
  * - 平时只显示最近活动的 3 个，其余收起；每次扫描完成后全部展开。
  */
-export function ProjectRooms({ rooms, observed, firstLaunch, opening, onOpen, onScanned }: ProjectRoomsProps) {
+export function ProjectRooms({ rooms, observed, firstLaunch, opening, onOpen, hiddenRooms, onHide, onRestore, onCleanup, onScanned }: ProjectRoomsProps) {
   const [scanning, setScanning] = useState(false);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -215,7 +274,8 @@ export function ProjectRooms({ rooms, observed, firstLaunch, opening, onOpen, on
         <>
           <div className="rooms-grid">
             {visible.map((room) => (
-              <RoomTile key={room.cwd} room={room} disabled={opening} onOpen={() => onOpen(room)} />
+              <RoomCell key={room.cwd || '__other__'} room={room} disabled={opening} onOpen={() => onOpen(room)}
+                onHide={() => onHide(room)} onCleanup={() => onCleanup(room)} />
             ))}
           </div>
           {(hidden > 0 || (showAll && rooms.length > ROOMS_PREVIEW)) && (
@@ -225,9 +285,31 @@ export function ProjectRooms({ rooms, observed, firstLaunch, opening, onOpen, on
             </button>
           )}
         </>
+      ) : hiddenRooms.length ? (
+        <p className="rooms-empty">项目室都隐藏了。需要时从下面恢复，或者新建一个项目室。</p>
       ) : (
         <p className="rooms-empty">还没有项目室。打开一个项目文件夹，或者在终端里用 Claude Code、Codex 干点活，再回来扫描。</p>
       ))}
+
+      {!scanning && hiddenRooms.length > 0 && (
+        <div className="rooms-hidden">
+          <button type="button" className="rooms-hidden-toggle" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((v) => !v)}>
+            <ChevronDown size={12} aria-hidden="true" className={hiddenOpen ? 'is-open' : ''} />
+            已隐藏 {hiddenRooms.length} 个项目室
+          </button>
+          {hiddenOpen && (
+            <ul className="rooms-hidden-list">
+              {hiddenRooms.map((room) => (
+                <li key={room.cwd || '__other__'}>
+                  <span className="rooms-hidden-name" title={room.cwd || room.parent}>{room.name}</span>
+                  <span className="rooms-hidden-path">{room.other ? room.parent : room.cwd}</span>
+                  <button type="button" onClick={() => onRestore(room)}>恢复显示</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

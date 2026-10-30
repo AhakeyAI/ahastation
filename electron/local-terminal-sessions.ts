@@ -11,6 +11,8 @@ export interface LocalTerminalLaunch {
   cwd?: string;
   cols?: number;
   rows?: number;
+  /** Extra CLI arguments, resolved main-side (never taken from the renderer). */
+  cliArgs?: string[];
 }
 
 export interface LocalTerminalData { ptyId: string; data: string; sequence: number }
@@ -22,6 +24,8 @@ export class LocalTerminalSessions {
   constructor(host: PtyHost, events: { data: (event: LocalTerminalData) => void; exit: (event: LocalTerminalExit) => void },
     private currentCwd: () => string | undefined) { this.core = new TerminalSessions(host, events); }
 
+  has(terminalId: string) { return !!this.core.get(`local-${terminalId}`); }
+
   create(payload: LocalTerminalLaunch) {
     const ptyId = payload.terminalId ? `local-${payload.terminalId}` : `shell-${randomUUID()}`;
     const existing = this.core.get(ptyId);
@@ -31,7 +35,7 @@ export class LocalTerminalSessions {
     const cwd = payload.cwd ?? target?.cwd ?? this.currentCwd() ?? process.cwd();
     const file = target?.file ?? resolveDefaultShell();
     const result = this.core.create(ptyId, {
-      file, args: target?.args ?? [], cwd, env: target?.env ?? mergedSubprocessEnv(),
+      file, args: [...(target?.args ?? []), ...(payload.cliId ? payload.cliArgs ?? [] : [])], cwd, env: target?.env ?? mergedSubprocessEnv(),
       cols: payload.cols ?? 100, rows: payload.rows ?? 30,
     }, payload.cliId ?? payload.shellId, !!payload.terminalId);
     console.log(`[shell-pty] AUDIT create: ptyId=${ptyId} cwd=${cwd} shell=${file}`);

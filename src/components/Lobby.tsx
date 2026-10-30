@@ -8,6 +8,8 @@ import {SharedMeetingEntry} from './SharedMeetingEntry';
 import { ProjectRooms } from './ProjectRooms';
 import { useObservedTasks } from '../hooks/useObservedTasks';
 import { buildRooms, type ProjectRoom, type RepoInfo } from '../lib/project-rooms';
+import { partitionHiddenRooms, readHiddenRooms, roomHideKey, writeHiddenRooms } from '../lib/hidden-rooms';
+import { RoomCleanupDialog } from './RoomCleanupDialog';
 import { CreateRoomDialog } from './CreateRoomDialog';
 import { rememberTerminalFolder } from './LocalTerminalWorkspace';
 
@@ -224,6 +226,23 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
     sessions: observed.sessions,
     repos,
   }), [lobby.recent, recoverable, observed, repos]);
+
+  const [hiddenRooms, setHiddenRooms] = useState(readHiddenRooms);
+  const [cleanupRoom, setCleanupRoom] = useState<ProjectRoom | null>(null);
+  const roomGroups = useMemo(() => partitionHiddenRooms(rooms, hiddenRooms), [rooms, hiddenRooms]);
+  const setRoomHidden = useCallback((room: ProjectRoom, hide: boolean) => {
+    setHiddenRooms((prev) => {
+      const next = { ...prev };
+      if (hide) next[roomHideKey(room)] = Date.now();
+      else delete next[roomHideKey(room)];
+      writeHiddenRooms(next);
+      return next;
+    });
+  }, []);
+  const hideRoom = useCallback((room: ProjectRoom) => {
+    setRoomHidden(room, true);
+    toast.info(`已从项目室隐藏 ${room.name}，可在「已隐藏」里恢复`);
+  }, [setRoomHidden]);
 
   const openRoom = useCallback((room: ProjectRoom) => {
     const meeting = room.recoverableMeetingId
@@ -745,11 +764,15 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
         </section>
 
         <ProjectRooms
-          rooms={rooms}
+          rooms={roomGroups.shown}
+          hiddenRooms={roomGroups.hidden}
           observed={observed}
           firstLaunch={firstLaunch}
           opening={opening}
           onOpen={openRoom}
+          onHide={hideRoom}
+          onRestore={(room) => setRoomHidden(room, false)}
+          onCleanup={setCleanupRoom}
           onScanned={() => onFirstScanDone?.()}
         />
 
@@ -774,6 +797,13 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
         )}
       </div>
       {pickerModal}
+      {cleanupRoom && (
+        <RoomCleanupDialog
+          room={cleanupRoom}
+          onClose={() => setCleanupRoom(null)}
+          onDone={(allOk) => { if (allOk) setRoomHidden(cleanupRoom, true); }}
+        />
+      )}
       <CreateRoomDialog
         open={createOpen}
         recent={lobby.recent.map((r) => r.path)}

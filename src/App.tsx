@@ -6,7 +6,7 @@ import { useCrossProjectTasks } from './hooks/useCrossProjectTasks';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useBrowser } from './hooks/useBrowser';
 import { useStageWindows } from './hooks/useStageWindows';
-import { BOARD_TAB_ID, stageWindowStore, type StageWindowOptions, type StageWindowType } from './lib/stage-window-store';
+import { BOARD_TAB_ID, stageWindowStore, type StageWindow, type StageWindowOptions, type StageWindowType } from './lib/stage-window-store';
 import { cancelSpeech, isSpeechActive } from './hooks/useSpeech';
 import { useAsr } from './hooks/useAsr';
 import { useVoiceLock } from './hooks/useVoiceLock';
@@ -16,17 +16,23 @@ import { useTtsWiring } from './hooks/useTtsWiring';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useHandheldMode } from './lib/handheld-mode';
 import { planDisplayMigration } from './lib/display-migration';
-import { meetingStore, type MeetingState } from './lib/meeting-store';
+import { meetingStore, type AggregatedTask, type MeetingState } from './lib/meeting-store';
+import { OBSERVED_CLI, PROMPT_ARG_CLIS, START_CLI_PREFERENCE, roomCwdForFolder } from './lib/board-terminal';
+import { projectKeyOf } from './lib/repo-roots';
+import { isTerminalWorkerBackendId } from './lib/terminal-backends';
+import type { ObservedSession } from './lib/observed-store';
+import { ContinueSessionDialog } from './components/ContinueSessionDialog';
 import { handleVoiceFinal } from './lib/voice-final';
 import { remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../electron/backends/pocket-vibe-target';
 import { browserStore, requestHideBrowser } from './lib/browser-store';
 import { toast } from './lib/toast';
 import { Lobby } from './components/Lobby';
-import { LocalTerminalWorkspace } from './components/LocalTerminalWorkspace';
+import { LocalTerminalWorkspace, rememberTerminalFolder } from './components/LocalTerminalWorkspace';
+import { nativeCliForBackend } from './lib/native-cli';
 import { UnifiedMeetingFrame } from './components/UnifiedMeetingFrame';
 import {SharedApprovals} from './components/UnifiedMeetingParts';
 import {useUnifiedMeeting,projectShared,selectSharedMeeting,sendShared,sharedMentionBackends,sharedRequest} from './lib/unified-meeting-store';
-import { ONBOARDED_STORAGE_KEY } from './lib/project-rooms';
+import { ONBOARDED_STORAGE_KEY, splitPath, type BacklogItem } from './lib/project-rooms';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
 import { MeetingResumeBanner } from './components/MeetingResumeBanner';
@@ -44,7 +50,7 @@ import { Camera, Gamepad2, MessageSquare, Monitor, MonitorUp, Square } from 'luc
 import { MeetingControls } from './components/MeetingControls';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { ExplorePage } from './components/ExplorePage';
-import { TasksView } from './components/TasksView';
+import { OBSERVED_CLIENT_LABEL, TasksView } from './components/TasksView';
 import { ParticipantTile } from './components/ParticipantTile';
 import { ScreenStage } from './components/ScreenStage';
 import { SourcePicker } from './components/SourcePicker';
@@ -57,6 +63,7 @@ import { ApprovalCard } from './components/ApprovalCard';
 import { EditorOverlay } from './components/EditorOverlay';
 import { Modal } from './components/Modal';
 import { ToastViewport } from './components/ToastViewport';
+import { roomWindowCwd } from './lib/room-window';
 import { PlanMeetingModal } from './components/PlanMeetingModal';
 import {
   buildDirectAttachmentDirective,
@@ -65,7 +72,9 @@ import {
   buildPlanDirective,
   type DispatchMode,
 } from './lib/dispatch-mode';
-import type { AutoApproveScope, BackendInfo, DesktopSource, PendingPermission, SkillInfo } from './types';
+import type { AutoApproveScope, BackendInfo, DesktopSource, LocalCliInfo, PendingPermission, SkillInfo } from './types';
+
+const ROOM_CWD = roomWindowCwd();
 
 /** First pending permission across all workers, mirroring the legacy useClaude
  *  aggregate. Low-frequency: only changes when a permission appears/resolves. */
@@ -74,6 +83,22 @@ function selectFirstPendingPermission(s: MeetingState): PendingPermission | null
     if (ws.pendingPermission) return ws.pendingPermission;
   }
   return null;
+}
+
+async function listInstalledClis(): Promise<LocalCliInfo[]> {
+  const listed = await window.vibeMeet.shellPty.listClis().catch(() => null);
+  return listed?.ok ? listed.clis : [];
+}
+
+async function installedCli(id: string | null): Promise<LocalCliInfo | undefined> {
+  if (!id) return undefined;
+  const cli = (await listInstalledClis()).find((entry) => entry.id === id);
+  if (!cli) toast.info(`本机没有找到 ${id} 命令，已改为打开默认终端。`);
+  return cli;
+}
+
+function roomCwdFor(folder: string): string {
+  return roomCwdForFolder(folder, meetingStore.getTabs().map((tab) => tab.cwd), projectKeyOf);
 }
 
 export function App() {
@@ -189,6 +214,109 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stageWindows.createWindow, meetingScope],
   );
+
+  // Workers without their own PTY open the user's installed CLI in the CLI
+  // workspace; a CLI that isn't installed falls back to the default shell.
+  const [localTerminalBackLabel, setLocalTerminalBackLabel] = useState<string | undefined>();
+  const openNativeCli = useCallback(async ({ backendId, title }: { backendId?: string; title?: string }) => {
+    const wanted = nativeCliForBackend(backendId);
+    let cli: LocalCliInfo | undefined;
+    if (wanted) {
+      const listed = await window.vibeMeet.shellPty.listClis().catch(() => null);
+      cli = listed?.ok ? listed.clis.find((entry) => entry.id === wanted) : undefined;
+      if (!cli) toast.info(`本机没有找到 ${wanted} 命令，已改为打开默认终端。`);
+    }
+    const localCliId = cli ? cli.id : 'shell';
+    const existing = stageWindows.windows.find((w) => w.scope === 'cli-workspace'
+      && w.localCliId === localCliId && w.cwd === (cwd ?? undefined));
+    if (cwd) rememberTerminalFolder(cwd);
+    if (existing) {
+      stageWindows.setActiveWindow(existing.id);
+    } else {
+      await stageWindows.createWindow('terminal', {
+        localCliId,
+        ...(cli ? {} : { shellId: 'default' }),
+        ...(cwd ? { cwd } : {}),
+        title: cli ? (title ? `${cli.label} · ${title}` : cli.label) : '终端',
+        scope: 'cli-workspace',
+      });
+    }
+    setLocalTerminalBackLabel('返回会议');
+    setLocalTerminalOpen(true);
+  // createWindow / setActiveWindow are stable; the wrapper object is not.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd, stageWindows.windows, stageWindows.createWindow, stageWindows.setActiveWindow]);
+
+  // Board 开始/查看: the terminal opens in the owning project room's stage.
+  const [continuePrompt, setContinuePrompt] = useState<{ session: ObservedSession; roomCwd: string } | null>(null);
+
+  const openTerminalInRoom = useCallback(async (
+    roomCwd: string,
+    opts: StageWindowOptions,
+    reuse: (win: StageWindow) => boolean,
+  ): Promise<boolean> => {
+    const res = await meetingStore.openSession(roomCwd);
+    if (!res.ok) { toast.error(res.error ?? '项目室打开失败'); return false; }
+    setShowLobby(false);
+    setBoardOnly(false);
+    const scope = `meeting:${roomCwd}`;
+    const existing = stageWindowStore.getSnapshot().windows.find((w) => w.scope === scope && reuse(w));
+    if (existing) await stageWindowStore.setActiveWindow(existing.id);
+    else await stageWindowStore.createWindow('terminal', { ...opts, scope });
+    return true;
+  }, []);
+
+  const openTaskTerminalFromBoard = useCallback(async (task: AggregatedTask) => {
+    if (isTerminalWorkerBackendId(task.backendId)) {
+      await openTerminalInRoom(task.cwd, { workerId: task.taskId, title: task.title },
+        (w) => w.workerId === task.taskId && !w.localCliId);
+      return;
+    }
+    const cli = await installedCli(nativeCliForBackend(task.backendId));
+    await openTerminalInRoom(task.cwd, {
+      localCliId: cli?.id ?? 'shell',
+      ...(cli ? {} : { shellId: 'default' }),
+      cwd: task.cwd,
+      title: `${cli?.label ?? '终端'} · ${task.title}`,
+    }, (w) => w.localCliId === (cli?.id ?? 'shell') && w.cwd === task.cwd && !w.continueSession);
+  }, [openTerminalInRoom]);
+
+  const startBacklogFromBoard = useCallback(async (item: BacklogItem) => {
+    const clis = await listInstalledClis();
+    const cli = START_CLI_PREFERENCE.map((id) => clis.find((c) => c.id === id)).find(Boolean) ?? clis[0];
+    if (!cli) { toast.error('本机没有找到可用的 AI CLI'); return; }
+    const prompt = item.source ? `${item.title}\n\n来源：${item.source}` : item.title;
+    const opened = await openTerminalInRoom(roomCwdFor(item.cwd), {
+      localCliId: cli.id,
+      cwd: item.cwd,
+      title: `${cli.label} · ${item.title}`,
+      ...(PROMPT_ARG_CLIS.includes(cli.id) ? { initialPrompt: prompt } : {}),
+    }, (w) => w.initialPrompt === prompt && w.cwd === item.cwd);
+    if (opened && !PROMPT_ARG_CLIS.includes(cli.id)) {
+      void navigator.clipboard.writeText(prompt).then(() => toast.info('任务内容已复制，粘贴到终端即可开始'), () => {});
+    }
+  }, [openTerminalInRoom]);
+
+  const runContinueSession = useCallback(async (
+    session: ObservedSession, roomCwd: string, mode: 'fork' | 'resume', endOriginal: boolean,
+  ) => {
+    const opened = await openTerminalInRoom(roomCwd, {
+      localCliId: OBSERVED_CLI[session.clientKind],
+      cwd: session.cwd,
+      title: `${OBSERVED_CLIENT_LABEL[session.clientKind]} · ${session.title}`,
+      continueSession: { observedId: session.id, mode, ...(endOriginal ? { endOriginal } : {}) },
+    }, (w) => w.continueSession?.observedId === session.id);
+    if (opened) {
+      const room = splitPath(projectKeyOf(roomCwd)).name;
+      toast.info(mode === 'fork' ? `已在「${room}」项目室复制出分支会话` : `已在「${room}」项目室接着打开会话`);
+    }
+  }, [openTerminalInRoom]);
+
+  const continueObservedFromBoard = useCallback((session: ObservedSession) => {
+    const roomCwd = roomCwdFor(session.cwd);
+    if (session.pid !== undefined) setContinuePrompt({ session, roomCwd });
+    else void runContinueSession(session, roomCwd, 'resume', false);
+  }, [runContinueSession]);
 
   // Empty project → kickoff card (docs/design/2026-10-30-project-rooms-and-kickoff.md).
   // Unknown GitHub state never counts as empty; a fresh clone/create always does.
@@ -408,7 +536,16 @@ export function App() {
     }
   }, [openParticipantsTabSignal, drawerOpen]);
 
+  const [roomAttach, setRoomAttach] = useState<{ error?: string } | null>(null);
   useEffect(() => {
+    if (ROOM_CWD) {
+      document.title = `AhaStudio — ${ROOM_CWD.split(/[\\/]/).filter(Boolean).pop() ?? ROOM_CWD}`;
+      meetingStore.attachRoom(ROOM_CWD).then(
+        (res) => setRoomAttach(res.ok ? {} : { error: res.error ?? '项目室没有连接上' }),
+        (err) => setRoomAttach({ error: String(err) }),
+      );
+      return;
+    }
     meetingStore.hydrateRestore().catch((err) => {
       console.error('[App] hydrateRestore failed:', err);
     });
@@ -532,6 +669,8 @@ export function App() {
     speakingRef.current = false;
     setAiSpeaking(false);
     try { stopShare(); } catch { /* teardown continues */ }
+    // The meeting is owned by the main window; leaving here only closes this view.
+    if (ROOM_CWD) { window.close(); return; }
     const id = meetingStore.getActiveId();
     if (id) {
       try { await meetingStore.closeTab(id); }
@@ -548,6 +687,7 @@ export function App() {
   }, [activeTab]);
 
   const goHome = useCallback(() => {
+    if (ROOM_CWD) { window.close(); return; }
     meetingStore.dismissRestoreHydration();
     selectSharedMeeting(null);
     setShowLobby(true);
@@ -687,7 +827,9 @@ export function App() {
       sessionId,
       cwd: editorCwd,
       title,
-    });
+    }).then((res) => {
+      if (!res.ok) toast.error(`独立窗口没有打开：${res.error ?? '未知原因'}`);
+    }, (err: unknown) => toast.error(`独立窗口没有打开：${err instanceof Error ? err.message : String(err)}`));
   }, [handheld, activeTab?.id, cwd, meetingGate.ready, meetingGate.reason]);
 
   // Dual-display migration (Phase 6a §3.2, AUTO mode only): when the
@@ -850,9 +992,20 @@ export function App() {
         controlsSlot={sharedModel?undefined:controlsSlot}
       />);
   if (localTerminalOpen) {
-    return <LocalTerminalWorkspace onBack={() => setLocalTerminalOpen(false)} />;
+    return <LocalTerminalWorkspace backLabel={localTerminalBackLabel} onBack={() => { setLocalTerminalOpen(false); setLocalTerminalBackLabel(undefined); }} />;
   }
   if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view="meeting" onView={() => {}} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={sharedDrawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
+
+  if (ROOM_CWD && !hasTabs) {
+    return (
+      <div className="room-window-status">
+        {roomAttach?.error
+          ? <><p>{roomAttach.error}</p><button type="button" onClick={() => window.close()}>关闭窗口</button></>
+          : <p>正在连接项目室…</p>}
+        <ToastViewport />
+      </div>
+    );
+  }
 
   if (showLobby || (!hasTabs && !boardOnly)) {
     return (
@@ -973,6 +1126,7 @@ export function App() {
                 void window.vibeMeet.popoutStage(id, win?.type ?? 'activity');
               }
             }}
+            onOpenNativeCli={(target: { backendId?: string; title?: string }) => { void openNativeCli(target); }}
             onResolvePermission={resolvePermission}
             browserTabs={browser.state.tabs}
             browserActiveTabId={browser.state.activeTabId}
@@ -991,11 +1145,26 @@ export function App() {
                 data={crossProjectTasks}
                 onOpenTask={handleOpenTaskFromBoard}
                 onOpenPlan={handleOpenPlanFromBoard}
+                onOpenTaskTerminal={(task) => void openTaskTerminalFromBoard(task)}
+                onStartBacklog={(item) => void startBacklogFromBoard(item)}
+                onContinueObserved={continueObservedFromBoard}
                 project={boardOnly ? null : cwd}
               />
             )}
           />
         </section>
+        {continuePrompt && (
+          <ContinueSessionDialog
+            session={continuePrompt.session}
+            roomName={splitPath(projectKeyOf(continuePrompt.roomCwd)).name}
+            onCancel={() => setContinuePrompt(null)}
+            onConfirm={(endOriginal) => {
+              const { session, roomCwd } = continuePrompt;
+              setContinuePrompt(null);
+              void runContinueSession(session, roomCwd, 'fork', endOriginal);
+            }}
+          />
+        )}
 
         <SideDrawer
           open={drawerOpen}

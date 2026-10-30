@@ -55,6 +55,7 @@ import {
   type TaskInspectorProjection,
 } from './task-event-reducer';
 import { isAffirmativeDeliveryFeedback } from './delivery-feedback';
+import { isRoomWindow } from './room-window';
 
 const MAX_TRANSCRIPT = 500;
 const MAX_ACTIVITY = 500;
@@ -1201,6 +1202,23 @@ class MeetingStore {
     }
   }
 
+  /** Room window: attach to the meeting main already runs for this folder,
+   *  without sessions:open (that would also move the main window's focus). */
+  async attachRoom(cwd: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    this.restoreHydrated = true;
+    this.ensureSubscribed();
+    const existing = this.findByCwd(cwd);
+    if (existing && !existing.placeholder) return { ok: true, sessionId: existing.id };
+    let meta: SessionMeta | undefined;
+    try {
+      meta = (await window.vibeMeet.sessions.list()).sessions.find((s) => s.cwd === cwd);
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+    if (!meta) return { ok: false, error: '这个项目室的会议已经结束，请回主窗口重新打开' };
+    return this.adoptLiveSession(meta.id);
+  }
+
   /** An explicit navigation choice supersedes a delayed startup hydration. */
   dismissRestoreHydration(): void { this.restoreRevision++; }
 
@@ -1436,6 +1454,7 @@ class MeetingStore {
         this.handleIncomingEvent({ sessionId: live.id, source: 'system', hostId: 'default', kind: 'session-start-failed', error: primary.error ?? '会议主持人不可用，请重试。' });
       }
       for (const event of buffered.slice(eventsBeforeSnapshot)) this.handleIncomingEvent(event);
+      void window.vibeMeet.sessions.republish?.(live.id).catch(() => {});
       await this.reconcileRestoredFocus(ph.id, live);
       this.notifyTabsOnly(); this.notify(live.id);
       void this.loadHistoryForSlot(live);
@@ -1474,7 +1493,9 @@ class MeetingStore {
     // (renderer's activeId already pointing at the new id while main still
     // routes its events to the old one, or vice-versa). Bail without
     // switching when the IPC fails so we don't desync.
-    if (!slot.placeholder) {
+    // A room window never moves the main window's focus; every call it makes
+    // carries its sessionId explicitly.
+    if (!slot.placeholder && !isRoomWindow()) {
       try {
         const res = await window.vibeMeet.sessions.setActive(id);
         if (!res || res.ok === false) {

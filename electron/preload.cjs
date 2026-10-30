@@ -45,6 +45,8 @@ const api = {
       ipcRenderer.invoke('sessions:remove-host', { sessionId, hostId }),
     listHosts: (sessionId) =>
       ipcRenderer.invoke('sessions:list-hosts', { sessionId }),
+    republish: (sessionId) =>
+      ipcRenderer.invoke('sessions:republish', { sessionId }),
     setCoordinator: (sessionId, hostId) =>
       ipcRenderer.invoke('sessions:set-coordinator', { sessionId, hostId }),
     restartHost: (sessionId, hostId) =>
@@ -295,6 +297,9 @@ const api = {
     clone: (url, parentPath) => ipcRenderer.invoke('projects:clone', { url, parentPath }),
     abortClone: () => ipcRenderer.invoke('projects:clone-abort'),
     githubStatus: (cwd) => ipcRenderer.invoke('projects:github-status', { cwd }),
+    cleanupPlan: (cwd) => ipcRenderer.invoke('projects:cleanup-plan', { cwd }),
+    cleanup: (cwd, sessionIds, worktreePaths) =>
+      ipcRenderer.invoke('projects:cleanup', { cwd, sessionIds, worktreePaths }),
     backlogList: () => ipcRenderer.invoke('backlog:list'),
     backlogAdd: (cwd, items, createIssues) => ipcRenderer.invoke('backlog:add', { cwd, items, createIssues }),
     backlogRemove: (id) => ipcRenderer.invoke('backlog:remove', { id }),
@@ -378,8 +383,7 @@ const api = {
     input: (ptyId, data) => ipcRenderer.invoke('shell-pty:input', { ptyId, data }),
     resize: (ptyId, rows, cols) =>
       ipcRenderer.invoke('shell-pty:resize', { ptyId, rows, cols }),
-    kill: (ptyId) => ipcRenderer.invoke('shell-pty:kill', { ptyId }),
-    onData: (cb) => {
+    kill: (ptyId) => ipcRenderer.invoke('shell-pty:kill', { ptyId }),    onData: (cb) => {
       const listener = (_, e) => cb(e);
       ipcRenderer.on('shell-pty:data', listener);
       return () => ipcRenderer.removeListener('shell-pty:data', listener);
@@ -427,6 +431,7 @@ const api = {
     ttsState: (active) => ipcRenderer.send('companion:tts-state', { active }),
   },
   popoutSession: (tabId) => ipcRenderer.invoke('popout:open-session', { tabId }),
+  openRoomWindow: (cwd) => ipcRenderer.invoke('app:open-room-window', { cwd }),
   popoutStage: (windowId, type) => ipcRenderer.invoke('popout:open-stage', { windowId, type }),
   browser: {
     openTab: (url) => ipcRenderer.invoke('browser:open-tab', { url }),

@@ -30,6 +30,8 @@ export interface ProjectRoom {
   /** Interrupted meeting id when this repository has one to recover. */
   recoverableMeetingId: string | null;
   opened: boolean;
+  /** Unix ms the folder was last opened in AhaStudio; 0 when only scanned. */
+  lastOpenedAt: number;
   /** The catch-all room for sessions outside any project (home folder, chat dirs). */
   other: boolean;
 }
@@ -56,6 +58,12 @@ export interface ProjectsApi {
   abortClone: () => Promise<{ ok: boolean }>;
   onCloneProgress: (cb: (payload: { line: string }) => void) => () => void;
   githubStatus: (cwd: string) => Promise<{ ok: true; status: GithubStatus } | { ok: false; error: string }>;
+  cleanupPlan: (cwd: string) => Promise<{ ok: true; plan: RoomCleanupPlan } | { ok: false; error: string }>;
+  cleanup: (
+    cwd: string,
+    sessionIds: string[],
+    worktreePaths: string[],
+  ) => Promise<{ ok: true; result: RoomCleanupResult } | { ok: false; error: string }>;
   backlogList: () => Promise<{ ok: true; items: BacklogItem[] } | { ok: false; error: string }>;
   backlogAdd: (
     cwd: string,
@@ -64,6 +72,20 @@ export interface ProjectsApi {
   ) => Promise<{ ok: true; items: BacklogItem[] } | { ok: false; error: string }>;
   backlogRemove: (id: string) => Promise<{ ok: boolean }>;
   onBacklogChanged: (cb: (items: BacklogItem[]) => void) => () => void;
+}
+
+/** Mirror of electron/project-cleanup.ts CleanupPlan. */
+export interface RoomCleanupPlan {
+  repoRoot: string;
+  git: boolean;
+  baseBranch: string | null;
+  sessions: { id: string; clientKind: ObservedClientKind; title: string; place: string | null; closable: boolean; reason?: string }[];
+  worktrees: { path: string; branch: string | null; dirty: boolean; unmerged: number | null; locked: boolean }[];
+}
+
+export interface RoomCleanupResult {
+  sessions: { id: string; ok: boolean; error?: string }[];
+  worktrees: { id: string; ok: boolean; error?: string }[];
 }
 
 export interface GithubStatus {
@@ -139,7 +161,7 @@ export function buildRooms({ recent, recoverable, sessions, repos }: RoomSources
       r = {
         cwd: other ? '' : key,
         ...(other ? { name: '其他会话', parent: '不属于任何项目的会话' } : splitPath(key)),
-        lastActiveAt: 0, seats: [], places: [], recoverableMeetingId: null, opened: false, other,
+        lastActiveAt: 0, seats: [], places: [], recoverableMeetingId: null, opened: false, lastOpenedAt: 0, other,
       };
       rooms.set(key, r);
     }
@@ -149,6 +171,7 @@ export function buildRooms({ recent, recoverable, sessions, repos }: RoomSources
     if (!entry.path) continue;
     const r = room(entry.path);
     r.opened = true;
+    r.lastOpenedAt = Math.max(r.lastOpenedAt, entry.lastOpenedAt);
     r.lastActiveAt = Math.max(r.lastActiveAt, entry.lastOpenedAt);
   }
   for (const meeting of recoverable) {

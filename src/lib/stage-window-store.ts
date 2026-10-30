@@ -4,6 +4,7 @@
 
 import { browserStore } from './browser-store';
 import { terminalSessionStore } from './terminal-session-store';
+import type { ContinueSessionRequest } from '../types';
 
 export type StageWindowType = 'board' | 'activity' | 'browser' | 'terminal' | 'file';
 
@@ -18,6 +19,10 @@ export interface StageWindowOptions {
   scope?: string;
   /** Expert sub-agent tab (AME-D14): owning expert's hostId. */
   subagentOwner?: string;
+  /** Local CLI tab that continues an observed session (first launch only). */
+  continueSession?: ContinueSessionRequest;
+  /** First prompt for a fresh local CLI tab (first launch only). */
+  initialPrompt?: string;
 }
 
 export interface StageWindow {
@@ -33,6 +38,8 @@ export interface StageWindow {
   cwd?: string;
   scope?: string;
   subagentOwner?: string;
+  continueSession?: ContinueSessionRequest;
+  initialPrompt?: string;
 }
 
 export interface StageWindowState {
@@ -44,7 +51,8 @@ type Listener = () => void;
 
 let nextId = 1;
 function genId(): string {
-  return `sw-${Date.now()}-${nextId++}`;
+  // Terminal ids are main-process keys shared by every app window.
+  return `sw-${Date.now()}-${nextId++}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export const BOARD_TAB_ID = 'board-default';
@@ -136,6 +144,8 @@ class StageWindowStore {
         cwd: opts?.cwd,
         ...(opts?.scope ? { scope: opts.scope } : {}),
         ...(opts?.subagentOwner ? { subagentOwner: opts.subagentOwner } : {}),
+        ...(opts?.continueSession ? { continueSession: opts.continueSession } : {}),
+        ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
       };
       await browserStore.setVisible(false);
       this.update({

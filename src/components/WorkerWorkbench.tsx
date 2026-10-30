@@ -208,7 +208,7 @@ export function WorkerWorkbench({
               <>
                 <span><strong>{subagent.ownerTitle} {subagent.ownerName}</strong> 正在让子 Agent 做：{subagent.taskTitle}</span>
                 <span className="subagent-bar-note">{stopped ? '已停止' : '只能看，不能直接输入'}</span>
-                <button type="button" className="subagent-bar-btn" onClick={() => setTakeoverOpen(true)}>{stopped ? '重新开始…' : '接管'}</button>
+                <button type="button" className="subagent-bar-btn" onClick={() => { setTakeoverError(null); setTakeoverOpen(true); }}>{stopped ? '重新开始…' : '接管'}</button>
               </>
             )}
           </div>

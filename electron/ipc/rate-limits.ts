@@ -7,6 +7,7 @@ import { app } from 'electron';
 import { z } from 'zod';
 import { RateLimitService } from '../rate-limits.js';
 import type { IpcContext } from './context.js';
+import { sendToAppWindows } from '../room-windows.js';
 import { emptyPayloadSchema, handleSecure, mainWindowSenderPolicy } from './validators.js';
 
 let service: RateLimitService | null = null;
@@ -14,8 +15,7 @@ let service: RateLimitService | null = null;
 export function registerRateLimitsIpc(ctx: IpcContext): void {
   const mainOnly = mainWindowSenderPolicy(() => ctx.liveWindow()?.webContents.id ?? null);
   service = new RateLimitService((state) => {
-    const win = ctx.liveWindow();
-    if (win && !win.isDestroyed()) win.webContents.send('rate-limits:update', state);
+    sendToAppWindows(ctx.liveWindow(), 'rate-limits:update', state);
   });
   const svc = service;
 

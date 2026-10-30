@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   RotateCcw,
   ShieldAlert,
+  SquareTerminal,
   Plus,
   X,
   ListTodo,
@@ -52,6 +53,12 @@ interface TasksViewProps {
   onOpenTask: (sessionId: string, taskId: string) => void;
   /** Focus the owning project so its plan-approval modal comes up. */
   onOpenPlan: (sessionId: string) => void;
+  /** 查看: the worker's native terminal in its project room's stage. */
+  onOpenTaskTerminal?: (task: AggregatedTask) => void;
+  /** 开始: a local CLI in the project room's stage, seeded with the card. */
+  onStartBacklog?: (item: BacklogItem) => void;
+  /** 继续: an observed session, forked when it is still running elsewhere. */
+  onContinueObserved?: (session: ObservedSession) => void;
   /** The meeting's project folder: the board opens filtered to it (its
    *  repository, worktrees included). Unset = all projects. */
   project?: string | null;
@@ -77,12 +84,31 @@ function StatusIcon({ status, blocked }: { status: WorkerStatus; blocked: boolea
   return <CircleDashed size={13} />;
 }
 
-function TaskCard({ task, onOpen }: { task: AggregatedTask; onOpen: () => void }) {
+/** A task has a worker terminal to look at once it left the queue. */
+function taskHasTerminal(task: AggregatedTask): boolean {
+  return task.column !== 'todo' || task.attempt > 1;
+}
+
+function CardAction({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
+    <span className="tasks-card-actions">
+      <button type="button" className="tasks-card-action" title={title}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        onKeyDown={(e) => e.stopPropagation()}>
+        <SquareTerminal size={12} aria-hidden="true" />{label}
+      </button>
+    </span>
+  );
+}
+
+function TaskCard({ task, onOpen, onTerminal }: { task: AggregatedTask; onOpen: () => void; onTerminal?: () => void }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
       className={`tasks-card is-${task.status}${task.blockedReason ? ' is-blocked' : ''}`}
       onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={task.blockedReason ?? task.cwd}
     >
       <span className="tasks-card-project">{task.projectName}</span>
@@ -100,7 +126,10 @@ function TaskCard({ task, onOpen }: { task: AggregatedTask; onOpen: () => void }
         {task.attempt > 1 && <em>Attempt {task.attempt}</em>}
         {task.deps.length > 0 && <em>依赖 {task.deps.length}</em>}
       </span>
-    </button>
+      {onTerminal && (taskHasTerminal(task)
+        ? <CardAction label="查看" title="在项目室的共享屏幕区打开这个 worker 的终端" onClick={onTerminal} />
+        : <span className="tasks-card-actions"><em className="tasks-card-waiting">等待调度，开始后可查看终端</em></span>)}
+    </div>
   );
 }
 
@@ -136,10 +165,11 @@ export function formatObservedAge(ts: number): string {
   return `${Math.floor(hr / 24)} 天前活跃`;
 }
 
-/** Read-only card for an externally-launched CLI session. Deliberately NOT an
- *  AggregatedTask: observed sessions have no attempt/deps/delivery semantics,
- *  and S0 offers no in-app action — just a pointer back to the client. */
-function ObservedTaskCard({ session }: { session: ObservedSession }) {
+/** Card for an externally-launched CLI session. Deliberately NOT an
+ *  AggregatedTask: observed sessions have no attempt/deps/delivery semantics.
+ *  继续 reopens it in the project room — forked while it still runs elsewhere. */
+function ObservedTaskCard({ session, onContinue }: { session: ObservedSession; onContinue?: () => void }) {
+  const live = session.pid !== undefined;
   return (
     <div
       className={`tasks-card tasks-card-observed is-observed-${session.state}`}
@@ -160,16 +190,13 @@ function ObservedTaskCard({ session }: { session: ObservedSession }) {
         {session.model && <em>{session.model}</em>}
         <em className="tasks-observed-badge">观察中</em>
       </span>
-      <span className="tasks-card-actions">
-        <button
-          type="button"
-          className="tasks-observed-action"
-          disabled
-          title="S0 仅观察：请切换到对应客户端处理"
-        >
-          去对应客户端处理 ↗
-        </button>
-      </span>
+      {onContinue && session.nativeSessionId && (
+        <CardAction
+          label={live ? '查看' : '继续'}
+          title={live ? '正在其他窗口运行：在项目室复制一个分支会话继续' : '在项目室的共享屏幕区接着打开这个会话'}
+          onClick={onContinue}
+        />
+      )}
     </div>
   );
 }
@@ -180,7 +207,7 @@ function ObservedTaskCard({ session }: { session: ObservedSession }) {
  *  (external CLI windows) mix into the same columns after orchestrated cards. */
 export function TasksView(props:TasksViewProps){return props.shared?<SharedTaskBoard model={props.shared} onOpen={id=>props.onOpenTask(props.shared!.meeting.id,id)} onPlan={()=>props.onOpenPlan(props.shared!.meeting.id)}/>:<LocalTasksView {...props}/>;}
 function SharedTaskBoard({model,onOpen,onPlan}:{model:UnifiedModel;onOpen:(id:string)=>void;onPlan:()=>void}){return <main className="tasks-view"><header className="tasks-header"><h2>{String(model.meeting.title)} · 任务</h2>{!model.meeting.planApproved&&<button onClick={onPlan}>审阅当前计划</button>}</header><div className="tasks-board">{[['attention','待批准／待确认'],['active','执行／等待'],['settled','成果／已完成']].map(([column,label])=><section className={'tasks-column tasks-column-'+column} key={column}><header className="tasks-column-head">{label}</header><div className="tasks-column-body">{model.tasks.filter(t=>{const state=t.status==='accepted'||t.status==='delivered'?'settled':t.stopRequested||['stopped','approval','reconcile'].includes(String(t.status))?'attention':'active';return state===column;}).map(t=><button className="tasks-card" key={t.id} onClick={()=>onOpen(t.id)}><strong>{String(t.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</span><span>{sharedPhase(t)}</span></button>)}</div></section>)}</div></main>;}
-function BacklogCard({ item }: { item: BacklogItem }) {
+function BacklogCard({ item, onStart }: { item: BacklogItem; onStart?: () => void }) {
   return (
     <div className="tasks-card tasks-card-backlog" title={item.source ?? item.cwd}>
       <span className="tasks-card-project">{item.projectName}</span>
@@ -199,6 +226,7 @@ function BacklogCard({ item }: { item: BacklogItem }) {
           <X size={11} />
         </button>
       </span>
+      {onStart && <CardAction label="开始" title="在项目室的共享屏幕区打开本机 CLI 开始这项任务" onClick={onStart} />}
     </div>
   );
 }
@@ -260,7 +288,9 @@ type LaneCard =
   | { kind: 'backlog'; item: BacklogItem }
   | { kind: 'observed'; session: ObservedSession; noise: boolean };
 
-function LocalTasksView({ data, onOpenTask, onOpenPlan, project }: TasksViewProps) {
+function LocalTasksView({
+  data, onOpenTask, onOpenPlan, onOpenTaskTerminal, onStartBacklog, onContinueObserved, project,
+}: TasksViewProps) {
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [backendFilter, setBackendFilter] = useState<string>(ALL);
   const [noiseOpen, setNoiseOpen] = useState<Record<string, boolean>>({});
@@ -416,11 +446,17 @@ function LocalTasksView({ data, onOpenTask, onOpenPlan, project }: TasksViewProp
                       </button>
                     );
                   }
-                  if (card.kind === 'backlog') return <BacklogCard key={`bl:${card.item.id}`} item={card.item} />;
-                  if (card.kind === 'task') {
-                    return <TaskCard key={card.task.key} task={card.task} onOpen={() => onOpenTask(card.task.sessionId, card.task.taskId)} />;
+                  if (card.kind === 'backlog') {
+                    return <BacklogCard key={`bl:${card.item.id}`} item={card.item}
+                      onStart={onStartBacklog && (() => onStartBacklog(card.item))} />;
                   }
-                  return <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session} />;
+                  if (card.kind === 'task') {
+                    return <TaskCard key={card.task.key} task={card.task}
+                      onOpen={() => onOpenTask(card.task.sessionId, card.task.taskId)}
+                      onTerminal={onOpenTaskTerminal && (() => onOpenTaskTerminal(card.task))} />;
+                  }
+                  return <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session}
+                    onContinue={onContinueObserved && (() => onContinueObserved(card.session))} />;
                 })}
                 {noise.length > 0 && (
                   <div className="tasks-noise-group">
@@ -430,7 +466,8 @@ function LocalTasksView({ data, onOpenTask, onOpenPlan, project }: TasksViewProp
                       {noise.every((c) => !c.session.isNoise) ? '空闲会话' : '空闲和噪声'} {noise.length}
                     </button>
                     {isNoiseOpen && noise.map((card) => (
-                      <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session} />
+                      <ObservedTaskCard key={`obs:${card.session.id}`} session={card.session}
+                        onContinue={onContinueObserved && (() => onContinueObserved(card.session))} />
                     ))}
                   </div>
                 )}

@@ -46,6 +46,10 @@ export function SharedScreenStage({model,onInvite,taskId,onTask,onCloseTask,scre
 }
 
 
+function matchesWorker(w: WorkerState, workerId: string): boolean {
+  return w.id === workerId || w.hostId === workerId;
+}
+
 interface ScreenStageProps {
   share: ScreenShareState;
   videoRef: RefObject<HTMLVideoElement>;
@@ -81,6 +85,8 @@ interface ScreenStageProps {
   onCloseWindow: (id: string) => void;
   onCreateWindow: (type: StageWindowType, opts?: StageWindowOptions) => void;
   onPopOutWindow?: (id: string) => void;
+  /** Open the user's native CLI for a worker that has no PTY of its own. */
+  onOpenNativeCli?: (target: { backendId?: string; title?: string }) => void;
   onResolvePermission: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
   browserTabs?: BrowserTabInfo[];
   browserActiveTabId?: string | null;
@@ -133,6 +139,7 @@ export const ScreenStage = memo(function ScreenStage({
   onCloseWindow,
   onCreateWindow,
   onPopOutWindow,
+  onOpenNativeCli,
   onResolvePermission,
   browserTabs = [],
   browserActiveTabId = null,
@@ -227,19 +234,22 @@ export const ScreenStage = memo(function ScreenStage({
   // Auto-open a stage terminal window when a terminal-mode worker spawns, so
   // the human can supervise the TUI without manually clicking each worker
   // card. Dedup by workerId so re-renders never reopen a window the user
-  // closed; only running workers qualify (a worker that already failed before
-  // we noticed it is left alone). backendId arrives with the first worker
-  // event (the adapter's "终端 Claude 已启动" progress), which is what makes
-  // the terminal-mode check reliable.
+  // closed. Running workers qualify; an expert's sub-agent also qualifies
+  // after it has stopped, so 重新开始 is still on screen. backendId arrives
+  // with the first worker event, which is what makes the terminal-mode check
+  // reliable.
   const autoOpenedTerminals = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const w of workers) {
       if (w.role !== 'worker') continue;
-      if (w.status !== 'running') continue;
       if (!isTerminalWorkerBackendId(w.backendId)) continue;
       if (autoOpenedTerminals.current.has(w.id)) continue;
-      autoOpenedTerminals.current.add(w.id);
       const owned = ownedTasks?.get(w.id);
+      // A recovered sub-agent is often already stopped. Still open its tab
+      // so 重新开始 is on screen after the app comes back.
+      const stoppedOwned = Boolean(owned) && ['failed', 'done', 'interrupted', 'accepted'].includes(w.status);
+      if (w.status !== 'running' && !stoppedOwned) continue;
+      autoOpenedTerminals.current.add(w.id);
       const owner = owned ? hostGroups.get(owned.hostId)?.profile : undefined;
       // An expert's sub-agent opens as the third tab (子 Agent), selected.
       void onCreateWindow('terminal', owned
@@ -247,6 +257,39 @@ export const ScreenStage = memo(function ScreenStage({
         : { workerId: w.id, title: w.title });
     }
   }, [workers, onCreateWindow, ownedTasks, hostGroups]);
+
+  // Every "open terminal" entry lands here. A terminal-mode worker already
+  // runs its native CLI in a PTY, so it gets the stage workbench; any other
+  // backend (OpenCode, SDK, app-server, remote) has nothing to attach to and
+  // opens the matching native CLI in the CLI workspace instead.
+  const openWorkerTerminal = useCallback((workerId: string) => {
+    const matches = workers.filter((w) => matchesWorker(w, workerId));
+    const ptyWorker = matches.find((w) => isTerminalWorkerBackendId(w.backendId));
+    if (ptyWorker || !onOpenNativeCli) {
+      void onCreateWindow('terminal', { workerId: ptyWorker?.id ?? workerId, ...(ptyWorker ? { title: ptyWorker.title } : {}) });
+      return;
+    }
+    const target = matches[0];
+    onOpenNativeCli({
+      backendId: target?.backendId ?? hostGroups.get(target?.hostId ?? workerId)?.backendId,
+      title: target?.title,
+    });
+  }, [workers, hostGroups, onCreateWindow, onOpenNativeCli]);
+
+  const isPtyTerminalWindow = useCallback((win: StageWindow) => (
+    win.type === 'terminal' && !!win.workerId
+      && workers.some((w) => matchesWorker(w, win.workerId!) && isTerminalWorkerBackendId(w.backendId))
+  ), [workers]);
+
+  const handlePopOut = useCallback((id: string) => {
+    const win = stageWindows.find((w) => w.id === id);
+    if (win?.type === 'terminal' && onOpenNativeCli) {
+      if (win.workerId) openWorkerTerminal(win.workerId);
+      else onOpenNativeCli({});
+      return;
+    }
+    onPopOutWindow?.(id);
+  }, [stageWindows, onOpenNativeCli, openWorkerTerminal, onPopOutWindow]);
 
   const handleInspectorPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     dragState.current = { pointerId: event.pointerId, startY: event.clientY };
@@ -319,10 +362,9 @@ export const ScreenStage = memo(function ScreenStage({
   // Terminal-mode workers get a live interactive pty instead of the replay.
   const terminalPtyWorker = useMemo(() => {
     if (activeWindow?.type !== 'terminal' || !activeWindow.workerId) return undefined;
-    const target = workers.find(
-      (w) => w.id === activeWindow.workerId || w.hostId === activeWindow.workerId,
+    return workers.find(
+      (w) => matchesWorker(w, activeWindow.workerId!) && isTerminalWorkerBackendId(w.backendId),
     );
-    return isTerminalWorkerBackendId(target?.backendId) ? target : undefined;
   }, [activeWindow, workers]);
 
   // When the terminal worker's own delivery arrives, show it in the workbench
@@ -376,7 +418,7 @@ export const ScreenStage = memo(function ScreenStage({
             {isValidElement(galleryContent)
               ? cloneElement(galleryContent, {
                   onSelectParticipant: handleSelectParticipant,
-                  onOpenTerminal: (workerId: string) => onCreateWindow('terminal', { workerId }),
+                  onOpenTerminal: openWorkerTerminal,
                 } as any)
               : galleryContent}
           </div>
@@ -394,7 +436,9 @@ export const ScreenStage = memo(function ScreenStage({
             onSelect={onSelectWindow}
             onClose={onCloseWindow}
             onCreate={(type, opts) => onCreateWindow(type, { ...opts, cwd })}
-            onPopOut={onPopOutWindow}
+            onPopOut={onPopOutWindow || onOpenNativeCli ? handlePopOut : undefined}
+            canPopOut={(win) => !isPtyTerminalWindow(win)}
+            popOutLabel={(win) => win.type === 'terminal' ? '在 CLI 工作区打开' : '在新窗口中打开'}
             badges={{ [BOARD_TAB_ID]: boardAttention }}
           />
 
@@ -430,7 +474,7 @@ export const ScreenStage = memo(function ScreenStage({
                 aiSpeaking={aiSpeaking}
                 onResolvePermission={onResolvePermission}
                 selectedId={selectedParticipantId}
-                onOpenInTerminal={(workerId) => onCreateWindow('terminal', { workerId })}
+                onOpenInTerminal={openWorkerTerminal}
                 customAvatars={customAvatars}
                 sessionId={sessionId}
                 onOpenTask={handleSelectTask}
@@ -461,7 +505,8 @@ export const ScreenStage = memo(function ScreenStage({
                   <ShellTerminal key={activeWindow.id} terminalId={activeWindow.id}
                     shellId={activeWindow.shellId}
                     cliId={activeWindow.localCliId === 'shell' ? undefined : activeWindow.localCliId}
-                    cwd={activeWindow.cwd} />
+                    cwd={activeWindow.cwd} continueSession={activeWindow.continueSession}
+                    initialPrompt={activeWindow.initialPrompt} />
                 ) : terminalPtyWorker ? (
                   <WorkerWorkbench
                     key={terminalPtyWorker.id}

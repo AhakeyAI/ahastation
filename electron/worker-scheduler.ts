@@ -4615,6 +4615,11 @@ export class WorkerScheduler {
     }
   }
 
+  /** Re-send the current plan for a renderer that attached mid-meeting. */
+  republishPlan(): void {
+    if (this.workers.size > 0) this.emitPlanUpdate();
+  }
+
   private emitPlanUpdate(): void {
     const nodes: MeetingPlanNode[] = Array.from(this.workers.values()).map((h) => ({
       id: h.id,

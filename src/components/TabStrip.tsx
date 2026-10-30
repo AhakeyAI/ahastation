@@ -3,6 +3,7 @@ import { Plus, RotateCw, X, SquareArrowOutUpRight } from 'lucide-react';
 import { meetingStore, type TabMeta } from '../lib/meeting-store';
 import { usePickCwd } from './DirPickerModal';
 import { toast } from '../lib/toast';
+import { isRoomWindow } from '../lib/room-window';
 
 interface TabStripProps {
   tabs: TabMeta[];
@@ -44,11 +45,12 @@ export function TabStrip({ tabs }: TabStripProps) {
     if (!result.ok) toast.error(result.error ?? '会议恢复失败');
   }, []);
 
-  const handlePopout = useCallback((e: React.MouseEvent, tab: TabMeta) => {
+  const handlePopout = useCallback(async (e: React.MouseEvent, tab: TabMeta) => {
     e.stopPropagation();
-    if (!tab.placeholder && tab.phase === 'ready' && window.vibeMeet?.popoutSession) {
-      void window.vibeMeet.popoutSession(tab.id);
-    }
+    const open = window.vibeMeet?.openRoomWindow;
+    if (!open || tab.placeholder) return;
+    const result = await open(tab.cwd).catch((err: unknown) => ({ ok: false as const, error: String(err) }));
+    if (!result.ok) toast.error(`新窗口没有打开：${result.error ?? '未知原因'}`);
   }, []);
 
   return (
@@ -88,13 +90,13 @@ export function TabStrip({ tabs }: TabStripProps) {
                   <RotateCw size={12} aria-hidden="true" />
                 </span>
               )}
-              {!tab.placeholder && tab.phase === 'ready' && <span
+              {!tab.placeholder && tab.status !== 'failed' && !isRoomWindow() && <span
                 className="tab-strip-popout"
                 role="button"
-                aria-label="Open in new window"
+                aria-label="在新窗口打开这个项目室"
                 tabIndex={-1}
-                onClick={(e) => handlePopout(e, tab)}
-                title="在新窗口中打开"
+                onClick={(e) => void handlePopout(e, tab)}
+                title="在新窗口打开这个项目室，可和其他项目室并排查看"
               >
                 <SquareArrowOutUpRight size={11} aria-hidden="true" />
               </span>}

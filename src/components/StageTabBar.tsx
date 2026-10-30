@@ -13,6 +13,9 @@ interface StageTabBarProps {
   onClose: (id: string) => void;
   onCreate: (type: StageWindowType, opts?: StageWindowOptions) => void;
   onPopOut?: (id: string) => void;
+  /** Tabs that can't leave the stage (e.g. a live worker PTY) hide the pop-out button. */
+  canPopOut?: (win: StageWindow) => boolean;
+  popOutLabel?: (win: StageWindow) => string;
   localOnly?: boolean;
   /** Pending-attention count shown on a tab (the board's 待处理 badge). */
   badges?: Record<string, number>;
@@ -35,6 +38,8 @@ export function StageTabBar({
   onClose,
   onCreate,
   onPopOut,
+  canPopOut,
+  popOutLabel,
   localOnly = false,
   badges,
 }: StageTabBarProps) {
@@ -143,13 +148,13 @@ export function StageTabBar({
                 title={state.error ?? (state.phase === 'exited' ? `退出码：${state.exitCode ?? '未知'}` : PHASE_LABELS[state.phase])}>
                 {state.error ? '错误' : PHASE_LABELS[state.phase]}
               </span>}
-              {!isPinned && !win.localCliId && onPopOut && (
+              {!isPinned && !win.localCliId && onPopOut && (canPopOut?.(win) ?? true) && (
                 <button
                   type="button"
                   className="stage-tab-popout"
                   onClick={(e) => { e.stopPropagation(); onPopOut(win.id); }}
-                  aria-label="独立窗口打开"
-                  title="在新窗口中打开"
+                  aria-label={popOutLabel?.(win) ?? '在新窗口中打开'}
+                  title={popOutLabel?.(win) ?? '在新窗口中打开'}
                 >
                   <SquareArrowOutUpRight size={11} />
                 </button>

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Check, CornerDownLeft, Mic, X } from 'lucide-react';
+import { Check, CornerDownLeft, X } from 'lucide-react';
 import type { AhaBarPending, ApprovalGesture } from '../types';
 
 const HOLD_MS = 800;
 
 interface VirtualKeyboardProps {
   topPending: AhaBarPending | null;
+  /** Pending approvals waiting behind topPending. */
+  queuedCount: number;
   hardwareTakenOver: boolean;
   onApprove: (id: string) => void;
   onDeny: (id: string) => void;
@@ -13,13 +15,22 @@ interface VirtualKeyboardProps {
 }
 
 const RISK_HINT: Record<ApprovalGesture, string> = {
-  low: '单击批准',
-  mid: '按住 800ms 批准',
-  high: '高风险 · 回主窗口确认',
+  low: '低风险，点一下批准',
+  mid: '会改动文件或执行命令，按住批准键确认',
+  high: '高风险，请回主窗口看完详情再决定',
 };
 
+const APPROVE_LABEL: Record<ApprovalGesture, string> = {
+  low: '批准',
+  mid: '按住批准',
+  high: '去主窗口确认',
+};
+
+/** The approval surface of the bar: what is being asked, how risky it is,
+ *  and the three on-screen keys (deny / approve / back to main window). */
 export function VirtualKeyboard({
   topPending,
+  queuedCount,
   hardwareTakenOver,
   onApprove,
   onDeny,
@@ -44,7 +55,7 @@ export function VirtualKeyboard({
   if (hardwareTakenOver) {
     return (
       <div className="ahabar-vk is-hardware">
-        <span>已由实体键接管</span>
+        <p>审批已交给实体键盘处理，在键盘上按键即可。</p>
       </div>
     );
   }
@@ -54,7 +65,6 @@ export function VirtualKeyboard({
   const risk = topPending.risk;
 
   const startHold = () => {
-    if (risk !== 'mid') return;
     clearHold();
     holdStarted.current = performance.now();
     const tick = () => {
@@ -82,16 +92,27 @@ export function VirtualKeyboard({
   };
 
   return (
-    <div className="ahabar-vk" aria-label="虚拟键盘">
-      <p className="ahabar-vk-target">
-        <strong>{topPending.toolName}</strong>
-        <span>{topPending.target}</span>
-        <em className={`ahabar-risk is-${risk}`}>{RISK_HINT[risk]}</em>
-      </p>
+    <div className={`ahabar-vk is-${risk}`} aria-label="待批准">
+      <div className="ahabar-vk-head">
+        <span className="ahabar-section-title">等你批准</span>
+        {queuedCount > 0 && <span className="ahabar-vk-queue">后面还有 {queuedCount} 项</span>}
+      </div>
+      <div className="ahabar-vk-request">
+        <strong className="ahabar-vk-tool">{topPending.toolName}</strong>
+        {topPending.target && (
+          <code className="ahabar-vk-target" title={topPending.target}>{topPending.target}</code>
+        )}
+      </div>
+      <p className={`ahabar-risk is-${risk}`}>{RISK_HINT[risk]}</p>
       <div className="ahabar-vk-keys">
-        <button type="button" className="ahabar-key" title="语音（回主窗口）" onClick={onFocusMain}>
-          <Mic size={16} />
-          <span>语音</span>
+        <button
+          type="button"
+          className="ahabar-key ahabar-key-deny"
+          title="拒绝这次操作"
+          onClick={() => onDeny(topPending.id)}
+        >
+          <X size={14} />
+          <span>拒绝</span>
         </button>
         <button
           type="button"
@@ -109,22 +130,15 @@ export function VirtualKeyboard({
               aria-hidden
             />
           )}
-          <Check size={16} />
-          <span>批准</span>
+          {risk === 'high' ? <CornerDownLeft size={14} /> : <Check size={14} />}
+          <span>{APPROVE_LABEL[risk]}</span>
         </button>
-        <button
-          type="button"
-          className="ahabar-key ahabar-key-deny"
-          title="拒绝"
-          onClick={() => onDeny(topPending.id)}
-        >
-          <X size={16} />
-          <span>拒绝</span>
-        </button>
-        <button type="button" className="ahabar-key" title="回到主窗口" onClick={onFocusMain}>
-          <CornerDownLeft size={16} />
-          <span>返回</span>
-        </button>
+        {risk !== 'high' && (
+          <button type="button" className="ahabar-key" title="回主窗口查看详情" onClick={onFocusMain}>
+            <CornerDownLeft size={14} />
+            <span>看详情</span>
+          </button>
+        )}
       </div>
     </div>
   );
