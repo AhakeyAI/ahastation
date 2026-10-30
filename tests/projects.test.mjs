@@ -19,7 +19,8 @@ for (const k of ['GIT_AUTHOR_NAME', 'GIT_COMMITTER_NAME']) process.env[k] ??= 'A
 for (const k of ['GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_EMAIL']) process.env[k] ??= 'test@example.com';
 
 function tmp(t) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'aha-projects-')));
+  // .native expands Windows 8.3 short names (RUNNER~1), matching what git reports.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'aha-projects-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
