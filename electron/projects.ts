@@ -47,7 +47,8 @@ export async function resolveRepo(cwd: string): Promise<RepoInfo> {
     const [common, top, branch] = r.stdout.trim().split('\n');
     if (common && top) {
       // A bare or unusual common dir falls back to the worktree top-level.
-      const root = basename(common) === '.git' ? dirname(common) : top;
+      // git prints forward slashes on Windows; rooms key on the native form.
+      const root = resolve(basename(common) === '.git' ? dirname(common) : top);
       info = { repoRoot: root, worktree: resolve(root) !== resolve(top), branch: branch && branch !== 'HEAD' ? branch : null };
     }
   }

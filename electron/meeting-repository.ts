@@ -536,4 +536,49 @@ export class MeetingRepository {
       return [];
     }
   }
+
+  /**
+   * The kickoff state (invited experts, their unfinished sub-agents, workspace
+   * notes) of the most recently ended meeting in `cwd`, or null. A meeting
+   * ends when the app quits, so the next meeting in the same project room
+   * starts from it instead of from an empty room.
+   */
+  static async latestEndedKickoff(cwd: string): Promise<{
+    meetingId: string;
+    hosts: unknown[];
+    ownedTasks: unknown[];
+    meetingNotes: unknown;
+  } | null> {
+    const root = join(app.getPath('userData'), 'meetings');
+    let best: { meetingId: string; mtime: number; state: Record<string, unknown> } | null = null;
+    try {
+      for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const file = join(root, entry.name, 'snapshot.json');
+        try {
+          const stat = await fs.stat(file);
+          if (best && stat.mtimeMs <= best.mtime) continue;
+          const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as { state?: Record<string, unknown> };
+          const state = parsed.state;
+          if (!state || state.status !== 'ended' || state.cwd !== cwd) continue;
+          best = { meetingId: entry.name, mtime: stat.mtimeMs, state };
+        } catch {
+          // Missing or corrupt snapshot: not a candidate.
+        }
+      }
+    } catch {
+      return null;
+    }
+    if (!best) return null;
+    const { state } = best;
+    const hosts = Array.isArray(state.hosts) ? state.hosts : [];
+    const ownedTasks = Array.isArray(state.ownedTasks) ? state.ownedTasks : [];
+    const hasExpert = hosts.some((host) => Boolean(host && typeof host === 'object' && (host as { profile?: unknown }).profile));
+    const notes = state.meetingNotes && typeof state.meetingNotes === 'object'
+      ? Object.values(state.meetingNotes as Record<string, unknown>)
+      : [];
+    const hasNotes = notes.some((list) => Array.isArray(list) && list.length > 0);
+    if (!hasExpert && ownedTasks.length === 0 && !hasNotes) return null;
+    return { meetingId: best.meetingId, hosts, ownedTasks, meetingNotes: state.meetingNotes ?? null };
+  }
 }

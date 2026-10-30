@@ -250,13 +250,25 @@ export const ScreenStage = memo(function ScreenStage({
       const stoppedOwned = Boolean(owned) && ['failed', 'done', 'interrupted', 'accepted'].includes(w.status);
       if (w.status !== 'running' && !stoppedOwned) continue;
       autoOpenedTerminals.current.add(w.id);
+      if (owned) {
+        // 重新开始 spawns `<task>-rN`; the stopped tab it replaces goes away
+        // so the stage keeps one 子 Agent tab per task.
+        const base = w.id.replace(/-r\d+$/, '');
+        for (const win of stageWindows) {
+          if (!win.subagentOwner || !win.workerId || win.workerId === w.id) continue;
+          if (win.workerId.replace(/-r\d+$/, '') !== base) continue;
+          const prev = workers.find((other) => other.id === win.workerId);
+          if (prev?.status === 'running') continue;
+          onCloseWindow(win.id);
+        }
+      }
       const owner = owned ? hostGroups.get(owned.hostId)?.profile : undefined;
       // An expert's sub-agent opens as the third tab (子 Agent), selected.
       void onCreateWindow('terminal', owned
         ? { workerId: w.id, title: `子 Agent · ${owner?.name ?? '专家'}`, subagentOwner: owned.hostId }
         : { workerId: w.id, title: w.title });
     }
-  }, [workers, onCreateWindow, ownedTasks, hostGroups]);
+  }, [workers, onCreateWindow, ownedTasks, hostGroups, stageWindows, onCloseWindow]);
 
   // Every "open terminal" entry lands here. A terminal-mode worker already
   // runs its native CLI in a PTY, so it gets the stage workbench; any other
