@@ -41,8 +41,9 @@ export interface StateFileRef {
 export async function listClaudeTranscripts(
   homeDir: string,
   cap = SCAN_FILE_CAP,
+  configDir = join(homeDir, '.claude'),
 ): Promise<StateFileRef[]> {
-  const root = join(homeDir, '.claude', 'projects');
+  const root = join(configDir, 'projects');
   let projectDirs: string[];
   try {
     projectDirs = await fs.readdir(root);

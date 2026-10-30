@@ -37,6 +37,7 @@ import { projectKeyOf, useRepoRoots } from '../lib/repo-roots';
 import { splitPath } from '../lib/project-rooms';
 import type { BacklogItem } from '../lib/project-rooms';
 import { useObservedTasks } from '../hooks/useObservedTasks';
+import { ScanControls } from './ScanControls';
 import type {
   ObservedClientKind,
   ObservedSession,
@@ -139,7 +140,7 @@ export const OBSERVED_STATE_LABEL: Record<ObservedState, string> = {
   active: '进行中',
   waiting: '等待输入',
   idle: '空闲',
-  done: '已完成',
+  done: '会话已结束',
   unknown: '状态未知',
 };
 
@@ -180,7 +181,7 @@ function ObservedTaskCard({ session, onContinue }: { session: ObservedSession; o
       <span className="tasks-card-meta">
         <Eye size={13} />
         {OBSERVED_STATE_LABEL[session.state]}
-        <em className="tasks-card-inferred">推断</em>
+        <em className="tasks-card-inferred">{session.inferred ? '推断' : '本机上报'}</em>
         · {formatObservedAge(session.lastActiveAt)}
       </span>
       <span className="tasks-card-foot">
@@ -407,6 +408,7 @@ function LocalTasksView({
         </div>
       </header>
 
+      <ScanControls snapshot={observed} />
       <div className="tasks-board" style={{ gridTemplateColumns: `repeat(${shownLanes.length}, minmax(220px, 1fr))` }}>
         {shownLanes.map((lane) => {
           const cards = byLane.get(lane.id) ?? [];

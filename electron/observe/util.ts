@@ -155,7 +155,7 @@ export const defaultExec: ExecImpl = (cmd, args, options) => {
     execFile(
       cmd,
       args,
-      { timeout: options.timeoutMs, maxBuffer: options.maxBuffer },
+      { timeout: options.timeoutMs, maxBuffer: options.maxBuffer, windowsHide: true },
       (error, stdout, stderr) => {
         // lsof exits non-zero when some pid has no visible files; stdout is
         // still valid, so surface partial output instead of failing hard.

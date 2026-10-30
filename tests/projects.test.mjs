@@ -66,12 +66,14 @@ test('worktrees and sub-folders resolve to their main repository; another clone 
   mkdirSync(plain);
 
   const repos = await resolveRepos([main, wt, join(main, 'pkg'), join(parent, 'app-copy'), plain]);
-  assert.equal(repos[main].repoRoot, main);
-  assert.equal(repos[wt].repoRoot, main);
+  // Git expands Windows 8.3 aliases (RUNNER~1) as well as path separators.
+  const canonical = (path) => realpathSync.native(path);
+  assert.equal(canonical(repos[main].repoRoot), canonical(main));
+  assert.equal(canonical(repos[wt].repoRoot), canonical(main));
   assert.equal(repos[wt].worktree, true);
   assert.equal(repos[wt].branch, 'feature-x');
-  assert.equal(repos[join(main, 'pkg')].repoRoot, main);
-  assert.equal(repos[join(parent, 'app-copy')].repoRoot, join(parent, 'app-copy'));
+  assert.equal(canonical(repos[join(main, 'pkg')].repoRoot), canonical(main));
+  assert.equal(canonical(repos[join(parent, 'app-copy')].repoRoot), canonical(join(parent, 'app-copy')));
   assert.equal(repos[plain].repoRoot, null);
 });
 

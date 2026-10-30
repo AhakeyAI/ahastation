@@ -3,8 +3,9 @@
 // The observation layer discovers externally-launched AI CLI sessions
 // (Claude Code + Codex CLI + Kimi Code CLI) plus Codex Desktop
 // (ChatGPT.app code mode) threads from process scans and client state
-// files. Everything here is inferred from read-only evidence; nothing
-// is written back to the clients' directories (TD-7).
+// files. S2 authorizes Claude/Codex native transcripts; legacy parsers remain
+// available separately. States are inferred unless a trusted local IF-1 host
+// reports them. Nothing is written back to clients' directories (TD-7).
 
 export type ClientKind = 'claude-code' | 'codex' | 'kimi';
 
@@ -139,7 +140,7 @@ export type ObservedTitleSource =
 
 /** One observed session, merged from process + file signals. */
 export interface ObservedSession {
-  /** sha1(clientKind + nativeSessionId + realpath(cwd)) — stable identity. */
+  /** sha1(clientKind + nativeSessionId), independent of project relocation. */
   id: string;
   clientKind: ClientKind;
   nativeSessionId: string;
@@ -151,8 +152,12 @@ export interface ObservedSession {
   title: string;
   state: ObservedState;
   activity: ObservedActivity;
-  /** Always true: every state here is inferred, never reported by the client. */
-  inferred: true;
+  /** False only when projected from a validated local IF-1 host snapshot. */
+  inferred: boolean;
+  origin?: import('./ownership.js').SessionOrigin;
+  ownership?: 'owned' | 'unowned' | 'unresolved';
+  phase?: string;
+  connection?: string;
   model?: string;
   lastActiveAt: number;
   pid?: number;
@@ -169,6 +174,9 @@ export interface ObservedSession {
 export interface ObservedSnapshot {
   sessions: ObservedSession[];
   scannedAt: number;
+  access?: import('./scan-access.js').ScanAccess;
+  studioTasks?: import('./studio-history.js').StudioTaskSummary[];
+  diagnostics?: string[];
 }
 
 /** Injected at service start; any match excludes a process/session. */

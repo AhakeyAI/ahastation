@@ -1,15 +1,13 @@
 // statefiles/codex-sessions.ts — read-only scan of Codex CLI rollouts.
 //
-// Data source: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl. Only the
+// Data source: CODEX_HOME/{sessions,archived_sessions}/**/*.jsonl. Only the
 // FIRST line is read for identity (session_meta: id/cwd/timestamp); the
 // state machine runs over a bounded tail window. Titles come from
 // ~/.codex/session_index.jsonl ({id, thread_name, updated_at} — latest
 // updated_at wins, both ISO strings and epoch numbers tolerated).
 //
-// exec-session heuristic: session_meta.payload.source === 'exec' marks a
-// one-shot `codex exec` run. Interactive sessions emit task_complete every
-// turn, so only exec sessions may treat it as Done. If the source field is
-// absent/unknown the session is treated as interactive (safe default).
+// session_meta.payload.source === 'exec' is retained as source metadata.
+// task_complete is turn evidence; process exit and task acceptance are separate.
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
@@ -33,8 +31,9 @@ const SESSION_INDEX_MAX_BYTES = 8 * 1024 * 1024;
 export async function listCodexRollouts(
   homeDir: string,
   cap = SCAN_FILE_CAP,
+  configDir = join(homeDir, '.codex'),
 ): Promise<StateFileRef[]> {
-  const root = join(homeDir, '.codex', 'sessions');
+  const root = join(configDir, 'sessions');
   const refs: StateFileRef[] = [];
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 4) return;
@@ -56,6 +55,7 @@ export async function listCodexRollouts(
     }
   };
   await walk(root, 0);
+  await walk(join(configDir, 'archived_sessions'), 0);
   refs.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return refs.slice(0, cap);
 }

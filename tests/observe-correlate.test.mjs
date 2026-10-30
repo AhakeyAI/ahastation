@@ -86,10 +86,10 @@ test('correlate: full pipeline over the fixture tree', async () => {
   const bySid = new Map(sessions.map((s) => [s.nativeSessionId, s]));
   assert.equal(bySid.size, 6);
 
-  // Idle Claude with a live pid: synthetic tail → waiting, title redacted.
+  // Idle Claude with a live pid: synthetic tail → idle, title redacted.
   const idle = bySid.get(SID_IDLE);
-  assert.equal(idle.state, 'waiting');
-  assert.equal(idle.activity, 'waiting');
+  assert.equal(idle.state, 'idle');
+  assert.equal(idle.activity, 'unknown');
   assert.equal(idle.pid, 4201);
   assert.equal(idle.tty, 's003'); // tty propagated from the ps snapshot
   assert.equal(idle.title, 'use key [REDACTED] to fetch the build log');
@@ -111,9 +111,9 @@ test('correlate: full pipeline over the fixture tree', async () => {
   assert.equal(noise.state, 'unknown');
   assert.equal(noise.isNoise, true);
 
-  // Codex exec session: task_complete → done regardless of mtime.
+  // Codex exec session: task_complete does not prove OS exit.
   const execDone = bySid.get(CODEX_EXEC_DONE);
-  assert.equal(execDone.state, 'done');
+  assert.equal(execDone.state, 'unknown');
   assert.equal(execDone.title, '全局标题应胜过索引');
   assert.equal(execDone.titleSource, 'global-state');
 
@@ -194,6 +194,8 @@ async function runService(options = {}) {
   const published = [];
   const service = new ObserveService({
     homeDir: HOME,
+    configRoots: { claude: join(HOME, '.claude'), codex: join(HOME, '.codex') },
+    getAccess: () => ({ enabled: true, roots: ['/Users/test/work', '/tmp'] }),
     publish: (snap) => published.push(snap),
     now: () => Date.now(),
     snapshotProvider: async () => snapshot,
@@ -214,10 +216,9 @@ test('ObserveService.tickOnce: publishes a full snapshot from the fixture home',
   const snap = await runService();
   assert.ok(snap.scannedAt > 0);
   const bySid = new Map(snap.sessions.map((s) => [s.nativeSessionId, s]));
-  // 6 CLI/Claude rows + 3 Codex Desktop threads (the two CLI rollout ids
-  // that also carry global-state descriptions are deduped, not duplicated).
-  assert.equal(bySid.size, 9);
-  assert.equal(bySid.get(SID_IDLE).state, 'waiting');
+  // The unrelated /private temporary project has no directory grant.
+  assert.equal(bySid.size, 5);
+  assert.equal(bySid.get(SID_IDLE).state, 'idle');
   assert.equal(bySid.get(SID_EXEC).activity, 'executing');
   assert.equal(bySid.get(CODEX_PENDING).pid, 4302);
   // Sorted by lastActiveAt descending.
@@ -235,9 +236,8 @@ test('ObserveService: self-exclusion by pid AND session id', async () => {
   const bySid = new Map(snap.sessions.map((s) => [s.nativeSessionId, s]));
   // Own session id → gone entirely.
   assert.equal(bySid.has(CODEX_PENDING), false);
-  // Own pid → no association; file-only evidence degrades to unknown.
-  assert.equal(bySid.get(SID_IDLE).pid, undefined);
-  assert.equal(bySid.get(SID_IDLE).state, 'unknown');
+  // The own PID command also supplies the native session ID, so its history is excluded.
+  assert.equal(bySid.has(SID_IDLE), false);
 });
 
 // ---------------------------------------------------------------------------
