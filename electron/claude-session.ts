@@ -12,7 +12,7 @@ import type {
 } from './claude-cli/types.js';
 import { mergedSubprocessEnv } from './settings-loader.js';
 import { errorMessage, redactSecrets } from './format-error.js';
-import { classifyToolRisk, type AutoApproveScope } from './auto-approve-policy.js';
+import { classifyToolRisk, type AutoApproveScope, isInProcSafeTool } from './auto-approve-policy.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -162,6 +162,12 @@ export class ClaudeSession {
     const canUseTool: CanUseTool = async (toolName, input, options) => {
       if (this.closed) {
         return { behavior: 'deny', message: 'session ended', interrupt: true };
+      }
+      // In-proc meeting tools (ask_host, send_task_message, review tools…) only
+      // drive orchestrator/UI state, so they never need a card — same rule the
+      // Worker broker applies. Tools that act on other apps stay gated (#138).
+      if (isInProcSafeTool(toolName)) {
+        return { behavior: 'allow', updatedInput: input };
       }
       if (this.autoApproveScope !== 'off') {
         // 'all' scope: most tools auto-approved, but ALWAYS_DESTRUCTIVE

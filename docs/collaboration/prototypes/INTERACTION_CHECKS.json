@@ -1,0 +1,20 @@
+{
+  "artifact": "HTML prototype only; no product, model, Hub or GitHub execution",
+  "passed": true,
+  "checks": [
+    "Local and remote execution membership starts unchecked.",
+    "Manual approval is distinct from dispatch; Host plan is readable and contains two complete deliveries.",
+    "Stop requires exit confirmation; explicit continuation retains business task identity and exposes files/tests.",
+    "Native desktop continuation preserves context and does not create extra formal tasks.",
+    "Accepted work continues offline; controller keeps last confirmed state; reconnect synchronizes without retargeting or duplicate tasks.",
+    "Automatic assignment dispatches only after plan approval.",
+    "Explicit automatic plan approval remains separate from Host choosing execution devices.",
+    "Accepted queued work may start offline; local offline stop is confirmed locally and synchronizes only after reconnection.",
+    "Group chat has no recipient dropdown; ordinary messages do not become tasks; @ supports source labels, filtering, click, arrows, Tab, Escape and rejects unknown targets.",
+    "Three compact setup sections expand one at a time; login/GitHub are simulated; changing local directory invalidates the grant until explicitly confirmed.",
+    "No whole-page horizontal overflow at 1024, 736, 390, and 320 px; invitation sheet remains usable.",
+    "Light/dark render and all exercised interactions produce no page script errors."
+  ],
+  "failures": [],
+  "pageErrors": []
+}

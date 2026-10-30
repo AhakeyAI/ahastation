@@ -36,6 +36,9 @@ try {
   const appRoot = join(unpacked, 'opt', 'AhaStudio');
   const resources = join(appRoot, 'resources');
   requireExecutable(join(appRoot, 'ahastation'), 'Electron launcher');
+  const receiver=join(resources,'station-native','station-native');requireExecutable(receiver,'Bundled Station receiver');
+  const selfTest=execFileSync(receiver,[],{input:'{"operation":"self-test"}\n',encoding:'utf8',timeout:30000});
+  if(!selfTest.split('\n').filter(Boolean).some(line=>{try{const r=JSON.parse(line);return r.type==='result'&&r.value?.ok&&r.value?.protocol===2&&r.value?.frozen;}catch{return false;}}))throw new Error('Bundled Station receiver self-test failed');
   requireMatch(resources, /app\.asar\.unpacked[\\/]node_modules[\\/]@openai[\\/]codex-linux-arm64[\\/].*[\\/]codex$/);
   requireMatch(resources, /app\.asar\.unpacked[\\/]node_modules[\\/]opencode-linux-arm64[\\/]bin[\\/]opencode$/);
   requireMatch(resources, /app\.asar\.unpacked[\\/]node_modules[\\/]@anthropic-ai[\\/]claude-agent-sdk-linux-arm64[\\/]claude$/);

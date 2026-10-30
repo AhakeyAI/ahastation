@@ -60,6 +60,8 @@ export function registerAttachmentsIpc(ctx: IpcContext): void {
     if (items.length > 20) return { ok: false, error: 'Too many attachments in one send (max 20)' };
 
     const caption = typeof payload?.caption === 'string' ? payload.caption : '';
+    const remoteError = o.remoteInputError(caption, true);
+    if (remoteError) return { ok: false, error: remoteError };
 
     // First pass: shape-check + size pre-flight before we burn CPU on parse.
     const raw: RawAttachmentItem[] = [];

@@ -25,15 +25,21 @@ import type {
   WorkerSpecialty,
   WorkerStatus,
   WorkerTaskHistoryEntry,
+  PocketVibeRemoteTarget,
+  PocketVibeRemoteHost,
+  MeetingNotes,
 } from '../types';
+import { remoteSessionLabel, remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../../electron/backends/pocket-vibe-target';
 import { MEETING_TOOL_NAMES } from '../../electron/meeting-tool-names';
 import { redactSecrets } from '../../electron/format-error';
 import {
-  columnForTask,
+  subStatusForTask,
+  SUB_STATUS_META,
   projectNameFromCwd,
   resolveBoardTaskStatus,
   WORKER_STATUS_LABEL,
   type TaskColumnId,
+  type BoardSubStatus,
 } from './task-columns';
 import { extractText, extractToolUses, uid } from './sdk-message';
 import { isSpeechActive, type SpeakHandle } from './speech-session';
@@ -49,6 +55,7 @@ import {
   type TaskInspectorProjection,
 } from './task-event-reducer';
 import { isAffirmativeDeliveryFeedback } from './delivery-feedback';
+import { isRoomWindow } from './room-window';
 
 const MAX_TRANSCRIPT = 500;
 const MAX_ACTIVITY = 500;
@@ -234,6 +241,12 @@ export interface MeetingState {
    *  one answering. Set by the main-process user-mentioned-host event;
    *  cleared optimistically on every local send. */
   lastMentionedHostId?: string | null;
+  /** Coordinator's live meeting notes (工作区 tab), null until the first update. */
+  meetingNotes?: { notes: MeetingNotes; updatedAt: number } | null;
+  /** Sub-agent tasks owned by an expert: taskId → owner hostId + title. Their
+   *  workers stay out of the participant list; the stage shows them as the
+   *  third tab (子 Agent). */
+  ownedTasks?: Map<string, { hostId: string; title: string }>;
 }
 
 /** One host group: a host agent + its worker pool. Collapsible in the
@@ -241,6 +254,8 @@ export interface MeetingState {
 export interface HostGroupState {
   id: string;
   backendId: string;
+  remoteTarget?: PocketVibeRemoteTarget;
+  remoteReady?: boolean;
   /** Icon identifier for the backend (e.g. 'claude', 'codex', 'kimi', 'qoder').
    *  Used by the participant panel to render per-backend avatars. */
   iconId: string;
@@ -250,6 +265,8 @@ export interface HostGroupState {
   workerIds: AgentSource[];
   /** Whether the worker list is collapsed in the UI. Default true. */
   collapsed: boolean;
+  /** AME-D14: experts show as 职能＋名字 (e.g. 产品专家 小禾). */
+  profile?: { title: string; name: string };
 }
 
 /** Map a backendId to its canonical iconId. Falls back to the backendId itself. */
@@ -275,6 +292,7 @@ export interface TabMeta {
    *  during this state and replayed on ready.
    *  'failed' = session-start-failed landed; user can retry from the tab UI. */
   status: 'idle' | 'running' | 'error' | 'starting' | 'failed';
+  phase: 'restored' | 'starting' | 'ready' | 'failed' | 'ended';
   unreadCount: number;
   isActive: boolean;
   openedAt: number;
@@ -308,6 +326,8 @@ export interface AggregatedTask {
   title: string;
   status: WorkerStatus;
   column: TaskColumnId;
+  /** Finest-grain state; drives the card chip and user-split lanes. */
+  sub: BoardSubStatus;
   statusLabel: string;
   backendId: string | null;
   deps: string[];
@@ -338,6 +358,8 @@ interface SlotInternal {
   id: string;                              // sessionId for live slots; `placeholder:<cwd>` for restored-but-not-yet-spawned
   cwd: string;
   placeholder: boolean;
+  remoteHosts?: PocketVibeRemoteHost[];
+  resumeBackendId?: string;
   openedAt: number;
   state: MeetingState;
   unreadCount: number;
@@ -495,8 +517,28 @@ class MeetingStore {
   private activeId: string | null = null;
   private recentCwds: RecentCwdMeta[] = [];
   private restoreHydrated = false;
+  private restoreRevision = 0;
+  private opening = new Map<string, Promise<{ ok: boolean; error?: string; sessionId?: string }>>();
+  private earlyEvents = new Map<string, RendererEvent[]>();
+  private retiredIds = new Set<string>();
+  private selectionRevision = 0;
   /** User's preferred default backend for new sessions (set from Lobby). */
   defaultBackendId: string | null = null;
+  /** Folders just cloned or created from 新建项目室: the meeting opens with the
+   *  empty-project kickoff without waiting for the board / Issue check. */
+  private freshProjects = new Set<string>();
+
+  markFreshProject(cwd: string): void {
+    this.freshProjects.add(cwd.replace(/\/+$/, ''));
+  }
+
+  isFreshProject(cwd: string | null | undefined): boolean {
+    return !!cwd && this.freshProjects.has(cwd.replace(/\/+$/, ''));
+  }
+
+  clearFreshProject(cwd: string): void {
+    this.freshProjects.delete(cwd.replace(/\/+$/, ''));
+  }
   /** Sticky empty state returned by getSnapshot() when no slot is active.
    *  Held as a stable reference so useSyncExternalStore's identity check
    *  doesn't fire spurious renders. */
@@ -555,6 +597,8 @@ class MeetingStore {
     if (!this.activeId) return;
     const slot = this.slots.get(this.activeId);
     if (!slot) return;
+    // A preference for future meetings must not relabel a running backend.
+    if (!slot.placeholder) return;
     const hg = slot.state.hostGroups.get('default');
     if (!hg || hg.backendId === backendId) return;
     this.mutateSlot(this.activeId, (s) => {
@@ -734,7 +778,7 @@ class MeetingStore {
       //   running    (talker actively working)  → running
       //   else                                  → idle
       const status: TabMeta['status'] = slot.placeholder
-        ? 'idle'
+        ? (slot.status === 'failed' ? 'failed' : this.opening.has(slot.cwd) ? 'starting' : 'idle')
         : slot.status === 'starting'
           ? 'starting'
           : slot.status === 'failed'
@@ -749,6 +793,9 @@ class MeetingStore {
         cwd: slot.cwd,
         placeholder: slot.placeholder,
         status,
+        phase: slot.status === 'failed' ? 'failed' : slot.placeholder
+          ? (this.opening.has(slot.cwd) ? 'starting' : 'restored')
+          : slot.status === 'starting' ? 'starting' : slot.state.running ? 'ready' : 'ended',
         unreadCount: slot.unreadCount,
         isActive: slot.id === this.activeId,
         openedAt: slot.openedAt,
@@ -836,6 +883,10 @@ class MeetingStore {
               : status === 'integration-conflict'
                 ? '集成冲突待处理'
                 : null;
+        const sub = subStatusForTask(status, {
+          permission: Boolean(worker?.pendingPermission),
+          diagnostic: Boolean(node.workspaceDiagnostic),
+        });
         tasks.push({
           key: `${slot.id}\u0000${node.id}`,
           sessionId: slot.id,
@@ -844,7 +895,8 @@ class MeetingStore {
           taskId: node.id,
           title: node.title,
           status,
-          column: columnForTask(status, Boolean(worker?.pendingPermission || node.workspaceDiagnostic)),
+          column: SUB_STATUS_META[sub].parent,
+          sub,
           statusLabel: WORKER_STATUS_LABEL[status],
           backendId: worker?.backendId ?? node.executorBackendId ?? null,
           deps: node.deps,
@@ -1116,9 +1168,11 @@ class MeetingStore {
   async hydrateRestore(): Promise<void> {
     if (this.restoreHydrated) return;
     this.restoreHydrated = true;
+    const revision = this.restoreRevision;
     try {
       const res = await window.vibeMeet.sessions.listRestore();
       if (!res.ok) return;
+      if (revision !== this.restoreRevision) return;
       this.recentCwds = res.recentCwds ?? [];
       const tabs: OpenTabMeta[] = res.openTabs ?? [];
       for (const t of tabs) {
@@ -1127,8 +1181,10 @@ class MeetingStore {
           ...emptySlot(placeholderId(t.cwd), t.cwd),
           placeholder: true,
           openedAt: t.openedAt,
+          remoteHosts: t.remoteHosts,
         };
         this.slots.set(slot.id, slot);
+        this.restoreRemoteHostsForSlot(slot, t.remoteHosts ?? []);
       }
       // Pick an initial active placeholder so the UI knows which tab is
       // selected on cold start — even though no Orchestrator is spawned yet.
@@ -1146,6 +1202,26 @@ class MeetingStore {
     }
   }
 
+  /** Room window: attach to the meeting main already runs for this folder,
+   *  without sessions:open (that would also move the main window's focus). */
+  async attachRoom(cwd: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    this.restoreHydrated = true;
+    this.ensureSubscribed();
+    const existing = this.findByCwd(cwd);
+    if (existing && !existing.placeholder) return { ok: true, sessionId: existing.id };
+    let meta: SessionMeta | undefined;
+    try {
+      meta = (await window.vibeMeet.sessions.list()).sessions.find((s) => s.cwd === cwd);
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+    if (!meta) return { ok: false, error: '这个项目室的会议已经结束，请回主窗口重新打开' };
+    return this.adoptLiveSession(meta.id);
+  }
+
+  /** An explicit navigation choice supersedes a delayed startup hydration. */
+  dismissRestoreHydration(): void { this.restoreRevision++; }
+
   private findByCwd(cwd: string): SlotInternal | null {
     for (const s of this.slots.values()) {
       if (s.cwd === cwd) return s;
@@ -1160,7 +1236,11 @@ class MeetingStore {
    *  rebuild a local slot from registry metadata so the user actually
    *  re-enters the live meeting. New events populate the slot as they arrive;
    *  the talker transcript is restored from disk. */
-  private async adoptLiveSession(sessionId: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+  private async adoptLiveSession(
+    sessionId: string,
+    restore?: { placeholder: SlotInternal; cwd: string },
+  ): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    if (restore) return this.attachExisting(restore.placeholder, sessionId, restore.cwd);
     if (this.slots.has(sessionId)) {
       await this.setActive(sessionId);
       return { ok: true, sessionId };
@@ -1177,10 +1257,8 @@ class MeetingStore {
       // caller to surface a retryable failure instead of dying silently.
       return { ok: false, error: 'Meeting is no longer running; please try again' };
     }
-    const slot = emptySlot(meta.id, meta.cwd, this.defaultBackendId ?? 'claude-code');
+    const slot = { ...emptySlot(placeholderId(meta.cwd), meta.cwd, this.defaultBackendId ?? 'claude-code'), placeholder: true };
     slot.openedAt = meta.openedAt;
-    slot.status = 'ready';
-    slot.state = { ...slot.state, running: true };
     this.slots.set(slot.id, slot);
     this.activeId = slot.id;
     this.recentCwds = [
@@ -1189,8 +1267,7 @@ class MeetingStore {
     ].slice(0, 10);
     this.notifyTabsOnly();
     this.notify(slot.id);
-    void this.loadHistoryForSlot(slot);
-    return { ok: true, sessionId: slot.id };
+    return this.attachExisting(slot, meta.id, meta.cwd);
   }
 
   async openSession(
@@ -1198,6 +1275,35 @@ class MeetingStore {
     greeting?: string,
     recoveryMeetingId?: string,
   ): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    const pending = this.opening.get(cwd);
+    if (pending) return pending;
+    const existing = this.findByCwd(cwd);
+    if (existing?.placeholder) return this.resumePlaceholder(existing.id, greeting);
+    this.ensureSubscribed();
+    this.restoreRevision++;
+    return this.trackOpening(cwd, () => this.openSessionImpl(cwd, greeting, recoveryMeetingId));
+  }
+
+  private trackOpening(cwd: string, open: () => Promise<{ ok: boolean; error?: string; sessionId?: string }>) {
+    const pending = Promise.resolve().then(open).catch((error: unknown) => ({
+      ok: false, error: error instanceof Error ? error.message : String(error),
+    })).finally(() => {
+      if (this.opening.get(cwd) === pending) this.opening.delete(cwd);
+      if (!this.opening.size) this.earlyEvents.clear();
+      this.notifyTabsOnly();
+    });
+    this.opening.set(cwd, pending);
+    this.notifyTabsOnly();
+    return pending;
+  }
+
+  private replayEarlyEvents(slot: SlotInternal) {
+    const events = this.earlyEvents.get(slot.id) ?? [];
+    this.earlyEvents.delete(slot.id);
+    for (const event of events) this.handleIncomingEvent(event);
+  }
+
+  private async openSessionImpl(cwd: string, greeting?: string, recoveryMeetingId?: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
     // Transport readiness must not spend a model turn. Startup greetings can
     // queue ahead of real user input and surface much later as an unrelated
     // "welcome back" response. The empty chat state shows readiness locally.
@@ -1228,11 +1334,11 @@ class MeetingStore {
     );
     if (!res.ok) {
       if (res.error === 'duplicate' && 'sessionId' in res && res.sessionId) {
-        // Already open main-side — focus our local slot if we have one, or
-        // adopt the live session when we don't (post-reload / unwedged
-        // leave). A bare setActive() no-ops on a missing slot and the click
-        // dies with zero feedback.
-        return this.adoptLiveSession(res.sessionId);
+        if (this.slots.has(res.sessionId)) return this.adoptLiveSession(res.sessionId);
+        const ph = { ...emptySlot(placeholderId(cwd), cwd), placeholder: true };
+        this.slots.set(ph.id, ph);
+        this.activeId = ph.id;
+        return this.adoptLiveSession(res.sessionId, { placeholder: ph, cwd: res.cwd ?? cwd });
       }
       return { ok: false, error: res.error };
     }
@@ -1240,7 +1346,9 @@ class MeetingStore {
     slot.greeting = effectiveGreeting;
     slot.state = { ...slot.state, running: true };
     this.slots.set(res.sessionId, slot);
+    this.restoreRemoteHostsForSlot(slot, res.remoteHosts ?? []);
     this.activeId = res.sessionId;
+    this.replayEarlyEvents(slot);
     // Update local recents optimistically so the Lobby reflects the new pick
     // even before next listRestore. Main writes the canonical copy.
     this.recentCwds = [
@@ -1256,49 +1364,138 @@ class MeetingStore {
   async resumePlaceholder(placeholderSlotId: string, greeting?: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
     const ph = this.slots.get(placeholderSlotId);
     if (!ph || !ph.placeholder) return { ok: false, error: 'not-placeholder' };
+    const pending = this.opening.get(ph.cwd);
+    if (pending) return pending;
+    this.ensureSubscribed();
+    this.restoreRevision++;
+    ph.status = 'starting';
+    ph.state = { ...ph.state, lastError: null };
+    return this.trackOpening(ph.cwd, async () => {
+      try { return await this.resumePlaceholderImpl(ph, greeting); }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.slots.get(ph.id) === ph) {
+          ph.status = 'failed';
+          this.mutateSlot(ph.id, (s) => ({ ...s, lastError: message, running: false }));
+        }
+        return { ok: false, error: message };
+      }
+    });
+  }
+
+  private async resumePlaceholderImpl(ph: SlotInternal, greeting?: string): Promise<{ ok: boolean; error?: string; sessionId?: string }> {
+    const placeholderSlotId = ph.id;
     // Pre-load transcript to inject resume context if there's history.
     let effectiveGreeting = greeting ?? '';
     if (effectiveGreeting) effectiveGreeting = await this.buildResumeGreeting(ph.cwd, effectiveGreeting);
 
-    const res = await window.vibeMeet.sessions.open(ph.cwd, effectiveGreeting, this.defaultBackendId ?? undefined);
+    const res = await window.vibeMeet.sessions.open(ph.cwd, effectiveGreeting, ph.resumeBackendId ?? this.defaultBackendId ?? undefined, undefined, ph.remoteHosts);
+    if (this.slots.get(placeholderSlotId) !== ph) {
+      if (res.ok) {
+        this.retiredIds.add(res.sessionId);
+        await window.vibeMeet.sessions.close(res.sessionId);
+      }
+      return { ok: false, error: '恢复已取消' };
+    }
     if (!res.ok) {
       if (res.error === 'duplicate' && 'sessionId' in res && res.sessionId) {
-        // Race: another tab already opened it. Drop our placeholder and focus
-        // the winner — adopting it first when this renderer has no slot for
-        // it, otherwise activeId would point at a slot-less id and strand the
-        // user back on the Lobby.
-        this.slots.delete(placeholderSlotId);
-        const adopted = await this.adoptLiveSession(res.sessionId);
-        if (!adopted.ok) this.notifyTabsOnly();
-        return adopted;
+        return this.adoptLiveSession(res.sessionId, { placeholder: ph, cwd: res.cwd ?? ph.cwd });
       }
+      ph.status = 'failed';
+      this.mutateSlot(ph.id, (s) => ({ ...s, running: false, lastError: res.error }));
       return { ok: false, error: res.error };
     }
     // Promote placeholder → live slot. Preserve openedAt so tab position is
     // stable across the resume.
-    const promoted = emptySlot(res.sessionId, res.cwd, this.defaultBackendId ?? 'claude-code');
+    const promoted = emptySlot(res.sessionId, res.cwd, res.backendId ?? ph.resumeBackendId ?? this.defaultBackendId ?? 'claude-code');
     promoted.openedAt = ph.openedAt;
     promoted.greeting = effectiveGreeting;
     promoted.state = { ...promoted.state, running: true };
     this.slots.delete(placeholderSlotId);
     this.slots.set(res.sessionId, promoted);
-    this.activeId = res.sessionId;
+    this.restoreRemoteHostsForSlot(promoted, res.remoteHosts ?? []);
+    await this.reconcileRestoredFocus(placeholderSlotId, promoted);
+    this.replayEarlyEvents(promoted);
     this.notifyTabsOnly();
     this.notify(res.sessionId);
     void this.loadHistoryForSlot(promoted);
     return { ok: true, sessionId: res.sessionId };
   }
 
+  private async attachExisting(ph: SlotInternal, sessionId: string, cwd: string) {
+    // Renderer reload must attach to the actual meeting, without starting
+    // another model or leaving an active ID that has no renderer slot.
+    try {
+      const eventsBeforeSnapshot = this.earlyEvents.get(sessionId)?.length ?? 0;
+      const hosts = await window.vibeMeet.sessions.listHosts(sessionId);
+      if (!hosts.ok) throw new Error(hosts.error);
+      if (this.slots.get(ph.id) !== ph) return { ok: false, error: '恢复已取消' };
+      const live = emptySlot(sessionId, cwd, hosts.hosts.find((host) => host.id === 'default')?.backendId ?? this.defaultBackendId ?? 'claude-code');
+      live.openedAt = ph.openedAt;
+      this.slots.delete(ph.id);
+      this.slots.set(live.id, live);
+      for (const host of hosts.hosts) {
+        this.handleIncomingEvent({ sessionId: live.id, source: 'system', hostId: host.id,
+          kind: 'host-added', backendId: host.backendId });
+      }
+      this.restoreRemoteHostsForSlot(live, hosts.hosts.filter((host) => host.remoteTarget)
+        .map((host) => ({ id: host.id, remoteTarget: host.remoteTarget! })));
+      const buffered = this.earlyEvents.get(sessionId) ?? [];
+      this.earlyEvents.delete(sessionId);
+      // Events received before the query are already reflected in its snapshot.
+      // Apply them first; events arriving while it was in flight come last.
+      for (const event of buffered.slice(0, eventsBeforeSnapshot)) this.handleIncomingEvent(event);
+      for (const host of hosts.hosts) if (host.ready) this.handleIncomingEvent({ sessionId: live.id, source: 'system', hostId: host.id, kind: 'session-ready' });
+      const primary = hosts.hosts.find((host) => host.id === 'default');
+      if (primary?.phase === 'ended') {
+        live.status = 'ready'; // Ready transport has ended; expose continuation.
+        live.state = { ...live.state, running: false };
+      } else if (primary?.phase === 'failed') {
+        this.handleIncomingEvent({ sessionId: live.id, source: 'system', hostId: 'default', kind: 'session-start-failed', error: primary.error ?? '会议主持人不可用，请重试。' });
+      }
+      for (const event of buffered.slice(eventsBeforeSnapshot)) this.handleIncomingEvent(event);
+      void window.vibeMeet.sessions.republish?.(live.id).catch(() => {});
+      await this.reconcileRestoredFocus(ph.id, live);
+      this.notifyTabsOnly(); this.notify(live.id);
+      void this.loadHistoryForSlot(live);
+      return { ok: true, sessionId };
+    } catch (error) {
+      ph.status = 'failed';
+      this.mutateSlot(ph.id, (s) => ({ ...s, running: false, lastError: String(error) }));
+      return { ok: false, error: String(error) };
+    }
+  }
+
+  private async reconcileRestoredFocus(placeholderSlotId: string, live: SlotInternal) {
+    if (this.activeId === placeholderSlotId) {
+      this.activeId = live.id;
+      return;
+    }
+    // sessions.open focuses its result in main, including duplicate replies.
+    // A delayed restore must put main back on the user's current real tab.
+    const selected = this.activeId && this.slots.get(this.activeId);
+    if (!selected || selected.placeholder) return;
+    try {
+      const result = await window.vibeMeet.sessions.setActive(selected.id);
+      if (!result.ok) throw new Error(result.error);
+    } catch (error) {
+      this.mutateSlot(live.id, (s) => ({ ...s, lastError: `恢复焦点失败：${String(error)}` }));
+    }
+  }
+
   async setActive(id: string): Promise<void> {
     const slot = this.slots.get(id);
     if (!slot) return;
+    const revision = ++this.selectionRevision;
     // Switch main first, then flip local activeId. If we set activeId
     // synchronously and then await the IPC, any event main emits between the
     // local switch and the main-process switch lands in the wrong slot
     // (renderer's activeId already pointing at the new id while main still
     // routes its events to the old one, or vice-versa). Bail without
     // switching when the IPC fails so we don't desync.
-    if (!slot.placeholder) {
+    // A room window never moves the main window's focus; every call it makes
+    // carries its sessionId explicitly.
+    if (!slot.placeholder && !isRoomWindow()) {
       try {
         const res = await window.vibeMeet.sessions.setActive(id);
         if (!res || res.ok === false) {
@@ -1310,6 +1507,7 @@ class MeetingStore {
         return;
       }
     }
+    if (this.slots.get(id) !== slot || revision !== this.selectionRevision) return;
     // C1: status announcements queued for the slot we're leaving must not
     // play after the switch — they'd describe the wrong meeting. Drop them
     // (and the pending retry timer) on every context flip.
@@ -1340,6 +1538,13 @@ class MeetingStore {
   async closeTab(id: string): Promise<void> {
     const slot = this.slots.get(id);
     if (!slot) return;
+    this.restoreRevision++;
+    this.retiredIds.add(id);
+    this.slots.delete(id);
+    if (this.activeId === id) {
+      this.activeId = [...this.slots.values()].sort((a, b) => b.openedAt - a.openedAt)[0]?.id ?? null;
+    }
+    this.notifyTabsOnly();
     if (!slot.placeholder) {
       // Bound the wait: if main-side teardown stalls, an unbounded await here
       // wedges the meeting view (the user can only escape by reloading the
@@ -1358,11 +1563,12 @@ class MeetingStore {
       } finally {
         if (timer) clearTimeout(timer);
       }
-    }
-    this.slots.delete(id);
-    if (this.activeId === id) {
-      const next = [...this.slots.values()].sort((a, b) => b.openedAt - a.openedAt)[0];
-      this.activeId = next ? next.id : null;
+    } else {
+      const result = await window.vibeMeet.sessions.forgetRestored(slot.cwd);
+      if (!result.ok) {
+        if (result.sessionId) { this.retiredIds.add(result.sessionId); await window.vibeMeet.sessions.close(result.sessionId); }
+        else throw new Error(result.error ?? '无法移除恢复记录');
+      }
     }
     // Reflect closure into recents so the Lobby shows the just-closed cwd
     // near the top. Main writes the canonical copy via sessions:close.
@@ -1394,7 +1600,13 @@ class MeetingStore {
     }
     if (!targetId) return;
     const slot = this.slots.get(targetId);
-    if (!slot || slot.placeholder) return;
+    if (!slot || slot.placeholder) {
+      if (!slot && sessionId && !this.retiredIds.has(sessionId) && this.opening.size && this.earlyEvents.size < 32) {
+        const events = this.earlyEvents.get(sessionId) ?? [];
+        if (events.length < 100) this.earlyEvents.set(sessionId, [...events, e]);
+      }
+      return;
+    }
     this.handleEventForSlot(slot, e);
   }
 
@@ -1433,6 +1645,19 @@ class MeetingStore {
       });
       return;
     }
+    if (e.kind === 'meeting-notes-updated') {
+      this.mutateSlot(slot.id, (s) => ({ ...s, meetingNotes: { notes: e.notes, updatedAt: e.updatedAt } }));
+      return;
+    }
+    if (e.kind === 'task-owner-assigned') {
+      const hostId = e.hostId ?? 'default';
+      this.mutateSlot(slot.id, (s) => {
+        const ownedTasks = new Map(s.ownedTasks ?? []);
+        ownedTasks.set(e.taskId, { hostId, title: e.title });
+        return { ...s, ownedTasks };
+      });
+      return;
+    }
     if (e.kind === 'host-added') {
       // Upsert the host group so the Participants gallery can render its tile.
       // Live invites already seed it optimistically in addHostGroup(); on
@@ -1440,8 +1665,9 @@ class MeetingStore {
       const hostId = e.hostId ?? 'default';
       this.mutateSlot(slot.id, (s) => {
         const existing = s.hostGroups.get(hostId);
-        if (existing?.backendId === e.backendId) return s;
+        if (existing?.backendId === e.backendId && (!e.profile || existing.profile)) return s;
         const hostGroups = new Map(s.hostGroups);
+        const profile = e.profile ?? existing?.profile;
         hostGroups.set(hostId, {
           id: hostId,
           backendId: e.backendId,
@@ -1449,6 +1675,7 @@ class MeetingStore {
           hostWorkerId: `host-${hostId}`,
           workerIds: existing?.workerIds ?? [],
           collapsed: existing?.collapsed ?? true,
+          ...(profile ? { profile } : {}),
         });
         return { ...s, hostGroups };
       });
@@ -1496,8 +1723,16 @@ class MeetingStore {
       }
       return;
     }
+    if ((e.kind === 'session-ready' || e.kind === 'session-start-failed') && e.hostId && e.remoteTarget) {
+      this.restoreRemoteHostsForSlot(slot, [{ id: e.hostId, remoteTarget: e.remoteTarget }]);
+    }
     if (e.kind === 'session-ready') {
-      slot.status = 'ready';
+      if (e.hostId && slot.state.hostGroups.get(e.hostId)?.remoteTarget) {
+        this.setRemoteReady(slot, e.hostId, true);
+        this.updateWorker(slot, 'talker', (w) => ({ ...w, status: 'running', endedAt: null }), e.hostId);
+        return;
+      }
+      if (!e.hostId || e.hostId === 'default') slot.status = 'ready';
       // For non-default hosts, create a talker WorkerState so the participant
       // panel shows the host as active instead of stuck at "Connecting…".
       const hostId = e.hostId ?? 'default';
@@ -1513,7 +1748,7 @@ class MeetingStore {
               status: 'running',
             });
           }
-          return { ...s, workers, running: true, lastError: null };
+          return { ...s, workers };
         });
       } else {
         this.mutateSlot(slot.id, (s) => {
@@ -1523,6 +1758,7 @@ class MeetingStore {
           return { ...s, workers, running: true, lastError: null };
         });
       }
+      if (hostId !== 'default') return;
       const pending = slot.pendingInput;
       slot.pendingInput = [];
       if (pending.length > 0) {
@@ -1558,6 +1794,17 @@ class MeetingStore {
       return;
     }
     if (e.kind === 'session-start-failed') {
+      if (e.hostId && e.hostId !== 'default' && slot.state.hostGroups.get(e.hostId)?.remoteTarget) {
+        this.setRemoteReady(slot, e.hostId, false);
+        this.updateWorker(slot, 'talker', (w) => ({ ...w, status: 'failed', lastText: e.error }), e.hostId);
+        this.mutateSlot(slot.id, (s) => ({ ...s, lastError: `${this.workerLabel(slot, 'talker', e.hostId)}：${e.error}` }));
+        return;
+      }
+      if (e.hostId && e.hostId !== 'default') {
+        this.updateWorker(slot, 'talker', (w) => ({ ...w, status: 'failed', lastText: e.error }), e.hostId);
+        this.mutateSlot(slot.id, (s) => ({ ...s, lastError: e.error }));
+        return;
+      }
       slot.status = 'failed';
       slot.pendingInput = [];
       this.mutateSlot(slot.id, (s) => ({ ...s, running: false, lastError: e.error }));
@@ -1861,6 +2108,10 @@ class MeetingStore {
       return;
     }
     if (e.kind === 'auth-required') {
+      if (source === 'talker' && (!e.hostId || e.hostId === 'default')) {
+        slot.status = 'failed';
+        slot.pendingInput = [];
+      }
       this.updateWorker(slot, source, (w) => ({
         ...w,
         status: 'idle',
@@ -1891,6 +2142,11 @@ class MeetingStore {
       return;
     }
     if (e.kind === 'ended') {
+      if (source === 'talker' && (!e.hostId || e.hostId === 'default')) {
+        if (slot.status !== 'failed') slot.status = 'ready';
+        slot.pendingInput = [];
+        this.mutateSlot(slot.id, (s) => ({ ...s, running: false }));
+      }
       slot.endedSources.add(source);
       this.updateWorker(slot, source, (w) => ({
         ...w,
@@ -2444,18 +2700,19 @@ class MeetingStore {
         ...w,
         activity: appendCapped(
           w.activity,
-          [{ id: uid(), kind: 'system', title: 'Worker turn complete', detail: msg?.subtype ?? '', ts: Date.now(), source }],
+          [{ id: uid(), kind: 'system', title: '本轮完成', detail: msg?.subtype ?? '', ts: Date.now(), source }],
           MAX_ACTIVITY,
         ),
       }));
       return;
     }
-    if (type === 'system') {
+    // thinking_tokens is a high-frequency progress counter, not activity.
+    if (type === 'system' && msg?.subtype !== 'thinking_tokens') {
       this.updateWorker(slot, source, (w) => ({
         ...w,
         activity: appendCapped(
           w.activity,
-          [{ id: uid(), kind: 'system', title: 'System', detail: msg?.subtype ?? '', ts: Date.now(), source }],
+          [{ id: uid(), kind: 'system', title: '系统', detail: msg?.subtype ?? '', ts: Date.now(), source }],
           MAX_ACTIVITY,
         ),
       }));
@@ -2544,51 +2801,62 @@ class MeetingStore {
 
   // --- Active-slot send API (back-compat for components/hooks) --------------
 
+  async continueMeeting(id: string): Promise<{ ok: boolean; error?: string }> {
+    const slot = this.slots.get(id);
+    if (!slot) return { ok: false, error: '项目记录已关闭' };
+    if (slot.placeholder) return this.resumePlaceholder(id);
+    if (slot.status === 'failed') return this.retryFailedTab(id);
+    if (slot.status === 'starting' || slot.state.running) return { ok: true };
+    slot.status = 'failed';
+    return this.retryFailedTab(id);
+  }
+
   async restartSession() {
     const id = this.activeId;
     if (!id) return;
     const slot = this.slots.get(id);
     if (!slot || slot.placeholder) return;
-    const cwd = slot.cwd;
-    const greeting = slot.greeting;
-    slot.intendedExit = true;
-    try { await window.vibeMeet.endSession(id); } catch (err) {
-      console.warn('[meeting-store] endSession (restart) failed', { id, err });
-    }
-    try { await window.vibeMeet.sessions.close(id); } catch (err) {
-      console.warn('[meeting-store] sessions.close (restart) failed', { id, err });
-    }
-    // C1: tearing down the active slot — drop its queued announcements so they
-    // don't fire into the freshly reopened session.
+    const pending = this.opening.get(slot.cwd);
+    if (pending) return pending;
+    slot.status = 'failed';
     this.announceQueue = [];
     this.clearAnnounceTimer();
-    this.slots.delete(id);
-    this.activeId = null;
-    this.notifyTabsOnly();
-    await this.openSession(cwd, greeting);
+    return this.retryFailedTab(id);
   }
 
   /** Retry a failed slot: drop the dead slot and re-open the same cwd. The
    *  TabStrip exposes this on tabs whose status is 'failed'. */
   async retryFailedTab(id: string): Promise<{ ok: boolean; error?: string }> {
     const slot = this.slots.get(id);
-    if (!slot || slot.placeholder) return { ok: false, error: 'not-found' };
+    if (!slot) return { ok: false, error: 'not-found' };
+    const pending = this.opening.get(slot.cwd);
+    if (pending) return pending;
+    if (slot.placeholder) return this.resumePlaceholder(id);
     if (slot.status !== 'failed') return { ok: false, error: 'not-failed' };
     const cwd = slot.cwd;
     const greeting = slot.greeting;
-    try { await window.vibeMeet.sessions.close(id); } catch (err) {
-      console.warn('[meeting-store] sessions.close (retry) failed', { id, err });
-    }
+    const ph = { ...emptySlot(placeholderId(cwd), cwd), placeholder: true,
+      openedAt: slot.openedAt,
+      resumeBackendId: slot.state.hostGroups.get('default')?.backendId,
+      remoteHosts: [...slot.state.hostGroups.values()].filter((host) => host.remoteTarget)
+        .map((host) => ({ id: host.id, remoteTarget: host.remoteTarget! })),
+    };
+    this.retiredIds.add(id);
     this.slots.delete(id);
-    if (this.activeId === id) {
-      // C1: only the active slot owns the announce queue; drop it so stale
-      // status lines don't replay into the reopened session.
-      this.announceQueue = [];
-      this.clearAnnounceTimer();
-      this.activeId = null;
-    }
-    this.notifyTabsOnly();
-    return this.openSession(cwd, greeting);
+    this.slots.set(ph.id, ph);
+    if (this.activeId === id) this.activeId = ph.id;
+    this.restoreRemoteHostsForSlot(ph, ph.remoteHosts);
+    return this.trackOpening(cwd, async () => {
+      try { await window.vibeMeet.sessions.close(id); } catch (err) {
+        console.warn('[meeting-store] sessions.close (retry) failed', { id, err });
+      }
+      try { return await this.resumePlaceholderImpl(ph, greeting); }
+      catch (error) {
+        ph.status = 'failed';
+        this.mutateSlot(ph.id, (s) => ({ ...s, lastError: String(error), running: false }));
+        return { ok: false, error: String(error) };
+      }
+    });
   }
 
   /** Returns the active live (non-placeholder) slot regardless of ready
@@ -2601,11 +2869,35 @@ class MeetingStore {
     return slot;
   }
 
+  private setRemoteReady(slot: SlotInternal, hostId: string, ready: boolean) {
+    this.mutateSlot(slot.id, (s) => {
+      const hostGroups = new Map(s.hostGroups);
+      const host = hostGroups.get(hostId);
+      if (host) hostGroups.set(hostId, { ...host, remoteReady: ready });
+      return { ...s, hostGroups };
+    });
+  }
+
+  private remoteInputError(slot: SlotInternal, text: string, attachments = false): string | null {
+    const ids = remoteMentionIds(text, [...slot.state.hostGroups.values()], attachments);
+    let error: string | null = null;
+    if (attachments && (ids.length || slot.state.hostGroups.get(slot.state.coordinatorHostId)?.backendId === 'pocket-vibe')) error = REMOTE_ATTACHMENT_ERROR;
+    else if (ids.length > 1) error = '请一次明确点名一个远端成员，本次未执行。';
+    else if (ids.length) {
+      const host = slot.state.hostGroups.get(ids[0]);
+      if (!host?.remoteTarget) error = '所点名的远端成员不可用或不唯一，请重新选择；本次未执行。';
+      else if (!host.remoteReady) error = `远端成员「${host.remoteTarget.title}」尚未就绪，请检查连接状态后重试；本次未执行。`;
+    }
+    if (error) this.mutateSlot(slot.id, (s) => ({ ...s, lastError: error }));
+    return error;
+  }
+
   async sendText(text: string, options?: { displayText?: string }) {
     if (!text.trim()) return;
     const slot = this.activeLiveSlot();
     if (!slot) return;
     if (slot.status === 'failed') return;
+    if (this.remoteInputError(slot, text)) return;
     const entryId = uid();
     // displayText keeps mode directives (e.g. multi-agent) out of the chat bubble
     // while still shipping the full prompt to the model.
@@ -2641,6 +2933,7 @@ class MeetingStore {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[meeting-store] sendText failed:', msg);
+      this.mutateSlot(slot.id, (s) => ({ ...s, lastError: msg }));
       this.updateWorker(slot, 'talker', (w) => ({
         ...w,
         responding: false,
@@ -2657,6 +2950,7 @@ class MeetingStore {
     const slot = this.activeLiveSlot();
     if (!slot) return;
     if (slot.status === 'failed') return;
+    if (this.remoteInputError(slot, caption, true)) return;
     const entryId = uid();
     const entry: TranscriptEntry = {
       id: entryId,
@@ -2706,6 +3000,8 @@ class MeetingStore {
     const slot = this.activeLiveSlot();
     if (!slot) return { ok: false, error: 'No active session' };
     if (slot.status === 'failed') return { ok: false, error: 'Session failed to start' };
+    const remoteError = this.remoteInputError(slot, text, staged.length > 0);
+    if (remoteError) return { ok: false, error: remoteError };
     const meta: AttachmentMeta[] = staged.map((a) => ({ name: a.name, kind: a.kind, sizeBytes: a.sizeBytes }));
     const visibleRaw = options?.displayText ?? text;
     const transcriptText = visibleRaw.trim().length > 0
@@ -2861,7 +3157,8 @@ class MeetingStore {
       ...w,
       activity: appendCapped(
         w.activity,
-        [{ id: uid(), kind: 'system', title: 'Interrupted', ts: Date.now() }],
+        [{ id: uid(), kind: 'system', title: [...slot.state.hostGroups.values()].some((host) => host.remoteTarget?.owner_id)
+          ? '远端停止已请求；以对应成员的进程退出确认反馈为准' : 'Interrupted', ts: Date.now() }],
         MAX_ACTIVITY,
       ),
     }));
@@ -2992,12 +3289,13 @@ class MeetingStore {
   async decidePendingPlan(
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.effectiveSessionId();
     if (!id) return { ok: false, error: 'No active session' };
     const slot = this.slots.get(id);
     if (!slot?.state.pendingPlan) return { ok: false, error: 'No pending plan' };
-    const result = await window.vibeMeet.approvePlan(id, approved, tasks);
+    const result = await window.vibeMeet.approvePlan(id, approved, tasks,brief);
     if (result.ok) {
       this.mutateSlot(id, (state) => ({
         ...state,
@@ -3030,10 +3328,13 @@ class MeetingStore {
   }
 
   /** Add a host group to the active slot via IPC. */
-  async addHostGroup(backendId: string): Promise<{ ok: boolean; hostId?: string; error?: string }> {
+  async addHostGroup(backendId: string, remoteTarget?: PocketVibeRemoteTarget): Promise<{ ok: boolean; hostId?: string; error?: string }> {
     const slot = this.getActiveSlot();
+    if (!slot || slot.placeholder || slot.status !== 'ready' || !slot.state.running) {
+      return { ok: false, error: '请先继续会议并等待会议就绪' };
+    }
     const sessionId = slot?.id ?? null;
-    const result = await window.vibeMeet.sessions.addHost(sessionId, backendId).catch(
+    const result = await window.vibeMeet.sessions.addHost(sessionId, backendId, undefined, remoteTarget).catch(
       (err: unknown) => ({ ok: false as const, error: String(err), hostId: '' }),
     );
     if (!result.ok) return { ok: false, error: result.error };
@@ -3045,20 +3346,47 @@ class MeetingStore {
         hostGroups.set(result.hostId, {
           id: result.hostId,
           backendId,
+          ...(remoteTarget ? { remoteTarget: hostGroups.get(result.hostId)?.remoteTarget ?? remoteTarget,
+            remoteReady: hostGroups.get(result.hostId)?.remoteReady ?? false } : {}),
           iconId: iconIdForBackend(backendId),
           hostWorkerId: `host-${result.hostId}`,
           workerIds: [],
           collapsed: true,
         });
-        return { ...s, hostGroups };
+        const workers = new Map(s.workers);
+        if (remoteTarget) {
+          const key = `talker:${result.hostId}`;
+          workers.set(key, { ...(workers.get(key) ?? createTalkerState()), id: 'talker', hostId: result.hostId, title: remoteSessionLabel(remoteTarget) });
+        }
+        return { ...s, hostGroups, workers };
       });
     }
     return { ok: true, hostId: result.hostId };
   }
 
+  /** Hydrate restored remote member references into the originating tab. */
+  private restoreRemoteHostsForSlot(slot: SlotInternal, hosts: PocketVibeRemoteHost[]): void {
+    if (!hosts.length) return;
+    this.mutateSlot(slot.id, (s) => {
+      const hostGroups = new Map(s.hostGroups);
+      const workers = new Map(s.workers);
+      for (const host of hosts) {
+        hostGroups.set(host.id, {
+          id: host.id, backendId: 'pocket-vibe', remoteTarget: host.remoteTarget,
+          remoteReady: hostGroups.get(host.id)?.remoteReady ?? false,
+          iconId: iconIdForBackend('pocket-vibe'), hostWorkerId: `host-${host.id}`, workerIds: [], collapsed: true,
+        });
+        const key = `talker:${host.id}`;
+        workers.set(key, { ...(workers.get(key) ?? createTalkerState()), id: 'talker', hostId: host.id, title: remoteSessionLabel(host.remoteTarget) });
+      }
+      return { ...s, hostGroups, workers };
+    });
+  }
+
   /** Remove a host group from the active slot via IPC. */
   async removeHostGroup(hostId: string): Promise<{ ok: boolean; error?: string }> {
     const slot = this.getActiveSlot();
+    if (!slot || slot.placeholder) return { ok: false, error: '会议尚未启动' };
     const sessionId = slot?.id ?? null;
     const result = await window.vibeMeet.sessions.removeHost(sessionId, hostId).catch(
       (err: unknown) => ({ ok: false as const, error: String(err) }),

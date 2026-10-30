@@ -14,6 +14,7 @@ process.once('exit', () => rmSync(TEST_USER_DATA_DIR, { recursive: true, force: 
 export const app = {
   getPath: () => TEST_USER_DATA_DIR,
   isPackaged: false,
+  whenReady: async () => {},
 };
 export const ipcMain = { handle: () => {}, on: () => {} };
 export const desktopCapturer = {};
@@ -23,12 +24,25 @@ export const systemPreferences = {
 };
 export const shell = { openExternal: async () => {} };
 export const dialog = { showMessageBox: async () => ({ response: 1 }) };
+export const clipboard = { writeText: () => {} };
 export const BrowserWindow = class {
   static getFocusedWindow() { return null; }
 };
-export const safeStorage = { encryptString: () => Buffer.alloc(0), decryptString: () => '' };
+export const safeStorage = {
+  // Async and sync APIs share one reversible test format so stores that mix
+  // them (async writes, sync reads) round-trip; tests that need other
+  // behaviour override these on the imported module.
+  isAsyncEncryptionAvailable: async () => true,
+  encryptStringAsync: async (value) => Buffer.from(`test-encrypted:${value}`),
+  decryptStringAsync: async (value) => ({ result: value.toString().replace('test-encrypted:', ''), shouldReEncrypt: false }),
+  isEncryptionAvailable: () => true,
+  getSelectedStorageBackend: () => 'gnome_libsecret',
+  encryptString: (value) => Buffer.from(`test-encrypted:${value}`),
+  decryptString: (value) => value.toString().replace('test-encrypted:', ''),
+};
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };
-export const webContents = { fromId: () => null };
+export const webContents = { fromId: () => null, getAllWebContents: () => [] };
+export const net = { fetch: (...args) => globalThis.fetch(...args) };
 
-export default { app, ipcMain, dialog, desktopCapturer, systemPreferences, shell, BrowserWindow, safeStorage, screen, nativeTheme, webContents };
+export default { app, ipcMain, dialog, desktopCapturer, systemPreferences, shell, BrowserWindow, safeStorage, screen, nativeTheme, webContents, net };

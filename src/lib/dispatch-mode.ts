@@ -2,12 +2,12 @@
 export type DispatchMode = 'direct' | 'plan';
 
 export const DISPATCH_MODE_LABELS: Record<DispatchMode, string> = {
-  direct: '直接派活',
+  direct: '与 Host 交流',
   plan: 'Plan 模式',
 };
 
 export const DISPATCH_MODE_HINTS: Record<DispatchMode, string> = {
-  direct: '单任务立即 delegate_task，更快',
+  direct: 'Host 判断是否需要任务，计划另行批准',
   plan: '先写详细计划再拆 worker DAG，需审批',
 };
 

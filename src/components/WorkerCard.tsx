@@ -18,6 +18,8 @@ interface WorkerCardProps {
   iconId?: string;
   /** Custom avatar image URL (overrides iconId). */
   customAvatar?: string | null;
+  /** Gallery badge: 助理 for the coordinator, 职能＋名字 for experts (AME-D14). */
+  roleLabel?: string;
 }
 
 const statusTone: Record<WorkerState['status'], 'idle' | 'waiting' | 'working' | 'done' | 'failed'> = {
@@ -66,6 +68,7 @@ export const WorkerCard = memo(function WorkerCard({
   onOpenTerminal,
   iconId,
   customAvatar,
+  roleLabel,
 }: WorkerCardProps) {
   const isTalker = worker.role === 'talker';
   const tone = statusTone[worker.status];
@@ -99,7 +102,7 @@ export const WorkerCard = memo(function WorkerCard({
 
   if (mode === 'gallery') {
     const label = statusLabel(worker, Boolean(speaking));
-    const roleName = isTalker ? 'Talker' : 'Worker';
+    const roleName = roleLabel ?? (isTalker ? 'Talker' : 'Worker');
 
     return (
       <div className={className} role="group" aria-label={`${worker.title}，${label}`}>

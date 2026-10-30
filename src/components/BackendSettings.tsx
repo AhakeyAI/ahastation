@@ -358,7 +358,7 @@ export function BackendSettings() {
     <div className="backend-settings">
       <div className="drawer-settings-row">
         <div className="drawer-settings-label">
-          <div className="drawer-settings-title">后端管理 · Backends</div>
+          <div className="drawer-settings-title">账号与认证</div>
           <div className="drawer-settings-hint">
             配置各 CLI 后端的认证信息。已认证的后端可作为会议 Host 使用。
           </div>
@@ -568,8 +568,9 @@ export function BackendSettings() {
         </div>
       )}
 
+      {activeBackend?.id === 'pocket-vibe' && <p>电脑配对和远端身份请在 <a href="#remote-control-settings">远端控制设置</a> 管理；凭证不是模型 API Key。</p>}
       {/* Active backend detail card */}
-      {activeBackend && (
+      {activeBackend && activeBackend.id !== 'pocket-vibe' && (
         <>
           {activeBackend.id.startsWith('custom-') && (
             <div className="backend-card-remove-row">
@@ -881,7 +882,7 @@ function BackendCard({
                 className="backend-btn backend-btn-sm"
                 onClick={onCheckAuth}
                 disabled={loginStatus === 'pending'}
-                style={{ marginLeft: 8 }}
+                style={{ marginTop: 6 }}
               >
                 检查登录状态
               </button>

@@ -9,9 +9,12 @@
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
+    "contracts/collaboration/v1.schema.json",
+    "contracts/collaboration/v2.schema.json",
     "package.json"
   ],
   "asarUnpack": [
+    "dist-electron/terminal-daemon/windows-pipe-acl.ps1",
     "**/node_modules/@anthropic-ai/**/*",
     "**/node_modules/@openai/codex-darwin-*/**/*",
     "**/node_modules/@openai/codex-linux-*/**/*",
@@ -23,12 +26,34 @@
     "dist/voice-id/**/*"
   ],
   "extraResources": [
-    { "from": "build/claude-defaults", "to": "claude-defaults", "filter": ["**/*"] }
+    {
+      "from": "build/station-native",
+      "to": "station-native",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
+      "from": "resources/remote-service.json",
+      "to": "remote-service.json"
+    },
+    {
+      "from": "build/claude-defaults",
+      "to": "claude-defaults",
+      "filter": [
+        "**/*"
+      ]
+    }
   ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": [
-      { "target": "dmg", "arch": ["arm64"] }
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      }
     ],
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
@@ -44,7 +69,12 @@
   },
   "win": {
     "target": [
-      { "target": "nsis", "arch": ["x64", "arm64"] }
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
     ],
     "icon": "build/icon.ico"
   },

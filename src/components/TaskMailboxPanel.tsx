@@ -1,3 +1,4 @@
+import {SharedScopeRevision} from './SharedScopeRevision';
 import { useMemo, useState } from 'react';
 import { CornerDownRight, Octagon, Route } from 'lucide-react';
 import type { RendererTaskSnapshot, TaskMessage } from '../types';
@@ -28,10 +29,16 @@ export function TaskMailboxPanel({
   sessionId,
   taskId,
   snapshot,
+  readOnly = false,
+  coordinatorLabel,
 }: {
   sessionId: string;
   taskId: string;
   snapshot: RendererTaskSnapshot;
+  /** Hide follow-up / steering / interrupt (expert sub-agent tab: the expert directs it). */
+  readOnly?: boolean;
+  /** Who 'coordinator' messages come from here (an expert directing its sub-agent). */
+  coordinatorLabel?: string;
 }) {
   const [followUp, setFollowUp] = useState('');
   const [steering, setSteering] = useState('');
@@ -68,7 +75,7 @@ export function TaskMailboxPanel({
 
   return (
     <div className="task-mailbox-panel">
-      <section className="task-control-stack" aria-label="Task message controls">
+      {!readOnly && <section className="task-control-stack" aria-label="Task message controls">
         <label>
           <span><CornerDownRight size={14} /> Follow-up</span>
           <textarea
@@ -132,7 +139,7 @@ export function TaskMailboxPanel({
           <Octagon size={14} /> Interrupt Task
         </button>
         {feedback && <p className="task-control-feedback" role="status">{feedback}</p>}
-      </section>
+      </section>}
 
       <section className="task-message-list" aria-label="Task mailbox">
         <header>
@@ -146,7 +153,7 @@ export function TaskMailboxPanel({
             {messages.map((message) => (
               <li key={message.id}>
                 <div>
-                  <strong>{message.sender}</strong>
+                  <strong>{message.sender === 'coordinator' && coordinatorLabel ? coordinatorLabel : message.sender}</strong>
                   <span>{message.kind}</span>
                   <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
                 </div>
@@ -161,4 +168,16 @@ export function TaskMailboxPanel({
       </section>
     </div>
   );
+}
+import type {SharedEntity} from '../../electron/collaboration/production-types';
+import {sharedCommand} from '../lib/unified-meeting-store';
+import {perform} from './UnifiedMeetingParts';
+
+export function SharedTaskMailbox({task}:{task:SharedEntity}){
+  const [text,setText]=useState('');
+  const canContinue=task.status==='stopped'||(task.stopRequested===true||Number(task.scopeVersion??0)>Number((task.delivery as {scopeVersion?:number}|undefined)?.scopeVersion??0))&&task.exitConfirmed===true&&['executed','delivery-pending','delivered'].includes(String(task.status));
+  const pending=(task.pendingFollowups??[]) as Array<{id:string;text:string;delivered:boolean;ignored?:boolean}>;
+  const [decisions,setDecisions]=useState<Record<string,'include'|'ignore'>>({});
+  const [edits,setEdits]=useState<Record<string,string>>({});
+  return <section><h3>此任务的补充与继续</h3><SharedScopeRevision task={task}/><p>当前范围版本 {String(task.scopeVersion??0)}；历史范围 {Array.isArray(task.scopeHistory)?task.scopeHistory.length:0} 版。</p><p>先保存，到交付边界再投递；停止后需核对并明确继续。</p>{pending.map(f=><p key={f.id}>{!f.delivered&&!f.ignored&&canContinue?<textarea value={edits[f.id]??f.text} onChange={e=>setEdits({...edits,[f.id]:e.target.value})}/>:f.text} · {f.delivered?'已投递':f.ignored?'已忽略':'已保存，尚未执行'}{!f.delivered&&!f.ignored&&<select value={decisions[f.id]??'include'} onChange={e=>setDecisions({...decisions,[f.id]:e.target.value as 'include'|'ignore'})}><option value="include">纳入继续</option><option value="ignore">忽略</option></select>}</p>)}<textarea value={text} onChange={e=>setText(e.target.value)} placeholder="只补充此项完整任务"/><button disabled={!text.trim()||task.status==='accepted'} onClick={()=>{perform(sharedCommand('task.control',{taskId:task.id,attemptId:task.attemptId,operation:'supplement',text}));setText('');}}>保存此任务补充</button>{canContinue&&<button onClick={()=>perform(sharedCommand('task.control',{taskId:task.id,attemptId:task.attemptId,operation:'continue',expectedScopeVersion:Number(task.scopeVersion??0),text:String(task.objective),followups:pending.filter(f=>!f.delivered&&!f.ignored).map(f=>({id:f.id,action:decisions[f.id]??'include',text:edits[f.id]??f.text}))}))}>核对后继续原任务</button>}</section>;
 }

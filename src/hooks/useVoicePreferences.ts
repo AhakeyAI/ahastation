@@ -7,7 +7,9 @@ import type { XfyunAsrCredentials } from '../types';
 
 const DEFAULT_XFYUN_ASR: XfyunAsrCredentials = { appId: '', apiKey: '', apiSecret: '' };
 
-export function useVoicePreferences() {
+/** `autoOpenGuide: false` keeps the voice guide closed until the user asks
+ *  (secondary windows such as Settings would otherwise each pop it). */
+export function useVoicePreferences({ autoOpenGuide = true }: { autoOpenGuide?: boolean } = {}) {
   const [selectedVoiceName, setSelectedVoiceNameState] = useState<string | null>(null);
   const [guidanceDismissed, setGuidanceDismissed] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -71,7 +73,7 @@ export function useVoicePreferences() {
   }, [voicesReady]);
 
   useEffect(() => {
-    if (!isMac || !voicesReady || !prefLoaded) return;
+    if (!autoOpenGuide || !isMac || !voicesReady || !prefLoaded) return;
     const chineseAny = listChineseVoices(voices).length > 0;
     const hasPremium = hasPremiumChineseVoice(voices);
     if (hasPremium || guidanceDismissed) {
@@ -81,7 +83,7 @@ export function useVoicePreferences() {
     if (!guidanceClosedThisSession && chineseAny) {
       setGuideOpen(true);
     }
-  }, [isMac, voicesReady, voices, guidanceDismissed, guidanceClosedThisSession, prefLoaded]);
+  }, [autoOpenGuide, isMac, voicesReady, voices, guidanceDismissed, guidanceClosedThisSession, prefLoaded]);
 
   const handleVoiceChange = useCallback((name: string | null) => {
     setSelectedVoiceNameState(name);

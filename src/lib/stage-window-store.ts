@@ -3,8 +3,27 @@
 // useSyncExternalStore compatibility.
 
 import { browserStore } from './browser-store';
+import { terminalSessionStore } from './terminal-session-store';
+import type { ContinueSessionRequest } from '../types';
 
-export type StageWindowType = 'activity' | 'browser' | 'terminal' | 'file';
+export type StageWindowType = 'board' | 'activity' | 'browser' | 'terminal' | 'file';
+
+export interface StageWindowOptions {
+  workerId?: string;
+  title?: string;
+  /** Manual local terminal; 'shell' starts the default interactive shell. */
+  localCliId?: string;
+  shellId?: string;
+  cwd?: string;
+  /** Where the tab belongs: 'cli-workspace' or `meeting:<cwd>`. Unscoped tabs show everywhere. */
+  scope?: string;
+  /** Expert sub-agent tab (AME-D14): owning expert's hostId. */
+  subagentOwner?: string;
+  /** Local CLI tab that continues an observed session (first launch only). */
+  continueSession?: ContinueSessionRequest;
+  /** First prompt for a fresh local CLI tab (first launch only). */
+  initialPrompt?: string;
+}
 
 export interface StageWindow {
   id: string;
@@ -14,6 +33,13 @@ export interface StageWindow {
   filePath?: string;
   /** For terminal windows: the worker id whose activity should be displayed */
   workerId?: string;
+  localCliId?: string;
+  shellId?: string;
+  cwd?: string;
+  scope?: string;
+  subagentOwner?: string;
+  continueSession?: ContinueSessionRequest;
+  initialPrompt?: string;
 }
 
 export interface StageWindowState {
@@ -25,14 +51,24 @@ type Listener = () => void;
 
 let nextId = 1;
 function genId(): string {
-  return `sw-${Date.now()}-${nextId++}`;
+  // Terminal ids are main-process keys shared by every app window.
+  return `sw-${Date.now()}-${nextId++}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const ACTIVITY_TAB_ID = 'activity-default';
+export const BOARD_TAB_ID = 'board-default';
+export const ACTIVITY_TAB_ID = 'activity-default';
+
+/** Pinned tabs: the task board opens first; neither can be closed. */
+export function isPinnedStageWindow(id: string): boolean {
+  return id === BOARD_TAB_ID || id === ACTIVITY_TAB_ID;
+}
 
 const initialState: StageWindowState = {
-  windows: [{ id: ACTIVITY_TAB_ID, type: 'activity', title: '工作区' }],
-  activeWindowId: ACTIVITY_TAB_ID,
+  windows: [
+    { id: BOARD_TAB_ID, type: 'board', title: '任务看板' },
+    { id: ACTIVITY_TAB_ID, type: 'activity', title: '工作区' },
+  ],
+  activeWindowId: BOARD_TAB_ID,
 };
 
 class StageWindowStore {
@@ -58,9 +94,9 @@ class StageWindowStore {
     this.notify();
   }
 
-  async createWindow(type: StageWindowType, opts?: { workerId?: string; title?: string }): Promise<void> {
-    if (type === 'activity') {
-      this.setActiveWindow(ACTIVITY_TAB_ID);
+  async createWindow(type: StageWindowType, opts?: StageWindowOptions): Promise<void> {
+    if (type === 'board' || type === 'activity') {
+      await this.setActiveWindow(type === 'board' ? BOARD_TAB_ID : ACTIVITY_TAB_ID);
       return;
     }
 
@@ -103,7 +139,15 @@ class StageWindowStore {
         type: 'terminal',
         title: opts?.title ?? '终端',
         workerId: opts?.workerId,
+        localCliId: opts?.localCliId,
+        shellId: opts?.shellId,
+        cwd: opts?.cwd,
+        ...(opts?.scope ? { scope: opts.scope } : {}),
+        ...(opts?.subagentOwner ? { subagentOwner: opts.subagentOwner } : {}),
+        ...(opts?.continueSession ? { continueSession: opts.continueSession } : {}),
+        ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
       };
+      await browserStore.setVisible(false);
       this.update({
         windows: [...this.state.windows, window],
         activeWindowId: id,
@@ -119,9 +163,16 @@ class StageWindowStore {
   }
 
   async closeWindow(id: string): Promise<void> {
-    if (id === ACTIVITY_TAB_ID) return;
+    if (isPinnedStageWindow(id)) return;
     const win = this.state.windows.find((w) => w.id === id);
     if (!win) return;
+
+    if (win.localCliId) {
+      // The session owns create/terminate ordering and displays close failures.
+      // A never-mounted tab has no process to terminate.
+      try { await terminalSessionStore.close(win.id); }
+      catch { return; }
+    }
 
     if (win.type === 'browser' && win.browserTabId) {
       // Clean up the browser title subscription to prevent memory leak
@@ -138,7 +189,7 @@ class StageWindowStore {
     if (newActiveId === id) {
       newActiveId = newWindows.length > 0
         ? newWindows[newWindows.length - 1].id
-        : ACTIVITY_TAB_ID;
+        : BOARD_TAB_ID;
     }
 
     this.update({ windows: newWindows, activeWindowId: newActiveId });

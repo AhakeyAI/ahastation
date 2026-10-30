@@ -17,6 +17,21 @@
 }
 .aha-topbar > * { -webkit-app-region: no-drag; }
 
+.aha-topbar-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--aha-text-secondary);
+  cursor: pointer;
+}
+.aha-topbar-home:hover { background: var(--aha-bg-surface); color: var(--aha-text-primary); }
+.aha-topbar-home:focus-visible { outline: 2px solid var(--aha-info); outline-offset: 1px; }
 .aha-topbar-brand {
   font-size: var(--aha-fs-h2);
   font-weight: 600;
@@ -970,175 +985,3 @@
 }
 .aha-settings-upcoming-name { font-size: var(--aha-fs-body); font-weight: 600; color: var(--aha-text-primary); }
 .aha-settings-upcoming-desc { margin: 0; font-size: var(--aha-fs-caption); line-height: 1.5; color: var(--aha-text-secondary); }
-
-/* ---------- AhaBar 窗口（M5 / 04 §9.4） ---------- */
-html.ahabar-view,
-html.ahabar-view body {
-  background: transparent;
-  overflow: hidden;
-}
-html.ahabar-view #root { background: transparent; }
-
-.ahabar-root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  font-family: inherit;
-  transition: opacity var(--aha-dur-slow) var(--aha-ease-standard);
-}
-.ahabar-ghost { opacity: 0.35; }
-.ahabar-ghost * { transition: none !important; animation: none !important; }
-
-.ahabar { position: relative; display: flex; flex-direction: column; align-items: center; }
-
-/* compact 药丸：无循环动画，唯一的"活"是状态变化时的一次性过渡 */
-.ahabar-compact {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 32px;
-  min-height: 30px;
-  padding: 0 14px;
-  border-radius: var(--aha-r-pill);
-  background: var(--aha-bg-overlay);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--aha-border-subtle);
-  box-shadow: var(--aha-shadow-card);
-  font-size: var(--aha-fs-micro);
-  font-weight: 500;
-  color: var(--aha-text-primary);
-  -webkit-app-region: drag;
-  cursor: default;
-}
-.ahabar-seg { display: inline-flex; align-items: center; gap: 4px; }
-.ahabar-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.ahabar-dot-run { background: var(--aha-run); }
-.ahabar-dot-attend { background: var(--aha-attend); }
-
-/* hover 展开：200ms 进入延迟，400ms 收回（纯 CSS delay）；pinned 常开 */
-.ahabar-hovercard {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  width: 384px;
-  max-height: 300px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: var(--aha-r-xl);
-  background: var(--aha-bg-overlay);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--aha-border-subtle);
-  box-shadow: var(--aha-shadow-overlay);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity var(--aha-dur-base) var(--aha-ease-standard) 400ms,
-    transform var(--aha-dur-base) var(--aha-ease-standard) 400ms,
-    visibility 0s linear 600ms;
-}
-.ahabar:hover .ahabar-hovercard,
-.ahabar-pinned .ahabar-hovercard {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(0);
-  transition: opacity var(--aha-dur-base) var(--aha-ease-emphasis) 200ms,
-    transform var(--aha-dur-base) var(--aha-ease-emphasis) 200ms,
-    visibility 0s;
-}
-
-.ahabar-hover-path {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--aha-fs-micro);
-  font-weight: 500;
-  color: var(--aha-text-tertiary);
-}
-.ahabar-pin {
-  display: inline-flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--aha-text-tertiary);
-  cursor: pointer;
-  padding: 3px;
-  border-radius: var(--aha-r-sm);
-}
-.ahabar-pin:hover, .ahabar-pin.active { color: var(--aha-accent); background: var(--aha-accent-soft); }
-.ahabar-hover-calm {
-  padding: 14px 8px;
-  text-align: center;
-  font-size: var(--aha-fs-body);
-  color: var(--aha-text-secondary);
-}
-.ahabar-more {
-  border: 0;
-  background: transparent;
-  text-align: left;
-  font-size: var(--aha-fs-caption);
-  color: var(--aha-accent);
-  cursor: pointer;
-  padding: 4px 2px;
-}
-.ahabar-summary {
-  font-size: var(--aha-fs-micro);
-  color: var(--aha-text-tertiary);
-  border-top: 1px solid var(--aha-border-subtle);
-  padding-top: 8px;
-}
-
-/* 虚拟键盘（Key1-4，键帽质感 + 按压下沉） */
-.ahabar-vkb {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 14px;
-  border-radius: var(--aha-r-xl);
-  background: var(--aha-bg-overlay);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--aha-border-subtle);
-  box-shadow: var(--aha-shadow-overlay);
-  animation: aha-pop-in var(--aha-dur-base) var(--aha-ease-emphasis);
-}
-.ahabar-vkb-row { display: flex; gap: 10px; justify-content: center; }
-.ahabar-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  height: 40px;
-  border: 1px solid var(--aha-border-strong);
-  border-bottom-width: 3px;
-  border-radius: var(--aha-r-md);
-  background: var(--aha-bg-raised);
-  color: var(--aha-text-primary);
-  cursor: pointer;
-  transition: transform var(--aha-dur-fast) var(--aha-ease-standard),
-    border-bottom-width var(--aha-dur-fast) var(--aha-ease-standard);
-}
-.ahabar-key:active { transform: translateY(2px); border-bottom-width: 1px; }
-.ahabar-key-approve { color: var(--aha-run); border-color: var(--aha-run); }
-.ahabar-key-deny { color: var(--aha-danger); border-color: var(--aha-danger); }
-.ahabar-key-detail { color: var(--aha-danger); border-color: var(--aha-danger); font-weight: 700; }
-.ahabar-key-hold { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.ahabar-key-hold .aha-hold-btn { width: 52px; height: 32px; padding: 0; justify-content: center; }
-.ahabar-key-hold-hint { font-size: 9px; color: var(--aha-text-tertiary); }
-.ahabar-vkb-context {
-  text-align: center;
-  font-size: var(--aha-fs-micro);
-  color: var(--aha-text-tertiary);
-}
-.ahabar-vkb-takeover {
-  font-size: var(--aha-fs-caption);
-  color: var(--aha-run);
-  text-align: center;
-  padding: 4px 8px;
-}

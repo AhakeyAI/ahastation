@@ -6,6 +6,7 @@ import { useCrossProjectTasks } from './hooks/useCrossProjectTasks';
 import { useScreenShare } from './hooks/useScreenShare';
 import { useBrowser } from './hooks/useBrowser';
 import { useStageWindows } from './hooks/useStageWindows';
+import { BOARD_TAB_ID, stageWindowStore, type StageWindow, type StageWindowOptions, type StageWindowType } from './lib/stage-window-store';
 import { cancelSpeech, isSpeechActive } from './hooks/useSpeech';
 import { useAsr } from './hooks/useAsr';
 import { useVoiceLock } from './hooks/useVoiceLock';
@@ -15,22 +16,41 @@ import { useTtsWiring } from './hooks/useTtsWiring';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useHandheldMode } from './lib/handheld-mode';
 import { planDisplayMigration } from './lib/display-migration';
-import { meetingStore, type MeetingState } from './lib/meeting-store';
+import { meetingStore, type AggregatedTask, type MeetingState } from './lib/meeting-store';
+import { OBSERVED_CLI, PROMPT_ARG_CLIS, START_CLI_PREFERENCE, roomCwdForFolder } from './lib/board-terminal';
+import { projectKeyOf } from './lib/repo-roots';
+import { isTerminalWorkerBackendId } from './lib/terminal-backends';
+import type { ObservedSession } from './lib/observed-store';
+import { ContinueSessionDialog } from './components/ContinueSessionDialog';
+import { handleVoiceFinal } from './lib/voice-final';
+import { remoteMentionIds, REMOTE_ATTACHMENT_ERROR } from '../electron/backends/pocket-vibe-target';
 import { browserStore, requestHideBrowser } from './lib/browser-store';
 import { toast } from './lib/toast';
 import { Lobby } from './components/Lobby';
-import { Onboarding, ONBOARDED_STORAGE_KEY, type OnboardingMode } from './components/Onboarding';
+import { LocalTerminalWorkspace, rememberTerminalFolder } from './components/LocalTerminalWorkspace';
+import { nativeCliForBackend } from './lib/native-cli';
+import { UnifiedMeetingFrame } from './components/UnifiedMeetingFrame';
+import {SharedApprovals} from './components/UnifiedMeetingParts';
+import {useUnifiedMeeting,projectShared,selectSharedMeeting,sendShared,sharedMentionBackends,sharedRequest} from './lib/unified-meeting-store';
+import { ONBOARDED_STORAGE_KEY, splitPath, type BacklogItem } from './lib/project-rooms';
 import { MinimizePrompt } from './components/MinimizePrompt';
 import { TabStrip } from './components/TabStrip';
-import { MeetingHeader, type MeetingView } from './components/MeetingHeader';
+import { MeetingResumeBanner } from './components/MeetingResumeBanner';
+import { meetingAvailability } from './lib/meeting-availability';
+import { watchBackendList } from './lib/backend-refresh';
+import { MeetingHeader } from './components/MeetingHeader';
 import { AppTopBar } from './components/AppTopBar';
-import { StatusBar } from './components/StatusBar';
 import { BroadcastStrip } from './components/BroadcastStrip';
-import { ObservedStrip } from './components/ObservedStrip';
+import { UsageStrip } from './components/UsageStrip';
+import { KickoffCard, KICKOFF_EXPERTS, type KickoffMode } from './components/KickoffCard';
+import { useBacklog } from './lib/backlog-store';
+import type { GithubStatus } from './lib/project-rooms';
+import { VoiceControl } from './components/VoiceControl';
+import { Camera, Gamepad2, MessageSquare, Monitor, MonitorUp, Square } from 'lucide-react';
 import { MeetingControls } from './components/MeetingControls';
 import { AgentDetailPanel } from './components/AgentDetailPanel';
 import { ExplorePage } from './components/ExplorePage';
-import { TasksView } from './components/TasksView';
+import { OBSERVED_CLIENT_LABEL, TasksView } from './components/TasksView';
 import { ParticipantTile } from './components/ParticipantTile';
 import { ScreenStage } from './components/ScreenStage';
 import { SourcePicker } from './components/SourcePicker';
@@ -43,6 +63,7 @@ import { ApprovalCard } from './components/ApprovalCard';
 import { EditorOverlay } from './components/EditorOverlay';
 import { Modal } from './components/Modal';
 import { ToastViewport } from './components/ToastViewport';
+import { roomWindowCwd } from './lib/room-window';
 import { PlanMeetingModal } from './components/PlanMeetingModal';
 import {
   buildDirectAttachmentDirective,
@@ -51,7 +72,9 @@ import {
   buildPlanDirective,
   type DispatchMode,
 } from './lib/dispatch-mode';
-import type { AutoApproveScope, BackendInfo, DesktopSource, PendingPermission, SkillInfo } from './types';
+import type { AutoApproveScope, BackendInfo, DesktopSource, LocalCliInfo, PendingPermission, SkillInfo } from './types';
+
+const ROOM_CWD = roomWindowCwd();
 
 /** First pending permission across all workers, mirroring the legacy useClaude
  *  aggregate. Low-frequency: only changes when a permission appears/resolves. */
@@ -62,8 +85,27 @@ function selectFirstPendingPermission(s: MeetingState): PendingPermission | null
   return null;
 }
 
+async function listInstalledClis(): Promise<LocalCliInfo[]> {
+  const listed = await window.vibeMeet.shellPty.listClis().catch(() => null);
+  return listed?.ok ? listed.clis : [];
+}
+
+async function installedCli(id: string | null): Promise<LocalCliInfo | undefined> {
+  if (!id) return undefined;
+  const cli = (await listInstalledClis()).find((entry) => entry.id === id);
+  if (!cli) toast.info(`本机没有找到 ${id} 命令，已改为打开默认终端。`);
+  return cli;
+}
+
+function roomCwdFor(folder: string): string {
+  return roomCwdForFolder(folder, meetingStore.getTabs().map((tab) => tab.cwd), projectKeyOf);
+}
+
 export function App() {
   const workers = useWorkers();
+  const sharedState=useUnifiedMeeting();
+  const sharedModel=useMemo(()=>sharedState.view&&sharedState.activeId?projectShared(sharedState.view,sharedState.activeId):undefined,[sharedState]);
+  const [sharedInterrupt,setSharedInterrupt]=useState(false);
   const {
     restartSession, sendText, sendImage, sendAttachments, publishDroppedFiles,
     onDroppedFiles, resolvePermission, interrupt, setSpeakCallback,
@@ -75,6 +117,21 @@ export function App() {
   const lastError = useMeetingSelector((s) => s.lastError);
   const pendingPermission = useMeetingSelector(selectFirstPendingPermission);
   const cwd = workers.cwd;
+  const ownedTasks = useMeetingSelector((s) => s.ownedTasks ?? null);
+  const backlog = useBacklog();
+  // GitHub status per project, read-only (gh issue/pr list --limit 1).
+  const [githubStatus, setGithubStatus] = useState<Record<string, GithubStatus>>({});
+  useEffect(() => {
+    if (!cwd || cwd in githubStatus || !window.vibeMeet.projects?.githubStatus) return;
+    let cancelled = false;
+    void window.vibeMeet.projects.githubStatus(cwd).then((res) => {
+      if (!cancelled && res.ok) setGithubStatus((prev) => ({ ...prev, [cwd]: res.status }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [cwd, githubStatus]);
+  const [kickoffBusy, setKickoffBusy] = useState(false);
+  const [kickoffError, setKickoffError] = useState<string | null>(null);
+  const [kickoffDismissed, setKickoffDismissed] = useState<Record<string, boolean>>({});
   const tabs = useTabs();
   const crossProjectTasks = useCrossProjectTasks();
   const { state: share, start: startShare, startSystemPicker, stop: stopShare, captureFrame, videoRef } = useScreenShare();
@@ -82,17 +139,22 @@ export function App() {
   const stageWindows = useStageWindows();
 
   const activeTab = useMemo(() => tabs.find((t) => t.isActive) ?? null, [tabs]);
+  const meetingGate = meetingAvailability(activeTab, running);
   const hasTabs = tabs.length > 0;
-  const hasLiveTab = !!(activeTab && !activeTab.placeholder);
+  const hasLiveTab = !!sharedModel||!!(activeTab && !activeTab.placeholder);
   const activeOpenedAt = activeTab?.openedAt ?? null;
 
-  const [drawerOpen, setDrawerOpen] = useState(true);
+  // 对话面板默认收起：会议启动或切换会议后先看舞台（任务看板），需要时
+  // 从顶栏「对话」展开；拖入文件、点参会者时仍会自动展开。
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // The multi-device (collaboration) frame keeps its chat open by default —
+  // its whole surface is the shared conversation.
+  const [sharedDrawerOpen, setSharedDrawerOpen] = useState(true);
   const [ttsOn, setTtsOn] = useState(true);
   const [muted, setMuted] = useState(false);
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
-  const [multiAgent, setMultiAgent] = useState(false);
+  const [multiAgent, setMultiAgent] = useState(true);
   const [dispatchMode, setDispatchMode] = useState<DispatchMode>('direct');
-  const [view, setView] = useState<MeetingView>('meeting');
   // P3 agent 详情面板（右侧滑出）：'user' 忽略，hostId/workerId 打开详情
   const [agentPanelId, setAgentPanelId] = useState<string | null>(null);
   // P6 探索页
@@ -102,16 +164,20 @@ export function App() {
    *  back off as soon as a real session tab exists so closing all tabs lands
    *  on the Lobby again. */
   const [boardOnly, setBoardOnly] = useState(false);
-  /** First launch ever → full 4-step flow; later cold starts → scan-only
-   *  splash. Suppressed under the dev visual fixtures so screenshots of the
-   *  Lobby/meeting stay deterministic. */
-  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(() => {
+  const [localTerminalOpen, setLocalTerminalOpen] = useState(false);
+  const [showLobby, setShowLobby] = useState(false);
+  /** Never scanned on this machine → the lobby's 项目室 leads with the scan
+   *  guide. The old scan overlay (4-step first launch / cold-start splash) is
+   *  folded into the lobby; later launches rely on the observation layer's
+   *  automatic scan plus a reminder there. Off under the dev visual fixtures
+   *  so Lobby screenshots stay deterministic. */
+  const [firstLaunch, setFirstLaunch] = useState<boolean>(() => {
     if (import.meta.env.DEV
-      && new URLSearchParams(window.location.search).has('ui-fixture')) return null;
+      && new URLSearchParams(window.location.search).has('ui-fixture')) return false;
     try {
-      return window.localStorage.getItem(ONBOARDED_STORAGE_KEY) ? 'splash' : 'full';
+      return !window.localStorage.getItem(ONBOARDED_STORAGE_KEY);
     } catch {
-      return 'full';
+      return true;
     }
   });
   /** Bumped every time the task board asks the meeting view to open a task, so
@@ -132,8 +198,169 @@ export function App() {
     void window.vibeMeet.setOrchestrationMode(activeTab.id, multiAgent);
   }, [activeTab?.id, activeTab?.placeholder, multiAgent]);
 
+  // Stage tabs are shared across contexts; terminals carry a scope so the CLI
+  // workspace's and other meetings' terminals stay out of this meeting.
+  const meetingScope = `meeting:${cwd ?? ''}`;
+  const meetingWindows = useMemo(
+    () => stageWindows.windows.filter((w) => !w.scope || w.scope === meetingScope),
+    [stageWindows.windows, meetingScope],
+  );
+  const meetingActiveWindowId = meetingWindows.some((w) => w.id === stageWindows.activeWindowId)
+    ? stageWindows.activeWindowId
+    : BOARD_TAB_ID;
+  const createMeetingWindow = useCallback(
+    (type: StageWindowType, opts?: StageWindowOptions) => stageWindows.createWindow(type, { ...opts, scope: meetingScope }),
+    // createWindow is a stable callback; the wrapper object is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stageWindows.createWindow, meetingScope],
+  );
+
+  // Workers without their own PTY open the user's installed CLI in the CLI
+  // workspace; a CLI that isn't installed falls back to the default shell.
+  const [localTerminalBackLabel, setLocalTerminalBackLabel] = useState<string | undefined>();
+  const openNativeCli = useCallback(async ({ backendId, title }: { backendId?: string; title?: string }) => {
+    const wanted = nativeCliForBackend(backendId);
+    let cli: LocalCliInfo | undefined;
+    if (wanted) {
+      const listed = await window.vibeMeet.shellPty.listClis().catch(() => null);
+      cli = listed?.ok ? listed.clis.find((entry) => entry.id === wanted) : undefined;
+      if (!cli) toast.info(`本机没有找到 ${wanted} 命令，已改为打开默认终端。`);
+    }
+    const localCliId = cli ? cli.id : 'shell';
+    const existing = stageWindows.windows.find((w) => w.scope === 'cli-workspace'
+      && w.localCliId === localCliId && w.cwd === (cwd ?? undefined));
+    if (cwd) rememberTerminalFolder(cwd);
+    if (existing) {
+      stageWindows.setActiveWindow(existing.id);
+    } else {
+      await stageWindows.createWindow('terminal', {
+        localCliId,
+        ...(cli ? {} : { shellId: 'default' }),
+        ...(cwd ? { cwd } : {}),
+        title: cli ? (title ? `${cli.label} · ${title}` : cli.label) : '终端',
+        scope: 'cli-workspace',
+      });
+    }
+    setLocalTerminalBackLabel('返回会议');
+    setLocalTerminalOpen(true);
+  // createWindow / setActiveWindow are stable; the wrapper object is not.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd, stageWindows.windows, stageWindows.createWindow, stageWindows.setActiveWindow]);
+
+  // Board 开始/查看: the terminal opens in the owning project room's stage.
+  const [continuePrompt, setContinuePrompt] = useState<{ session: ObservedSession; roomCwd: string } | null>(null);
+
+  const openTerminalInRoom = useCallback(async (
+    roomCwd: string,
+    opts: StageWindowOptions,
+    reuse: (win: StageWindow) => boolean,
+  ): Promise<boolean> => {
+    const res = await meetingStore.openSession(roomCwd);
+    if (!res.ok) { toast.error(res.error ?? '项目室打开失败'); return false; }
+    setShowLobby(false);
+    setBoardOnly(false);
+    const scope = `meeting:${roomCwd}`;
+    const existing = stageWindowStore.getSnapshot().windows.find((w) => w.scope === scope && reuse(w));
+    if (existing) await stageWindowStore.setActiveWindow(existing.id);
+    else await stageWindowStore.createWindow('terminal', { ...opts, scope });
+    return true;
+  }, []);
+
+  const openTaskTerminalFromBoard = useCallback(async (task: AggregatedTask) => {
+    if (isTerminalWorkerBackendId(task.backendId)) {
+      await openTerminalInRoom(task.cwd, { workerId: task.taskId, title: task.title },
+        (w) => w.workerId === task.taskId && !w.localCliId);
+      return;
+    }
+    const cli = await installedCli(nativeCliForBackend(task.backendId));
+    await openTerminalInRoom(task.cwd, {
+      localCliId: cli?.id ?? 'shell',
+      ...(cli ? {} : { shellId: 'default' }),
+      cwd: task.cwd,
+      title: `${cli?.label ?? '终端'} · ${task.title}`,
+    }, (w) => w.localCliId === (cli?.id ?? 'shell') && w.cwd === task.cwd && !w.continueSession);
+  }, [openTerminalInRoom]);
+
+  const startBacklogFromBoard = useCallback(async (item: BacklogItem) => {
+    const clis = await listInstalledClis();
+    const cli = START_CLI_PREFERENCE.map((id) => clis.find((c) => c.id === id)).find(Boolean) ?? clis[0];
+    if (!cli) { toast.error('本机没有找到可用的 AI CLI'); return; }
+    const prompt = item.source ? `${item.title}\n\n来源：${item.source}` : item.title;
+    const opened = await openTerminalInRoom(roomCwdFor(item.cwd), {
+      localCliId: cli.id,
+      cwd: item.cwd,
+      title: `${cli.label} · ${item.title}`,
+      ...(PROMPT_ARG_CLIS.includes(cli.id) ? { initialPrompt: prompt } : {}),
+    }, (w) => w.initialPrompt === prompt && w.cwd === item.cwd);
+    if (opened && !PROMPT_ARG_CLIS.includes(cli.id)) {
+      void navigator.clipboard.writeText(prompt).then(() => toast.info('任务内容已复制，粘贴到终端即可开始'), () => {});
+    }
+  }, [openTerminalInRoom]);
+
+  const runContinueSession = useCallback(async (
+    session: ObservedSession, roomCwd: string, mode: 'fork' | 'resume', endOriginal: boolean,
+  ) => {
+    const opened = await openTerminalInRoom(roomCwd, {
+      localCliId: OBSERVED_CLI[session.clientKind],
+      cwd: session.cwd,
+      title: `${OBSERVED_CLIENT_LABEL[session.clientKind]} · ${session.title}`,
+      continueSession: { observedId: session.id, mode, ...(endOriginal ? { endOriginal } : {}) },
+    }, (w) => w.continueSession?.observedId === session.id);
+    if (opened) {
+      const room = splitPath(projectKeyOf(roomCwd)).name;
+      toast.info(mode === 'fork' ? `已在「${room}」项目室复制出分支会话` : `已在「${room}」项目室接着打开会话`);
+    }
+  }, [openTerminalInRoom]);
+
+  const continueObservedFromBoard = useCallback((session: ObservedSession) => {
+    const roomCwd = roomCwdFor(session.cwd);
+    if (session.pid !== undefined) setContinuePrompt({ session, roomCwd });
+    else void runContinueSession(session, roomCwd, 'resume', false);
+  }, [runContinueSession]);
+
+  // Empty project → kickoff card (docs/design/2026-10-30-project-rooms-and-kickoff.md).
+  // Unknown GitHub state never counts as empty; a fresh clone/create always does.
+  const kickoffDismissKey = cwd ? `aha.kickoff.done:${cwd}` : '';
+  const kickoffVisible = useMemo(() => {
+    if (!cwd || !meetingGate.ready || ownedTasks?.size) return false;
+    if (kickoffDismissed[cwd]) return false;
+    try { if (window.localStorage.getItem(kickoffDismissKey)) return false; } catch { /* storage off: show */ }
+    const boardEmpty = !crossProjectTasks.tasks.some((t) => t.cwd === cwd)
+      && !crossProjectTasks.pendingPlans.some((p) => p.cwd === cwd)
+      && !backlog.some((b) => b.cwd === cwd);
+    if (!boardEmpty) return false;
+    if (meetingStore.isFreshProject(cwd)) return true;
+    const gh = githubStatus[cwd];
+    if (!gh) return false;
+    return !gh.github || (gh.queried && gh.openIssues === 0 && gh.openPrs === 0);
+  }, [cwd, meetingGate.ready, ownedTasks, kickoffDismissed, kickoffDismissKey, crossProjectTasks, backlog, githubStatus]);
+
+  const dismissKickoff = useCallback(() => {
+    if (!cwd) return;
+    setKickoffDismissed((prev) => ({ ...prev, [cwd]: true }));
+    try { window.localStorage.setItem(`aha.kickoff.done:${cwd}`, String(Date.now())); } catch { /* per-viewer only */ }
+    meetingStore.clearFreshProject(cwd);
+  }, [cwd]);
+
+  const startKickoff = useCallback(async (mode: KickoffMode, expertBackendId: string) => {
+    const kickoff = window.vibeMeet.sessions.kickoff;
+    if (!kickoff) { setKickoffError('当前版本不支持开场流程'); return; }
+    setKickoffBusy(true);
+    setKickoffError(null);
+    const expert = KICKOFF_EXPERTS[mode];
+    try {
+      const res = await kickoff(meetingGate.sessionId ?? null, mode, expertBackendId, expert.title, expert.name);
+      if (res.ok) dismissKickoff();
+      else setKickoffError(res.error);
+    } catch (err) {
+      setKickoffError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setKickoffBusy(false);
+    }
+  }, [meetingGate.sessionId, dismissKickoff]);
+
   const attentionCount = useMemo(
-    () => crossProjectTasks.tasks.filter((t) => t.column === 'attention').length
+    () => crossProjectTasks.tasks.filter((t) => t.column === 'confirm').length
       + crossProjectTasks.pendingPlans.length,
     [crossProjectTasks],
   );
@@ -158,44 +385,28 @@ export function App() {
     return active + (pendingPermission ? 1 : 0) + (workers.pendingPlan ? 1 : 0);
   }, [workers.plan, pendingPermission, workers.pendingPlan]);
 
-  // The embedded browser is a native WebContentsView painted above the
-  // renderer, so no amount of CSS can tuck it behind the task board. Drop it
-  // while the board is up; the request counter restores it once the board
-  // (and any other overlay) is gone.
-  useEffect(() => {
-    if (view !== 'tasks') return;
-    return requestHideBrowser();
-  }, [view]);
-
   const handleOpenTaskFromBoard = useCallback((sessionId: string, taskId: string) => {
     void meetingStore.setActive(sessionId);
     setTaskFocus((prev) => ({ taskId, seq: (prev?.seq ?? 0) + 1 }));
-    setView('meeting');
   }, []);
 
   const handleOpenPlanFromBoard = useCallback((sessionId: string) => {
     void meetingStore.setActive(sessionId);
-    setView('meeting');
   }, []);
 
   const enterBoardOnly = useCallback(() => {
+    meetingStore.dismissRestoreHydration();
+    setShowLobby(false);
     setBoardOnly(true);
-    setView('tasks');
+    void stageWindowStore.setActiveWindow(BOARD_TAB_ID);
   }, []);
 
-  /** 观察条点击 → 切到任务看板（观察会话的唯一操作面）。 */
-  const handleOpenTasksView = useCallback(() => setView('tasks'), []);
-
-  const handleOnboardingFinish = useCallback((mode: OnboardingMode) => {
-    setOnboardingMode(null);
-    if (mode !== 'full') return;
+  const handleFirstScanDone = useCallback(() => {
+    setFirstLaunch(false);
     try {
       window.localStorage.setItem(ONBOARDED_STORAGE_KEY, '1');
-    } catch { /* private mode etc. — the flow simply replays next launch */ }
-    // First-launch finish with no session lands on the task board (Feature:
-    // zero-project entry); with restored tabs the meeting view stays.
-    if (!hasTabs) enterBoardOnly();
-  }, [hasTabs, enterBoardOnly]);
+    } catch { /* private mode etc. — the guide simply shows again next launch */ }
+  }, []);
 
   // Once a real session exists the zero-session entry is over — closing all
   // tabs then returns to the Lobby (the only place that opens folders).
@@ -205,7 +416,6 @@ export function App() {
 
   // Load available backends for the participants tab
   useEffect(() => {
-    window.vibeMeet.backendAuth.list().then(setBackends).catch(() => setBackends([]));
     window.vibeMeet.skills.list().then((res) => {
       if (res.ok) setSkills(res.skills);
     }).catch(() => {});
@@ -213,11 +423,7 @@ export function App() {
 
   // Reload backends when main window regains focus (e.g. settings window closed)
   useEffect(() => {
-    const onFocus = () => {
-      window.vibeMeet.backendAuth.list().then(setBackends).catch(() => {});
-    };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    return watchBackendList(setBackends, (error) => toast.error(`刷新后端状态失败：${String(error)}`));
   }, []);
 
   const activeBackendIds = useMemo(() => {
@@ -330,7 +536,16 @@ export function App() {
     }
   }, [openParticipantsTabSignal, drawerOpen]);
 
+  const [roomAttach, setRoomAttach] = useState<{ error?: string } | null>(null);
   useEffect(() => {
+    if (ROOM_CWD) {
+      document.title = `AhaStudio — ${ROOM_CWD.split(/[\\/]/).filter(Boolean).pop() ?? ROOM_CWD}`;
+      meetingStore.attachRoom(ROOM_CWD).then(
+        (res) => setRoomAttach(res.ok ? {} : { error: res.error ?? '项目室没有连接上' }),
+        (err) => setRoomAttach({ error: String(err) }),
+      );
+      return;
+    }
     meetingStore.hydrateRestore().catch((err) => {
       console.error('[App] hydrateRestore failed:', err);
     });
@@ -371,104 +586,25 @@ export function App() {
     }
   }, [workers.savedDocuments, stageWindows]);
 
-  const micEnabled = !visualFixture && (hasLiveTab || voiceLock.enrollmentActive);
+  const micEnabled = !visualFixture && ((!showLobby&&hasLiveTab) || voiceLock.enrollmentActive);
 
   const onVoiceFinal = useCallback(async (text: string) => {
     const id = meetingStore.getActiveId();
+    if(sharedModel){
+      const mentionBackends=sharedMentionBackends(sharedModel,backends);
+      await handleVoiceFinal(text,{polish:voicePrefs.voicePolishEnabled?(v)=>window.vibeMeet.polishAsrText(v):undefined,skills,backends:mentionBackends,activeBackendIds:new Set(mentionBackends.map(b=>b.id)),hosts:sharedModel.members.map(m=>({id:m.id,remoteTarget:{title:m.label}})),send:v=>sendShared(sharedModel,v),notify:message=>toast.error(message)});return;
+    }
     if (!id) {
       console.warn('[voice] dropped — no active session');
       return;
     }
-    let finalText = text;
-    if (voicePrefs.voicePolishEnabled) {
-      try {
-        const result = await window.vibeMeet.polishAsrText(text);
-        if (result.ok) finalText = result.text;
-      } catch (err) {
-        console.warn('[voice] polishAsrText IPC failed:', err);
-      }
-    }
-    // Fuzzy match skill names from voice input — if spoken text contains a
-    // skill name, prepend "/" to invoke it as a slash command.
-    if (skills.length > 0 && !finalText.startsWith('/')) {
-      const lower = finalText.toLowerCase();
-      let bestMatch: SkillInfo | null = null;
-      let bestScore = 0;
-      for (const skill of skills) {
-        const nameLower = skill.name.toLowerCase();
-        // Check for exact substring match
-        if (lower.includes(nameLower)) {
-          const score = nameLower.length;
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = skill;
-          }
-        }
-        // Check for fuzzy match: remove spaces and dashes for comparison
-        const normalized = lower.replace(/[\s_-]/g, '');
-        const nameNormalized = nameLower.replace(/[\s_-]/g, '');
-        if (normalized.includes(nameNormalized)) {
-          const score = nameNormalized.length;
-          if (score > bestScore) {
-            bestScore = score;
-            bestMatch = skill;
-          }
-        }
-      }
-      if (bestMatch) {
-        // Remove the matched skill name from the text and prepend the slash command
-        const nameLower = bestMatch.name.toLowerCase();
-        const idx = lower.indexOf(nameLower);
-        if (idx >= 0) {
-          const before = finalText.slice(0, idx).trim();
-          const after = finalText.slice(idx + bestMatch.name.length).trim();
-          const remaining = [before, after].filter(Boolean).join(' ');
-          finalText = remaining ? `/${bestMatch.name} ${remaining}` : `/${bestMatch.name}`;
-        }
-      }
-    }
-    // Fuzzy match backend names from voice input — if spoken text contains a
-    // backend display name, prepend "@" to invoke it as a mention.
-    const mentionableBackends = backends.filter((backend) => activeBackendIds.has(backend.id));
-    if (mentionableBackends.length > 0 && !finalText.includes('@')) {
-      const lower = finalText.toLowerCase();
-      let bestBackend: BackendInfo | null = null;
-      let bestBackendScore = 0;
-      for (const backend of mentionableBackends) {
-        const nameLower = backend.displayName.toLowerCase();
-        // Check for exact substring match
-        if (lower.includes(nameLower)) {
-          const score = nameLower.length;
-          if (score > bestBackendScore) {
-            bestBackendScore = score;
-            bestBackend = backend;
-          }
-        }
-        // Check for fuzzy match: remove spaces and dashes for comparison
-        const normalized = lower.replace(/[\s_-]/g, '');
-        const nameNormalized = nameLower.replace(/[\s_-]/g, '');
-        if (normalized.includes(nameNormalized)) {
-          const score = nameNormalized.length;
-          if (score > bestBackendScore) {
-            bestBackendScore = score;
-            bestBackend = backend;
-          }
-        }
-      }
-      if (bestBackend) {
-        // Remove the matched backend name from the text and prepend the @mention
-        const nameLower = bestBackend.displayName.toLowerCase();
-        const idx = lower.indexOf(nameLower);
-        if (idx >= 0) {
-          const before = finalText.slice(0, idx).trim();
-          const after = finalText.slice(idx + bestBackend.displayName.length).trim();
-          const remaining = [before, after].filter(Boolean).join(' ');
-          finalText = remaining ? `@${bestBackend.id} ${remaining}` : `@${bestBackend.id}`;
-        }
-      }
-    }
-    sendWithModeRef.current(finalText);
-  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds]);
+    await handleVoiceFinal(text, {
+      polish: voicePrefs.voicePolishEnabled ? (value) => window.vibeMeet.polishAsrText(value) : undefined,
+      skills, backends, activeBackendIds, hosts: workers.hostGroups.values(),
+      send: (value) => sendWithModeRef.current(value),
+      notify: (message) => { toast.error(message); },
+    });
+  }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds, workers.hostGroups,sharedModel]);
 
   const onBargeIn = useCallback(() => {
     if (speakingRef.current) {
@@ -533,13 +669,29 @@ export function App() {
     speakingRef.current = false;
     setAiSpeaking(false);
     try { stopShare(); } catch { /* teardown continues */ }
+    // The meeting is owned by the main window; leaving here only closes this view.
+    if (ROOM_CWD) { window.close(); return; }
     const id = meetingStore.getActiveId();
-    if (id) await meetingStore.closeTab(id);
-    // Zero-session board entry (boardOnly with no tabs) has nothing to close,
-    // yet Leave must still exit the shell — clearing boardOnly drops the app
-    // back to the Lobby. Harmless no-op on the normal close-tab path.
+    if (id) {
+      try { await meetingStore.closeTab(id); }
+      catch (error) { toast.error(`关闭会议失败：${String(error)}`); }
+    }
     setBoardOnly(false);
+    if (!meetingStore.getTabs().length) setShowLobby(true);
   }, [stopShare]);
+
+  const continueMeeting = useCallback(async () => {
+    if (!activeTab) return;
+    const result = await meetingStore.continueMeeting(activeTab.id);
+    if (result && !result.ok) toast.error(result.error ?? '会议启动失败');
+  }, [activeTab]);
+
+  const goHome = useCallback(() => {
+    if (ROOM_CWD) { window.close(); return; }
+    meetingStore.dismissRestoreHydration();
+    selectSharedMeeting(null);
+    setShowLobby(true);
+  }, []);
 
   const handlePickSource = useCallback(async (src: DesktopSource) => {
     await startShare(src.id, src.name);
@@ -566,8 +718,13 @@ export function App() {
     const dataUrl = captureFrame();
     if (!dataUrl) return;
     const caption = `Here is the current view of "${share.sourceName ?? 'my screen'}". Take a look and let me know what you see.`;
+    if(sharedModel){
+      const projectId=String(sharedModel.meeting.mainProjectId??'');
+      const base64=dataUrl.split(',')[1];
+      try{const ref=await sharedRequest('files.stage',{projectId,files:[{name:'screen-'+Date.now()+'.png',dataBase64:base64,sizeBytes:Math.floor(base64.length*3/4)-(base64.endsWith('==')?2:base64.endsWith('=')?1:0)}]});if(!(ref as {cancelled?:boolean}).cancelled)await sendShared(sharedModel,caption,undefined,[ref]);}catch(error){toast.error(String(error));}return;
+    }
     await sendImage(dataUrl, caption);
-  }, [captureFrame, sendImage, share.sourceName]);
+  }, [captureFrame, sendImage, share.sourceName,sharedModel]);
 
   // Stable callbacks for memoized children — inline arrows in JSX would
   // create fresh references every render and silently defeat React.memo.
@@ -633,6 +790,11 @@ export function App() {
   // the editor form factor (overlay in handheld, independent window else).
   const { mode: uiMode, override: uiModeOverride } = useHandheldMode();
   const handheld = uiMode === 'handheld';
+  // A newly started or switched-to meeting opens with the chat drawer closed.
+  const activeMeetingId = activeTab?.id;
+  useEffect(() => {
+    if (activeMeetingId) setDrawerOpen(false);
+  }, [activeMeetingId]);
   const handheldInitialDrawerApplied = useRef(false);
   useEffect(() => {
     if (!handheld || handheldInitialDrawerApplied.current) return;
@@ -650,6 +812,7 @@ export function App() {
   const [overlayHostId, setOverlayHostId] = useState<string | null>(null);
 
   const handleOpenEditor = useCallback((backendId: string, hostId: string) => {
+    if (!meetingGate.ready) { toast.error(meetingGate.reason); return; }
     if (handheld) {
       // Handheld form factor: App-internal overlay, no separate window.
       setOverlayHostId(hostId);
@@ -664,8 +827,10 @@ export function App() {
       sessionId,
       cwd: editorCwd,
       title,
-    });
-  }, [handheld, activeTab?.id, cwd]);
+    }).then((res) => {
+      if (!res.ok) toast.error(`独立窗口没有打开：${res.error ?? '未知原因'}`);
+    }, (err: unknown) => toast.error(`独立窗口没有打开：${err instanceof Error ? err.message : String(err)}`));
+  }, [handheld, activeTab?.id, cwd, meetingGate.ready, meetingGate.reason]);
 
   // Dual-display migration (Phase 6a §3.2, AUTO mode only): when the
   // resolved mode flips after a display add/remove, convert the editor form
@@ -676,6 +841,7 @@ export function App() {
     const prev = prevUiModeRef.current;
     prevUiModeRef.current = uiMode;
     if (prev === uiMode) return;
+    if (!meetingGate.ready) return;
     void (async () => {
       const wins = await window.vibeMeet.openCodeEditor.list().catch(() => null);
       const editorWindows = wins && wins.ok ? wins.windows.map((w) => w.hostId) : [];
@@ -710,33 +876,41 @@ export function App() {
   const sendWithMode = useCallback(async (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
+    const remoteMention = remoteMentionIds(trimmed, [...workers.hostGroups.values()]).length > 0;
+    if (remoteMention) {
+      await sendText(trimmed);
+      return;
+    }
     if (!multiAgent) {
       await sendText(trimmed);
       return;
     }
     const directive = dispatchMode === 'plan'
       ? buildPlanDirective(trimmed)
-      : buildDirectDirective(trimmed);
+      : trimmed;
     // Chat shows only the user's words; the model still gets the full directive.
     await sendText(directive, { displayText: trimmed });
-  }, [dispatchMode, multiAgent, sendText]);
+  }, [dispatchMode, multiAgent, sendText, workers.hostGroups]);
 
   sendWithModeRef.current = sendWithMode;
 
   const sendAttachmentsWithMode = useCallback(
     async (staged: Parameters<typeof sendAttachments>[0], raw: string) => {
       const trimmed = raw.trim();
+      if (staged.length && remoteMentionIds(trimmed, [...workers.hostGroups.values()], true).length) {
+        return { ok: false, error: REMOTE_ATTACHMENT_ERROR };
+      }
       if (!multiAgent) {
         return sendAttachments(staged, trimmed);
       }
       const directive = dispatchMode === 'plan'
         ? buildPlanAttachmentDirective(trimmed)
-        : buildDirectAttachmentDirective(trimmed);
+        : trimmed;
       return sendAttachments(staged, directive, {
         displayText: trimmed.length > 0 ? trimmed : undefined,
       });
     },
-    [dispatchMode, multiAgent, sendAttachments],
+    [dispatchMode, multiAgent, sendAttachments, workers.hostGroups],
   );
 
   // Memoized element trees handed to memoized children. Inline JSX in props
@@ -749,12 +923,12 @@ export function App() {
       variant="self"
       speaking={effectiveListening && !muted}
       muted={muted}
-      status={muted ? 'Muted' : effectiveListening ? 'Speaking' : 'Mic idle'}
+      status={muted ? '已静音' : effectiveListening ? '说话中' : '麦克风空闲'}
       ariaLabel="查看我派出的任务"
     />
   ), [effectiveListening, muted]);
 
-  const galleryContent = useMemo(() => (
+  const galleryContent = useMemo(() => (!meetingGate.ready ? <div className="drawer-empty">{meetingGate.reason}</div> :
     <ParticipantPanel
       workers={workers.workerList}
       hostGroups={workers.hostGroups}
@@ -774,6 +948,7 @@ export function App() {
     />
   ), [
     workers.workerList, workers.hostGroups, workers.coordinatorHostId,
+    meetingGate.ready, meetingGate.reason,
     customAvatars, mutedHostIds, aiSpeaking, resolvePermission,
     handleToggleMuteHost, handleRemoveHost, handleSetCoordinator,
     handleRestartHost, openParticipantsTab, handleOpenEditor,
@@ -789,17 +964,63 @@ export function App() {
     />
   ) : undefined), [handheld, autoApproveScope, multiAgent, toggleMultiAgent]);
 
-  if (!hasTabs && !boardOnly) {
+  useEffect(()=>sharedModel&&!showLobby?requestHideBrowser():undefined,[sharedModel?.meeting.id,showLobby]);
+
+  const toolbar=(<BottomToolbar
+        muted={muted}
+        onToggleMute={toggleMute}
+        micSupported={micSupported}
+        listening={effectiveListening}
+        asrMode={asrMode}
+        micStatus={micStatus}
+        micRetryable={micRetryable}
+        onRetryMic={retryMic}
+        ttsOn={ttsOn}
+        onToggleTts={toggleTts}
+        sharing={share.active}
+        onToggleShare={toggleShare}
+        snapshotEnabled={share.active && (running||!!sharedModel)}
+        onSnapshot={handleSnapshot}
+        onInterrupt={sharedModel?()=>setSharedInterrupt(true):interrupt}
+        chatOpen={sharedModel ? sharedDrawerOpen : drawerOpen}
+        onToggleChat={sharedModel ? () => setSharedDrawerOpen((v) => !v) : toggleChat}
+        onLeave={sharedModel?goHome:leave}
+        onToggleCompanion={toggleCompanion}
+        handheld={handheld}
+        permissionCount={sharedModel?(sharedModel.view.snapshot.entities.approval??[]).filter(a=>a.status==='pending'&&sharedModel.tasks.some(t=>t.id===a.taskId&&t.attemptId===a.attemptId)).length:permissionCount}
+        onOpenPermission={openPermissionModal}
+        controlsSlot={sharedModel?undefined:controlsSlot}
+      />);
+  if (localTerminalOpen) {
+    return <LocalTerminalWorkspace backLabel={localTerminalBackLabel} onBack={() => { setLocalTerminalOpen(false); setLocalTerminalBackLabel(undefined); }} />;
+  }
+  if(sharedModel&&!showLobby)return <><UnifiedMeetingFrame key={sharedModel.meeting.id} model={sharedModel} backends={backends} settingsSlot={settingsSlot} toolbar={toolbar} onHome={goHome} view="meeting" onView={() => {}} requestInterrupt={sharedInterrupt} onInterruptClose={()=>setSharedInterrupt(false)} onSubscribeDroppedFiles={onDroppedFiles} drawerOpen={sharedDrawerOpen} ttsOn={ttsOn} onSpeaking={setAiSpeaking} screen={{share,videoRef,onStop:stopShare}} dragHandlers={{onDragEnter:dragDrop.onDragEnter,onDragOver:dragDrop.onDragOver,onDragLeave:dragDrop.onDragLeave,onDrop:dragDrop.onDrop}}/><SourcePicker open={pickerOpen} onClose={()=>setPickerOpen(false)} onPick={handlePickSource}/><VoiceGuideModal open={voicePrefs.guideOpen} onClose={voicePrefs.handleGuideClose} onDismissForever={voicePrefs.handleDismissForever}/><MinimizePrompt/>{permModalOpen&&<div className="modal-backdrop"><section role="dialog" aria-modal="true" aria-label="本会议工具审批" className="unified-dialog"><h2>本会议工具审批</h2><SharedApprovals model={sharedModel}/><button onClick={()=>setPermModalOpen(false)}>关闭审批</button></section></div>}<ToastViewport/></>;
+
+  if (ROOM_CWD && !hasTabs) {
+    return (
+      <div className="room-window-status">
+        {roomAttach?.error
+          ? <><p>{roomAttach.error}</p><button type="button" onClick={() => window.close()}>关闭窗口</button></>
+          : <p>正在连接项目室…</p>}
+        <ToastViewport />
+      </div>
+    );
+  }
+
+  if (showLobby || (!hasTabs && !boardOnly)) {
     return (
       <>
         <Lobby
           lastError={lastError}
           onEnterBoard={enterBoardOnly}
-          onReplayOnboarding={() => setOnboardingMode('full')}
+          onOpenTerminal={() => setLocalTerminalOpen(true)}
+          onEnterMeeting={() => setShowLobby(false)}
+          onReplayOnboarding={() => setFirstLaunch(true)}
+          firstLaunch={firstLaunch}
+          onFirstScanDone={handleFirstScanDone}
+          onOpenExplore={openExplore}
         />
-        {onboardingMode && (
-          <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
-        )}
+        {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
         <MinimizePrompt />
         <ToastViewport />
       </>
@@ -808,7 +1029,7 @@ export function App() {
 
   return (
     <div
-      className={`mtg${dragDrop.dropActive ? ' mtg-dropping' : ''}${view === 'tasks' ? ' is-tasks-view' : ''}`}
+      className={`mtg${dragDrop.dropActive ? ' mtg-dropping' : ''}`}
       onDragEnter={dragDrop.onDragEnter}
       onDragOver={dragDrop.onDragOver}
       onDragLeave={dragDrop.onDragLeave}
@@ -817,6 +1038,8 @@ export function App() {
       {/* 单会议收敛（一台设备一个会议，调度所有任务）：掌机模式或确有
           多会话并存时才显示 TabStrip；默认不暴露多会议 Tab。 */}
       {(handheld || tabs.length > 1) && <TabStrip tabs={tabs} />}
+      {handheld && <div className="meeting-navigation"><button type="button" onClick={goHome}>首页 / 选择目录</button></div>}
+      <MeetingResumeBanner tab={activeTab ?? undefined} error={lastError} onContinue={() => void continueMeeting()} onHome={goHome} />
       {handheld ? (
         <MeetingHeader
           cwd={cwd}
@@ -825,30 +1048,44 @@ export function App() {
           onChangeAutoApproveScope={setAutoApproveScope}
           multiAgent={multiAgent}
           onToggleMultiAgent={toggleMultiAgent}
-          view={view}
-          onChangeView={setView}
-          attentionCount={attentionCount}
           settingsSlot={settingsSlot}
         />
       ) : (
         <AppTopBar
-          viewMode={view}
-          onChangeViewMode={setView}
-          attendCount={attentionCount}
-          onOpenExplore={openExplore}
+          onHome={goHome}
           settingsSlot={settingsSlot}
+          actions={(
+            <>
+              {controlsSlot}
+              <VoiceControl
+                muted={muted}
+                onToggleMute={toggleMute}
+                micSupported={micSupported}
+                listening={effectiveListening}
+                asrMode={asrMode}
+                micStatus={micStatus}
+                micRetryable={micRetryable}
+                onRetryMic={retryMic}
+                ttsOn={ttsOn}
+                onToggleTts={toggleTts}
+              />
+              <button type="button" className={`aha-topbar-toggle${drawerOpen ? ' is-on' : ''}`} onClick={toggleChat}
+                aria-pressed={drawerOpen} title={drawerOpen ? '收起对话' : '展开对话'}>
+                <MessageSquare size={15} aria-hidden="true" />
+                <span>对话</span>
+              </button>
+              <button type="button" className="aha-topbar-toggle" onClick={toggleCompanion}
+                title="开关 AhaBar 悬浮条（待批准快捷键）">
+                <Gamepad2 size={15} aria-hidden="true" />
+                <span>AhaBar</span>
+              </button>
+            </>
+          )}
         />
       )}
 
-      {!handheld && view === 'meeting' && (
+      {!handheld && (
         <BroadcastStrip briefings={workers.coordinatorBriefings} onInterrupt={onBargeIn} />
-      )}
-
-      {/* 「观察中」横条：会议模式下外部会话一览。挂在 BroadcastStrip 旁、
-          .mtg-main 之上 —— 不进 stage 的 CSS grid（行槽是固定的，插入会
-          挤压画廊/工作区布局）；空数据或老 preload 时组件自身不渲染。 */}
-      {!handheld && view === 'meeting' && (
-        <ObservedStrip onOpenTasks={handleOpenTasksView} />
       )}
 
       <main className="mtg-main">
@@ -868,7 +1105,8 @@ export function App() {
             delivery={workers.currentDelivery}
             finalMeetingDelivery={workers.finalMeetingDelivery}
             finalMeetingDecision={workers.finalMeetingDecision}
-            sessionId={activeTab?.id ?? null}
+            sessionId={meetingGate.sessionId}
+            cwd={cwd ?? undefined}
             focusTask={taskFocus}
             onAcceptDelivery={() => workers.acceptDelivery()}
             onReviseDelivery={(fb: string) => workers.reviseDelivery(fb)}
@@ -876,17 +1114,19 @@ export function App() {
             onRequestFinalMeetingRework={(reason: string) => workers.requestFinalMeetingRework(reason)}
             viewingFile={viewingFile}
             onCloseFileView={() => setViewingFile(null)}
-            stageWindows={stageWindows.windows}
-            activeWindowId={stageWindows.activeWindowId}
+            stageWindows={meetingWindows}
+            activeWindowId={meetingActiveWindowId}
             onSelectWindow={stageWindows.setActiveWindow}
             onCloseWindow={stageWindows.closeWindow}
-            onCreateWindow={stageWindows.createWindow}
+            onCreateWindow={createMeetingWindow}
+            ownedTasks={ownedTasks}
             onPopOutWindow={(id: string) => {
               if (window.vibeMeet?.popoutStage) {
                 const win = stageWindows.windows.find((w) => w.id === id);
                 void window.vibeMeet.popoutStage(id, win?.type ?? 'activity');
               }
             }}
+            onOpenNativeCli={(target: { backendId?: string; title?: string }) => { void openNativeCli(target); }}
             onResolvePermission={resolvePermission}
             browserTabs={browser.state.tabs}
             browserActiveTabId={browser.state.activeTabId}
@@ -899,8 +1139,32 @@ export function App() {
             onBrowserForward={browser.goForward}
             onBrowserReload={browser.reload}
             customAvatars={customAvatars}
+            boardAttention={attentionCount}
+            boardContent={(
+              <TasksView
+                data={crossProjectTasks}
+                onOpenTask={handleOpenTaskFromBoard}
+                onOpenPlan={handleOpenPlanFromBoard}
+                onOpenTaskTerminal={(task) => void openTaskTerminalFromBoard(task)}
+                onStartBacklog={(item) => void startBacklogFromBoard(item)}
+                onContinueObserved={continueObservedFromBoard}
+                project={boardOnly ? null : cwd}
+              />
+            )}
           />
         </section>
+        {continuePrompt && (
+          <ContinueSessionDialog
+            session={continuePrompt.session}
+            roomName={splitPath(projectKeyOf(continuePrompt.roomCwd)).name}
+            onCancel={() => setContinuePrompt(null)}
+            onConfirm={(endOriginal) => {
+              const { session, roomCwd } = continuePrompt;
+              setContinuePrompt(null);
+              void runContinueSession(session, roomCwd, 'fork', endOriginal);
+            }}
+          />
+        )}
 
         <SideDrawer
           open={drawerOpen}
@@ -915,17 +1179,36 @@ export function App() {
           multiAgent={multiAgent}
           dispatchMode={dispatchMode}
           onChangeDispatchMode={setDispatchMode}
-          disabled={!running}
-          sessionId={activeTab?.id ?? null}
+          disabled={!meetingGate.ready}
+          disabledReason={meetingGate.reason}
+          sessionId={meetingGate.sessionId}
           onViewFile={handleViewFile}
           viewingFilePath={viewingFile?.relativePath ?? null}
           backends={backends}
           activeBackendIds={activeBackendIds}
           onAddHost={handleAddHost}
           forceParticipantsTab={openParticipantsTabSignal}
+          composerTools={handheld ? undefined : (
+            <>
+              <button type="button" className={`composer-tool${share.active ? ' is-danger' : ''}`} onClick={toggleShare}
+                title={share.active ? '停止共享屏幕' : '共享屏幕给 Host'}>
+                {share.active ? <Monitor size={14} aria-hidden="true" /> : <MonitorUp size={14} aria-hidden="true" />}
+                <span>{share.active ? '停止共享' : '共享屏幕'}</span>
+              </button>
+              <button type="button" className="composer-tool" onClick={handleSnapshot} disabled={!(share.active && running)}
+                title={share.active ? '把当前画面发给 Host' : '先共享屏幕，才能截图'}>
+                <Camera size={14} aria-hidden="true" />
+                <span>截图</span>
+              </button>
+              <button type="button" className="composer-tool" onClick={interrupt} title="打断 Host 当前的回复">
+                <Square size={14} aria-hidden="true" />
+                <span>打断</span>
+              </button>
+            </>
+          )}
         />
 
-        {!handheld && view === 'meeting' && agentPanelData && (
+        {!handheld && agentPanelData && (
           <AgentDetailPanel
             worker={agentPanelData.worker}
             hostGroup={agentPanelData.hostGroup}
@@ -937,52 +1220,12 @@ export function App() {
         )}
       </main>
 
-      {/* The board is a sibling rather than a replacement: unmounting
-          .mtg-main would tear down the stage's browser viewport ref and the
-          inspector's local state every time the user glances at their tasks. */}
-      {view === 'tasks' && (
-        <TasksView
-          data={crossProjectTasks}
-          onOpenTask={handleOpenTaskFromBoard}
-          onOpenPlan={handleOpenPlanFromBoard}
-        />
-      )}
+      {handheld && toolbar}
 
-      <BottomToolbar
-        muted={muted}
-        onToggleMute={toggleMute}
-        micSupported={micSupported}
-        listening={effectiveListening}
-        asrMode={asrMode}
-        micStatus={micStatus}
-        micRetryable={micRetryable}
-        onRetryMic={retryMic}
-        ttsOn={ttsOn}
-        onToggleTts={toggleTts}
-        sharing={share.active}
-        onToggleShare={toggleShare}
-        snapshotEnabled={share.active && running}
-        onSnapshot={handleSnapshot}
-        onInterrupt={interrupt}
-        chatOpen={drawerOpen}
-        onToggleChat={toggleChat}
-        onLeave={leave}
-        onToggleCompanion={toggleCompanion}
-        handheld={handheld}
-        permissionCount={permissionCount}
-        onOpenPermission={openPermissionModal}
-        controlsSlot={controlsSlot}
-      />
+      {/* 底部状态栏 = 各 AI 剩余额度（对标 Orca 状态栏额度），面板向上展开。
+          客户端数、活跃任务、目录和计时已移除。 */}
+      {!handheld && <UsageStrip placement="bottom" />}
 
-      {!handheld && (
-        <StatusBar
-          clientCount={workers.hostGroups.size}
-          activeTaskCount={activeTaskCount}
-          cwd={cwd}
-          startedAt={activeOpenedAt}
-          viewLabel={view === 'meeting' ? '会议模式' : '任务模式'}
-        />
-      )}
 
       {handheld && permModalOpen && pendingPermission && (
         <Modal
@@ -1006,7 +1249,7 @@ export function App() {
         </Modal>
       )}
 
-      {overlayHostId && (
+      {meetingGate.ready && overlayHostId && (
         <EditorOverlay
           hostId={overlayHostId}
           sessionId={activeTab?.id ?? 'default'}
@@ -1041,12 +1284,17 @@ export function App() {
         tasks={workers.pendingPlan ?? []}
         backends={backends}
         onReject={() => workers.decidePendingPlan(false)}
-        onSubmit={(tasks) => workers.decidePendingPlan(true, tasks)}
+        onSubmit={(tasks,brief) => workers.decidePendingPlan(true, tasks,brief)}
       />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
-      {onboardingMode && (
-        <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
+      {/* 空项目开场：弹窗询问先脑暴还是开发，不占用看板标签。 */}
+      {kickoffVisible && (
+        <Modal open ariaLabel="这个项目还是空的，先做什么？" className="kickoff-modal"
+          closeOnBackdrop={false} onClose={kickoffBusy ? undefined : dismissKickoff}>
+          <KickoffCard backends={backends} busy={kickoffBusy} error={kickoffError}
+            onStart={(mode, backendId) => void startKickoff(mode, backendId)} onSkip={dismissKickoff} />
+        </Modal>
       )}
 
       {(lastError || micError || updateInfo) && (
@@ -1086,9 +1334,6 @@ export function App() {
         </div>
       )}
 
-      {onboardingMode && (
-        <Onboarding mode={onboardingMode} onFinish={handleOnboardingFinish} />
-      )}
 
       <MinimizePrompt />
     </div>

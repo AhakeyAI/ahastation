@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, KeyRound, LogIn, Mic, MonitorUp } from 'lucide-react';
+import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, FolderPlus, KeyRound, LogIn, Mic, MonitorUp, Terminal } from 'lucide-react';
 import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
 import type { BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
+import {SharedMeetingEntry} from './SharedMeetingEntry';
+import { ProjectRooms } from './ProjectRooms';
+import { useObservedTasks } from '../hooks/useObservedTasks';
+import { buildRooms, type ProjectRoom, type RepoInfo } from '../lib/project-rooms';
+import { partitionHiddenRooms, readHiddenRooms, roomHideKey, writeHiddenRooms } from '../lib/hidden-rooms';
+import { RoomCleanupDialog } from './RoomCleanupDialog';
+import { CreateRoomDialog } from './CreateRoomDialog';
+import { rememberTerminalFolder } from './LocalTerminalWorkspace';
 
 interface LobbyProps {
   lastError?: string | null;
   /** Zero-session entry into the main UI, landing on the task board. */
   onEnterBoard?: () => void;
+  onOpenTerminal?: () => void;
+  onEnterMeeting?: () => void;
   /** Replay the full first-launch onboarding flow. */
   onReplayOnboarding?: () => void;
+  /** 探索页（配套硬件与功能），只在启动大厅提供入口。 */
+  onOpenExplore?: () => void;
+  /** Never scanned on this machine: 项目室 leads with the scan guide. */
+  firstLaunch?: boolean;
+  onFirstScanDone?: () => void;
 }
 
 interface RecoverableMeeting {
@@ -39,12 +54,12 @@ interface DeviceSnapshot {
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return '刚刚';
+  if (min < 60) return `${min} 分钟前`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return `${hr} 小时前`;
   const days = Math.floor(hr / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days} 天前`;
   return new Date(ts).toLocaleDateString();
 }
 
@@ -71,10 +86,12 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore, firstLaunch = false, onFirstScanDone }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
+  // 多设备协作入口默认收起（C5：协作入口默认关闭），从页脚展开。
+  const [collabOpen, setCollabOpen] = useState(false);
   const [selectedBackend, setSelectedBackend] = useState('codex');
   const [authOpen, setAuthOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -127,6 +144,8 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
       });
   }, [reloadBackends]);
 
+  useEffect(() => window.vibeMeet.remoteControl.onChanged(() => { void reloadBackends(); }), [reloadBackends]);
+
   // When selected backend changes, prefill inputs from its config
   useEffect(() => {
     const b = backends.find((x) => x.id === selectedBackend);
@@ -147,11 +166,14 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
     setOpenError(null);
     try {
       const res = await meetingStore.openSession(cwd);
-      if (!res.ok) setOpenError(res.error ?? 'Failed to open meeting');
+      if (!res.ok) setOpenError(res.error ?? '会议打开失败');
+      else onEnterMeeting?.();
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : String(error));
     } finally {
       setOpening(false);
     }
-  }, [opening]);
+  }, [opening, onEnterMeeting]);
 
   const pickAndOpen = useCallback(async () => {
     const dir = await pickCwd();
@@ -167,17 +189,72 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
     setOpenError(null);
     try {
       const result = await meetingStore.openSession(cwd, '', meeting.meetingId);
-      if (!result.ok) setOpenError(result.error ?? 'Failed to recover meeting');
-      else setRecoverable((items) => items.filter((item) => item.meetingId !== meeting.meetingId));
+      if (!result.ok) setOpenError(result.error ?? '会议恢复失败');
+      else { setRecoverable((items) => items.filter((item) => item.meetingId !== meeting.meetingId)); onEnterMeeting?.(); }
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : String(error));
     } finally {
       setOpening(false);
     }
-  }, [opening]);
+  }, [opening, onEnterMeeting]);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const observed = useObservedTasks();
+  // folder → repository, so a repo's worktrees and sub-folders share one room.
+  const [repos, setRepos] = useState<Record<string, RepoInfo>>({});
+  const roomFolders = useMemo(() => [...new Set([
+    ...lobby.recent.map((r) => r.path),
+    ...recoverable.map((m) => (typeof m.state.cwd === 'string' ? m.state.cwd : '')),
+    ...observed.sessions.filter((s) => !s.isNoise).map((s) => s.cwd),
+  ].filter(Boolean))], [lobby.recent, recoverable, observed]);
+  useEffect(() => {
+    const missing = roomFolders.filter((cwd) => !(cwd in repos));
+    if (!missing.length || !window.vibeMeet.projects?.resolveRepos) return;
+    let cancelled = false;
+    void window.vibeMeet.projects.resolveRepos(missing).then((res) => {
+      if (!cancelled && res.ok) setRepos((prev) => ({ ...prev, ...res.repos }));
+    }).catch(() => { /* rooms fall back to one per folder */ });
+    return () => { cancelled = true; };
+  }, [roomFolders, repos]);
+  const rooms = useMemo(() => buildRooms({
+    recent: lobby.recent,
+    recoverable: recoverable.map((m) => ({
+      meetingId: m.meetingId,
+      cwd: typeof m.state.cwd === 'string' ? m.state.cwd : '',
+      updatedAt: typeof m.state.updatedAt === 'number' ? m.state.updatedAt : undefined,
+    })),
+    sessions: observed.sessions,
+    repos,
+  }), [lobby.recent, recoverable, observed, repos]);
+
+  const [hiddenRooms, setHiddenRooms] = useState(readHiddenRooms);
+  const [cleanupRoom, setCleanupRoom] = useState<ProjectRoom | null>(null);
+  const roomGroups = useMemo(() => partitionHiddenRooms(rooms, hiddenRooms), [rooms, hiddenRooms]);
+  const setRoomHidden = useCallback((room: ProjectRoom, hide: boolean) => {
+    setHiddenRooms((prev) => {
+      const next = { ...prev };
+      if (hide) next[roomHideKey(room)] = Date.now();
+      else delete next[roomHideKey(room)];
+      writeHiddenRooms(next);
+      return next;
+    });
+  }, []);
+  const hideRoom = useCallback((room: ProjectRoom) => {
+    setRoomHidden(room, true);
+    toast.info(`已从项目室隐藏 ${room.name}，可在「已隐藏」里恢复`);
+  }, [setRoomHidden]);
+
+  const openRoom = useCallback((room: ProjectRoom) => {
+    const meeting = room.recoverableMeetingId
+      ? recoverable.find((m) => m.meetingId === room.recoverableMeetingId)
+      : undefined;
+    void (meeting ? recoverMeeting(meeting) : openCwd(room.cwd));
+  }, [recoverable, recoverMeeting, openCwd]);
 
   const handleBackendChange = useCallback(async (backendId: string) => {
     const result = await window.vibeMeet.backendAuth.setDefault(backendId);
     if (!result.ok) {
-      setOpenError(result.error ?? 'This backend cannot coordinate');
+      setOpenError(result.error ?? '这个 CLI 不能担任 Host');
       await reloadBackends();
       return;
     }
@@ -222,7 +299,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
       await reloadBackends();
     } else {
       setLoginStatus('error');
-      setLoginError(res.error ?? 'Login failed');
+      setLoginError(res.error ?? '登录失败');
     }
   }, [reloadBackends]);
 
@@ -235,7 +312,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
       await reloadBackends();
     } else {
       setLoginStatus('error');
-      setLoginError(res.error ?? 'Login failed');
+      setLoginError(res.error ?? '登录失败');
     }
   }, [reloadBackends]);
 
@@ -275,7 +352,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
         setInstallLog((prev) => prev + '\n✓ Installed successfully.\n');
         await reloadBackends();
       } else {
-        setInstallLog((prev) => prev + `\n✗ ${res.error ?? 'Install failed'}\n`);
+        setInstallLog((prev) => prev + `\n✗ ${res.error ?? '安装失败'}\n`);
       }
     } catch (err) {
       setInstallLog((prev) => prev + `\n✗ ${err instanceof Error ? err.message : String(err)}\n`);
@@ -301,7 +378,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
   // Build the toggle label
   const toggleLabel = currentBackend
     ? `${currentBackend.displayName} ${backendAuthLabel(currentBackend)}`
-    : 'Not configured';
+    : '未配置';
 
   return (
     <div className="join-screen">
@@ -312,7 +389,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
           </div>
           <div>
             <div className="join-title">AhaStudio</div>
-            <div className="join-sub">Pair with AI over screen + voice</div>
+            <div className="join-sub">和 AI 开会写代码：说话、共享屏幕、派活</div>
           </div>
         </div>
 
@@ -330,7 +407,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
           {authOpen && (
             <div className="join-auth-body">
               <p className="join-auth-desc">
-                Choose which CLI backend to use as the host. Each backend has its own auth configuration.
+                选择担任 Host 的 CLI，每个 CLI 单独配置认证。
               </p>
 
               {/* Backend selector dropdown */}
@@ -405,20 +482,23 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
               )}
 
               {/* Auth fields for selected backend */}
-              {currentBackend?.available ? (
+              {currentBackend?.id === 'pocket-vibe' ? <div className="join-auth-block">
+                <p>远端身份和电脑配对请在远端控制设置管理。公网模式先使用本机 Host 开始会议，再从参与者选择已有远端会话。</p>
+                <button className="join-auth-btn" onClick={() => void window.vibeMeet.settingsWindow.open()}>远端控制设置</button>
+              </div> : currentBackend?.available ? (
                 <>
                   <div className="join-auth-block">
                     <div className="join-auth-block-title">
                       <KeyRound size={13} aria-hidden="true" /> API Key
                       {currentBackend.loggedIn && (
-                        <span className="join-auth-badge active">Active</span>
+                        <span className="join-auth-badge active">已生效</span>
                       )}
                     </div>
                     <div className="join-auth-row">
                       <input
                         type="password"
                         className="join-auth-input"
-                        placeholder={currentBackend.hasApiKey ? '••••••••••••••••••••••' : 'Enter API key…'}
+                        placeholder={currentBackend.hasApiKey ? '••••••••••••••••••••••' : '输入 API Key…'}
                         value={apiKeyInputs[currentBackend.id] ?? ''}
                         onChange={(e) => setApiKeyInputs((prev) => ({ ...prev, [currentBackend.id]: e.target.value }))}
                         onKeyDown={(e) => e.key === 'Enter' && void saveApiKey()}
@@ -431,15 +511,15 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
                         onClick={saveApiKey}
                         disabled={apiKeyStatus === 'saving'}
                       >
-                        {apiKeyStatus === 'saving' ? 'Saving…'
-                          : apiKeyStatus === 'saved' ? 'Saved ✓'
-                          : 'Save'}
+                        {apiKeyStatus === 'saving' ? '正在保存…'
+                          : apiKeyStatus === 'saved' ? '已保存 ✓'
+                          : '保存'}
                       </button>
                     </div>
                     <input
                       type="text"
                       className="join-auth-input join-auth-input-full"
-                      placeholder={`Base URL (optional)${currentBackend.baseUrl ? ` — ${currentBackend.baseUrl}` : ''}`}
+                      placeholder={`Base URL（可选）${currentBackend.baseUrl ? `：${currentBackend.baseUrl}` : ''}`}
                       value={baseUrlInput}
                       onChange={(e) => setBaseUrlInput(e.target.value)}
                       onBlur={(e) => {
@@ -459,7 +539,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
                           void saveModel(e.target.value);
                         }}
                       >
-                        <option value="">Default model</option>
+                        <option value="">默认模型</option>
                         {currentBackend.models.map((m) => (
                           <option key={m} value={m}>{m}</option>
                         ))}
@@ -509,7 +589,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
                       <div className="join-auth-block-title">
                         <LogIn size={13} aria-hidden="true" /> {currentBackend.displayName} Account
                         {currentBackend.loggedIn && (
-                          <span className="join-auth-badge active">Active</span>
+                          <span className="join-auth-badge active">已生效</span>
                         )}
                       </div>
                       <button
@@ -524,19 +604,18 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
                         }}
                         disabled={loginStatus === 'pending'}
                       >
-                        {loginStatus === 'pending' ? 'Opening browser…'
-                          : loginStatus === 'done' ? 'Logged in ✓'
-                          : currentBackend.loggedIn ? 'Re-authenticate'
-                          : `Log in with ${currentBackend.displayName}`}
+                        {loginStatus === 'pending' ? '正在打开浏览器…'
+                          : loginStatus === 'done' ? '已登录 ✓'
+                          : currentBackend.loggedIn ? '重新登录'
+                          : `登录 ${currentBackend.displayName}`}
                       </button>
                       {loginStatus === 'error' && (
-                        <div className="join-auth-error">{loginError || 'Login failed.'}</div>
+                        <div className="join-auth-error">{loginError || '登录失败。'}</div>
                       )}
                       <div className="join-auth-hint">
-                        Opens a browser window for OAuth. Requires {currentBackend.displayName} CLI
-                        {currentBackend.id === 'claude-code'
-                          ? (currentBackend.claudeCodeCliSource === 'bundled' ? ' bundled with this app' : ' on your PATH')
-                          : ' installed'}.
+                        会打开浏览器完成 OAuth 登录。需要{currentBackend.id === 'claude-code'
+                          ? (currentBackend.claudeCodeCliSource === 'bundled' ? '应用内置的 ' : '本机 PATH 上的 ')
+                          : '已安装的 '}{currentBackend.displayName} CLI。
                       </div>
                     </div>
                   )}
@@ -544,7 +623,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
               ) : currentBackend ? (
                 <div className="join-auth-block">
                   <div className="join-auth-hint">
-                    {currentBackend.installHint ?? `${currentBackend.displayName} is not installed. Install it to use this backend.`}
+                    {currentBackend.installHint ?? `没有安装 ${currentBackend.displayName}，安装后才能使用。`}
                   </div>
                   {currentBackend.installHint && currentBackend.installHint !== 'Bundled with AhaStation' && (
                     <button
@@ -554,7 +633,7 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
                       disabled={installing !== null}
                     >
                       <DownloadCloud size={13} aria-hidden="true" />
-                      {installing === currentBackend.id ? 'Installing…' : `Install ${currentBackend.displayName}`}
+                      {installing === currentBackend.id ? '正在安装…' : `安装 ${currentBackend.displayName}`}
                     </button>
                   )}
                 </div>
@@ -684,98 +763,18 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
           )}
         </section>
 
-        {recoverable.length > 0 && (
-          <section className="lobby-section">
-            <div className="lobby-section-title">
-              <Clock size={13} aria-hidden="true" />
-              <span>Interrupted meetings — confirm to resume</span>
-            </div>
-            <ul className="lobby-list">
-              {recoverable.slice(0, 3).map((meeting) => {
-                const cwd = typeof meeting.state.cwd === 'string' ? meeting.state.cwd : '';
-                const { label, parent } = shortPath(cwd);
-                const tasks = Array.isArray(meeting.state.tasks) ? meeting.state.tasks.length : 0;
-                const savedTasks = Array.isArray(meeting.state.tasks)
-                  ? meeting.state.tasks.filter(
-                      (task): task is Record<string, unknown> => Boolean(task && typeof task === 'object'),
-                    )
-                  : [];
-                const autoReadOnly = savedTasks.filter((task) => {
-                  const recovery = task.recovery;
-                  return Boolean(
-                    recovery
-                    && typeof recovery === 'object'
-                    && (recovery as Record<string, unknown>).autoResume === true,
-                  );
-                }).length;
-                const needsConfirmation = savedTasks.filter((task) => {
-                  const recovery = task.recovery;
-                  return Boolean(
-                    recovery
-                    && typeof recovery === 'object'
-                    && (recovery as Record<string, unknown>).classification === 'requires-user',
-                  );
-                }).length;
-                return (
-                  <li key={meeting.meetingId}>
-                    <button
-                      type="button"
-                      className="lobby-row"
-                      onClick={() => { void recoverMeeting(meeting); }}
-                      disabled={opening || !cwd}
-                      title="Restore durable Meeting state; only explicit read-only tasks may resume automatically"
-                    >
-                      <span className="lobby-row-icon" aria-hidden="true"><Clock size={16} /></span>
-                      <span className="lobby-row-main">
-                        <span className="lobby-row-name">Resume {label}</span>
-                        <span className="lobby-row-path">
-                          {parent} · {tasks} saved tasks
-                          {autoReadOnly > 0 ? ` · ${autoReadOnly} read-only auto-resume` : ''}
-                          {needsConfirmation > 0 ? ` · ${needsConfirmation} require confirmation` : ''}
-                        </span>
-                      </span>
-                      <span className="lobby-row-meta">Confirm</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {lobby.recent.length > 0 && (
-          <section className="lobby-section">
-            <div className="lobby-section-title">
-              <Clock size={13} aria-hidden="true" />
-              <span>Recent meetings</span>
-            </div>
-            <ul className="lobby-list">
-              {lobby.recent.slice(0, 3).map((r) => {
-                const { label, parent } = shortPath(r.path);
-                return (
-                  <li key={r.path}>
-                    <button
-                      type="button"
-                      className="lobby-row"
-                      onClick={() => openCwd(r.path)}
-                      disabled={opening}
-                      title={r.path}
-                    >
-                      <span className="lobby-row-icon" aria-hidden="true">
-                        <FolderOpen size={16} />
-                      </span>
-                      <span className="lobby-row-main">
-                        <span className="lobby-row-name">{label}</span>
-                        <span className="lobby-row-path">{parent}</span>
-                      </span>
-                      <span className="lobby-row-meta">{formatRelative(r.lastOpenedAt)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
+        <ProjectRooms
+          rooms={roomGroups.shown}
+          hiddenRooms={roomGroups.hidden}
+          observed={observed}
+          firstLaunch={firstLaunch}
+          opening={opening}
+          onOpen={openRoom}
+          onHide={hideRoom}
+          onRestore={(room) => setRoomHidden(room, false)}
+          onCleanup={setCleanupRoom}
+          onScanned={() => onFirstScanDone?.()}
+        />
 
         {(lastError || openError) && (
           <div className="join-error">{openError ?? lastError}</div>
@@ -783,38 +782,43 @@ export function Lobby({ lastError, onEnterBoard, onReplayOnboarding }: LobbyProp
 
         <button
           type="button"
-          className="join-cta lobby-cta"
-          onClick={pickAndOpen}
+          className={`join-cta lobby-cta${firstLaunch ? ' is-secondary' : ''}`}
+          onClick={() => setCreateOpen(true)}
           disabled={opening}
         >
-          <FolderOpen size={16} aria-hidden="true" />
-          <span>{opening ? 'Opening…' : 'Open another folder'}</span>
+          <FolderPlus size={16} aria-hidden="true" />
+          <span>{opening ? '正在打开…' : '新建项目室'}</span>
         </button>
 
-        <div className="join-hints">
-          <span className="join-hint-item"><Mic size={14} aria-hidden="true" /> Voice on by default</span>
-          <span className="join-hint-sep">·</span>
-          <span className="join-hint-item"><MonitorUp size={14} aria-hidden="true" /> Manual screen snapshots</span>
-          <span className="join-hint-sep">·</span>
-          <span className="join-hint-item">⌥ Interrupt anytime</span>
-        </div>
 
-        {(onEnterBoard || onReplayOnboarding) && (
-          <div className="lobby-footer-actions">
-            {onEnterBoard && (
-              <button type="button" className="lobby-footer-btn" onClick={onEnterBoard}>
-                查看任务看板
-              </button>
-            )}
-            {onReplayOnboarding && (
-              <button type="button" className="lobby-footer-btn" onClick={onReplayOnboarding}>
-                重播首次启动
-              </button>
-            )}
-          </div>
+
+        {collabOpen && (
+          <SharedMeetingEntry backends={backends} defaultHost={selectedBackend} onEnter={() => onEnterMeeting?.()} />
         )}
       </div>
       {pickerModal}
+      {cleanupRoom && (
+        <RoomCleanupDialog
+          room={cleanupRoom}
+          onClose={() => setCleanupRoom(null)}
+          onDone={(allOk) => { if (allOk) setRoomHidden(cleanupRoom, true); }}
+        />
+      )}
+      <CreateRoomDialog
+        open={createOpen}
+        recent={lobby.recent.map((r) => r.path)}
+        onClose={() => setCreateOpen(false)}
+        onReady={(path, mode, fresh) => {
+          setCreateOpen(false);
+          if (mode === 'cli') {
+            rememberTerminalFolder(path);
+            onOpenTerminal?.();
+            return;
+          }
+          if (fresh) meetingStore.markFreshProject(path);
+          void openCwd(path);
+        }}
+      />
     </div>
   );
 }

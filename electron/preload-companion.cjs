@@ -24,7 +24,8 @@ contextBridge.exposeInMainWorld('vibeMeet', {
       ipcRenderer.invoke('ahabar:resolve-permission', { id, decision }),
     focusMain: () => ipcRenderer.invoke('ahabar:focus-main'),
     copyResume: (id) => ipcRenderer.invoke('ahabar:copy-resume', { id }),
-    setExpanded: (expanded) => ipcRenderer.invoke('ahabar:set-expanded', { expanded }),
+    setExpanded: (expanded, height) =>
+      ipcRenderer.invoke('ahabar:set-expanded', typeof height === 'number' ? { expanded, height } : { expanded }),
     setGhost: (ghost) => ipcRenderer.invoke('ahabar:set-ghost', { ghost }),
   },
 });

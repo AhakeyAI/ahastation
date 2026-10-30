@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState,useRef,type Dispatch,type SetStateAction } from 'react';
+import type {SharedEntity} from '../../electron/collaboration/production-types';
 import type { BackendInfo, MeetingPlanBrief, PlanMeetingTaskInput } from '../types';
 import { requestHideBrowser } from '../lib/browser-store';
+import type {BaseRevision} from '../../electron/collaboration/plan-revision';
 import {
   isWorkerBackendReady,
   normalizePlanDraft,
@@ -14,8 +16,24 @@ interface PlanMeetingModalProps {
   brief: MeetingPlanBrief | null;
   tasks: PlanMeetingTaskInput[];
   backends: BackendInfo[];
-  onReject: () => Promise<{ ok: boolean; error?: string }>;
-  onSubmit: (tasks: PlanMeetingTaskInput[]) => Promise<{ ok: boolean; error?: string }>;
+  onReject: (basis?:SharedEntity) => Promise<{ ok: boolean; error?: string }>;
+  onSubmit: (tasks: PlanMeetingTaskInput[],brief?:MeetingPlanBrief,basis?:SharedEntity) => Promise<{ ok: boolean; error?: string }>;
+  onClose?:()=>void;
+  reviewKey?:string;
+  reviewMeeting?:SharedEntity;
+  sharedProjects?:Array<{id:string;name:string}>;
+  executionTargets?:Array<{deviceId:string;agentId:string;label:string;capacity:number;availableSlots?:number}>;
+  baseRevisions?:BaseRevision[];
+  lockedTaskIds?:string[];
+}
+type ReviewEdits={meeting:SharedEntity;source:PlanMeetingTaskInput[];tasks:PlanMeetingTaskInput[];brief:MeetingPlanBrief;sourceBrief:MeetingPlanBrief};
+// Renderer memory only: no localStorage, IPC, account sync, or restart recovery.
+const currentRunEdits=new Map<string,ReviewEdits>();
+function applyReviewEdits<T>(before:T,edited:T,latest:T):T{
+  if(JSON.stringify(before)===JSON.stringify(edited))return structuredClone(latest);
+  const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+  if(!object(before)||!object(edited)||!object(latest))return structuredClone(edited);
+  const result:Record<string,unknown>=structuredClone(latest);for(const key of new Set([...Object.keys(before),...Object.keys(edited)])){if(!(key in edited))delete result[key];else result[key]=applyReviewEdits(before[key],edited[key],latest[key]);}return result as T;
 }
 
 function cloneBrief(brief: MeetingPlanBrief | null, tasks: PlanMeetingTaskInput[]): MeetingPlanBrief {
@@ -91,10 +109,16 @@ export function PlanMeetingModal({
   backends,
   onReject,
   onSubmit,
+  executionTargets,sharedProjects,baseRevisions,lockedTaskIds,onClose,reviewKey,reviewMeeting,
 }: PlanMeetingModalProps) {
-  const [draft, setDraft] = useState<PlanMeetingTaskInput[]>([]);
-  const [draftBrief, setDraftBrief] = useState<MeetingPlanBrief>(() => cloneBrief(brief, tasks));
+  const [draft, setDraftState] = useState<PlanMeetingTaskInput[]>([]);
+  const [draftBrief, setDraftBriefState] = useState<MeetingPlanBrief>(() => cloneBrief(brief, tasks));
+  const saved=useRef<ReviewEdits>();
+  const [basis,setBasis]=useState<SharedEntity>();
+  const setDraft:Dispatch<SetStateAction<PlanMeetingTaskInput[]>>=value=>{const entry=saved.current;setDraftState(current=>{const next=typeof value==='function'?value(current):value;if(entry)entry.tasks=next;return next;});};
+  const setDraftBrief:Dispatch<SetStateAction<MeetingPlanBrief>>=value=>{const entry=saved.current;setDraftBriefState(current=>{const next=typeof value==='function'?value(current):value;if(entry)entry.brief=next;return next;});};
   const [submitting, setSubmitting] = useState(false);
+  const decisionPending=useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   // This modal is a full-screen decision point: the native browser view
@@ -106,17 +130,37 @@ export function PlanMeetingModal({
 
   useEffect(() => {
     if (!open) return;
-    setDraft(cloneTasks(tasks, backends));
-    setDraftBrief(cloneBrief(brief, tasks));
+    let entry=reviewKey?currentRunEdits.get(reviewKey):undefined;
+    if(!entry&&reviewKey&&reviewMeeting){entry={meeting:structuredClone(reviewMeeting),source:cloneTasks(tasks,backends),tasks:cloneTasks(tasks,backends),brief:cloneBrief(brief,tasks),sourceBrief:cloneBrief(brief,tasks)};currentRunEdits.set(reviewKey,entry);}
+    saved.current=entry;setBasis(entry?.meeting);
+    setDraftState(entry?.tasks??cloneTasks(tasks, backends));
+    setDraftBriefState(entry?.brief??cloneBrief(brief, tasks));
     setError(null);
-  }, [backends, brief, open, tasks]);
+  }, [open,reviewKey]);
+  useEffect(()=>{if(open&&!reviewKey){setDraftState(cloneTasks(tasks,backends));setDraftBriefState(cloneBrief(brief,tasks));setError(null);}},[backends,brief,tasks,open,reviewKey]);
+
+  const conflict=!!basis&&Number(basis.planVersion??0)!==Number(reviewMeeting?.planVersion??0);
+  const lockedChanged=draft.filter(t=>lockedTaskIds?.includes(t.id)&&JSON.stringify(t)!==JSON.stringify(cloneTasks(tasks,backends).find(latest=>latest.id===t.id)));
+  const adoptLatest=(keepEdits=false)=>{
+    const original=saved.current;if(!reviewKey||!reviewMeeting||!original)return;
+    const latest=cloneTasks(tasks,backends);
+    if(keepEdits&&original.tasks.some(t=>!latest.some(n=>n.id===t.id)&&JSON.stringify(t)!==JSON.stringify(original.source.find(n=>n.id===t.id)))){setError('新版已移除正在修改的任务；请核对后载入新版，不能将修改套用到其他任务。');return;}
+    const merged=keepEdits?latest.map(task=>{const old=original.source.find(t=>t.id===task.id),edit=original.tasks.find(t=>t.id===task.id);if(!old||!edit||lockedTaskIds?.includes(task.id))return task;return applyReviewEdits(old,edit,task);}):latest;
+    const latestBrief=cloneBrief(brief,tasks);
+    const editedBrief=keepEdits?applyReviewEdits(original.sourceBrief,original.brief,latestBrief):latestBrief;
+    const entry={meeting:structuredClone(reviewMeeting),source:latest,tasks:merged,brief:editedBrief,sourceBrief:latestBrief};currentRunEdits.set(reviewKey,entry);saved.current=entry;setBasis(entry.meeting);setDraftState(entry.tasks);setDraftBriefState(entry.brief);setError(null);
+  };
 
   const validation = useMemo(() => {
+    if(conflict)return '计划内容已有新版，当前修改仍保留；请先核对采用哪一版。';
+    if(lockedChanged.length)return '编辑期间有任务已分发；请还原这些任务的修改后提交，原执行安排保持不变。';
+    if(baseRevisions?.some(r=>{const task=draft.find(t=>t.id===r.planTaskId);return task&&task.sharedTarget?.baseCommit!==r.toCommit;}))return '请先审阅受影响任务，并将准确新基线加入修订后再批准。';
+    if(executionTargets)return draft.length===0?'请保留至少一项完整交付':draft.some(t=>!t.title.trim()||!t.prompt.trim()||!t.sharedTarget||!executionTargets.some(p=>p.deviceId===t.sharedTarget?.deviceId&&p.agentId===t.sharedTarget.agentId))?'请填写完整任务并选择准确执行设备与 Agent':null;
     return validatePlanDraft(draft, backends);
-  }, [backends, draft]);
+  }, [backends, draft,executionTargets,baseRevisions,conflict,lockedChanged.length]);
 
   const changedCount = useMemo(() => {
-    const original = cloneTasks(tasks, backends);
+    const original = saved.current?.source??cloneTasks(tasks, backends);
     return draft.reduce(
       (count, task, index) => count + (JSON.stringify(task) === JSON.stringify(original[index]) ? 0 : 1),
       Math.abs(draft.length - original.length),
@@ -135,34 +179,45 @@ export function PlanMeetingModal({
     criteria[criterionIndex] = criterion;
     patchTask(taskIndex, { acceptanceCriteria: criteria });
   };
+  const clearSubmittedEdits=(entry:ReviewEdits|undefined,submitted:string)=>{
+    if(reviewKey&&entry&&currentRunEdits.get(reviewKey)===entry&&JSON.stringify([entry.tasks,entry.brief])===submitted){currentRunEdits.delete(reviewKey);if(saved.current===entry)saved.current=undefined;}
+  };
 
   const submit = async () => {
-    if (validation || submitting) return;
+    if (validation || decisionPending.current) return;
+    decisionPending.current=true;
     setSubmitting(true);
     setError(null);
+    const entry=saved.current,submitted=JSON.stringify([draft,draftBrief]);
     try {
-      const result = await onSubmit(draft);
+      const result = await onSubmit(structuredClone(draft),structuredClone(draftBrief),basis);
+      if(result.ok)clearSubmittedEdits(entry,submitted);
       if (!result.ok) setError(result.error ?? '计划调度失败。');
     } finally {
+      decisionPending.current=false;
       setSubmitting(false);
     }
   };
 
   const reject = async () => {
-    if (submitting) return;
+    if (decisionPending.current) return;
+    decisionPending.current=true;
     setSubmitting(true);
+    const entry=saved.current,submitted=JSON.stringify([draft,draftBrief]);
     try {
-      const result = await onReject();
+      const result = await onReject(basis);
+      if(result.ok)clearSubmittedEdits(entry,submitted);
       if (!result.ok) setError(result.error ?? '无法拒绝计划。');
     } finally {
+      decisionPending.current=false;
       setSubmitting(false);
     }
   };
 
   const runnable = draft.filter((task) => task.deps.length === 0).length;
-  const workerCapacity = 4;
-  const startsImmediately = Math.min(runnable, workerCapacity);
-  const waitsForCapacity = Math.max(0, runnable - workerCapacity);
+  const workerCapacity = executionTargets?Array.from(new Map(executionTargets.map(t=>[t.deviceId,t.capacity])).values()).reduce((a,b)=>a+b,0):4;
+  const startsImmediately = executionTargets?Array.from(new Map(executionTargets.map(t=>[t.deviceId,t])).values()).reduce((count,target)=>count+Math.min(target.availableSlots??0,draft.filter(t=>t.deps.length===0&&t.sharedTarget?.deviceId===target.deviceId).length),0):Math.min(runnable, workerCapacity);
+  const waitsForCapacity = Math.max(0, runnable - (executionTargets?startsImmediately:workerCapacity));
 
   const patchBrief = (patch: Partial<MeetingPlanBrief>) => {
     setDraftBrief((current) => ({ ...current, ...patch }));
@@ -180,6 +235,9 @@ export function PlanMeetingModal({
             立即 {startsImmediately} 项 · 等容量 {waitsForCapacity} 项 · 上限 {workerCapacity}
           </div>
         </header>
+        {onClose&&<button type="button" onClick={onClose} disabled={submitting}>关闭查看，保留本机修改</button>}
+        {conflict&&<section role="alert"><p>计划内容已有新版；下面的当前修改完整保留，尚未提交。</p><details><summary>查看新版内容与安排</summary>{tasks.map(task=><p key={task.id}>{task.title}：{task.prompt} · {executionTargets?.find(t=>t.deviceId===task.sharedTarget?.deviceId&&t.agentId===task.sharedTarget?.agentId)?.label} · 依赖 {task.deps.join('、')||'无'} · 基线 {task.sharedTarget?.baseCommit??'无'}</p>)}</details><button onClick={()=>adoptLatest(false)} disabled={submitting}>载入新版，放弃当前修改</button><button onClick={()=>adoptLatest(true)} disabled={submitting||lockedChanged.length>0}>已核对，将自己的修改应用于新版</button></section>}
+        {!!lockedChanged.length&&<section role="alert">已分发任务的修改不能提交。{lockedChanged.map(task=><button key={task.id} onClick={()=>setDraft(current=>current.map(t=>t.id===task.id?cloneTasks(tasks,backends).find(n=>n.id===t.id)!:t))}>还原已分发任务：{task.title}</button>)}</section>}
 
         {changedCount > 0 && (
           <div className="plan-diff-note" aria-live="polite">
@@ -295,6 +353,10 @@ export function PlanMeetingModal({
             const budget = task.budget!;
             return (
               <article className="plan-task-card" key={`${task.id}:${taskIndex}`}>
+                {lockedTaskIds?.includes(task.id)&&<p>此任务已分发，保留原批准字段和执行记录；补充要求请在任务详情提交。</p>}
+                <fieldset disabled={lockedTaskIds?.includes(task.id)} style={{border:0,padding:0,margin:0,minWidth:0}}>
+                {executionTargets&&task.sharedTarget?.baseCommit&&<p>获准基线：<code>{task.sharedTarget.baseCommit}</code></p>}
+                {baseRevisions?.filter(r=>r.planTaskId===task.id).map(revision=><section key={revision.toCommit} role="alert"><p>{revision.reason}</p><p>原提交：<code>{revision.fromCommit}</code><br/>新提交：<code>{revision.toCommit}</code></p><button type="button" onClick={()=>patchTask(taskIndex,{sharedTarget:{...task.sharedTarget!,baseCommit:revision.toCommit}})}>将此准确提交加入待批准修订</button><p>{task.sharedTarget?.baseCommit===revision.toCommit?'修订已加入草稿，请审阅并批准整份计划后执行。':'尚未改变获准基线，此任务等待修订批准。'}</p></section>)}
                 <div className="plan-task-card-head">
                   <span>任务 {taskIndex + 1}</span>
                   <button
@@ -305,7 +367,8 @@ export function PlanMeetingModal({
                     删除
                   </button>
                 </div>
-                <div className="plan-field-grid">
+                {executionTargets&&<details><summary>诊断标识</summary><code>{task.id}</code></details>}
+                <div className="plan-field-grid" hidden={!!executionTargets}>
                   <label>
                     <span>任务 ID</span>
                     <input value={task.id} onChange={(event) => patchTask(taskIndex, { id: event.target.value })} />
@@ -315,8 +378,9 @@ export function PlanMeetingModal({
                   <span>标题</span>
                   <input value={task.title} onChange={(event) => patchTask(taskIndex, { title: event.target.value })} />
                 </label>
+                {executionTargets&&<p>项目：{sharedProjects?.find(p=>p.id===task.sharedTarget?.projectId)?.name??'纯文字'} · {({text:'文字交付',repository:'仓库工作区',directory:'普通目录',native:'已有原生对话'})[task.sharedTarget?.resource??'text']} · 权限：{task.sharedTarget?.permission==='read-only'?'只读':task.sharedTarget?.permission==='full-access'?'已有完全访问授权':'工作区写入'}</p>}
                 <label>
-                  <span>Worker brief</span>
+                  <span>完整交付要求</span>
                   <textarea
                     rows={6}
                     value={task.prompt}
@@ -325,7 +389,9 @@ export function PlanMeetingModal({
                   />
                 </label>
 
-                <details className="plan-task-ops">
+                {executionTargets&&<label>获准执行目标（设备 · Agent）<select value={task.sharedTarget?task.sharedTarget.deviceId+':'+task.sharedTarget.agentId:''} onChange={e=>{const target=executionTargets.find(t=>t.deviceId+':'+t.agentId===e.target.value);if(target)patchTask(taskIndex,{executorBackendId:target.agentId,sharedTarget:{...task.sharedTarget!,deviceId:target.deviceId,agentId:target.agentId}});}}><option value="">选择明确目标</option>{executionTargets.map(t=><option key={t.deviceId+':'+t.agentId} value={t.deviceId+':'+t.agentId}>{t.label} · 容量 {t.capacity}</option>)}</select></label>}
+
+                {!executionTargets&&<details className="plan-task-ops">
                   <summary>执行与权限配置（可选）</summary>
                 <fieldset>
                   <legend>执行配置</legend>
@@ -621,7 +687,7 @@ export function PlanMeetingModal({
                     命令、网络、凭据与破坏性操作始终需要高风险确认。
                   </div>
                 </fieldset>
-                </details>
+                </details>}
 
                 <fieldset className="plan-dependencies">
                   <legend>前置依赖</legend>
@@ -641,7 +707,7 @@ export function PlanMeetingModal({
                         <span>{candidate.title || candidate.id}</span>
                       </label>
                     ))}
-                  <label className="plan-dependency-gate">
+                  {!executionTargets&&<label className="plan-dependency-gate">
                     <span>下游启动门槛</span>
                     <select
                       value={task.dependencyGate ?? 'accepted'}
@@ -657,17 +723,18 @@ export function PlanMeetingModal({
                         ? '分析/只读任务默认此项：下游不必等进 Meeting 分支。'
                         : '写代码任务默认此项：下游等交付进入 Meeting 集成分支后再启动（通常 Coordinator 审查后自动集成，不一定要点验收）。'}
                     </small>
-                  </label>
+                  </label>}
+                  {executionTargets&&<small>前序成果须经本会议检查／集成通过后释放依赖；不在派发时更换目标。</small>}
                 </fieldset>
 
-                <label className="plan-decision-forecast">
+                {!executionTargets&&<label className="plan-decision-forecast">
                   <input
                     type="checkbox"
                     checked={task.requiresDecision === true}
                     onChange={(event) => patchTask(taskIndex, { requiresDecision: event.target.checked })}
                   />
                   <span>预计执行中需要用户决策</span>
-                </label>
+                </label>}
 
                 <div className="plan-criteria">
                   <div className="plan-section-head">
@@ -742,6 +809,7 @@ export function PlanMeetingModal({
                     </div>
                   ))}
                 </div>
+                </fieldset>
               </article>
             );
           })}
@@ -758,6 +826,7 @@ export function PlanMeetingModal({
                 title: '',
                 prompt: '',
                 deps: [],
+                ...(executionTargets?{sharedTarget:{...(current[0]?.sharedTarget??{resource:'text' as const,permission:'read-only' as const}),deviceId:'',agentId:''}}:{}),
                 executorBackendId: defaultBackend?.id,
                 acceptanceCriteria: [{
                   id: 'manual-acceptance',
@@ -774,11 +843,12 @@ export function PlanMeetingModal({
         {validation && <div className="plan-modal-error" role="alert">{validation}</div>}
         {error && <div className="plan-modal-error" role="alert">{error}</div>}
         <footer className="plan-modal-actions">
+          {reviewKey&&<button type="button" disabled={submitting} onClick={()=>adoptLatest(false)}>放弃本机修改</button>}
           <button type="button" className="plan-modal-cancel" onClick={() => { void reject(); }} disabled={submitting}>
             拒绝计划
           </button>
           <button type="button" className="plan-modal-submit" onClick={() => { void submit(); }} disabled={submitting || Boolean(validation)}>
-            {submitting ? '处理中…' : `确认并调度 ${draft.length} 个任务`}
+            {submitting ? '处理中…' : executionTargets?'批准计划，执行尚未分发的任务':`确认并调度 ${draft.length} 个任务`}
           </button>
         </footer>
       </section>
