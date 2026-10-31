@@ -7,11 +7,56 @@ import {mkdir} from 'node:fs/promises';
 import {createServer as reserveSocket} from 'node:net';
 import {chromium} from 'playwright';
 let server,browser,origin;
-before(async()=>{const reservation=reserveSocket();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));server=await createServer({server:{watch:null,host:'127.0.0.1',port,strictPort:true,open:false},logLevel:'error'});await server.listen();origin='http://127.0.0.1:'+server.httpServer.address().port;browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});});
+before(async()=>{
+  const reservation=reserveSocket();
+  await new Promise(r=>reservation.listen(0,'127.0.0.1',r));
+  const port=reservation.address().port;
+  await new Promise(r=>reservation.close(r));
+  server=await createServer({
+    cacheDir:process.env.STATION_VITE_CACHE_DIR,
+    server:{watch:null,host:'127.0.0.1',port,strictPort:true,open:false},
+    logLevel:'error',
+  });
+  await server.listen();
+  origin='http://127.0.0.1:'+server.httpServer.address().port;
+  browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});
+});
 after(async()=>{await browser?.close();await server?.close();});
-async function page(){const p=await browser.newPage({viewport:{width:1600,height:1100}});await p.goto(origin+'/?ui-fixture=unified',{waitUntil:'domcontentloaded',timeout:60000});await p.getByRole('button',{name:'对话',exact:true}).first().click({timeout:60000});return p;}
+async function page(){
+  const p=await browser.newPage({viewport:{width:1600,height:1100}});
+  const errors=[];
+  p.on('pageerror',error=>errors.push(error.message));
+  p.on('requestfailed',request=>errors.push(request.url()+': '+request.failure()?.errorText));
+  try{
+    await p.goto(origin+'/?ui-fixture=unified',{waitUntil:'domcontentloaded',timeout:60000});
+    await p.getByRole('button',{name:'对话',exact:true}).first().click({timeout:60000});
+    return p;
+  }catch(error){
+    console.error('Unified fixture startup failed:',errors,await p.locator('body').innerText().catch(()=>'<unavailable>'));
+    await p.close();
+    throw error;
+  }
+}
 async function delaySends(p){await p.evaluate(()=>{window.__sends=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command'&&p?.action==='message.send'){window.__sends.push(p);await new Promise(r=>setTimeout(r,700));}return original(a,p);};});}
 async function capture(p,name){if(process.env.STATION_UI_EVIDENCE_DIR){await mkdir(process.env.STATION_UI_EVIDENCE_DIR,{recursive:true});await p.screenshot({path:join(process.env.STATION_UI_EVIDENCE_DIR,name+'.png')});}}
+
+test('unified fixture supplies the rate-limit subscription API on first navigation',async()=>{
+  const p=await page();
+  try{
+    const result=await p.evaluate(async()=>{
+      const api=window.vibeMeet.rateLimits;
+      const unsubscribe=api.onUpdate(()=>{});
+      const subscription=typeof unsubscribe;
+      unsubscribe();
+      return {subscription,initial:await api.get(),refreshed:await api.refresh()};
+    });
+    assert.deepEqual(result,{
+      subscription:'function',
+      initial:{ok:true,state:{providers:[],refreshing:false}},
+      refreshed:{ok:true,state:{providers:[],refreshing:false}},
+    });
+  }finally{await p.close();}
+});
 test('F2 actual React rapid clicks submit once',async()=>{const p=await page();try{await delaySends(p);await p.locator('textarea').fill('只发一次');await p.locator('.drawer-send-icon').evaluate(b=>{b.click();b.click();});await p.waitForTimeout(1000);assert.equal(await p.evaluate(()=>window.__sends.length),1);}finally{await p.close();}});
 test('F2 actual React old response preserves text typed while sending',async()=>{const p=await page();try{await delaySends(p);const input=p.locator('textarea');await input.fill('上一条');await p.locator('.drawer-send-icon').click();await input.fill('下一条未发送文字');await p.waitForTimeout(1000);assert.equal(await input.inputValue(),'下一条未发送文字');}finally{await p.close();}});
 test('F3 actual React identical refresh preserves the exact baseline edit',async()=>{const p=await page();try{await p.getByRole('button',{name:'夹具：依赖基线',exact:true}).click();await p.getByRole('button',{name:/审阅可读计划/}).click();await p.getByRole('button',{name:'将此准确提交加入待批准修订',exact:true}).click();await p.evaluate(async()=>{await (await import('/src/lib/unified-meeting-store.ts')).refreshShared();});await p.waitForTimeout(150);assert.equal(await p.getByText('修订已加入草稿，请审阅并批准整份计划后执行。',{exact:true}).count(),1);}finally{await p.close();}});

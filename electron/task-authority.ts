@@ -16,6 +16,7 @@ import {
 } from 'node:path';
 
 import type { CanonicalExecutionRequest } from './backends/canonical-execution.js';
+import { commandApprovalRisk } from './backends/canonical-execution.js';
 import {
   taskAuthorityGrantSchema,
   type TaskAuthorityGrant,
@@ -30,6 +31,7 @@ export type AuthorityDecision =
   | { kind: 'deny'; reason: string };
 
 const ALWAYS_ASK_SIDE_EFFECTS = new Set([
+  'external-write',
   'administrator',
   'credential-access',
   'delete-data',
@@ -607,6 +609,12 @@ export function extendAuthorityAddendum(
   previous?: TaskAuthorityAddendum,
 ): TaskAuthorityAddendum {
   const base = addendumForGrant(grant, previous) ?? emptyAddendum(grant);
+  // One invocation's approval must never widen command/cwd/host authority.
+  if (
+    request.kind === 'external'
+    || request.sideEffects.some((effect) => ALWAYS_ASK_SIDE_EFFECTS.has(effect))
+    || (request.kind === 'command' && commandApprovalRisk(request.executable ?? '', request.argv ?? []))
+  ) return base;
   let { writePaths, workingDirectories, commands, networkHosts, readPaths } = base;
   for (const path of request.writePaths) {
     let covered: string[];
@@ -683,7 +691,11 @@ export function evaluateTaskAuthority(
   if (normalizedForComparison(requestRoot) !== normalizedForComparison(grant.workspaceRoot)) {
     return { kind: 'deny', reason: 'workspace-mismatch' };
   }
-  const highRisk = request.sideEffects.find((effect) => ALWAYS_ASK_SIDE_EFFECTS.has(effect));
+  // Recompute from argv as well: an adapter's incomplete sideEffects must not
+  // let a broad compiled grant or an old addendum authorize an external write.
+  const highRisk = (request.kind === 'command'
+    ? commandApprovalRisk(request.executable ?? '', request.argv ?? []) : null)
+    ?? request.sideEffects.find((effect) => ALWAYS_ASK_SIDE_EFFECTS.has(effect));
   if (highRisk || request.kind === 'external') {
     return { kind: 'ask-user', reason: `high-risk:${highRisk ?? 'external-service'}` };
   }
