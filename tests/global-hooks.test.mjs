@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync, copyFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -16,7 +16,9 @@ import { syncBuiltinESMExports } from 'node:module';
 
 const relay = resolve('dist-electron/global-hooks/relay.js');
 const fixture = t => {
-  const scratch = mkdtempSync(join(tmpdir(), 'aha85 中文 space '));
+  // macOS tmpdir can traverse /var -> /private/var. Canonicalize our own
+  // freshly-created fixture, keeping product symlink rejection unchanged.
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aha85 中文 space ')));
   const root = join(scratch, 'private');
   ensurePrivateHookDirectory(root);
   t.after(() => rmSync(scratch, { recursive: true, force: true }));

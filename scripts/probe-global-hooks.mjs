@@ -1,7 +1,7 @@
 // No model request, login, hook trust change or real HOME write. Use explicit
 // binaries or --bundled (lockfile packages). All config is under one temp root.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
@@ -28,7 +28,10 @@ const binary = values.get('--codex-binary') ?? (values.has('--bundled') && targe
 const claude = values.get('--claude-binary') ?? (values.has('--bundled')
   ? resolve('node_modules', '@anthropic-ai', `claude-agent-sdk-${platform}`, executable('claude')) : null);
 if (!binary || !existsSync(binary) || (claude && !existsSync(claude))) throw new Error('probe-binaries-missing');
-const root = mkdtempSync(join(tmpdir(), 'aha85-capability 中文 '));
+// Canonicalize the trusted system temp parent (macOS /var is an alias),
+// never arbitrary user config/state paths or a symlink beneath our fixture.
+const tempBase = realpathSync(tmpdir());
+const root = mkdtempSync(join(tempBase, 'aha85-capability 中文 '));
 // Ordinary-session fixture only; inherited AHA hints intentionally select deny.
 const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('AHA_'))),
   CODEX_HOME: join(root, 'codex'), CLAUDE_CONFIG_DIR: join(root, 'claude'),
@@ -190,6 +193,6 @@ try {
       child.stdin.end();
     });
   }
-  if (!resolve(root).startsWith(resolve(tmpdir()) + sep + 'aha85-capability ')) throw new Error('unexpected-probe-directory');
+  if (!resolve(root).startsWith(tempBase + sep + 'aha85-capability ')) throw new Error('unexpected-probe-directory');
   await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
 }

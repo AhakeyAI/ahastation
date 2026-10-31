@@ -25,6 +25,8 @@ node scripts/probe-global-hooks.mjs --bundled
 - 每家五轮四类 hook，记录无宿主的每次与累计墙钟；另测有宿主、宿主关闭、未解归属不投影为 user、可疑内部来源主动 deny、去敏与卸载。投递为 40ms 内尽力而为，记录实际到达数，不把丢包掩盖成必达，也不扩大产品预算。
 - 三平台 build-matrix 新增同一隔离探测步骤。CI 数值属于 runner 上的命令壳/relay 证据，不能替代真实桌面 CLI 整轮体验。
 
+首次新 CI 的 macOS 全量测试暴露系统临时目录 `/var → /private/var` 别名触发私有目录拒绝；16 个 hooks fixture 在开始前失败。修正为仅对自建临时根/可信系统临时父目录取 realpath，产品对用户配置和状态路径的 symlink 拒绝不变；不跳过或删除原测试，修订后的 SHA 重新跑三平台全量。
+
 ## 复现环境与验证记录
 
 Windows x64，Node `26.12.1` / npm `11.17.0`；`npm ci --no-audit --no-fund` 按当前 lockfile 安装。Qoder 下载关闭；npm 的既有 allow-scripts 警告不算 Qoder 实机证据。
