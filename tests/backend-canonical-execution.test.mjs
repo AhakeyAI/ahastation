@@ -32,6 +32,16 @@ function native(backendId, toolName, input, id = 'native-1') {
 }
 
 for (const [backendId, backend] of workers) {
+  test(`${backendId} identifies external writes and wrappers before reusable command grants`, () => {
+    for (const command of ['gh issue edit 68 --body changed', 'gh pr merge 12', 'git push origin main', 'GH.EXE api -X POST repos/example/issues', 'env gh issue edit 68']) {
+      const result = backend.normalizePermissionRequest(native(backendId, 'Bash', { command }));
+      assert.equal(result.ok, true);
+      assert.ok(result.request.sideEffects.some(effect => ['external-write', 'opaque-shell'].includes(effect)), command);
+    }
+    const read = backend.normalizePermissionRequest(native(backendId, 'Bash', { command: 'gh issue view 68' }));
+    assert.equal(read.ok, true);
+    assert.deepEqual(read.request.sideEffects, ['process']);
+  });
   test(`${backendId} normalizes source reads and workspace writes`, () => {
     const read = backend.normalizePermissionRequest(
       native(backendId, 'Read', { file_path: 'src/login.ts' }),
