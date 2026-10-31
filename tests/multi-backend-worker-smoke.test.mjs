@@ -32,10 +32,10 @@ const report = {
   unresolved: [],
 };
 
-async function waitFor(predicate, message, timeoutMs = 3_000) {
+async function waitFor(predicate, message, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const value = predicate();
+    const value = await predicate();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -238,7 +238,10 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
   });
 
   assert.deepEqual(await orch.installPlan(parallelPlan()), { ok: true });
-  await waitFor(() => workerSessions.length === 4, 'orchestrator did not spawn four workers');
+  // A factory call precedes the running session being installed. Wait for
+  // readiness before injecting events, otherwise early signals are dropped.
+  await waitFor(() => workerSessions.length === 4 && workerSessions.every(session => session.started),
+    'orchestrator did not start four workers');
 
   for (const backendId of BACKENDS) {
     const workerId = `parallel-${backendId}`;
@@ -260,7 +263,9 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
 
   const journal = await waitFor(async () => {
     const rows = await MeetingRepository.replay(meetingId);
-    return rows.some((row) => row.type === 'event:worker-event') ? rows : null;
+    const persisted = new Set(rows.filter(row => row.type === 'event:worker-event')
+      .map(row => row.payload?.event?.event?.eventId));
+    return workerEventsFrom(rendererEvents).every(event => persisted.has(event.eventId)) ? rows : null;
   }, 'journal did not persist worker events');
 
   const rendererWorkerEvents = workerEventsFrom(rendererEvents);
