@@ -79,6 +79,12 @@ jobs:
       - name: Typecheck (electron)
         run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json
 
+      - name: Windows private owner and Unicode PATH fixtures (no CLI or PTY)
+        if: matrix.os == 'windows-latest'
+        run: |
+          npm run build:electron
+          node scripts/probe-windows-hook-files.mjs
+
       - name: Install test browser
         run: npx playwright install --with-deps chromium
 
@@ -88,6 +94,9 @@ jobs:
           COLLABORATION_PYTHON: python
           POCKET_VIBE_TEST_PYTHON: python
           POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
+
+      - name: Isolated global hook discovery and command-shell probe (no model)
+        run: node scripts/probe-global-hooks.mjs --bundled
 
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship
