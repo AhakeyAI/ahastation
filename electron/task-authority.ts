@@ -22,6 +22,7 @@ import {
   type TaskAuthorityGrant,
 } from './task-collaboration.js';
 import type { PlanMeetingTask } from './meeting-tools.js';
+import { isReadOnlyNetworkCommand, isReadOnlyNetworkEnvelope } from './read-only-network.js';
 
 export const DEFAULT_TASK_AUTHORITY_TTL_MS = 24 * 60 * 60 * 1_000;
 
@@ -284,7 +285,11 @@ function normalizeAuthorityRequest(
     }
     return argv.map((argument, index) => index === 0 ? argument.trim() : argument);
   });
+  if (request.permissionProfile === 'read-only-network' && !isReadOnlyNetworkEnvelope(request)) {
+    throw new Error('invalid read-only-network authority');
+  }
   return {
+    ...(request.permissionProfile ? { permissionProfile: request.permissionProfile } : {}),
     schemaVersion: 1,
     workspaceRoot: root,
     writePaths: uniqueSorted(
@@ -303,6 +308,7 @@ function normalizeAuthorityRequest(
 
 export function hashTaskAuthorityRequest(request: PlanMeetingTask['authorityRequest']): string {
   return hashValue({
+    ...(request.permissionProfile ? { permissionProfile: request.permissionProfile } : {}),
     writePaths: uniqueSorted(request.writePaths.map((path) => path.trim().replaceAll('\\', '/'))),
     toolKinds: uniqueSorted(request.toolKinds.map(canonicalToolKind)),
     workingDirectories: uniqueSorted(
@@ -407,6 +413,8 @@ export function compileReworkTaskAuthority(
     previous.allowedCommands.some((allowed) => commandMatchesGrant(allowed, command))
   ));
   if (
+    (previous.permissionProfile === 'read-only-network' && next.permissionProfile !== previous.permissionProfile)
+    ||
     !relativePathsCovered(
       next.writePaths,
       root,
@@ -443,6 +451,15 @@ function verifyGrantIntegrity(grant: TaskAuthorityGrant): boolean {
   if (!parsed.success) return false;
   const { grantHash: storedHash, ...withoutHash } = parsed.data;
   return grantHash(withoutHash) === storedHash;
+}
+/** Input/launch gates need identity validity before any tool exists. */
+export function isTaskAuthorityCurrent(grant: TaskAuthorityGrant, taskId: string, attempt: number, workspaceRoot: string, now = Date.now()): boolean {
+  try {
+    return verifyGrantIntegrity(grant) && grant.taskId === taskId && grant.attempt === attempt
+      && now >= grant.approvedAt && now < grant.expiresAt
+      && normalizedForComparison(canonicalWorkspaceRoot(workspaceRoot)) === normalizedForComparison(grant.workspaceRoot)
+      && workspaceHash(canonicalWorkspaceRoot(grant.workspaceRoot)) === grant.workspaceIdentityHash;
+  } catch { return false; }
 }
 
 function canonicalRequestPath(root: string, value: string): string | null {
@@ -609,6 +626,7 @@ export function extendAuthorityAddendum(
   previous?: TaskAuthorityAddendum,
 ): TaskAuthorityAddendum {
   const base = addendumForGrant(grant, previous) ?? emptyAddendum(grant);
+  if (grant.permissionProfile === 'read-only-network') return base;
   // One invocation's approval must never widen command/cwd/host authority.
   if (
     request.kind === 'external'
@@ -690,6 +708,22 @@ export function evaluateTaskAuthority(
   }
   if (normalizedForComparison(requestRoot) !== normalizedForComparison(grant.workspaceRoot)) {
     return { kind: 'deny', reason: 'workspace-mismatch' };
+  }
+  if (grant.permissionProfile === 'read-only-network') {
+    // Enforce here too: a caller bypassing plan validation/addendum logic
+    // cannot turn a read-only network task into shell, credentials or writes.
+    if (!isReadOnlyNetworkEnvelope({ writePaths: grant.writePaths, toolKinds: grant.allowedToolKinds,
+      commands: grant.allowedCommands, environmentKeys: grant.allowedEnvironmentKeys, networkHosts: grant.allowedNetworkHosts })
+      || request.writePaths.length || request.environmentKeys.length || request.sideEffects.some(e => e !== 'process')
+      || !['read', 'command'].includes(request.kind)
+      || request.networkHosts.some(host => host !== 'api.github.com')
+      || (request.cwd !== undefined && !canonicalRequestPath(grant.workspaceRoot, request.cwd))
+      || request.readPaths.some(path => !canonicalRequestPath(grant.workspaceRoot, path)
+        || /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.ssh|\.aws|\.claude|\.codex|credentials?\.json|auth\.json)(?:[\\/]|$)/i.test(path))
+      || (request.kind === 'command' && (!isReadOnlyNetworkCommand([request.executable ?? '', ...request.argv ?? []])
+        || !grant.allowedCommands.some(argv => JSON.stringify(argv) === JSON.stringify([request.executable, ...request.argv ?? []]))))) {
+      return { kind: 'deny', reason: 'read-only-network-boundary' };
+    }
   }
   // Recompute from argv as well: an adapter's incomplete sideEffects must not
   // let a broad compiled grant or an old addendum authorize an external write.

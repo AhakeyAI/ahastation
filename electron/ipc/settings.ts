@@ -1,6 +1,9 @@
 import { ipcMain, shell, webContents } from 'electron';
 import { getSettings, updateSettings, clearVoicePrint, type Settings, type VoicePrint, type XfyunAsrCredentials } from '../store.js';
 import { registerRemoteControlIpc } from '../remote-control.js';
+import { z } from 'zod';
+import { handleSecure, emptyPayloadSchema } from './validators.js';
+import { settingsWindowWebContentsId } from './settings-window.js';
 
 // Tell every other window that the stored voice config (voiceprint / lock
 // toggle) changed, so their hooks re-fetch instead of running on stale state.
@@ -89,6 +92,11 @@ export function buildVoicePrefUpdate(
 }
 
 export function registerSettingsIpc(): void {
+  const settingsOnly = (sender: number) => sender === settingsWindowWebContentsId();
+  handleSecure('settings:native-worker-get', { schema: emptyPayloadSchema, authorize: settingsOnly,
+    handler: () => ({ ok: true, autoTrustAppWorktrees: getSettings().autoTrustAppWorktrees === true }) });
+  handleSecure('settings:native-worker-set', { schema: z.object({ autoTrustAppWorktrees: z.boolean() }).strict(), authorize: settingsOnly,
+    handler: async payload => { await updateSettings(payload); return { ok: true }; } });
   registerRemoteControlIpc();
   ipcMain.handle('settings:get-voice-config', async () => {
     const s = getSettings();

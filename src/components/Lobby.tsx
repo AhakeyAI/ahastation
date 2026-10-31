@@ -456,7 +456,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                   <div className="join-auth-block-title">Worker 执行模式</div>
                   <select
                     className="join-auth-input join-auth-input-full lobby-backend-select"
-                    value={currentBackend.defaultWorkerBackendId ?? 'claude-code-terminal'}
+                    value={currentBackend.effectiveDefaultWorkerBackendId ?? 'claude-code'}
                     onChange={(e) => {
                       void setDefaultWorkerBackend(e.target.value);
                     }}
@@ -472,11 +472,11 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                         backends.some((b) => b.id === opt.id)
                         || opt.id === (currentBackend.defaultWorkerBackendId ?? 'claude-code-terminal'))
                       .map((opt) => (
-                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        <option key={opt.id} value={opt.id} disabled={opt.id.endsWith('-terminal')}>{opt.label}{opt.id.endsWith('-terminal') ? '（待准入验证）' : ''}</option>
                       ))}
                   </select>
                   <div className="join-auth-hint">
-                    {'终端模式在 Stage → Terminal 标签中显示可交互的 TUI（Claude / Kimi）；无头模式在后台执行，仅回放命令日志。'}
+                    {'当前使用 SDK Worker。Claude / Codex 原生终端路径须完成独立守卫与 B04 验证后开放。'}
                   </div>
                 </div>
               )}

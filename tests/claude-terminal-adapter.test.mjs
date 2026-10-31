@@ -13,6 +13,7 @@ import {
   parseTurnEventLines,
 } from '../dist-electron/backends/claude-terminal-adapter.js';
 import { PtyHost } from '../dist-electron/pty-host.js';
+import { TerminalCliSession } from '../dist-electron/backends/terminal-cli-adapter.js';
 
 const PASTE_START = '\u001b[200~';
 const PASTE_END = '\u001b[201~';
@@ -259,9 +260,15 @@ test('a trust-folder dialog holds the prompt until the user answers it (#125)', 
   assert.deepEqual(pty.writes, [], 'nothing may be pasted while the dialog is up');
   assert.ok(events.some((e) => e.signal?.kind === 'progress' && /信任/.test(e.signal.message)));
 
-  // The user answers; the TUI repaints its input box; the prompt follows once quiet.
+  // A repaint alone cannot acknowledge trust. The local user confirms after
+  // answering the native dialog; a stale generation cannot unlock it.
   await new Promise((r) => setTimeout(r, 900));
   pty.emitData('\u001b[2J╭────╮\r\n│ > │\r\n╰────╯');
+  assert.deepEqual(pty.writes, []);
+  assert.equal(TerminalCliSession.confirmTrust('w-trust', 'old-generation').ok, false);
+  const status = TerminalCliSession.trustStatus('w-trust');
+  assert.equal(status.waiting, true);
+  assert.equal(TerminalCliSession.confirmTrust('w-trust', status.generation).ok, true);
   await waitFor(() => pty.writes.length >= 2, 8_000);
   assert.equal(pty.writes[0], `${PASTE_START}调研任务${PASTE_END}`);
   session.end();

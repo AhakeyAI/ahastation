@@ -69,6 +69,7 @@ export function normalizePlanDraft(
 export function isWorkerBackendReady(backend: BackendInfo | undefined): boolean {
   return Boolean(
     backend
+    && !TERMINAL_WORKER_BACKEND_IDS.includes(backend.id)
     && backend.supportsWorkers
     && backend.available
     && (backend.loggedIn || backend.hasApiKey || backend.authMode === 'none'),
@@ -85,12 +86,11 @@ export function resolvePlanDefaultWorkerBackendId(backends: BackendInfo[]): stri
     const configured = backends.find((backend) => backend.id === configuredId);
     if (configured && isWorkerBackendReady(configured)) return configuredId;
   }
-  // Workers otherwise default to a ready interactive TUI backend; the
-  // headless path is reserved for the host/coordinator.
-  for (const id of TERMINAL_WORKER_BACKEND_IDS) {
-    const terminal = backends.find((backend) => backend.id === id);
-    if (terminal && isWorkerBackendReady(terminal)) return id;
-  }
+  // Native terminal execution remains closed until guard/B04 admission.
+  const preferred = backends.find(backend => backend.isDefault && isWorkerBackendReady(backend));
+  if (preferred) return preferred.id;
+  const sdk = backends.find(backend => backend.id === 'claude-code' && isWorkerBackendReady(backend));
+  if (sdk) return sdk.id;
   const host = backends.find((backend) => backend.isDefault);
   const hostId = host?.id ?? backends[0]?.id ?? '';
   return backends.find(isWorkerBackendReady)?.id ?? hostId;

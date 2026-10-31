@@ -34,6 +34,10 @@ const emptyCustomForm: CustomBackendFormData = {
 };
 
 export function BackendSettings() {
+  const [autoTrust, setAutoTrust] = useState(false);
+  useEffect(() => { void window.vibeMeet.nativeWorkerPreferences?.get().then(p => {
+    if (p.ok) setAutoTrust(p.autoTrustAppWorktrees === true);
+  }).catch(() => {}); }, []);
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [customBackends, setCustomBackends] = useState<CustomBackendInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -356,6 +360,14 @@ export function BackendSettings() {
 
   return (
     <div className="backend-settings">
+      <div className="drawer-settings-row">
+        <label><input type="checkbox" checked={autoTrust} onChange={async e => {
+          const enabled = e.target.checked;
+          const result = await window.vibeMeet.nativeWorkerPreferences.set({ autoTrustAppWorktrees: enabled });
+          if (result.ok) setAutoTrust(enabled); else setError(result.error ?? '保存失败');
+        }} />自动信任 AhaStudio 自建的工作树</label>
+        <small>默认关闭，仅适用于本应用核验过的新建目录。原生 Worker 准入验证完成前，仍需在终端确认信任。</small>
+      </div>
       <div className="drawer-settings-row">
         <div className="drawer-settings-label">
           <div className="drawer-settings-title">账号与认证</div>

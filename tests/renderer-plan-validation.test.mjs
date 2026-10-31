@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizePlanDrafts, validatePlanDraft } from '../src/lib/plan-validation.ts';
+import { normalizePlanDrafts, validatePlanDraft, resolvePlanDefaultWorkerBackendId } from '../src/lib/plan-validation.ts';
 
 const backend = {
   id: 'opencode',
@@ -13,6 +13,12 @@ const backend = {
   authMode: 'oauth',
   isDefault: true,
 };
+
+test('native terminal preferences cannot bypass admission; SDK remains the runnable default', () => {
+  const native = { ...backend, id: 'claude-code-terminal', isDefault: true, effectiveDefaultWorkerBackendId: 'claude-code-terminal' };
+  const sdk = { ...backend, id: 'claude-code', isDefault: false };
+  assert.equal(resolvePlanDefaultWorkerBackendId([native, sdk]), 'claude-code');
+});
 
 function task(overrides = {}) {
   return {

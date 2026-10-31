@@ -162,6 +162,7 @@ export interface Settings {
   claudeCodeCliSource?: 'bundled' | 'system';
   /** Default executor backend for worker tasks when plan/delegate omits one. */
   defaultWorkerBackendId?: string;
+  autoTrustAppWorktrees?: boolean;
   /** User-defined custom CLI backends. Each entry is registered as a
    *  CustomBackend at app startup so it appears in the backend list and
    *  can be invited to meetings like any built-in backend. */
