@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 // Windows PowerShell 5.1 uses .NET Framework's FileStream(FileSecurity)
@@ -100,6 +100,16 @@ export function ensurePrivateHookDirectory(path: string): void {
 
 export function stageWindowsConfig(temp: string, original: string, content: string): void {
   windowsSecurity({ action: 'stage', path: temp, original, data: Buffer.from(content, 'utf8').toString('base64') });
+}
+
+/** Native Windows creation can default to an Administrators owner under an
+ * elevated token, even inside our private directory. Apply the current user
+ * owner and private DACL at creation, before writing state/key/runtime bytes;
+ * keep validation of existing files strict instead of accepting another owner. */
+export function createPrivateHookFile(path: string, content: string | Buffer): void {
+  if (process.platform === 'win32') windowsSecurity({ action: 'stage', path, original: '',
+    data: Buffer.from(content).toString('base64') });
+  else writeFileSync(path, content, { flag: 'wx', mode: 0o600 });
 }
 
 /** Existing descendants can have explicit ACLs wider than their parent. */

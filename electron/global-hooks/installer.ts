@@ -4,7 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { HOOK_EVENTS, type HookAgent } from './protocol.js';
-import { assertPrivateHookFile, ensurePrivateHookDirectory, stageWindowsConfig } from './file-security.js';
+import { assertPrivateHookFile, createPrivateHookFile, ensurePrivateHookDirectory, stageWindowsConfig } from './file-security.js';
 
 type JsonObject = Record<string, any>;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -73,6 +73,7 @@ function atomic(path: string, content: string | null, config = false): void {
   const before = config ? read(path) : null;
   try {
     if (config && process.platform === 'win32') stageWindowsConfig(temp, path, content);
+    else if (process.platform === 'win32') createPrivateHookFile(temp, content);
     else {
       const fd = openSync(temp, 'wx', existsSync(path) ? lstatSync(path).mode & 0o777 : 0o600);
       try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
@@ -169,7 +170,7 @@ function withStore<T>(options: HookInstallOptions, action: (context: {
     if (owner && !same(JSON.parse(owner), { stateDir, profileId: options.profileId })) throw new Error('global-hooks-owned-by-another-profile');
     const keyPath = join(stateDir, 'backup.key');
     checkPath(keyPath);
-    if (!existsSync(keyPath)) writeFileSync(keyPath, randomBytes(32), { flag: 'wx', mode: 0o600 });
+    if (!existsSync(keyPath)) createPrivateHookFile(keyPath, randomBytes(32));
     else assertPrivateHookFile(keyPath);
     const key = readFileSync(keyPath);
     const manifestPath = join(stateDir, `${options.agent}.json`);

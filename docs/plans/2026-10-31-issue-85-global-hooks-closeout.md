@@ -49,6 +49,10 @@ node scripts/probe-global-hooks.mjs --bundled
 
 第二轮 CI 的 macOS 测试、隔离 hooks 探测和打包通过；Ubuntu 仅 process-recovery 失败。源码显示首次 Hub running 在持久化 `executionInvoked` 及原生身份前发出，测试过早杀 receiver 会落到尚未启动分支。修正测试等待同 attempt、原 receiver PID、真实 nativeThreadId 与已落盘 executionInvoked 后再模拟崩溃；不改产品停止/恢复语义，不增加时间预算或跳过断言。
 
+后续 Windows CI 发现私有文件校验失败和中文 npm launcher 查找失败。保留既有 owner/DACL 校验，新增 `createPrivateHookFile`：密钥、manifest/journal/备份临时文件、runtime、宿主端点在 Windows 创建时就附带当前用户 owner 与私有 DACL，再写内容；配置替换仍逐项保留原配置 ACL，不接受其他 owner 来迁就 runner。并发测试改在加密备份 rename 的同一持锁阶段确定性交错，独立 journal fixture 也按相同权限规则创建。
+
+Windows PATH 优先按原生 Unicode 路径与支持的 PATHEXT 查找真实文件，跳过 extensionless sh shim 和同名目录，不先解码 `where.exe` 的代码页文本。后台默认 owner 与编码差异最初是待验证假设；新增 `probe-windows-hook-files.mjs` 在 CI 的临时自有目录输出 token/default/file owner 对照、原严格校验结果、原始 where 字节与退出码，以及新创建/查找结果。它不执行个人 CLI 或 PTY，也不修改原生配置；最终以该 SHA 的 runner 诊断与全量回归确认触发条件。Windows 已有宽权限目录/文件、无法保留 ACL、权限提供程序失败、事务冲突等仍拒绝，未删除或跳过原断言。新增 PowerShell 创建只在安装/存储及宿主启动路径，不进入逐次 relay。
+
 ## 具体接线与验收责任
 
 | 项目 | 现有入口 / 证据边界 | 后续责任与停止点 |

@@ -117,7 +117,9 @@ test('Windows key, staged runtime and observation token use a private store; uns
   await host.start(); t.after(() => host.stop());
   assert.equal(storeAcl.protected, true);
   for (const file of [join(options.stateDir, 'backup.key'), join(options.stateDir, 'runtimes', runtime, 'relay.js'), endpoint]) {
-    assert.ok(inspect(file).rules.every(rule => rule.type !== 'Allow' || allowed.has(rule.sid)));
+    const acl = inspect(file);
+    assert.equal(acl.owner, storeAcl.owner, 'private files use the current user owner even under an elevated token');
+    assert.ok(acl.rules.every(rule => rule.type !== 'Allow' || allowed.has(rule.sid)));
   }
   await host.stop();
   assert.equal(childProcess.spawnSync(process.execPath, args.map(value => value === 'install' ? 'uninstall' : value),

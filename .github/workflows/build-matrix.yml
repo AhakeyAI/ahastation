@@ -79,6 +79,12 @@ jobs:
       - name: Typecheck (electron)
         run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json
 
+      - name: Windows private owner and Unicode PATH fixtures (no CLI or PTY)
+        if: matrix.os == 'windows-latest'
+        run: |
+          npm run build:electron
+          node scripts/probe-windows-hook-files.mjs
+
       - name: Install test browser
         run: npx playwright install --with-deps chromium
 

@@ -1,9 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseObservation, type HookAgent, type HookObservationInput } from './protocol.js';
-import { ensurePrivateHookDirectory } from './file-security.js';
+import { createPrivateHookFile, ensurePrivateHookDirectory } from './file-security.js';
 
 export interface ObservationV1 {
   protocol: 'aha.if1'; schemaVersion: 1; eventId: string; publisherEpoch: string;
@@ -99,8 +99,8 @@ export class GlobalHookHost {
     try {
       mkdirSync(dirname(this.options.endpointPath), { recursive: true, mode: 0o700 });
       const temp = `${this.options.endpointPath}.${randomUUID()}.tmp`;
-      writeFileSync(temp, JSON.stringify({ protocol: 'aha.hooks.local.v1',
-        port, token: this.token, profileId: this.options.profileId }), { flag: 'wx', mode: 0o600 });
+      createPrivateHookFile(temp, JSON.stringify({ protocol: 'aha.hooks.local.v1',
+        port, token: this.token, profileId: this.options.profileId }));
       renameSync(temp, this.options.endpointPath);
     } catch (error) { await this.stop(); throw error; }
   }

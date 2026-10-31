@@ -10,7 +10,7 @@ import { createCipheriv, randomBytes } from 'node:crypto';
 import { installGlobalHooks, uninstallGlobalHooks, parseConfig, probeCodexHooks } from '../dist-electron/global-hooks/installer.js';
 import { GlobalHookHost } from '../dist-electron/global-hooks/host.js';
 import { denyHook, requireNativeHookWorkerAdmission, sanitizeHook } from '../dist-electron/global-hooks/protocol.js';
-import { ensurePrivateHookDirectory } from '../dist-electron/global-hooks/file-security.js';
+import { createPrivateHookFile, ensurePrivateHookDirectory } from '../dist-electron/global-hooks/file-security.js';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 
@@ -154,21 +154,21 @@ test('shared store serializes independent configuration installs and releases bo
   const { options, root, path } = fixture(t);
   const second = { ...options, configDir: join(root, 'other-config'), profileId: 'other' };
   const secondPath = join(second.configDir, 'settings.json');
-  const originalOpen = fs.openSync;
+  const originalRename = fs.renameSync;
   let intercepted = false;
   let contender;
-  fs.openSync = function(file, ...args) {
-    if (!intercepted && String(file).startsWith(join(options.stateDir, 'backups') + sep) && String(file).endsWith('.tmp')) {
+  fs.renameSync = function(from, to) {
+    if (!intercepted && String(to).startsWith(join(options.stateDir, 'backups') + sep)) {
       intercepted = true;
       contender = spawnSync(process.execPath, ['tests/fixtures/global-hooks-install.mjs'], {
         input: JSON.stringify(second), encoding: 'utf8', timeout: 15_000, windowsHide: true,
       });
     }
-    return originalOpen.call(this, file, ...args);
+    return originalRename.call(this, from, to);
   };
   syncBuiltinESMExports();
   try { assert.equal(installGlobalHooks(options).status, 'installed'); }
-  finally { fs.openSync = originalOpen; syncBuiltinESMExports(); }
+  finally { fs.renameSync = originalRename; syncBuiltinESMExports(); }
   assert.equal(intercepted, true);
   assert.equal(contender.status, 1);
   assert.match(JSON.parse(contender.stdout).error, /EEXIST|store-busy/);
@@ -194,7 +194,7 @@ function interruptedTransaction(options, path) {
   const key = readFileSync(join(options.stateDir, 'backup.key'));
   const iv = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(JSON.stringify(JSON.stringify(tx))), cipher.final()]);
-  writeFileSync(join(options.stateDir, 'claude.transaction'), Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64'), { mode: 0o600 });
+  createPrivateHookFile(join(options.stateDir, 'claude.transaction'), Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64'));
 }
 test('journal recovers an interrupted config+manifest transaction without half installation', t => {
   const { options, path } = fixture(t);

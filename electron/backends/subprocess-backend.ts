@@ -14,8 +14,8 @@
 //   • stderr ring buffer for error diagnostics
 
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { delimiter } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { delimiter, resolve } from 'node:path';
 import {
   type BackendSession,
   type BackendSessionConfig,
@@ -335,6 +335,23 @@ export function resolveBinaryFromPath(binaryName: string): string | null {
   // Validate binaryName: only alphanumeric, hyphens, underscores, dots allowed
   if (!/^[a-zA-Z0-9._-]+$/.test(binaryName)) {
     return null;
+  }
+
+  // where.exe writes console-code-page text, which cannot represent all
+  // Unicode PATH entries on Windows runners. Inspect native paths before
+  // decoding a subprocess result; never select npm's extensionless sh shim.
+  if (process.platform === 'win32') {
+    const extensions = /\.(exe|com|cmd|bat)$/i.test(binaryName) ? ['']
+      : (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
+        .filter(extension => /^\.(exe|com|cmd|bat)$/i.test(extension)).map(extension => extension.toLowerCase());
+    for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+      const directory = entry.trim().replace(/^"(.*)"$/, '$1');
+      if (!directory) continue;
+      for (const extension of extensions) {
+        const candidate = resolve(directory, binaryName + extension);
+        try { if (statSync(candidate).isFile()) return candidate; } catch { /* try next native path */ }
+      }
+    }
   }
 
   // 1. Check system PATH via execFileSync (no shell — prevents command injection)
