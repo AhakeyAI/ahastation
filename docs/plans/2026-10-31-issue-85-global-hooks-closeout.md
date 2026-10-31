@@ -45,6 +45,10 @@ node scripts/probe-global-hooks.mjs --bundled
 
 首次缺少 Python 环境变量/浏览器/native receiver 的测试已中止，不计通过；补齐环境后的中间执行因新增 UTF-8 修复而被最终代码验证取代。最终结果与当前 SHA 的远端 CI 见 PR 正文，只有完整结束的运行计入通过。
 
+本地随后完成的全量为 1319 项 / 1312 通过 / 6 跳过 / 1 失败，失败是 process-recovery fixture 的 receiver 20 秒启动超时，不能计全绿。用户报告大量弹窗后停止继续自动本机全量，核对时原测试 shell 和进程树已退出；没有按进程名清理其他任务或插件服务。源码确认 `StationService.initialize/configure → probe → 全部 backend resolveBinary/checkAuthStatus`，只测 file-test 的子 receiver 也会探测个人 CLI；日志反复出现 Codex `login status` 文本。已补后台 subprocess、npm/where 查找、Claude/Codex auth status 的 `windowsHide:true`，并将纯 file-test 进程恢复夹具与个人 CLI 探测隔离。它们是已证实的无窗口选项缺口和触发链；未逐一关联实际可见窗口，不把 hooks 中已隐藏的 PowerShell/relay 当根因。只跑纯 mock 的后台探测和隐藏启动的隔离进程恢复定向验证，不再自动重跑本机全量；最终全量以远端各平台结果记录。
+
+第二轮 CI 的 macOS 测试、隔离 hooks 探测和打包通过；Ubuntu 仅 process-recovery 失败。源码显示首次 Hub running 在持久化 `executionInvoked` 及原生身份前发出，测试过早杀 receiver 会落到尚未启动分支。修正测试等待同 attempt、原 receiver PID、真实 nativeThreadId 与已落盘 executionInvoked 后再模拟崩溃；不改产品停止/恢复语义，不增加时间预算或跳过断言。
+
 ## 具体接线与验收责任
 
 | 项目 | 现有入口 / 证据边界 | 后续责任与停止点 |

@@ -87,6 +87,7 @@ export abstract class SubprocessSession implements BackendSession {
       this.process = spawn(this.binaryPath, args, {
         cwd: this.config.cwd,
         env: spawnEnv,
+        windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err: unknown) {
@@ -305,6 +306,7 @@ function resolveNpmGlobalBin(): string | null {
     const lookupCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const result = execFileSync(lookupCmd, ['config', 'get', 'prefix'], {
       encoding: 'utf8',
+      windowsHide: true,
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'ignore'],
       env: { ...process.env, PATH: process.env.PATH },
@@ -341,6 +343,7 @@ export function resolveBinaryFromPath(binaryName: string): string | null {
     const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
     const result = execFileSync(lookupCmd, [binaryName], {
       encoding: 'utf8',
+      windowsHide: true,
       timeout: 3000,
       stdio: ['pipe', 'pipe', 'ignore'],
       env: { ...process.env, PATH: augmentedPath() },
