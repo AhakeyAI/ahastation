@@ -717,9 +717,19 @@ export function evaluateTaskAuthority(
       || request.writePaths.length || request.environmentKeys.length || request.sideEffects.some(e => e !== 'process')
       || !['read', 'command'].includes(request.kind)
       || request.networkHosts.some(host => host !== 'api.github.com')
+      || (request.kind === 'read' && request.readPaths.length === 0)
       || (request.cwd !== undefined && !canonicalRequestPath(grant.workspaceRoot, request.cwd))
-      || request.readPaths.some(path => !canonicalRequestPath(grant.workspaceRoot, path)
-        || /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.ssh|\.aws|\.claude|\.codex|credentials?\.json|auth\.json)(?:[\\/]|$)/i.test(path))
+      || request.readPaths.some(path => {
+        const target = canonicalRequestPath(grant.workspaceRoot, path);
+        if (!target || /(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.ssh|\.aws|\.claude|\.codex|\.git|\.npmrc|\.netrc|credentials?\.json|auth\.json)(?:[\\/]|$)/i.test(path)) return true;
+        // A directory/default Grep can read a credential file without naming
+        // it in the callback. This narrow tier admits concrete files only.
+        try {
+          if (!existsSync(target)) return false;
+          const stat = lstatSync(target);
+          return !stat.isFile() || stat.nlink > 1;
+        } catch { return true; }
+      })
       || (request.kind === 'command' && (!isReadOnlyNetworkCommand([request.executable ?? '', ...request.argv ?? []])
         || !grant.allowedCommands.some(argv => JSON.stringify(argv) === JSON.stringify([request.executable, ...request.argv ?? []]))))) {
       return { kind: 'deny', reason: 'read-only-network-boundary' };

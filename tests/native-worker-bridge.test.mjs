@@ -92,6 +92,9 @@ test('IF-2 uses one writer, same-file bind and CAS; corrupt/unknown manifests st
   const second = f.ownership.reserve({ ...binding, runtimeId: 'other', workerId: 'other-worker', taskId: 'other-task', attemptId: 'other-attempt' });
   const attached = f.ownership.attach('other', second.revision, { ...processIdentity, pid: 13 });
   assert.throws(() => f.ownership.bind('other', attached.revision, 'native-session'), /conflict/);
+  f.ownership.end('runtime', bound.revision);
+  f.ownership.end('other', attached.revision);
+  assert.equal(f.ownership.lookup('claude', 'unbound-history').status, 'unresolved', 'aborted launches do not prove unrelated user history');
   writeFileSync(f.ownership.path, '{broken');
   assert.equal(f.ownership.lookup('claude', 'native-session').status, 'unavailable');
   assert.throws(() => f.ownership.initialize(), /unavailable/);
@@ -209,7 +212,8 @@ test('read-only + network authorizes exact scoped reads without inheriting shell
     [...command, '--web'], [...command, '--template', '{{exec "bad"}}'], ['gh', 'alias'],
   ]) assert.equal(evaluateTaskAuthority(authority, normalized(directory, argv)).kind, 'deny', argv.join(' '));
   for (const changes of [{ kind: 'write', writePaths: ['bad.txt'] }, { kind: 'network', networkHosts: ['api.github.com'] },
-    { environmentKeys: ['GH_TOKEN'] }, { readPaths: [join(tmpdir(), 'private-token')] }]) {
+    { environmentKeys: ['GH_TOKEN'] }, { readPaths: [join(tmpdir(), 'private-token')] },
+    { kind: 'read', readPaths: [] }, { kind: 'read', readPaths: ['.'] }, { kind: 'read', readPaths: ['.env'] }]) {
     assert.notEqual(evaluateTaskAuthority(authority, { ...read, ...changes }).kind, 'allow');
   }
   assert.equal(isReadOnlyNetworkCommand([...command, '--jq', 'exec']), false);

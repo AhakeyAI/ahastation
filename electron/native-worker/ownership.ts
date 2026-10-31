@@ -147,7 +147,10 @@ export class WorkerOwnershipService {
       const f = this.read();
       const entry = f.entries.find(e => e.agent === agent && e.sessionId === sessionId);
       return entry ? { status: 'owned' as const, entry } : {
-        status: f.launches.some(l => !['ended', 'aborted'].includes(l.state)) ? 'unresolved' as const : 'absent' as const,
+        // An unbound launch can already have native history, even after its
+        // tree exits. Without a real session identity, abort is not proof a
+        // scanned candidate is unrelated. Keep it unresolved for recovery.
+        status: f.launches.some(l => !l.sessionId || !['ended', 'aborted'].includes(l.state)) ? 'unresolved' as const : 'absent' as const,
       };
     } catch { return { status: 'unavailable' as const }; }
   }
