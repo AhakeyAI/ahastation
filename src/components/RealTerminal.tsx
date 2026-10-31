@@ -40,6 +40,16 @@ export function RealTerminal({ workerId, readOnly = false, onOutput }: RealTermi
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [exited, setExited] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trust, setTrust] = useState<{ generation: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void window.vibeMeet.workerPty.trustStatus?.(workerId).then(s => {
+      if (active) setTrust(s.ok && s.waiting && s.generation ? { generation: s.generation } : null);
+    }).catch(() => {}); };
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => { active = false; clearInterval(timer); };
+  }, [workerId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -125,6 +135,13 @@ export function RealTerminal({ workerId, readOnly = false, onOutput }: RealTermi
   return (
     <div className="real-terminal" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {error && <div className="real-terminal-error">{error}</div>}
+      {trust && <div role="status" className="real-terminal-error">
+        请在下方终端接管并确认是否信任此文件夹；任务提示词正在等待。
+        <button type="button" disabled={readOnly} onClick={async () => {
+          const result = await window.vibeMeet.workerPty.confirmTrust(workerId, trust.generation);
+          if (result.ok) setTrust(null); else setError(result.error ?? '确认已失效');
+        }}>已在终端确认，继续任务</button>
+      </div>}
       <div
         ref={containerRef}
         style={{ flex: 1, minHeight: 120, opacity: exited ? 0.7 : 1 }}

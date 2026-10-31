@@ -18,6 +18,7 @@ import type { IpcContext } from './context.js';
 import { sendToAppWindows } from '../room-windows.js';
 import { handleSecure, mainWindowSenderPolicy } from './validators.js';
 import { PtyInputLimiter, PTY_INPUT_MAX_BYTES } from './ide-pty.js';
+import { TerminalCliSession } from '../backends/terminal-cli-adapter.js';
 
 const WORKER_ID_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 
@@ -71,6 +72,11 @@ export function registerWorkerPtyIpc(ctx: IpcContext): void {
   );
   const mainOnlyError = 'Sender is not the main window';
   const attachments = new Map<string, Attachment>();
+  handleSecure('worker-pty:trust-status', { schema: workerPtyAttachSchema, authorize: mainOnly,
+    handler: ({ workerId }) => TerminalCliSession.trustStatus(workerId) });
+  handleSecure('worker-pty:confirm-trust', { schema: workerPtyAttachSchema.extend({ generation: z.string().uuid() }).strict(), authorize: mainOnly,
+    handler: ({ workerId, generation }) => attachments.has(workerId)
+      ? TerminalCliSession.confirmTrust(workerId, generation) : { ok: false, error: 'Not attached' } });
 
   const detach = (workerId: string): void => {
     const att = attachments.get(workerId);

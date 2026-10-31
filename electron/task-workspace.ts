@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { recordAppCreatedWorktree } from './native-worker/worktree-trust.js';
 
 export type TaskWorkspaceMode = 'read-only' | 'git-worktree' | 'shared-locked';
 
@@ -274,7 +275,9 @@ export class TaskWorkspaceManager {
           cwd: this.baseCwd,
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 30_000,
+          windowsHide: true,
         });
+        recordAppCreatedWorktree(cwd);
       }
       const workspace: TaskWorkspace = {
         kind: 'git-worktree',

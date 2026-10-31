@@ -33,6 +33,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { requireNativeHookWorkerAdmission } from '../global-hooks/protocol.js';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
 import { compileBackendTaskProfile, type BackendRuntime } from './task-profile.js';
@@ -356,6 +357,25 @@ export interface TerminalCliSessionDeps {
 }
 
 export class TerminalCliSession implements BackendSession {
+  private static readonly trustSessions = new Map<string, TerminalCliSession>();
+  private readonly trustGeneration = randomUUID();
+  static trustStatus(workerId: string) {
+    const session = this.trustSessions.get(workerId);
+    return session && !session.closed ? { ok: true, generation: session.trustGeneration, waiting: session.trustGated }
+      : { ok: false, error: 'No current terminal session' };
+  }
+  static confirmTrust(workerId: string, generation: string) {
+    const session = this.trustSessions.get(workerId);
+    if (!session || session.closed || session.trustGeneration !== generation || !session.trustGated) {
+      return { ok: false, error: 'Trust confirmation is stale' };
+    }
+    // Explicit local user action after answering the CLI dialog. Output text
+    // disappearing, a timeout or an env hint cannot acknowledge trust.
+    session.trustGated = false;
+    session.trustBuffer = '';
+    session.scheduleReady(TRUST_SETTLE_MS);
+    return { ok: true };
+  }
   private readonly profile: TerminalCliProfile;
   private readonly config: BackendSessionConfig;
   private readonly emit: (e: BackendSessionEvent) => void;
@@ -425,6 +445,12 @@ export class TerminalCliSession implements BackendSession {
 
   async start(): Promise<void> {
     if (this.started || this.closed) return;
+    // An installed global hook is not an execution guard. Controlled native
+    // tasks stay closed until #86 proves launch binding and B04 S4-S6. Manual
+    // terminal/host sessions retain the CLI's own permission flow.
+    if (this.config.executionRole === 'worker' || this.config.taskProfile) {
+      requireNativeHookWorkerAdmission();
+    }
     this.started = true;
     const binary = this.deps.resolveBinary();
     if (!binary) {
@@ -482,6 +508,7 @@ export class TerminalCliSession implements BackendSession {
       cwd: this.config.cwd,
       env,
     });
+    TerminalCliSession.trustSessions.set(this.workerId, this);
 
     this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;
     this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
@@ -499,13 +526,8 @@ export class TerminalCliSession implements BackendSession {
         return;
       }
       if (this.trustGated) {
-        // Same repaint burst as the dialog: still unanswered.
-        if (Date.now() - this.lastTrustSeenAt < TRUST_SETTLE_MS) return;
-        // New frames without the dialog: answered. Let the TUI settle, then paste.
-        this.trustGated = false;
-        this.readyBuffer = '';
-        this.firstOutputSeen = true;
-        this.scheduleReady(READY_QUIESCE_MS);
+        // Repaints and unrelated output cannot prove that the dialog was
+        // accepted. Only the explicit generation-bound local action resumes.
         return;
       }
       if (this.profile.readyPattern) {
@@ -599,6 +621,7 @@ export class TerminalCliSession implements BackendSession {
     this.deps.host.write(this.workerId, buildPasteFrame(text));
     const submitSeq = this.profile.submitSequence ?? '\r';
     const submit = () => {
+      if (this.closed || this.trustGated || this.authWallEmitted || !this.ready) return;
       if (this.profile.beforeSubmitSequence) {
         this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence);
       }
@@ -841,6 +864,8 @@ export class TerminalCliSession implements BackendSession {
   end(): void {
     if (this.closed) return;
     this.closed = true;
+    this.pendingTexts.length = 0;
+    if (TerminalCliSession.trustSessions.get(this.workerId) === this) TerminalCliSession.trustSessions.delete(this.workerId);
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
       this.readyTimer = null;
@@ -888,7 +913,8 @@ export class TerminalCliBackend implements CliBackend {
   constructor(profile: TerminalCliProfile, deps: TerminalCliBackendDeps = {}) {
     this.profile = profile;
     this.id = profile.id;
-    this.capabilities = profile.capabilities;
+    this.capabilities = { ...profile.capabilities,
+      executeTasks: ['claude-code-terminal', 'codex-terminal'].includes(profile.id) && profile.capabilities.executeTasks };
     this.deps = deps;
   }
 

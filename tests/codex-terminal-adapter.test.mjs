@@ -93,7 +93,7 @@ test('codex launches with inline-TOML Stop hook injection, no managed home', asy
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '-c') cFlagValues.push(args[i + 1]);
   }
-  assert.ok(cFlagValues.includes('hooks=true'));
+  assert.ok(cFlagValues.includes('features.hooks=true'));
   const stopTable = cFlagValues.find((v) => v.startsWith('hooks.Stop='));
   assert.ok(stopTable, 'hooks.Stop inline table must be present');
   assert.ok(stopTable.includes('terminal-stop-hook-cw-hook.cjs'));

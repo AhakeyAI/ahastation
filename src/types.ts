@@ -1486,7 +1486,13 @@ export interface VibeMeetApi {
   };
   /** Terminal-mode worker PTY bridge (main window). Attach mirrors the
    *  pty ring buffer + live output; input takes over the TUI keyboard. */
+  nativeWorkerPreferences: {
+    get: () => Promise<{ ok: boolean; autoTrustAppWorktrees?: boolean; error?: string }>;
+    set: (patch: { autoTrustAppWorktrees: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  };
   workerPty: {
+    trustStatus: (workerId: string) => Promise<{ ok: boolean; generation?: string; waiting?: boolean; error?: string }>;
+    confirmTrust: (workerId: string, generation: string) => Promise<{ ok: boolean; error?: string }>;
     ready: (sessionId: string, workerId: string) => Promise<{ ok: boolean }>;
     attach: (workerId: string) => Promise<{ ok: boolean; error?: string; replay?: string }>;
     input: (workerId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
@@ -1787,6 +1793,7 @@ export interface TaskContextSelection {
 }
 
 export interface TaskAuthorityRequest {
+  permissionProfile?: 'read-only-network';
   writePaths: string[];
   toolKinds: string[];
   workingDirectories: string[];

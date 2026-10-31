@@ -626,7 +626,7 @@ test('Codex app-server maps command approval through the common permission contr
   });
   assert.deepEqual(events[0], {
     kind: 'permission-request',
-    id: 'codex:1:approval-7',
+    id: events[0].id,
     toolName: 'Bash',
     input: {
       command: 'npm test',
@@ -637,9 +637,45 @@ test('Codex app-server maps command approval through the common permission contr
     },
     toolUseID: 'item-shell',
   });
-  session.resolvePermission('codex:1:approval-7', 'allow');
+  assert.match(events[0].id, /^codex:[\da-f-]{36}:approval-7$/);
+  session.resolvePermission(events[0].id, 'allow');
   assert.deepEqual(await responsePromise, { decision: 'accept' });
   session.end();
+});
+
+test('identical provider approval IDs from separate Codex sessions stay isolated', async () => {
+  const callbacks = [];
+  const events = [[], []];
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport(options) {
+      callbacks.push(options.onRequest);
+      return {
+        async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
+        async openThread() { return 'thread'; }, close() {},
+      };
+    },
+  });
+  const sessions = events.map(list => backend.createSession({
+    cwd: '/workspace', executionRole: 'worker', extra: { codexTransport: 'app-server' },
+  }, event => list.push(event)));
+  await Promise.all(sessions.map(session => session.start()));
+  const pending = callbacks.map(callback => callback({
+    id: 1, method: 'item/commandExecution/requestApproval',
+    params: { itemId: 'cmd', command: 'git push', cwd: '/workspace' },
+  }));
+  const ids = events.map(list => list.find(event => event.kind === 'permission-request').id);
+  assert.notEqual(ids[0], ids[1]);
+  let secondResolved = false;
+  pending[1].then(() => { secondResolved = true; });
+  sessions[0].resolvePermission(ids[0], 'allow');
+  sessions[1].resolvePermission(ids[0], 'allow');
+  assert.deepEqual(await pending[0], { decision: 'accept' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(secondResolved, false);
+  sessions[1].resolvePermission(ids[1], 'deny');
+  assert.deepEqual(await pending[1], { decision: 'decline' });
+  sessions.forEach(session => session.end());
 });
 
 test('Codex approved commands wait for host baselines and fail on out-of-scope writes', async () => {
@@ -690,7 +726,7 @@ test('Codex approved commands wait for host baselines and fail on out-of-scope w
     method: 'item/commandExecution/requestApproval',
     params: { itemId: 'command-guard', command: 'npm test', cwd: '/workspace' },
   }).then((value) => { response = value; });
-  session.resolvePermission('codex:1:approval-guard', 'allow');
+  session.resolvePermission(events.find(event => event.kind === 'permission-request').id, 'allow');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(response, undefined);
   releaseBefore();
@@ -749,7 +785,7 @@ test('Codex app-server crash denies pending approvals and releases Worker waiter
 
   assert.deepEqual(await response, { decision: 'decline' });
   assert.deepEqual(events.slice(-3), [
-    { kind: 'permission-cancelled', id: 'codex:1:approval-crash' },
+    { kind: 'permission-cancelled', id: events.find(event => event.kind === 'permission-request').id },
     {
       kind: 'worker-signal',
       signal: {

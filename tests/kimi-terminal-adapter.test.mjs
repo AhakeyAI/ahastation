@@ -72,7 +72,7 @@ function waitFor(predicate, timeoutMs = 10_000) {
 test('kimi backend id and capabilities are terminal-shaped', () => {
   const backend = new KimiTerminalBackend({ resolveBinary: () => '/x/kimi' });
   assert.equal(backend.id, 'kimi-code-terminal');
-  assert.equal(backend.capabilities.executeTasks, true);
+  assert.equal(backend.capabilities.executeTasks, false, 'Kimi remains a manual terminal, not a native Worker');
   assert.equal(backend.capabilities.coordinate, false);
   assert.equal(backend.resolveBinary(), '/x/kimi');
 });

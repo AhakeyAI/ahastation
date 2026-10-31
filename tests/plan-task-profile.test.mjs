@@ -70,6 +70,19 @@ test('strict executable tasks require a complete execution profile and authority
   }).success, false);
 });
 
+test('read-only-network preserves its explicit narrow scope through plan normalization', () => {
+  const authorityRequest = { writePaths: [], toolKinds: ['read', 'command'], workingDirectories: ['.'],
+    commands: [['gh', 'issue', 'view', '86', '--repo', 'synthetic/repo']], environmentKeys: [],
+    maxCommandTimeoutMs: 1000, networkHosts: ['api.github.com'], permissionProfile: 'read-only-network' };
+  const task = currentTask({ prompt: 'Read the issue', workspaceMode: 'read-only', writePaths: [], authorityRequest });
+  assert.equal(planMeetingTaskSchema.safeParse(task).success, true);
+  assert.deepEqual(normalizePlanMeetingTask(task, 'codex').task.authorityRequest, authorityRequest);
+  for (const patch of [{ commands: [['gh', 'issue', 'edit', '86']] }, { environmentKeys: ['GH_TOKEN'] },
+    { toolKinds: ['read', 'network'] }, { networkHosts: ['unapproved.invalid'] }, { writePaths: ['out.txt'] }]) {
+    assert.equal(planMeetingTaskSchema.safeParse({ ...task, authorityRequest: { ...authorityRequest, ...patch } }).success, false);
+  }
+});
+
 test('legacy plan tasks normalize with conservative non-command authority', () => {
   const normalized = normalizePlanMeetingTask({
     id: 'legacy',
