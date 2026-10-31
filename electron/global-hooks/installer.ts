@@ -10,7 +10,16 @@ type JsonObject = Record<string, any>;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const object = (v: unknown): v is JsonObject => !!v && typeof v === 'object' && !Array.isArray(v);
-const read = (p: string) => existsSync(p) ? readFileSync(p, 'utf8') : null;
+const read = (p: string): string | null => {
+  if (!existsSync(p)) return null;
+  const bytes = readFileSync(p);
+  try {
+    // Replacement decoding would lose the original bytes before backup.
+    // Preserve a UTF-8 BOM; parseConfig handles it without discarding it
+    // from the exact original stored for uninstall.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch { throw new Error('invalid-utf8-hook-file'); }
+};
 
 /** JSON only, with duplicate keys rejected. JSON.parse alone would silently
  * discard a user's duplicate setting when serializing an otherwise valid file. */

@@ -121,6 +121,17 @@ test('malformed, duplicate-key, wrong-shape and disabled configurations remain b
   assert.equal(parseConfig('{"text":"a \\" { } [ ]"}').text, 'a " { } [ ]');
 });
 
+test('invalid UTF-8 configuration is refused without replacing its original bytes', t => {
+  const { options, path } = fixture(t);
+  // Buffer.toString('utf8') silently replaces this byte with U+FFFD, which
+  // would make an apparently successful uninstall restore different bytes.
+  const original = Buffer.concat([Buffer.from('{"userSecret":"'), Buffer.from([0xff]), Buffer.from('"}\r\n')]);
+  writeFileSync(path, original);
+  assert.throws(() => installGlobalHooks(options), /invalid-utf8-hook-file/);
+  assert.deepEqual(readFileSync(path), original);
+  assert.equal(existsSync(join(options.stateDir, 'claude.json')), false);
+});
+
 test('advisory lock, different profile, and symlink config are refused', t => {
   const { options, path, root } = fixture(t);
   writeFileSync(`${path}.aha-studio.lock`, 'another install');
