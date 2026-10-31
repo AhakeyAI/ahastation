@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { resolve } from 'node:path';
 
 import {
   parseWorktreePorcelain,
@@ -60,7 +61,7 @@ test('plan lists only this repo, flags desktop sessions and risky worktrees', as
   assert.deepEqual(plan.sessions.map((s) => s.id).sort(), ['desktop', 'term-main', 'term-wt']);
   assert.equal(plan.sessions.find((s) => s.id === 'desktop').closable, false);
   assert.equal(plan.sessions.find((s) => s.id === 'term-wt').place, 'agent/clean');
-  assert.deepEqual(plan.worktrees.map((w) => w.path), ['/repo/wt-clean', '/repo/wt-dirty', '/repo/wt-locked']);
+  assert.deepEqual(plan.worktrees.map((w) => w.path), ['/repo/wt-clean', '/repo/wt-dirty', '/repo/wt-locked'].map((path) => resolve(path)));
   const dirty = plan.worktrees.find((w) => w.branch === 'agent/dirty');
   assert.equal(dirty.dirty, true);
   assert.equal(dirty.unmerged, 3);
@@ -82,9 +83,9 @@ test('cleanup ends only tty sessions and never touches the main folder', async (
   const wt = Object.fromEntries(res.result.worktrees.map((r) => [r.id, r.ok]));
   assert.deepEqual(wt, { '/repo/wt-clean': true, [ROOT]: false, '/repo/wt-locked': false });
   const mutations = calls.filter(([, a]) => a === 'worktree' || a === 'branch').map((c) => c.slice(1).join(' '));
-  assert.ok(mutations.includes('worktree remove --force /repo/wt-clean'));
+  assert.ok(mutations.includes(`worktree remove --force ${resolve('/repo/wt-clean')}`));
   assert.ok(mutations.includes('branch -D agent/clean'));
-  assert.ok(!mutations.some((m) => m.includes('branch -D main') || m.endsWith(` ${ROOT}`)));
+  assert.ok(!mutations.some((m) => m.includes('branch -D main') || m.endsWith(` ${resolve(ROOT)}`)));
 });
 
 test('a folder that is not the repository main folder is refused', async () => {

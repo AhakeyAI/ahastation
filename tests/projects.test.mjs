@@ -66,12 +66,18 @@ test('worktrees and sub-folders resolve to their main repository; another clone 
   mkdirSync(plain);
 
   const repos = await resolveRepos([main, wt, join(main, 'pkg'), join(parent, 'app-copy'), plain]);
-  assert.equal(repos[main].repoRoot, main);
-  assert.equal(repos[wt].repoRoot, main);
+  // Git may return forward slashes and expand Windows 8.3 temp aliases.
+  // Compare actual directory identity, preserving the grouping assertions.
+  const canonical = (path) => {
+    const real = realpathSync.native(path);
+    return process.platform === 'win32' ? real.toLowerCase() : real;
+  };
+  assert.equal(canonical(repos[main].repoRoot), canonical(main));
+  assert.equal(canonical(repos[wt].repoRoot), canonical(main));
   assert.equal(repos[wt].worktree, true);
   assert.equal(repos[wt].branch, 'feature-x');
-  assert.equal(repos[join(main, 'pkg')].repoRoot, main);
-  assert.equal(repos[join(parent, 'app-copy')].repoRoot, join(parent, 'app-copy'));
+  assert.equal(canonical(repos[join(main, 'pkg')].repoRoot), canonical(main));
+  assert.equal(canonical(repos[join(parent, 'app-copy')].repoRoot), canonical(join(parent, 'app-copy')));
   assert.equal(repos[plain].repoRoot, null);
 });
 
