@@ -10,13 +10,29 @@ import {
 } from '../dist-electron/permission-broker.js';
 import { classifyToolRisk, isInProcSafeTool } from '../dist-electron/auto-approve-policy.js';
 import { compileTaskAuthority } from '../dist-electron/task-authority.js';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Tool-name mapping: known → policy classification, unknown → destructive
 // ---------------------------------------------------------------------------
+
+test('read-only-network cannot escalate opaque scripts or unsupported tools into allow-once cards', t => {
+  const root = mkdtempSync(join(tmpdir(), 'aha86-narrow-broker-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const grant = compileTaskAuthority('read-issue', 1, 1, 'plan-approved', root, {
+    permissionProfile: 'read-only-network', writePaths: [], toolKinds: ['read', 'command'],
+    workingDirectories: ['.'], commands: [['gh', 'issue', 'list', '--repo', 'synthetic/repo']],
+    environmentKeys: [], networkHosts: ['api.github.com'], maxCommandTimeoutMs: 1000,
+  }, Date.now());
+  for (const diagnostic of ['opaque-shell-command', 'unsupported-native-tool', 'secret-bearing-argument']) {
+    const result = decideTaskPermission({ ok: false, diagnostic, requiresUser: true }, grant);
+    assert.equal(result.decision.kind, 'deny');
+    assert.equal(result.decision.reason, 'read-only-network-unverifiable');
+    assert.equal(result.safeInput.requiresUser, false);
+  }
+});
 
 test('opencode tool names map onto the SAFE_BUILTIN_TOOLS classification', () => {
   for (const safe of ['read', 'glob', 'grep', 'webfetch', 'websearch', 'task', 'todowrite']) {

@@ -1,12 +1,12 @@
 {
-  "recordedAt": "2026-10-31T13:26:58.998Z",
+  "recordedAt": "2026-10-31T13:42:38.269Z",
   "node": "v26.12.1",
   "platform": "win32",
-  "gitHeadAtRun": "fcdaaa0781f3d0c30d13cea89d9d4c114b3603df",
+  "gitHeadAtRun": "872a748c464f544a686f16465ca858d9c5615c21",
   "dirtyAtRun": true,
-  "sourceDigest": "355cefbde3d765996f7e15421cf91bd81db744be7d86c3933393bdb7ff4f83ff",
+  "sourceDigest": "a6bd68313fb80b556504f1bbadf2a14499b2f6a7beb1a57b0da374c4d25ae86f",
   "dependencyLockSha256": "a3df1bbc02be91b14815d6add9613de6e600d6bc32af9cc76d8b8791a7dd18c8",
-  "verifierSha256": "06e72c8fafa0c125cb4c5b27c864f700978383fd6447f03e20942b1ea11a2330",
+  "verifierSha256": "b6a27d67d8e34c70d6cae9cc3f1468d9d8a10d0dc2c33f75639650b4f4e3dc96",
   "scope": "typechecks, builds, mocked protocol tests; no native engine enforcement/real WorkReport/B04 claim",
   "results": [
     {
@@ -36,8 +36,8 @@
     {
       "name": "native-worker-bridge",
       "exit": 0,
-      "tests": 11,
-      "pass": 11,
+      "tests": 15,
+      "pass": 15,
       "fail": 0,
       "skipped": 0
     },
@@ -134,6 +134,14 @@
       "exit": 0,
       "tests": 4,
       "pass": 4,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "name": "permission-broker",
+      "exit": 0,
+      "tests": 21,
+      "pass": 21,
       "fail": 0,
       "skipped": 0
     }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkerOwnershipService } from '../dist-electron/native-worker/ownership.js';
@@ -16,8 +16,11 @@ const binding = { agent: 'claude', origin: 'worker', runtimeId: 'runtime', hostE
   taskId: 'task', attemptId: 'attempt', permissionOwnerRef: 'local-authority', credentialRef: 'restricted-channel' };
 const processIdentity = { pid: 12, startId: 'os-start-counter', bootId: 'os-boot-id' };
 const report = { status: 'completed', summary: 'candidate only', files: [], tests: [], unresolved: [] };
+// macOS exposes tmpdir through /var -> /private/var. Canonicalize this owned
+// fixture, keeping the production symlink rejection intact.
+const newRoot = () => realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'aha86-')));
 function root(t) {
-  const directory = mkdtempSync(join(tmpdir(), 'aha86-'));
+  const directory = newRoot();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -33,20 +36,22 @@ function normalized(directory, command) {
   assert.equal(result.ok, true); return result.request;
 }
 function fixture(t, overrides = {}) {
-  const directory = mkdtempSync(join(tmpdir(), 'aha86-')), ownership = new WorkerOwnershipService(directory);
+  const directory = newRoot(), ownership = new WorkerOwnershipService(directory);
   ownership.initialize(); t.after(() => { ownership.close(); rmSync(directory, { recursive: true, force: true }); });
-  const peer = Object.freeze({ channel: 'test-guard-only' }), states = [], writes = [], reports = [];
+  const peer = Object.freeze({ channel: 'test-guard-only' }), states = [], writes = [], reports = [], journal = [];
   let current = true, boundary = true, terminated = 0;
   const authority = grant(directory);
   const guard = { spawn: async () => processIdentity, verifyPeer: value => value === peer,
     verifyWriter: value => value === peer,
+    handoffToHuman: async () => true,
     write: (data, writer) => { writes.push({ data, writer }); return true; }, seal: () => {}, interrupt: async () => {},
     terminateTree: async () => { terminated++; return { confirmed: true }; }, verifyTreeExit: value => value === peer };
   const run = new NativeWorkerRun({ binding, attempt: 1, workspaceRoot: directory, ownership, guard,
     getGrant: () => authority, isCurrentAttempt: () => current, askUser: async () => 'allow',
+    persistPermissionDecision: async value => { journal.push(value); },
     checkBoundary: async () => boundary, onReport: value => reports.push(value), onState: state => states.push(state),
-    approvalTimeoutMs: 30, stopTimeoutMs: 1, ...overrides });
-  return { directory, ownership, run, peer, guard, states, writes, reports, authority,
+    approvalTimeoutMs: 1000, stopTimeoutMs: 1, ...overrides });
+  return { directory, ownership, run, peer, guard, states, writes, reports, journal, authority,
     setCurrent(value) { current = value; }, setBoundary(value) { boundary = value; }, get terminated() { return terminated; } };
 }
 const call = (id = 'call', command = ['gh', 'issue', 'edit', '1', '--repo', 'synthetic/repo', '--title', 'local-fixture']) => ({
@@ -146,10 +151,12 @@ test('external writes approve each invocation, never reuse tool IDs or command f
 });
 
 test('stop wins pending approvals and consumed-late permits; no boolean/root/Stop proves tree exit', async t => {
-  let answer;
-  const f = fixture(t, { askUser: () => new Promise(resolve => { answer = resolve; }) });
+  let answer, notified;
+  const asked = new Promise(resolve => { notified = resolve; });
+  const f = fixture(t, { askUser: () => new Promise(resolve => { answer = resolve; notified(); }) });
   await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
   const basis = f.run.basis(), waiting = f.run.requestTool(f.peer, basis, call());
+  await asked;
   const stopping = f.run.stop(); answer('allow');
   assert.equal(await waiting, null); assert.equal(f.run.input(basis, 'host', 'late'), false);
   assert.equal(await f.run.requestTool(f.peer, f.run.basis(), call('late')), null);
@@ -162,7 +169,7 @@ test('stop wins pending approvals and consumed-late permits; no boolean/root/Sto
 test('takeover has one writer, old approvals fail, handback review cannot race stop', async t => {
   const f = fixture(t); await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
   const before = f.run.basis(), c = call(), permit = await f.run.requestTool(f.peer, before, c);
-  const human = f.run.takeover(before);
+  const human = await f.run.takeover(before);
   assert.equal(f.run.input(before, 'host', 'stale'), false); assert.equal(f.run.input(human, 'host', 'host'), false);
   assert.equal(f.run.input(human, 'human', 'human', f.peer), true); assert.equal(f.run.consume(f.peer, permit.id, c), false);
   let reviewed;
@@ -170,6 +177,53 @@ test('takeover has one writer, old approvals fail, handback review cannot race s
   assert.equal(f.run.input(f.run.basis(), 'human', 'during review'), false);
   const stopping = f.run.stop(); reviewed(true);
   await assert.rejects(handingBack, /rejected/); await stopping;
+  assert.equal(f.states.at(-1), 'stopping');
+});
+
+test('a missing or failed durable journal cannot create even an automatic read permit', async t => {
+  const f = fixture(t, { persistPermissionDecision: async () => { throw new Error('disk failure'); } });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  assert.equal(await f.run.requestTool(f.peer, f.run.basis(), { invocationId: 'read', stage: 'PreToolUse',
+    sessionId: 'native-session', toolName: 'Read', input: { file_path: 'README.md' } }), null);
+});
+
+test('stop during durable allow persistence supersedes that historical allow', async t => {
+  let persisted, notified;
+  const writing = new Promise(resolve => { notified = resolve; });
+  const f = fixture(t, { persistPermissionDecision: value => new Promise(resolve => {
+    assert.equal(value.decision, 'allow'); persisted = resolve; notified();
+  }) });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  const waiting = f.run.requestTool(f.peer, f.run.basis(), { invocationId: 'read', stage: 'PreToolUse',
+    sessionId: 'native-session', toolName: 'Read', input: { file_path: 'README.md' } });
+  await writing;
+  const stopping = f.run.stop(); persisted();
+  assert.equal(await waiting, null); await stopping;
+});
+
+test('approval deadline includes journal I/O; a late durable allow cannot become a fresh permit', async t => {
+  let persisted, notified, now;
+  const writing = new Promise(resolve => { notified = resolve; });
+  const f = fixture(t, { now: () => now ?? Date.now(), approvalTimeoutMs: 100, persistPermissionDecision: () => new Promise(resolve => {
+    persisted = resolve; notified();
+  }) });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  now = Date.now();
+  const waiting = f.run.requestTool(f.peer, f.run.basis(), { invocationId: 'read', stage: 'PreToolUse',
+    sessionId: 'native-session', toolName: 'Read', input: { file_path: 'README.md' } });
+  await writing; now += 101; persisted();
+  assert.equal(await waiting, null);
+});
+
+test('takeover cannot admit a human writer until old automatic execution is fenced; stop wins late proof', async t => {
+  const f = fixture(t); let fenced;
+  f.guard.handoffToHuman = () => new Promise(resolve => { fenced = resolve; });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  const takingOver = f.run.takeover(f.run.basis());
+  assert.equal(f.states.at(-1), 'taking-over');
+  assert.equal(f.run.input(f.run.basis(), 'human', 'too early', f.peer), false);
+  const stopping = f.run.stop(); fenced(true);
+  await assert.rejects(takingOver, /fence-unconfirmed/); await stopping;
   assert.equal(f.states.at(-1), 'stopping');
 });
 

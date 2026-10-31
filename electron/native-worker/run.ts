@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { commandApprovalRisk, normalizeBackendPermissionRequest } from '../backends/canonical-execution.js';
-import { evaluateTaskAuthority, isTaskAuthorityCurrent } from '../task-authority.js';
+import { evaluateTaskAuthority, isTaskAuthorityCurrent, summarizeCanonicalRequest } from '../task-authority.js';
 import type { TaskAuthorityGrant } from '../task-collaboration.js';
 import { workReportSchema, type WorkReport } from '../worker-protocol.js';
 import { WorkerOwnershipService, type ProcessIdentity, type WorkerBinding, type WorkerLaunch } from './ownership.js';
@@ -23,6 +23,10 @@ export interface NativeExecutionGuard {
   verifyPeer(peer: unknown, process: ProcessIdentity, binding: WorkerBinding): boolean;
   /** Separate writer capability, not a public basis/controlEpoch string. */
   verifyWriter(lease: unknown, writer: 'host' | 'human', basis: RunBasis): boolean;
+  /** Cancel/drain in-flight automatic actions and establish exactly one local
+   * human writer. Resolves true only after actual guardian evidence, not Esc,
+   * an empty queue in the UI, or a provider Stop. */
+  handoffToHuman(basis: RunBasis): Promise<boolean>;
   write(data: string, writer: 'host' | 'human'): boolean;
   seal(): void;
   interrupt(): Promise<void>;
@@ -36,11 +40,17 @@ export interface NativeRunOptions {
   getGrant: () => TaskAuthorityGrant | undefined;
   isCurrentAttempt: () => boolean;
   askUser: (request: { id: string; call: NativeToolCall; basis: RunBasis; digest: string }, signal: AbortSignal) => Promise<'allow' | 'deny'>;
+  /** Same durable permission journal seam used by WorkerScheduler. Missing
+   * or failed storage cannot create a permit. A UI acknowledgement is not a
+   * durable decision. Production owner/transport wiring remains unimplemented. */
+  persistPermissionDecision: (input: { taskId: string; attempt: number; nativeRequestId: string;
+    decision: 'allow' | 'ask-user' | 'deny'; reason: string; safeInput: Record<string, unknown>; grantHash?: string }) => Promise<void>;
   /** Hash checks cover a declared finite boundary. Confinement is independent. */
   checkBoundary: (stage: 'before' | 'after') => Promise<boolean>;
   onReport: (report: WorkReport) => void;
   onState?: (state: string) => void;
   approvalTimeoutMs?: number; stopTimeoutMs?: number;
+  now?: () => number;
 }
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);
@@ -55,7 +65,7 @@ export class NativeWorkerRun {
   private launch?: WorkerLaunch;
   private authorityEpoch = 1;
   private controlEpoch = 1;
-  private state: 'new' | 'starting' | 'automatic' | 'human' | 'stopping' | 'stopped' = 'new';
+  private state: 'new' | 'starting' | 'automatic' | 'taking-over' | 'human' | 'handing-back' | 'stopping' | 'stopped' = 'new';
   private readonly pending = new Set<AbortController>();
   private readonly permits = new Map<string, ExecutionPermit>();
   private readonly invocations = new Set<string>();
@@ -65,6 +75,9 @@ export class NativeWorkerRun {
   private stopTimer?: ReturnType<typeof setTimeout>;
   private resolveStop?: (confirmed: boolean) => void;
   private isStarting(): boolean { return this.state === 'starting'; }
+  private isTakingOver(): boolean { return this.state === 'taking-over'; }
+  private isHandingBack(): boolean { return this.state === 'handing-back'; }
+  private now(): number { return this.options.now?.() ?? Date.now(); }
   constructor(private readonly options: NativeRunOptions) {
     if (!['claude', 'codex'].includes(options.binding.agent)) throw new Error('unsupported-worker-agent');
     if (options.attempt < 1 || !Number.isSafeInteger(options.attempt)) throw new Error('invalid-attempt');
@@ -79,7 +92,7 @@ export class NativeWorkerRun {
     try {
       const grant = this.options.getGrant();
       return this.options.isCurrentAttempt() && !!grant
-        && isTaskAuthorityCurrent(grant, this.options.binding.taskId, this.options.attempt, this.options.workspaceRoot)
+        && isTaskAuthorityCurrent(grant, this.options.binding.taskId, this.options.attempt, this.options.workspaceRoot, this.now())
         && (!this.grantHash || grant.grantHash === this.grantHash);
     } catch { return false; }
   }
@@ -136,47 +149,67 @@ export class NativeWorkerRun {
     this.pending.clear(); this.permits.clear();
   }
   async requestTool(peer: unknown, basis: RunBasis, call: NativeToolCall): Promise<ExecutionPermit | null> {
+    const deadline = this.now() + (this.options.approvalTimeoutMs ?? 25_000);
     if (!this.canTool(peer, basis, call)) return null;
     const key = JSON.stringify([call.sessionId, call.stage, call.invocationId]);
     if (!call.invocationId || this.invocations.has(key) || this.invocations.size >= 10_000) return null;
     this.invocations.add(key); // retries never create a second authorization
     const frozenCall = structuredClone(call);
+    const currentCall = () => this.now() < deadline && this.canTool(peer, basis, frozenCall);
     // A native tool must not smuggle an alternate argv next to the command
     // actually executed by its engine. Generic SDK normalization supports
     // several wire shapes; native adapters may use only one at a time.
     if ('command' in frozenCall.input && ['executable', 'argv', 'parsedCommand'].some(key => key in frozenCall.input)) return null;
     const callDigest = digest(frozenCall);
+    const requestId = randomUUID();
     const grant = this.options.getGrant()!;
     const normalized = normalizeBackendPermissionRequest(this.options.binding.agent === 'claude' ? 'claude-code' : 'codex', {
       taskId: grant.taskId, attempt: this.options.attempt,
       backendId: this.options.binding.agent === 'claude' ? 'claude-code' : 'codex',
-      workspaceRoot: this.options.workspaceRoot, nativeRequestId: randomUUID(), toolName: frozenCall.toolName, input: frozenCall.input,
+      workspaceRoot: this.options.workspaceRoot, nativeRequestId: requestId, toolName: frozenCall.toolName, input: frozenCall.input,
     });
     // Unknown/opaque native paths cannot be accurately confined by this core.
     if (!normalized.ok) return null;
     if (normalized.request.kind === 'command'
       && commandApprovalRisk(normalized.request.executable ?? '', normalized.request.argv ?? []) === 'opaque-shell') return null;
-    const decision = evaluateTaskAuthority(grant, normalized.request);
+    const decision = evaluateTaskAuthority(grant, normalized.request, this.now());
+    const persist = async (kind: 'allow' | 'ask-user' | 'deny', reason: string) => {
+      try {
+        await this.options.persistPermissionDecision({ taskId: grant.taskId, attempt: this.options.attempt,
+          nativeRequestId: requestId, decision: kind, reason, grantHash: grant.grantHash,
+          safeInput: { ...summarizeCanonicalRequest(normalized.request), basis: structuredClone(basis),
+            subject: { ...this.options.binding, sessionId: frozenCall.sessionId },
+            actor: kind === 'allow' && decision.kind === 'ask-user' ? 'local-user' : 'host-policy',
+            stage: frozenCall.stage, invocationId: frozenCall.invocationId,
+            bindingHash: digest({ binding: this.options.binding, sessionId: frozenCall.sessionId,
+              basis, inputHash: callDigest, requestId, grantHash: grant.grantHash }) } });
+        return true;
+      } catch { return false; }
+    };
+    if (decision.kind !== 'allow' && !await persist(decision.kind, decision.reason)) return null;
     if (decision.kind === 'deny') return null;
+    if (!currentCall()) return null;
     if (decision.kind === 'ask-user') {
       const controller = new AbortController(); this.pending.add(controller);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const answer = await Promise.race([
-          this.options.askUser({ id: randomUUID(), call: frozenCall, basis: structuredClone(basis), digest: callDigest }, controller.signal),
+          this.options.askUser({ id: requestId, call: frozenCall, basis: structuredClone(basis), digest: callDigest }, controller.signal),
           new Promise<'deny'>(resolve => {
             controller.signal.addEventListener('abort', () => resolve('deny'), { once: true });
-            timer = setTimeout(() => { controller.abort(); resolve('deny'); }, this.options.approvalTimeoutMs ?? 120_000);
+            timer = setTimeout(() => { controller.abort(); resolve('deny'); }, Math.max(0, deadline - this.now()));
           }),
         ]);
-        if (answer !== 'allow') return null;
+        if (answer !== 'allow') { await persist('deny', 'user-denied-or-expired'); return null; }
       } catch { return null; }
       finally { clearTimeout(timer); this.pending.delete(controller); }
     }
-    if (!this.canTool(peer, basis, frozenCall)) return null;
+    if (!currentCall()) return null;
     if (!await this.checkBoundary('before')) { void this.stop(); return null; }
-    if (!this.canTool(peer, basis, frozenCall)) return null;
-    const permit = { id: randomUUID(), digest: callDigest, basis: structuredClone(basis), expiresAt: Date.now() + 5_000 };
+    if (!currentCall()) return null;
+    if (!await persist('allow', decision.kind === 'allow' ? decision.reason : 'local-user-once')) return null;
+    if (!currentCall()) return null;
+    const permit = { id: randomUUID(), digest: callDigest, basis: structuredClone(basis), expiresAt: Math.min(deadline, this.now() + 5_000) };
     this.permits.set(permit.id, permit);
     return structuredClone(permit);
   }
@@ -188,7 +221,7 @@ export class NativeWorkerRun {
    * provider after receiving allow. No reusable shell/task-wide approval. */
   consume(peer: unknown, permitId: string, call: NativeToolCall): boolean {
     const permit = this.permits.get(permitId); this.permits.delete(permitId);
-    return !!permit && permit.expiresAt > Date.now() && permit.digest === digest(call)
+    return !!permit && permit.expiresAt > this.now() && permit.digest === digest(call)
       && this.canTool(peer, permit.basis, call);
   }
   async afterTool(peer: unknown, basis: RunBasis): Promise<boolean> {
@@ -203,9 +236,15 @@ export class NativeWorkerRun {
       return this.options.guard.write(data, writer);
     } catch { void this.stop(); return false; }
   }
-  takeover(basis: RunBasis): RunBasis {
+  async takeover(basis: RunBasis): Promise<RunBasis> {
     if (this.state !== 'automatic' || !this.sameBasis(basis) || !this.bound()) throw new Error('takeover-rejected');
-    this.invalidate(); this.controlEpoch++; this.transition('human'); return this.basis();
+    this.invalidate(); this.controlEpoch++; this.transition('taking-over');
+    const pending = this.basis();
+    const fenced = await this.options.guard.handoffToHuman(pending).catch(() => false);
+    if (!fenced || !this.sameBasis(pending) || !this.bound() || !this.isTakingOver()) {
+      void this.stop(); throw new Error('takeover-fence-unconfirmed');
+    }
+    this.transition('human'); return this.basis();
   }
   /** reviewCurrent must verify full diff digest/read evidence and actual sole
    * local writer release. UI text, a checkbox or cwd is not that evidence. */
@@ -214,9 +253,9 @@ export class NativeWorkerRun {
     this.invalidate(); this.controlEpoch++;
     const pending = this.basis();
     // During review, neither writer is valid.
-    this.transition('starting');
+    this.transition('handing-back');
     const reviewed = await reviewCurrent().catch(() => false);
-    if (!reviewed || !this.sameBasis(pending) || !this.bound() || !this.isStarting()) {
+    if (!reviewed || !this.sameBasis(pending) || !this.bound() || !this.isHandingBack()) {
       void this.stop(); throw new Error('handback-rejected');
     }
     this.transition('automatic'); return this.basis();

@@ -46,6 +46,8 @@ IF-2 基线是 [v0.2](https://github.com/AhakeyAI/ahastation/issues/83#issuecomm
 
 下一步必须先提供真实 guard：
 
+核心的 `persistPermissionDecision` 是必填的既有调度器持久裁决接缝：落盘失败/落盘期间 stop 都不产生 permit；本地测试注入内存记录或失败模拟，不证明生产审计已接通。接管先进入 taking-over、撤销旧权限和写权，只有 guard 的在途执行封口/唯一人工写者证据确认后才进入 human；不是按钮点击即完成。交还独立使用 handing-back，普通输入在审阅结束前保持关闭。
+
 1. 启动前将 CLI 及全部后代纳入受控进程树；可核 OS start/boot identity；隔离/退出证据不来自 CLI 自报。
 2. 受保护本机 IPC 对端和每运行受限凭据；不把 env/PID/标签/taskId 或 owned.json 字符串当授权。
 3. 在实际执行边界消费一次 permit；hook 未运行、未受信、崩溃、超时、已读 allow 后 stop 均无法逃逸。后代 shell/API 写不能继承顶层授权。
@@ -63,11 +65,13 @@ IF-2 基线是 [v0.2](https://github.com/AhakeyAI/ahastation/issues/83#issuecomm
 & 'C:\Program Files\nodejs\node.exe' scripts/verify-worker-bridge.mjs
 ```
 
-第二条完成 renderer/Electron 两侧 typecheck、两侧 build、preload 和源清单，以及经过核对的 13 组 mock/协议测试；所有显式后台子进程隐藏，测试 runner 用 `--test-isolation=none` 避免隐式测试子进程。不会调用全量 `npm test`、个人 CLI 登录探测、真实模型/可见 PTY。Windows 文件权限事务用 #85 的隐藏 PowerShell 辅助验证。专家 kickoff 也保留 SDK，不会绕过默认解析映射到 terminal。
+第二条完成 renderer/Electron 两侧 typecheck、两侧 build、preload 和源清单，以及经过核对的 14 组 mock/协议测试；所有显式后台子进程隐藏，测试 runner 用 `--test-isolation=none` 避免隐式测试子进程。不会调用全量 `npm test`、个人 CLI 登录探测、真实模型/可见 PTY。Windows 文件权限事务用 #85 的隐藏 PowerShell 辅助验证。专家 kickoff 也保留 SDK，不会绕过默认解析映射到 terminal。SDK 的 permission-broker 同样拒绝该窄档位下无法规范化的脚本/未知工具，不以额外 allow-once 卡片绕过档位。
 
 机器可读结果：`docs/evidence/issue-86/local-validation.json`（绑定源码摘要、lockfile 和验证脚本 SHA256）；详细本地输出：worktree 根目录 `issue-86-validation.log`（忽略文件）。第一次安装出现 ECONNRESET；降低下载并发、使用完整性校验的 npm 缓存后安装成功，没有变更 lockfile。
 
 远端完整三平台测试与打包通过 Draft PR 的 `build-matrix` 运行；其绿色结果也不替代真实引擎/B04。
+
+中间 SHA `872a748` 的 [CI 41205649471](https://github.com/AhakeyAI/ahastation/actions/runs/41205649471) 在 Mac 的新归属 fixture 失败：临时目录经过 `/var → /private/var` 别名，被已有私有目录保护正确拒绝。修复仅规范化本测试自行创建的临时根目录；生产符号链接拒绝和断言保持，后续候选须重新跑完整矩阵。
 
 ## Shawn 指定验收与停止点
 

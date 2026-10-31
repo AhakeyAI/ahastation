@@ -39,7 +39,7 @@ await import('./write-station-build-manifest.mjs');
 const loader = 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/electron-stub.mjs", pathToFileURL("./"));';
 const tests = ['native-worker-bridge', 'global-hooks-admission', 'claude-terminal-adapter', 'codex-terminal-adapter',
   'kimi-terminal-adapter', 'qoder-terminal-adapter', 'task-authority', 'plan-task-profile', 'backend-canonical-execution',
-  'permission-approval-memory', 'codex-adapter', 'renderer-plan-validation', 'kickoff'];
+  'permission-approval-memory', 'codex-adapter', 'renderer-plan-validation', 'kickoff', 'permission-broker'];
 for (const name of tests) node(name, ['--test', '--test-isolation=none', '--test-timeout=120000', '--import', loader, `tests/${name}.test.mjs`]);
 mkdirSync('docs/evidence/issue-86', { recursive: true });
 const manifest = JSON.parse(readFileSync('dist-electron/STATION-SOURCE-MANIFEST.json', 'utf8'));
