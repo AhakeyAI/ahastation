@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "at": 3620,
+      "kind": "status",
+      "status": "running"
+    },
+    {
+      "at": 24781,
+      "kind": "permission-request",
+      "tool": "Bash",
+      "detail": "  "
+    },
+    {
+      "at": 36872,
+      "kind": "permission-request",
+      "tool": "Write",
+      "detail": "  C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S5-eaRj4a\\outside.txt"
+    },
+    {
+      "at": 47423,
+      "kind": "status",
+      "status": "idle"
+    }
+  ],
+  "permissions": [
+    {
+      "at": 24781,
+      "toolName": "Bash",
+      "toolDetail": "",
+      "allow": false,
+      "why": "command reaches outside workspace"
+    },
+    {
+      "at": 36872,
+      "toolName": "Write",
+      "toolDetail": "C:\\Users\\shawn\\AppData\\Local\\Temp\\aha-b04-C-P-claude-code-S5-eaRj4a\\outside.txt",
+      "allow": false,
+      "why": "write outside workspace"
+    }
+  ]
+}

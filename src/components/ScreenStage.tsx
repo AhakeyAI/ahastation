@@ -20,19 +20,35 @@ import type {
   MeetingDelivery,
   MeetingPlan,
 } from '../types';
-import type { StageWindow, StageWindowType } from '../lib/stage-window-store';
+import { ACTIVITY_TAB_ID, BOARD_TAB_ID, type StageWindow, type StageWindowType, type StageWindowOptions } from '../lib/stage-window-store';
 import { computeWorkerCapacity } from '../lib/worker-capacity';
 import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
 import { FileViewer } from './FileViewer';
 import { BrowserStage } from './BrowserStage';
 import { StageTabBar } from './StageTabBar';
+import { MeetingNotesPanel } from './MeetingNotesPanel';
 import { TerminalPanel } from './TerminalPanel';
+import { ShellTerminal } from './ShellTerminal';
 import { RealTerminal } from './RealTerminal';
 import { WorkerWorkbench } from './WorkerWorkbench';
 import { ActivityTabContent } from './ActivityTabContent';
 import { DeliveryViewer } from './DeliveryViewer';
 import { TaskInspector } from './TaskInspector';
 import { FinalMeetingDelivery } from './FinalMeetingDelivery';
+import type {UnifiedModel} from '../lib/unified-meeting-store';
+import {SharedParticipants} from './ParticipantPanel';
+import {SharedUserTasksPanel} from './UserTasksPanel';
+import {SharedTaskInspector} from './TaskInspector';
+
+export interface SharedScreenContext {share:ScreenShareState;videoRef:RefObject<HTMLVideoElement>;onStop:()=>void}
+export function SharedScreenStage({model,onInvite,taskId,onTask,onCloseTask,screen}:{model:UnifiedModel;onInvite:()=>void;taskId:string|null;onTask:(id:string)=>void;onCloseTask:()=>void;screen:SharedScreenContext}){
+  return <section className="stage-wrap unified-stage"><SharedParticipants model={model} onInvite={onInvite} onOpenTask={onTask}/><div className="unified-workspace">{screen.share.active&&<section className="unified-screen"><header>{screen.share.sourceName}<button onClick={screen.onStop}>停止屏幕共享</button></header><video ref={screen.videoRef} autoPlay muted playsInline style={{maxHeight:'38vh',maxWidth:'100%'}}/></section>}{taskId?<SharedTaskInspector key={model.meeting.id+':'+taskId} model={model} taskId={taskId} onClose={onCloseTask}/>:<SharedUserTasksPanel model={model} onOpenTask={onTask}/>}</div></section>;
+}
+
+
+function matchesWorker(w: WorkerState, workerId: string): boolean {
+  return w.id === workerId || w.hostId === workerId;
+}
 
 interface ScreenStageProps {
   share: ScreenShareState;
@@ -50,6 +66,7 @@ interface ScreenStageProps {
   finalMeetingDelivery: MeetingDelivery | null;
   finalMeetingDecision: FinalMeetingDecision | null;
   sessionId: string | null;
+  cwd?: string;
   /** Task the cross-project board asked us to open. `seq` changes on every
    *  request so re-picking the same task after closing the inspector works. */
   focusTask?: { taskId: string; seq: number } | null;
@@ -66,8 +83,10 @@ interface ScreenStageProps {
   activeWindowId: string | null;
   onSelectWindow: (id: string) => void;
   onCloseWindow: (id: string) => void;
-  onCreateWindow: (type: StageWindowType, opts?: { workerId?: string; title?: string }) => void;
+  onCreateWindow: (type: StageWindowType, opts?: StageWindowOptions) => void;
   onPopOutWindow?: (id: string) => void;
+  /** Open the user's native CLI for a worker that has no PTY of its own. */
+  onOpenNativeCli?: (target: { backendId?: string; title?: string }) => void;
   onResolvePermission: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
   browserTabs?: BrowserTabInfo[];
   browserActiveTabId?: string | null;
@@ -81,9 +100,14 @@ interface ScreenStageProps {
   onBrowserReload?: (tabId: string) => void;
   /** Map of iconId → custom avatar data URL */
   customAvatars?: Map<string, string | null>;
+  /** Task board rendered by the pinned 「任务看板」 tab (the stage default). */
+  boardContent?: ReactNode;
+  /** 待批准 + 待确认 count, badged on the board tab. */
+  boardAttention?: number;
+  /** Expert-owned sub-agent tasks (AME-D14): taskId → owner hostId + title. */
+  ownedTasks?: Map<string, { hostId: string; title: string }> | null;
 }
 
-const ACTIVITY_TAB_ID = 'activity-default';
 
 export const ScreenStage = memo(function ScreenStage({
   share,
@@ -101,6 +125,7 @@ export const ScreenStage = memo(function ScreenStage({
   finalMeetingDelivery,
   finalMeetingDecision,
   sessionId,
+  cwd,
   focusTask,
   onAcceptDelivery,
   onReviseDelivery,
@@ -114,6 +139,7 @@ export const ScreenStage = memo(function ScreenStage({
   onCloseWindow,
   onCreateWindow,
   onPopOutWindow,
+  onOpenNativeCli,
   onResolvePermission,
   browserTabs = [],
   browserActiveTabId = null,
@@ -126,6 +152,9 @@ export const ScreenStage = memo(function ScreenStage({
   onBrowserForward,
   onBrowserReload,
   customAvatars,
+  boardContent,
+  boardAttention = 0,
+  ownedTasks,
 }: ScreenStageProps) {
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -199,29 +228,68 @@ export const ScreenStage = memo(function ScreenStage({
     setInspectorOpenSeq((seq) => seq + 1);
     setInspectorHeight(76);
     setInspectorFullscreen(false);
-    if (activeWindowId !== ACTIVITY_TAB_ID) {
-      onSelectWindow(ACTIVITY_TAB_ID);
-    }
-  }, [focusSeq, focusTaskId, activeWindowId, onSelectWindow]);
+    // Opened from the board tab: keep the board under the docked inspector.
+  }, [focusSeq, focusTaskId]);
 
   // Auto-open a stage terminal window when a terminal-mode worker spawns, so
   // the human can supervise the TUI without manually clicking each worker
   // card. Dedup by workerId so re-renders never reopen a window the user
-  // closed; only running workers qualify (a worker that already failed before
-  // we noticed it is left alone). backendId arrives with the first worker
-  // event (the adapter's "终端 Claude 已启动" progress), which is what makes
-  // the terminal-mode check reliable.
+  // closed. Running workers qualify; an expert's sub-agent also qualifies
+  // after it has stopped, so 重新开始 is still on screen. backendId arrives
+  // with the first worker event, which is what makes the terminal-mode check
+  // reliable.
   const autoOpenedTerminals = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const w of workers) {
       if (w.role !== 'worker') continue;
-      if (w.status !== 'running') continue;
       if (!isTerminalWorkerBackendId(w.backendId)) continue;
       if (autoOpenedTerminals.current.has(w.id)) continue;
+      const owned = ownedTasks?.get(w.id);
+      // A recovered sub-agent is often already stopped. Still open its tab
+      // so 重新开始 is on screen after the app comes back.
+      const stoppedOwned = Boolean(owned) && ['failed', 'done', 'interrupted', 'accepted'].includes(w.status);
+      if (w.status !== 'running' && !stoppedOwned) continue;
       autoOpenedTerminals.current.add(w.id);
-      void onCreateWindow('terminal', { workerId: w.id, title: w.title });
+      const owner = owned ? hostGroups.get(owned.hostId)?.profile : undefined;
+      // An expert's sub-agent opens as the third tab (子 Agent), selected.
+      void onCreateWindow('terminal', owned
+        ? { workerId: w.id, title: `子 Agent · ${owner?.name ?? '专家'}`, subagentOwner: owned.hostId }
+        : { workerId: w.id, title: w.title });
     }
-  }, [workers, onCreateWindow]);
+  }, [workers, onCreateWindow, ownedTasks, hostGroups]);
+
+  // Every "open terminal" entry lands here. A terminal-mode worker already
+  // runs its native CLI in a PTY, so it gets the stage workbench; any other
+  // backend (OpenCode, SDK, app-server, remote) has nothing to attach to and
+  // opens the matching native CLI in the CLI workspace instead.
+  const openWorkerTerminal = useCallback((workerId: string) => {
+    const matches = workers.filter((w) => matchesWorker(w, workerId));
+    const ptyWorker = matches.find((w) => isTerminalWorkerBackendId(w.backendId));
+    if (ptyWorker || !onOpenNativeCli) {
+      void onCreateWindow('terminal', { workerId: ptyWorker?.id ?? workerId, ...(ptyWorker ? { title: ptyWorker.title } : {}) });
+      return;
+    }
+    const target = matches[0];
+    onOpenNativeCli({
+      backendId: target?.backendId ?? hostGroups.get(target?.hostId ?? workerId)?.backendId,
+      title: target?.title,
+    });
+  }, [workers, hostGroups, onCreateWindow, onOpenNativeCli]);
+
+  const isPtyTerminalWindow = useCallback((win: StageWindow) => (
+    win.type === 'terminal' && !!win.workerId
+      && workers.some((w) => matchesWorker(w, win.workerId!) && isTerminalWorkerBackendId(w.backendId))
+  ), [workers]);
+
+  const handlePopOut = useCallback((id: string) => {
+    const win = stageWindows.find((w) => w.id === id);
+    if (win?.type === 'terminal' && onOpenNativeCli) {
+      if (win.workerId) openWorkerTerminal(win.workerId);
+      else onOpenNativeCli({});
+      return;
+    }
+    onPopOutWindow?.(id);
+  }, [stageWindows, onOpenNativeCli, openWorkerTerminal, onPopOutWindow]);
 
   const handleInspectorPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     dragState.current = { pointerId: event.pointerId, startY: event.clientY };
@@ -264,6 +332,7 @@ export const ScreenStage = memo(function ScreenStage({
 
   const activeWindow = stageWindows.find((w) => w.id === activeWindowId) ?? null;
   const isActivityTab = activeWindow?.type === 'activity' || activeWindowId === ACTIVITY_TAB_ID;
+  const isBoardTab = activeWindow?.type === 'board';
   const selectedTaskWorker = selectedTaskId
     ? workers.find((worker) => worker.role !== 'talker' && worker.id === selectedTaskId)
     : undefined;
@@ -293,10 +362,9 @@ export const ScreenStage = memo(function ScreenStage({
   // Terminal-mode workers get a live interactive pty instead of the replay.
   const terminalPtyWorker = useMemo(() => {
     if (activeWindow?.type !== 'terminal' || !activeWindow.workerId) return undefined;
-    const target = workers.find(
-      (w) => w.id === activeWindow.workerId || w.hostId === activeWindow.workerId,
+    return workers.find(
+      (w) => matchesWorker(w, activeWindow.workerId!) && isTerminalWorkerBackendId(w.backendId),
     );
-    return isTerminalWorkerBackendId(target?.backendId) ? target : undefined;
   }, [activeWindow, workers]);
 
   // When the terminal worker's own delivery arrives, show it in the workbench
@@ -305,12 +373,16 @@ export const ScreenStage = memo(function ScreenStage({
   const terminalOwnsDelivery = Boolean(
     terminalPtyWorker && delivery?.workerId === terminalPtyWorker.id,
   );
-  const stageDeliveryCovered = Boolean(delivery) && !terminalOwnsDelivery;
+  const manualTerminalActive = Boolean(activeWindow?.localCliId);
+  const visibleFinalDelivery = manualTerminalActive ? null : finalMeetingDelivery;
+  const stageDeliveryCovered = Boolean(delivery) && !terminalOwnsDelivery && !manualTerminalActive;
 
   const stageClass = share.active
     ? 'stage-sharing'
     : isActivityTab
       ? 'stage-default'
+      : isBoardTab
+        ? 'stage-default stage-board'
       : activeWindow?.type === 'browser'
         ? 'stage-browser'
         : activeWindow?.type === 'file'
@@ -346,7 +418,7 @@ export const ScreenStage = memo(function ScreenStage({
             {isValidElement(galleryContent)
               ? cloneElement(galleryContent, {
                   onSelectParticipant: handleSelectParticipant,
-                  onOpenTerminal: (workerId: string) => onCreateWindow('terminal', { workerId }),
+                  onOpenTerminal: openWorkerTerminal,
                 } as any)
               : galleryContent}
           </div>
@@ -363,14 +435,17 @@ export const ScreenStage = memo(function ScreenStage({
             activeWindowId={activeWindowId}
             onSelect={onSelectWindow}
             onClose={onCloseWindow}
-            onCreate={onCreateWindow}
-            onPopOut={onPopOutWindow}
+            onCreate={(type, opts) => onCreateWindow(type, { ...opts, cwd })}
+            onPopOut={onPopOutWindow || onOpenNativeCli ? handlePopOut : undefined}
+            canPopOut={(win) => !isPtyTerminalWindow(win)}
+            popOutLabel={(win) => win.type === 'terminal' ? '在 CLI 工作区打开' : '在新窗口中打开'}
+            badges={{ [BOARD_TAB_ID]: boardAttention }}
           />
 
           <div className="stage-content">
-            {finalMeetingDelivery ? (
+            {visibleFinalDelivery ? (
               <FinalMeetingDelivery
-                delivery={finalMeetingDelivery}
+                delivery={visibleFinalDelivery}
                 decision={finalMeetingDecision}
                 onAccept={onAcceptFinalMeetingDelivery}
                 onRequestRework={onRequestFinalMeetingRework}
@@ -385,7 +460,11 @@ export const ScreenStage = memo(function ScreenStage({
                   onRevise={onReviseDelivery}
                 />
               </div>
+            ) : isBoardTab ? (
+              <div className="stage-board-content">{boardContent}</div>
             ) : isActivityTab && (
+              <div className="stage-workspace-content">
+              <MeetingNotesPanel cwd={cwd} />
               <ActivityTabContent
                 workers={workers}
                 hostGroups={hostGroups}
@@ -395,14 +474,15 @@ export const ScreenStage = memo(function ScreenStage({
                 aiSpeaking={aiSpeaking}
                 onResolvePermission={onResolvePermission}
                 selectedId={selectedParticipantId}
-                onOpenInTerminal={(workerId) => onCreateWindow('terminal', { workerId })}
+                onOpenInTerminal={openWorkerTerminal}
                 customAvatars={customAvatars}
                 sessionId={sessionId}
                 onOpenTask={handleSelectTask}
               />
+              </div>
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'browser' && browserViewportRef && onBrowserOpenTab && onBrowserCloseTab && onBrowserSetActive && onBrowserNavigate && onBrowserBack && onBrowserForward && onBrowserReload && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'browser' && browserViewportRef && onBrowserOpenTab && onBrowserCloseTab && onBrowserSetActive && onBrowserNavigate && onBrowserBack && onBrowserForward && onBrowserReload && (
               <div className="stage-browser-content">
                 <BrowserStage
                   tabs={browserTabs}
@@ -419,15 +499,27 @@ export const ScreenStage = memo(function ScreenStage({
               </div>
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'terminal' && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'terminal' && (
               <div className="stage-terminal-content">
-                {terminalPtyWorker ? (
+                {activeWindow.localCliId ? (
+                  <ShellTerminal key={activeWindow.id} terminalId={activeWindow.id}
+                    shellId={activeWindow.shellId}
+                    cliId={activeWindow.localCliId === 'shell' ? undefined : activeWindow.localCliId}
+                    cwd={activeWindow.cwd} continueSession={activeWindow.continueSession}
+                    initialPrompt={activeWindow.initialPrompt} />
+                ) : terminalPtyWorker ? (
                   <WorkerWorkbench
+                    key={terminalPtyWorker.id}
                     workerId={terminalPtyWorker.id}
                     sessionId={sessionId!}
                     onOpenInspector={handleOpenInspectorFromWorkbench}
                     onAcceptDelivery={onAcceptDelivery}
                     onReviseDelivery={onReviseDelivery}
+                    subagent={activeWindow.subagentOwner ? {
+                      ownerTitle: hostGroups.get(activeWindow.subagentOwner)?.profile?.title ?? '专家',
+                      ownerName: hostGroups.get(activeWindow.subagentOwner)?.profile?.name ?? '',
+                      taskTitle: ownedTasks?.get(terminalPtyWorker.id)?.title ?? terminalPtyWorker.title,
+                    } : undefined}
                   />
                 ) : (
                   <TerminalPanel commands={terminalCommands} />
@@ -435,7 +527,7 @@ export const ScreenStage = memo(function ScreenStage({
               </div>
             )}
 
-            {!stageDeliveryCovered && !finalMeetingDelivery && activeWindow?.type === 'file' && activeWindow.filePath && (
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'file' && activeWindow.filePath && (
               <div className="stage-file-content">
                 <FileViewer
                   relativePath={activeWindow.filePath}

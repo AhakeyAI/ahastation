@@ -76,6 +76,7 @@ export interface CodexAppServerTransportOptions {
 }
 
 interface PendingRequest {
+  method:string;threadId?:string;turnId?:string;
   resolve(value: unknown): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
@@ -149,7 +150,7 @@ export class CodexAppServerTransport {
   }
 
   async resumeThread(threadId: string, options: Record<string, unknown>): Promise<string> {
-    const result = await this.request<{ thread: { id: string } }>('thread/resume', { threadId, ...options });
+    const result = await this.request<{ thread: { id: string } }>('thread/resume', { threadId, ...options, excludeTurns: true });
     if (!result.thread?.id) throw new Error('Codex app-server returned no resumed thread id');
     return result.thread.id;
   }
@@ -163,6 +164,9 @@ export class CodexAppServerTransport {
   async interruptTurn(threadId: string, turnId: string): Promise<void> {
     await this.request('turn/interrupt', { threadId, turnId });
   }
+
+  /** Trusted runtime inspection; a stop ACK alone never proves execution exit. */
+  call<T = unknown>(method: string, params?: unknown): Promise<T> { return this.request<T>(method, params); }
 
   close(): void {
     if (this.closing) return;
@@ -187,6 +191,9 @@ export class CodexAppServerTransport {
         reject(new Error(`Codex app-server request timed out: ${method}`));
       }, this.options.requestTimeoutMs ?? 15_000);
       this.pending.set(id, {
+        method,
+        ...((params as {threadId?:string;turnId?:string}|undefined)?.threadId?{threadId:(params as {threadId:string}).threadId}:{}),
+        ...((params as {turnId?:string}|undefined)?.turnId?{turnId:(params as {turnId:string}).turnId}:{}),
         resolve: (value) => resolve(value as T),
         reject,
         timer,
@@ -215,7 +222,21 @@ export class CodexAppServerTransport {
       if (!request) return;
       this.pending.delete(message.id);
       clearTimeout(request.timer);
-      if (message.error) request.reject(new Error(appServerErrorMessage(message.error)));
+      if (message.error) {
+        const detail=message.error as {code?:number;message?:string};
+        let safeMessage=appServerErrorMessage(detail)
+          .replace(/(bearer\s+|(?:token|password|api_key)[=:]\s*)[^\s]+/gi,'$1[redacted]')
+          .replace(/sk-[A-Za-z0-9_-]{10,}/g,'[redacted]');
+        for (const [key,value] of Object.entries(this.options.env)) {
+          if (/TOKEN|KEY|SECRET|PASSWORD/i.test(key)&&value&&value.length>8) {
+            safeMessage=safeMessage.replaceAll(value,'[redacted]');
+          }
+        }
+        request.reject(Object.assign(new Error('Codex RPC '+request.method+' ['+detail.code+']: '+safeMessage.slice(0,2000)), {
+          method:request.method,code:detail.code,stage:request.method.replace('/','-'),
+          threadId:request.threadId,turnId:request.turnId,
+        }));
+      }
       else request.resolve(message.result);
       return;
     }

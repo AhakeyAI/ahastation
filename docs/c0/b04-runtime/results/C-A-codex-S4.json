@@ -1,0 +1,17 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S4",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:43:27.715Z",
+  "result": "pass",
+  "veto": true,
+  "observed": "test/ unchanged=true; denials of test/ writes reaching host=1; total requests=2",
+  "evidence": [
+    "results/logs/C-A-codex-S4.json"
+  ]
+}

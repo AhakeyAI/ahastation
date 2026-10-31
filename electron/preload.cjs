@@ -5,22 +5,48 @@ const { contextBridge, ipcRenderer } = require('electron');
 // back to the currently-active slot — used by legacy callsites that haven't
 // been threaded for tabs yet.
 const api = {
+  collaboration: {
+    request: (action, payload) => ipcRenderer.invoke('collaboration:request', action, payload),
+    onChanged: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('collaboration:changed', listener);
+      return () => ipcRenderer.removeListener('collaboration:changed', listener);
+    },
+  },
+  remoteControl: {
+    request: (action, payload) => ipcRenderer.invoke('remote-control:request', action, payload),
+    onChanged: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('remote-control:changed', listener);
+      return () => ipcRenderer.removeListener('remote-control:changed', listener);
+    },
+  },
   sessions: {
-    open: (cwd, greeting, backendId, recoveryMeetingId) =>
-      ipcRenderer.invoke('sessions:open', { cwd, greeting, backendId, recoveryMeetingId }),
+    open: (cwd, greeting, backendId, recoveryMeetingId, remoteHosts) =>
+      ipcRenderer.invoke('sessions:open', { cwd, greeting, backendId, recoveryMeetingId, remoteHosts }),
     close: (id) => ipcRenderer.invoke('sessions:close', { id }),
     setActive: (id) => ipcRenderer.invoke('sessions:set-active', { id }),
     list: () => ipcRenderer.invoke('sessions:list'),
     listRestore: () => ipcRenderer.invoke('sessions:list-restore'),
+    forgetRestored: (cwd) => ipcRenderer.invoke('sessions:forget-restored', { cwd }),
     listRecoverable: () => ipcRenderer.invoke('sessions:list-recoverable'),
     resolveRecoveredTask: (sessionId, taskId, action) =>
       ipcRenderer.invoke('sessions:resolve-recovered-task', { sessionId, taskId, action }),
-    addHost: (sessionId, backendId, hostId) =>
-      ipcRenderer.invoke('sessions:add-host', { sessionId, backendId, hostId }),
+    kickoff: (sessionId, mode, expertBackendId, title, name) =>
+      ipcRenderer.invoke('sessions:kickoff', { sessionId, mode, expertBackendId, title, name }),
+    meetingNotes: (sessionId) => ipcRenderer.invoke('sessions:meeting-notes', { sessionId }),
+    handBackTask: (sessionId, taskId, note) => ipcRenderer.invoke('sessions:handback-task', { sessionId, taskId, note }),
+    restartOwnedTask: (sessionId, taskId) => ipcRenderer.invoke('sessions:restart-owned-task', { sessionId, taskId }),
+    addHost: (sessionId, backendId, hostId, remoteTarget) =>
+      ipcRenderer.invoke('sessions:add-host', { sessionId, backendId, hostId, remoteTarget }),
+    remoteSessions: (refresh = false) =>
+      ipcRenderer.invoke('sessions:remote-sessions', { refresh }),
     removeHost: (sessionId, hostId) =>
       ipcRenderer.invoke('sessions:remove-host', { sessionId, hostId }),
     listHosts: (sessionId) =>
       ipcRenderer.invoke('sessions:list-hosts', { sessionId }),
+    republish: (sessionId) =>
+      ipcRenderer.invoke('sessions:republish', { sessionId }),
     setCoordinator: (sessionId, hostId) =>
       ipcRenderer.invoke('sessions:set-coordinator', { sessionId, hostId }),
     restartHost: (sessionId, hostId) =>
@@ -39,8 +65,8 @@ const api = {
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
   setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}) }),
+  approvePlan: (sessionId, approved, tasks,brief) =>
+    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}),...(brief?{brief}:{}) }),
   acceptDelivery: (sessionId, deliveryId, candidateId) =>
     ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
   returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>
@@ -263,6 +289,41 @@ const api = {
     close: (hostId) => ipcRenderer.invoke('opencode-editor:close', { hostId }),
     list: () => ipcRenderer.invoke('opencode-editor:list'),
   },
+  // Lobby project rooms: repo grouping (read-only git) and create / clone.
+  projects: {
+    resolveRepos: (cwds) => ipcRenderer.invoke('projects:resolve-repos', { cwds }),
+    defaultParent: (recent) => ipcRenderer.invoke('projects:default-parent', { recent }),
+    create: (parentPath, name, git) => ipcRenderer.invoke('projects:create', { parentPath, name, git }),
+    clone: (url, parentPath) => ipcRenderer.invoke('projects:clone', { url, parentPath }),
+    abortClone: () => ipcRenderer.invoke('projects:clone-abort'),
+    githubStatus: (cwd) => ipcRenderer.invoke('projects:github-status', { cwd }),
+    cleanupPlan: (cwd) => ipcRenderer.invoke('projects:cleanup-plan', { cwd }),
+    cleanup: (cwd, sessionIds, worktreePaths) =>
+      ipcRenderer.invoke('projects:cleanup', { cwd, sessionIds, worktreePaths }),
+    backlogList: () => ipcRenderer.invoke('backlog:list'),
+    backlogAdd: (cwd, items, createIssues) => ipcRenderer.invoke('backlog:add', { cwd, items, createIssues }),
+    backlogRemove: (id) => ipcRenderer.invoke('backlog:remove', { id }),
+    onBacklogChanged: (cb) => {
+      const listener = (_, items) => cb(items);
+      ipcRenderer.on('backlog:changed', listener);
+      return () => ipcRenderer.removeListener('backlog:changed', listener);
+    },
+    onCloneProgress: (cb) => {
+      const listener = (_, payload) => cb(payload);
+      ipcRenderer.on('projects:clone-progress', listener);
+      return () => ipcRenderer.removeListener('projects:clone-progress', listener);
+    },
+  },
+  // Per-agent subscription quota (Claude / Codex / Kimi) for the usage strip.
+  rateLimits: {
+    get: () => ipcRenderer.invoke('rate-limits:get'),
+    refresh: () => ipcRenderer.invoke('rate-limits:refresh'),
+    onUpdate: (cb) => {
+      const listener = (_, state) => cb(state);
+      ipcRenderer.on('rate-limits:update', listener);
+      return () => ipcRenderer.removeListener('rate-limits:update', listener);
+    },
+  },
   ideRegistry: {
     list: () => ipcRenderer.invoke('ide-registry:list'),
     setDefault: (id) => ipcRenderer.invoke('ide-registry:set-default', { id }),
@@ -316,12 +377,13 @@ const api = {
   },
   // Main-window bottom-drawer shell. Renderer owns create/kill lifecycle.
   shellPty: {
+    listClis: () => ipcRenderer.invoke('shell-pty:list-clis', {}),
+    listShells: () => ipcRenderer.invoke('shell-pty:list-shells', {}),
     create: (opts) => ipcRenderer.invoke('shell-pty:create', opts ?? {}),
     input: (ptyId, data) => ipcRenderer.invoke('shell-pty:input', { ptyId, data }),
     resize: (ptyId, rows, cols) =>
       ipcRenderer.invoke('shell-pty:resize', { ptyId, rows, cols }),
-    kill: (ptyId) => ipcRenderer.invoke('shell-pty:kill', { ptyId }),
-    onData: (cb) => {
+    kill: (ptyId) => ipcRenderer.invoke('shell-pty:kill', { ptyId }),    onData: (cb) => {
       const listener = (_, e) => cb(e);
       ipcRenderer.on('shell-pty:data', listener);
       return () => ipcRenderer.removeListener('shell-pty:data', listener);
@@ -369,6 +431,7 @@ const api = {
     ttsState: (active) => ipcRenderer.send('companion:tts-state', { active }),
   },
   popoutSession: (tabId) => ipcRenderer.invoke('popout:open-session', { tabId }),
+  openRoomWindow: (cwd) => ipcRenderer.invoke('app:open-room-window', { cwd }),
   popoutStage: (windowId, type) => ipcRenderer.invoke('popout:open-stage', { windowId, type }),
   browser: {
     openTab: (url) => ipcRenderer.invoke('browser:open-tab', { url }),

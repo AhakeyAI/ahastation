@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S2",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T06:12:48.736Z",
+  "result": "pass",
+  "observed": "trigger=first-tool-event comment=true sessionId 01a16762-5520-7562-80a0-b4798deaa757 -> 01a16762-5520-7562-80a0-b4798deaa757 tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-A2-codex-S2.json"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "candidate": "C-P",
+  "provider": "claude-code",
+  "scenario": "S2",
+  "versions": {
+    "paseo": "0.12.0",
+    "claudeCode": "global 2.1.309",
+    "model": "claude-sonnet-5-5"
+  },
+  "at": "2026-10-23T06:24:36.478Z",
+  "result": "partial",
+  "observed": "trigger=running+20s comment=true sessionId null -> fd3fd563-7466-4fca-8171-f432a87bb49e tests={\"pass\":1,\"fail\":1}",
+  "evidence": [
+    "results/logs/C-P-claude-code-S2.json"
+  ],
+  "rescored": "pass -> partial: S2 now also requires the original task to finish (tests pass)"
+}

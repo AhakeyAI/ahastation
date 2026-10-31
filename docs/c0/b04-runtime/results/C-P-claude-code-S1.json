@@ -1,0 +1,17 @@
+{
+  "candidate": "C-P",
+  "provider": "claude-code",
+  "scenario": "S1",
+  "versions": {
+    "paseo": "0.12.0",
+    "claudeCode": "global 2.1.309",
+    "model": "claude-sonnet-5-5"
+  },
+  "at": "2026-10-23T06:22:43.761Z",
+  "result": "pass",
+  "observed": "ended={\"at\":70575,\"reason\":\"completed\"} firstEventMs=3911 sessionIdStable=true tests={\"pass\":2,\"fail\":0}",
+  "durationMs": 70575,
+  "evidence": [
+    "results/logs/C-P-claude-code-S1.json"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S7",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:45:25.120Z",
+  "result": "not-applicable",
+  "observed": "C-A runs the adapter in the host process: there is no client/daemon link to drop. Host loss is covered by S8."
+}

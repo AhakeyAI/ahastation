@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "claude-code",
+  "scenario": "S3",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + final-runtime",
+    "claudeAgentSdk": "0.3.150 (bundled claude.exe)",
+    "model": "account-default"
+  },
+  "at": "2026-10-26T02:04:51.756Z",
+  "result": "pass",
+  "observed": "permission requests reaching host=2, allowed=2, structured approvals=2, command approvals=1; structured: \"Edit\"",
+  "evidence": [
+    "results/logs/C-A-claude-code-S3.json"
+  ]
+}

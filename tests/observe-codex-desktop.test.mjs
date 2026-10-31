@@ -596,7 +596,10 @@ test('ObserveService: home without codex desktop files publishes zero rows, neve
 // assertions, see tests/renderer-task-inspector.test.mjs).
 // ---------------------------------------------------------------------------
 
-test('board rule: pid-backed idle is shown, pidless idle stays hidden', () => {
-  const source = readFileSync(new URL('../src/components/TasksView.tsx', import.meta.url), 'utf8');
-  assert.match(source, /case 'idle':\s*return session\.pid !== undefined \? 'active' : null;/);
+test('board rule: pid-backed idle shows as 空闲 (never 进行中), pidless idle stays hidden', () => {
+  // 2026-10-30: an open-but-idle window (e.g. Codex Desktop threads) is not work in
+  // progress; it goes to 已完成 › 空闲, folded by default. Lobby rooms use the same rule.
+  const source = readFileSync(new URL('../src/lib/task-columns.ts', import.meta.url), 'utf8');
+  assert.match(source, /case 'idle': return session\.pid !== undefined \? 'observed-idle' : null;/);
+  assert.match(source, /'observed-idle': \{ parent: 'settled'/);
 });

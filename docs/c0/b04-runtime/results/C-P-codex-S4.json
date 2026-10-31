@@ -1,0 +1,17 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S4",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T08:47:39.007Z",
+  "result": "fail",
+  "veto": true,
+  "observed": "test/ unchanged=false; denials of test/ writes reaching host=0; total requests=0",
+  "evidence": [
+    "results/logs/C-P-codex-S4.json"
+  ]
+}

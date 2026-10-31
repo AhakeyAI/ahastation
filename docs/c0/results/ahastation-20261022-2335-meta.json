@@ -1,0 +1,15 @@
+﻿{
+    "host":  "AHASTATION",
+    "stamp":  "20261022-2335",
+    "cpu":  "Intel(R) Celeron(R) N5095 @ 2.00GHz",
+    "cores":  4,
+    "threads":  4,
+    "ramGB":  15.8,
+    "os":  "Microsoft Windows 11 Pro 10.0.26200",
+    "battery":  {
+                    "charge":  100,
+                    "status":  2,
+                    "note":  "BatteryStatus 2 = on AC"
+                },
+    "gitHead":  "b578896d93dcc650c4d8459f01aac0d0e58f44f6"
+}

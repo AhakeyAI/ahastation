@@ -39,12 +39,12 @@ interface VoiceLockPanelProps {
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins} 分钟前`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} hr ago`;
+  if (hrs < 24) return `${hrs} 小时前`;
   const days = Math.floor(hrs / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
+  return `${days} 天前`;
 }
 
 export function VoiceLockPanel({
@@ -107,7 +107,7 @@ export function VoiceLockPanel({
         <div className="drawer-settings-label">
           <div className="drawer-settings-title voice-lock-title">
             {enabled && <Lock size={14} aria-hidden="true" />}
-            <span>声纹锁定 · Voice lock</span>
+            <span>声纹锁定</span>
             {recentlyRejected && (
               <span className="voice-lock-toast voice-lock-toast-warn">· ignored other voice</span>
             )}
@@ -125,8 +125,8 @@ export function VoiceLockPanel({
             {!enrolled
               ? 'Record a sample of your voice so Claude only listens to you.'
               : enabled
-                ? `Enrolled ${formatRelative(enrolledAt!)} · only your voice is transcribed.`
-                : `Enrolled ${formatRelative(enrolledAt!)} · turn on to filter other voices.`}
+                ? `${formatRelative(enrolledAt!)}录入，只转写你的声音。`
+                : `${formatRelative(enrolledAt!)}录入，打开后过滤其他人的声音。`}
             {enrolledAt != null && !modelMatches && (
               <span className="voice-lock-toast voice-lock-toast-error"> · model changed, re-enrollment required</span>
             )}
@@ -151,7 +151,7 @@ export function VoiceLockPanel({
           style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }}
           title="Record a fresh voice print"
         >
-          <span style={{ padding: '0 4px' }}>{enrolled ? 'Re-record' : 'Record voice (8s)'}</span>
+          <span style={{ padding: '0 4px' }}>{enrolled ? '重新录入' : '录入声纹（8 秒）'}</span>
         </button>
         {enrolled && (
           <button
@@ -160,7 +160,7 @@ export function VoiceLockPanel({
             style={{ width: 'auto', padding: '4px 10px', fontSize: 12 }}
             title="Forget the saved voice print"
           >
-            <span style={{ padding: '0 4px' }}>Clear</span>
+            <span style={{ padding: '0 4px' }}>清除</span>
           </button>
         )}
       </div>

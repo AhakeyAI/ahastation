@@ -45,7 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Cache build assets
@@ -57,6 +57,15 @@ jobs:
 
       - name: npm install
         run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build bundled Station receiver
+        run: |
+          python -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
+          python scripts/build-station-native.py
 
       - name: Prebuild - speaker model
         run: node scripts/fetch-speaker-model.mjs
@@ -70,8 +79,15 @@ jobs:
       - name: Typecheck (electron)
         run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json
 
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+
       - name: Test suite
         run: npm test
+        env:
+          COLLABORATION_PYTHON: python
+          POCKET_VIBE_TEST_PYTHON: python
+          POCKET_VIBE_MACOS_TASKS_SUPPORTED: ${{ matrix.os == 'macos-latest' && 'false' || 'true' }}
 
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship
@@ -132,17 +148,26 @@ jobs:
       # needs git) and npm ci / electron-builder need the rest:
       # python3/make/g++ (native npm modules), libfuse2 (appimagetool runs
       # in a fuse-less docker container).
+      # Debian 11 LTS ended 2026-08-31 and bullseye-security moved to
+      # archive.debian.org: deb.debian.org still serves the index but its
+      # pool 404s (run 40513605068). The main suite is still on deb.debian.org.
       - name: Install container build deps
         run: |
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+            if [ -f "$f" ]; then
+              sed -i 's#deb.debian.org/debian-security#archive.debian.org/debian-security#g' "$f"
+            fi
+          done
           apt-get update
           apt-get install -y --no-install-recommends \
-            git curl ca-certificates xz-utils python3 make g++ libfuse2
+            git curl ca-certificates xz-utils python3 make g++ libfuse2 \
+            libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev uuid-dev
 
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: npm install
@@ -163,6 +188,19 @@ jobs:
       - name: Test suite
         run: npm test
 
+      - name: Build bundled receiver on Debian 11 ABI
+        shell: bash
+        run: |
+          mkdir -p .tools/python-source
+          curl --fail --location https://www.python.org/ftp/python/3.13.5/Python-3.13.5.tar.xz -o .tools/python-source/python.tar.xz
+          tar -xJf .tools/python-source/python.tar.xz -C .tools/python-source
+          cd .tools/python-source/Python-3.13.5
+          ./configure --prefix=/opt/station-python --with-ensurepip=install --enable-shared LDFLAGS="-Wl,-rpath=/opt/station-python/lib"
+          make -j2
+          make install
+          cd "$GITHUB_WORKSPACE"
+          /opt/station-python/bin/python3.13 -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
+          /opt/station-python/bin/python3.13 scripts/build-station-native.py
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship
         # no dist/ and the window loads app://bundle/index.html -> blank page.
@@ -177,7 +215,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DEB="$(ls release/*arm64*.deb release/ahastation_*_arm64.deb 2>/dev/null | head -n1)"
+          # find, not ls: under pipefail an unmatched ls glob exits 2 and
+          # killed this step before it printed anything (run 40514534026).
+          DEB="$(find release -maxdepth 1 -name '*arm64*.deb' | head -n1)"
+          test -n "$DEB"
           echo "Installing $DEB - apt resolves Depends (libgtk-3-0, libnss3, libasound2, …)"
           apt-get install -y "./$DEB"
           BIN=/opt/AhaStudio/ahastation

@@ -1,0 +1,16 @@
+{
+  "candidate": "C-A",
+  "provider": "codex",
+  "scenario": "S2",
+  "versions": {
+    "app": "fix/runtime-a14-a20 + stop-tree-fix + read-only-authority",
+    "codex": "0.156.1",
+    "model": "account-default"
+  },
+  "at": "2026-10-25T15:41:59.962Z",
+  "result": "pass",
+  "observed": "trigger=first-tool-event comment=true sessionId 01a173b8-8e41-7d63-a0b4-ded12f7f17eb -> 01a173b8-8e41-7d63-a0b4-ded12f7f17eb tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-A-codex-S2.json"
+  ]
+}

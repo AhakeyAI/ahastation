@@ -1,0 +1,17 @@
+{
+  "candidate": "C-A2",
+  "provider": "codex",
+  "scenario": "S1",
+  "versions": {
+    "app": "main c8295b9",
+    "codex": "global (0.156.1)",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T04:17:26.471Z",
+  "result": "pass",
+  "observed": "ended={\"at\":232299,\"reason\":\"completed\"} firstEventMs=43879 sessionIdStable=true tests={\"pass\":2,\"fail\":0}",
+  "durationMs": 232299,
+  "evidence": [
+    "results/logs/C-A2-codex-S1.json"
+  ]
+}

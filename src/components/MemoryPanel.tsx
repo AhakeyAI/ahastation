@@ -18,7 +18,7 @@ const CATEGORY_LABELS: Record<MemoryCategory, string> = {
 };
 
 const CATEGORY_FILTERS: Array<{ key: CategoryFilter; label: string }> = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: '全部' },
   { key: 'point', label: '要点' },
   { key: 'decision', label: '决策' },
   { key: 'todo', label: '待办' },
@@ -35,14 +35,14 @@ const CATEGORY_COLORS: Record<MemoryCategory, string> = {
 function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins} 分钟前`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return `${hrs} 小时前`;
   const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return `${days} 天前`;
   const months = Math.floor(days / 30);
-  return `${months}mo ago`;
+  return `${months} 个月前`;
 }
 
 function useDebounced<T>(value: T, delay: number): T {

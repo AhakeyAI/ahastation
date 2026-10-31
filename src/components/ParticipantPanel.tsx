@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Crown, ExternalLink, MicOff, Plus, RotateCcw, T
 import type { HostGroupState, WorkerState } from '../lib/meeting-store';
 import { BackendAvatar } from './BackendAvatar';
 import { WorkerCard } from './WorkerCard';
+export {SharedParticipants} from './UnifiedMeetingParts';
 
 interface ParticipantPanelProps {
   workers: WorkerState[];
@@ -126,38 +127,34 @@ export const ParticipantPanel = memo(function ParticipantPanel({
           const isMuted = mutedHostIds?.has(hostId) ?? false;
           const isDefault = hostId === 'default';
           const isCoordinator = hostId === coordinatorHostId;
+          // One hover row per tile; the coordinator is already labelled by the
+          // role badge, so it carries no indicator here.
           const actions = (
-            <div className="tiles-gallery-actions">
+            <div className="tiles-gallery-actions" role="toolbar" aria-label={`${hg.backendId} 操作`}>
               {onOpenTerminal && (
                 <button
                   type="button"
                   className="tiles-gallery-action-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const talker = hostTalkers.get(hostId);
-                    onOpenTerminal(talker?.id ?? hostId);
+                    onOpenTerminal(talker?.id ?? hostWorkers.get(hostId)?.[0]?.id ?? hostId);
                   }}
-                  title="查看真实 CLI 执行情况"
-                  aria-label="Open CLI execution view"
+                  title="打开终端"
+                  aria-label="打开终端"
                 >
                   <Terminal size={12} />
                 </button>
               )}
-              {onOpenEditor && (
+              {onOpenEditor && !hg.remoteTarget && (
                 <button
                   type="button"
                   className="tiles-gallery-action-btn"
                   onClick={(e) => { e.stopPropagation(); onOpenEditor(hg.backendId, hostId); }}
-                  title="打开编辑器"
-                  aria-label="Open editor"
+                  title="在独立窗口打开编辑器"
+                  aria-label="在独立窗口打开编辑器"
                 >
                   <ExternalLink size={12} />
                 </button>
-              )}
-              {isCoordinator && (
-                <span className="tiles-gallery-action-btn tiles-gallery-action-btn-active" title="当前主持人" aria-label="Current coordinator">
-                  <Crown size={12} />
-                </span>
               )}
               {!isCoordinator && onSetCoordinator && (hg.backendId === 'claude-code' || hg.backendId === 'codex') && (
                 <button
@@ -165,7 +162,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   className="tiles-gallery-action-btn"
                   onClick={(e) => { e.stopPropagation(); onSetCoordinator(hostId); }}
                   title="设为主持人"
-                  aria-label="Set as coordinator"
+                  aria-label="设为主持人"
                 >
                   <Crown size={12} />
                 </button>
@@ -176,7 +173,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   className="tiles-gallery-action-btn"
                   onClick={(e) => { e.stopPropagation(); onRestartHost(hostId); }}
                   title="重新连接"
-                  aria-label="Reconnect host"
+                  aria-label="重新连接"
                 >
                   <RotateCcw size={12} />
                 </button>
@@ -187,7 +184,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   className={`tiles-gallery-action-btn ${isMuted ? 'tiles-gallery-action-btn-active' : ''}`}
                   onClick={(e) => { e.stopPropagation(); onToggleMuteHost(hostId); }}
                   title={isMuted ? '取消静音' : '静音'}
-                  aria-label={isMuted ? 'Unmute host' : 'Mute host'}
+                  aria-label={isMuted ? '取消静音' : '静音'}
                 >
                   <MicOff size={12} />
                 </button>
@@ -198,7 +195,7 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   className="tiles-gallery-action-btn tiles-gallery-action-btn-danger"
                   onClick={(e) => { e.stopPropagation(); onRemoveHost(hostId); }}
                   title="踢出"
-                  aria-label="Remove host"
+                  aria-label="踢出"
                 >
                   <UserX size={12} />
                 </button>
@@ -216,9 +213,9 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   speaking={aiSpeaking && !isMuted}
                   onSelect={onSelectParticipant ? () => onSelectParticipant(hostId) : undefined}
                   onResolvePermission={onResolvePermission}
-                  onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(talker.id) : undefined}
                   iconId={hg.iconId}
                   customAvatar={avatar}
+                  roleLabel={isCoordinator ? '助理' : hg.profile ? `${hg.profile.title} ${hg.profile.name}` : '专家'}
                 />
                 {actions}
               </div>
@@ -237,7 +234,6 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   speaking={false}
                   onSelect={onSelectParticipant ? () => onSelectParticipant(hostId) : undefined}
                   onResolvePermission={onResolvePermission}
-                  onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(hw[0].id) : undefined}
                   iconId={hg.iconId}
                   customAvatar={avatar}
                 />
@@ -266,25 +262,9 @@ export const ParticipantPanel = memo(function ParticipantPanel({
           );
         })}
 
-        {taskWorkers.map((worker) => {
-          const iconId = workerIconId(worker.backendId);
-          return (
-            <div key={worker.id} className="tiles-gallery-tile-wrap tiles-gallery-worker-wrap">
-              <WorkerCard
-                worker={worker}
-                depTitles={titleByWorkerId}
-                mode="gallery"
-                selected={false}
-                speaking={false}
-                onSelect={onSelectParticipant ? () => onSelectParticipant(worker.id) : undefined}
-                onResolvePermission={onResolvePermission}
-                onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(worker.id) : undefined}
-                iconId={iconId}
-                customAvatar={customAvatars?.get(iconId) ?? null}
-              />
-            </div>
-          );
-        })}
+        {/* Workers (including experts' sub-agents) are not participants: the
+            user meets the assistant and experts; workers live on the board
+            and in the stage's 子 Agent tab. */}
 
         {/* Invite button - opens participants tab */}
         {onOpenParticipantsTab && (

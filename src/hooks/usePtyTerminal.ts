@@ -9,13 +9,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 
 export interface PtyTerminalHandle {
   /** Acquire the pty on mount. Returns the ptyId + base64 replay for the
    *  initial write (empty for a freshly created shell). ok:false surfaces an
    *  error bar instead of subscribing. */
   attach: () => Promise<
-    { ok: true; ptyId: string; replay: string } | { ok: false; error: string }
+    { ok: true; ptyId: string; replay: string; exited?: boolean } | { ok: false; error: string }
   >;
   input: (ptyId: string, data: string) => void;
   resize: (ptyId: string, rows: number, cols: number) => void;
@@ -48,12 +49,7 @@ export function usePtyTerminal(opts: PtyTerminalHandle) {
     setExited(false);
     setError(null);
 
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      scrollback: 5000,
-    });
+    const term = new Terminal({ cursorBlink: true, scrollback: 5000 });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
@@ -89,7 +85,12 @@ export function usePtyTerminal(opts: PtyTerminalHandle) {
       }
       ptyId = res.ptyId;
       if (res.replay) term.write(base64ToUint8Array(res.replay));
+      if (res.exited) {
+        setExited(true);
+        term.write('\r\n\x1b[90m[进程已退出]\x1b[0m\r\n');
+      }
       sendResize(); // sync initial dimensions
+      term.focus();
     }).catch((err) => {
       if (!disposed) setError(String(err));
     });
@@ -101,11 +102,11 @@ export function usePtyTerminal(opts: PtyTerminalHandle) {
 
     // Downlink: pty output events, filtered to this pty.
     const disposeData = optsRef.current.onData((e) => {
-      if (ptyId && e.ptyId !== ptyId) return;
+      if (!ptyId || e.ptyId !== ptyId) return;
       term.write(base64ToUint8Array(e.data));
     });
     const disposeExit = optsRef.current.onExit((e) => {
-      if (ptyId && e.ptyId !== ptyId) return;
+      if (!ptyId || e.ptyId !== ptyId) return;
       setExited(true);
       term.write('\r\n\x1b[90m[进程已退出]\x1b[0m\r\n');
     });

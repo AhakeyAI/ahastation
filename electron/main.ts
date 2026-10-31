@@ -1,12 +1,13 @@
-import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen } from 'electron';
+import { Notification, app, BrowserWindow, dialog, ipcMain, shell, nativeTheme, net, protocol, screen as electronScreen, Tray, Menu } from 'electron';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { closeAllRoomWindows, openRoomWindow, sendToAppWindows } from './room-windows.js';
 import { homedir } from 'node:os';
 import { existsSync, writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { AutoApproveScope } from './auto-approve-policy.js';
 import { SessionRegistry } from './sessions.js';
-import { flushSettingsWrites, getSettings, updateSettings } from './store.js';
+import { flushSettingsWrites, getSettings, updateSettings, warmSecrets } from './store.js';
 import { registerCustomBackends } from './backends/registry.js';
 import type { IpcContext, IpcEmittedEvent } from './ipc/context.js';
 import { handleSecure, mainWindowSenderPolicy } from './ipc/validators.js';
@@ -15,6 +16,8 @@ import { requestMicrophoneAccess } from './microphone-access.js';
 import { checkForUpdateCached } from './update-check.js';
 import { getCompanionFeed } from './companion/companion-feed.js';
 import { isCompanionWindowOpen, toggleCompanionWindow } from './companion/companion-window-manager.js';
+import { installLifecycleLog } from './lifecycle-log.js';
+import { focusMainWindow } from './main-window-focus.js';
 import {
   resolveMinimizeOutcome,
   shouldPromptMinimize,
@@ -44,6 +47,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
+let initializationComplete = false;
+let sharedRuntime: import('./collaboration/station-service.js').StationService | undefined;
+let stationTray: Tray | undefined;
+let focusRequested = false;
 // Multi-tab session store. Each slot owns one Orchestrator (= one Talker +
 // scheduler) tied to a single cwd. Replaces the prior global `orchestrator`
 // + `currentCwd` + `recapPending` triple — those now live per-slot inside
@@ -73,6 +80,7 @@ function awaitClaudeShadowHome(): Promise<string | null> {
 }
 
 const isDev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
+installLifecycleLog(app);
 
 function registerAppProtocol(): void {
   const bundleRoot = join(__dirname, '..', 'dist');
@@ -196,6 +204,9 @@ function createWindow() {
   }) as () => void);
 
   mainWindow.on('close', (event) => {
+    if (!isQuitting && sharedRuntime?.hasBackgroundResponsibility()) {
+      event.preventDefault(); mainWindow?.hide(); return;
+    }
     if (suppressNextClose) {
       suppressNextClose = false;
       return;
@@ -233,7 +244,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL!);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    if (process.env.VIBE_MEET_DEVTOOLS === '1') mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadURL('app://bundle/index.html');
     if (process.env.VIBE_MEET_DEVTOOLS === '1') {
@@ -300,13 +311,13 @@ function createWindow() {
 
 function emitToRenderer(e: IpcEmittedEvent) {
   const win = liveWindow();
-  if (!win) return;
   // Flatten { source, event } onto each event so the renderer's RendererEvent
   // shape stays a single object with an extra `source` field. sessionId is
   // pre-bound by the per-slot emit wrapper created in sessions:open so the
   // renderer can route the event to the right MeetingState slot. hostId is
   // added by the orchestrator's safeEmit wrapper (defaults to 'default').
-  win.webContents.send('session:event', { ...e.event, source: e.source, sessionId: e.sessionId, hostId: e.hostId });
+  // Room windows (room-windows.ts) watch the same meetings, so they get the stream too.
+  sendToAppWindows(win, 'session:event', { ...e.event, source: e.source, sessionId: e.sessionId, hostId: e.hostId });
   // Companion screen tap (Phase 8): the same orchestrator stream feeds the
   // pixel-office model — point-to-point to the companion window inside.
   getCompanionFeed()?.onOrchestratorEvent(e);
@@ -555,6 +566,8 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
     { registerOpenCodeEditorIpc },
     { registerIdeFilesIpc },
     { registerIdeRegistryIpc },
+    { registerRateLimitsIpc },
+    { registerProjectsIpc },
     { registerIdePtyIpc },
     { registerWorkerPtyIpc },
     { registerShellPtyIpc },
@@ -584,6 +597,8 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
     import('./ipc/opencode-editor.js'),
     import('./ipc/ide-files.js'),
     import('./ipc/ide-registry.js'),
+    import('./ipc/rate-limits.js'),
+    import('./ipc/projects.js'),
     import('./ipc/ide-pty.js'),
     import('./ipc/worker-pty.js'),
     import('./ipc/shell-pty.js'),
@@ -611,9 +626,25 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
   registerBrowserIpc(browserTabManager);
   registerBackendAuthIpc();
   registerPopoutWindowIpc();
+  // A project room in its own full window, to watch two rooms side by side.
+  handleSecure('app:open-room-window', {
+    schema: z.object({ cwd: z.string().min(1).max(4096) }).strict(),
+    authorize: mainWindowSenderPolicy(() => liveWindow()?.webContents.id ?? null),
+    handler: ({ cwd }) => {
+      if (!registry.findByCwd(cwd)) return { ok: false, error: '这个项目室的会议没有在运行' };
+      openRoomWindow(cwd, `AhaStudio — ${basename(cwd) || cwd}`, {
+        preloadPath: join(__dirname, 'preload.cjs'),
+        backgroundColor: getThemeBackgroundColor(),
+        ...(isDev ? { devServerUrl: process.env.VITE_DEV_SERVER_URL! } : {}),
+      });
+      return { ok: true };
+    },
+  });
   registerOpenCodeEditorIpc(ctx);
   registerIdeFilesIpc();
   registerIdeRegistryIpc(ctx);
+  registerRateLimitsIpc(ctx);
+  registerProjectsIpc(ctx);
   registerIdePtyIpc(ctx);
   registerWorkerPtyIpc(ctx);
   registerShellPtyIpc(ctx);
@@ -622,6 +653,9 @@ async function registerAllIpc(ctx: IpcContext): Promise<void> {
   registerCompanionIpc(ctx);
   // Register custom backends from settings so they appear in the backend list
   registerCustomBackends();
+  const { initializeStationCollaboration, stationService } = await import('./collaboration/station-service.js');
+  await initializeStationCollaboration();
+  sharedRuntime = stationService();
 }
 
 // ---- App lifecycle ----------------------------------------------------------
@@ -673,16 +707,25 @@ if (!hasSingleInstanceLock) {
     // window back to the foreground. A real user who wants the window back
     // clicks the Dock icon, which goes through the activate handler below.
     if (isCompanionWindowOpen('ahabar')) return;
-    const win = liveWindow();
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    if (!initializationComplete) { focusRequested = true; return; }
+    focusMainWindow(liveWindow, createWindow);
   });
 }
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   registerAppProtocol();
+  // Decrypt stored API keys (async safeStorage) before any IPC handler or
+  // backend can read auth settings.
+  await warmSecrets().catch((err) => console.error('[main] warmSecrets failed:', err));
+  if (process.platform === 'win32' || process.platform === 'linux') {
+    stationTray = new Tray(join(app.getAppPath(), 'dist', 'icon-96.png'));
+    stationTray.setToolTip('AhaStudio');
+    stationTray.setContextMenu(Menu.buildFromTemplate([
+      { label: '打开 AhaStudio', click: () => focusMainWindow(liveWindow, createWindow) },
+      { label: '退出 AhaStudio', click: () => app.quit() },
+    ]));
+    stationTray.on('double-click', () => focusMainWindow(liveWindow, createWindow));
+  }
   // Dynamic-import IPC modules so their transitive deps (orchestrator,
   // claude-session, ASR, etc.) don't block the app-ready event.
   // IPC handlers must be registered before createWindow() so the renderer
@@ -699,10 +742,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // bar, then minimizes (minimize path) or hides the window (close path —
   // hiding instead of destroying keeps sessions and the voice link alive,
   // which is the point of enabling the bar). 'hide' replays the original
-  // minimize/close semantics. `never` persists the 不再提示 opt-out.
+  // minimize/close semantics; 'quit' exits the app; 'cancel' leaves the
+  // window as it was. `never` persists the 不再提示 opt-out.
   handleSecure('app:minimize-choice', {
     schema: z.object({
-      action: z.enum(['ahabar', 'hide']),
+      action: z.enum(['ahabar', 'hide', 'quit', 'cancel']),
       never: z.boolean(),
     }).strict(),
     authorize: mainWindowSenderPolicy(() => liveWindow()?.webContents.id ?? null),
@@ -711,7 +755,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       if (!pending) return { ok: false, error: 'No minimize prompt pending' };
       minimizePromptPending = null;
       clearTimeout(pending.failsafe);
-      if (choice.never) {
+      if (choice.never && choice.action !== 'cancel') {
         await updateSettings({ ahaBarPromptDisabled: true }).catch((err) => {
           console.warn('[main] failed to persist ahaBarPromptDisabled:', err);
         });
@@ -735,6 +779,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         case 'close':
           suppressNextClose = true;
           win.close();
+          break;
+        case 'quit':
+          app.quit();
+          break;
+        case 'stay':
           break;
       }
       return { ok: true };
@@ -776,6 +825,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   });
 
   createWindow();
+  initializationComplete = true;
+  if (focusRequested) { focusRequested = false; focusMainWindow(liveWindow, createWindow); }
 
   // Pragmatic update probe (Phase 6b §3.5-5): anonymous redirect parse of
   // releases/latest, 24h-cached. Silently no-ops while the repo is private
@@ -867,17 +918,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-      return;
-    }
-    // The AhaBar close path hides the main window instead of destroying it —
-    // a dock click must be able to bring it back.
-    const win = liveWindow();
-    if (win && !win.isVisible() && !win.isMinimized()) {
-      win.show();
-      win.focus();
-    }
+    focusMainWindow(liveWindow, createWindow);
   });
 });
 
@@ -891,6 +932,9 @@ function sleepMs(ms: number): Promise<void> {
 // entries are dropped synchronously up front; the async work continues to
 // run against detached orchestrator instances.
 function shutdownAllSlots(): Promise<void> {
+  // Capture native member references before removing registry slots. A later
+  // quit flush must not replace this snapshot with an empty registry.
+  if (registry.list().length && _flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
   const endPromises: Promise<void>[] = [];
   for (const slot of registry.values()) {
     try {
@@ -938,10 +982,17 @@ app.on('before-quit', (event) => {
     import('./ipc/popout-window.js')
       .then(({ closeAllPopoutWindows }) => closeAllPopoutWindows())
       .catch(() => { /* ignore */ });
+    closeAllRoomWindows();
 
     try {
+      if (sharedRuntime && !await sharedRuntime.shutdown()) {
+        const choice = await dialog.showMessageBox({type:'warning',buttons:['继续等待并保留 Station','强制退出'],defaultId:0,cancelId:0,
+          message:'本机 Station 任务实际退出尚未确认',detail:'强制退出会保留核对记录；下次启动不会自动重新执行。Codex 桌面不会被关闭。'});
+        if(choice.response!==1) {isQuitting=false;observeService.start();return;}
+      }
       await Promise.race([shutdownAllSlots(), sleepMs(5000)]);
     } finally {
+      if (!isQuitting) return;
       if (_flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
       await flushSettingsWrites();
       app.exit(0);

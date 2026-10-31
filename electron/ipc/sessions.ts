@@ -17,6 +17,9 @@ import { promises as fs, constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { Orchestrator } from '../orchestrator.js';
+import type { HostProfile } from '../orchestrator-types.js';
+import type { MeetingNotes } from '../meeting-mcp.js';
+import type { PlanMeetingTaskInput } from '../meeting-tools.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
 import { formatError } from '../format-error.js';
 import {
@@ -24,17 +27,22 @@ import {
   getSettings,
   pushRecentCwd,
   setOpenTabs,
+  forgetRestoredTab,
 } from '../store.js';
 import type { IpcContext } from './context.js';
 import { clearApprovedExternalDirs } from './documents.js';
 import { MeetingRepository } from '../meeting-repository.js';
 import { getBackendRegistry } from '../backends/registry.js';
+import { fetchPocketVibeRemoteSessions } from '../backends/pocket-vibe-adapter.js';
+import { getPocketVibeConnection } from '../remote-control.js';
+import { parsePocketVibeRemoteHosts, parsePocketVibeRemoteTarget, resolveRemoteTarget, type PocketVibeRemoteTarget } from '../backends/pocket-vibe-target.js';
 
 interface OpenPayload {
   cwd?: unknown;
   greeting?: unknown;
   backendId?: unknown;
   recoveryMeetingId?: unknown;
+  remoteHosts?: unknown;
 }
 
 // Coalesce rapid-fire `setOpenTabs` writes (lobby-restore can fire 5+
@@ -50,11 +58,22 @@ const SNAPSHOT_DEBOUNCE_MS = 100;
 const END_TIMEOUT_MS = 15_000;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotPendingCtx: IpcContext | null = null;
+// Lazy references have no registry slot yet. Opening/closing one meeting must
+// not erase the other projects (or their native remote references).
+let retainedRestoreTabs = new Map<string, NonNullable<ReturnType<typeof getSettings>['openTabs']>[number]>();
+let lastActiveReference: string | null = null;
 
 function writeSnapshotNow(ctx: IpcContext): void {
-  const tabs = ctx.registry.list().map((s) => ({ cwd: s.cwd, openedAt: s.openedAt }));
+  const live = ctx.registry.list().map((s) => ({
+    cwd: s.cwd, openedAt: s.openedAt,
+    remoteHosts: parsePocketVibeRemoteHosts(ctx.getOrchestrator(s.id)?.listHosts()),
+  }));
+  for (const tab of live) retainedRestoreTabs.set(tab.cwd, tab);
+  const tabs = [...retainedRestoreTabs.values()].filter((tab) => !live.some((row) => row.cwd === tab.cwd)).concat(live);
   const active = ctx.registry.getActive();
-  void setOpenTabs(tabs, active?.cwd ?? null).catch((err) => {
+  if (active) lastActiveReference = active.cwd;
+  if (!tabs.some((tab) => tab.cwd === lastActiveReference)) lastActiveReference = tabs[0]?.cwd ?? null;
+  void setOpenTabs(tabs, lastActiveReference).catch((err) => {
     console.error('[sessions] failed to persist openTabs:', err);
   });
 }
@@ -83,7 +102,79 @@ export function flushOpenTabsNow(ctx: IpcContext): void {
   writeSnapshotNow(ctx);
 }
 
+function parseHostProfile(value: unknown): HostProfile | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const title = (value as { title?: unknown }).title;
+  const name = (value as { name?: unknown }).name;
+  if (typeof title !== 'string' || typeof name !== 'string') return undefined;
+  const trimmedTitle = title.trim();
+  const trimmedName = name.trim();
+  if (!trimmedTitle || !trimmedName || trimmedTitle.length > 40 || trimmedName.length > 40) return undefined;
+  return { title: trimmedTitle, name: trimmedName };
+}
+
+function parseRecoveredHosts(value: unknown): Array<{ id: string; backendId: string; profile?: HostProfile }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((host) => {
+    if (!host || typeof host !== 'object') return [];
+    const id = (host as { id?: unknown }).id;
+    const backendId = (host as { backendId?: unknown }).backendId;
+    if (typeof id !== 'string' || typeof backendId !== 'string') return [];
+    const profile = parseHostProfile((host as { profile?: unknown }).profile);
+    return [{ id, backendId, ...(profile ? { profile } : {}) }];
+  });
+}
+
+function parseRecoveredOwnedTasks(value: unknown): Array<{
+  taskId: string;
+  ownerHostId: string;
+  input: PlanMeetingTaskInput;
+}> {
+  if (!Array.isArray(value)) return [];
+  const idOk = (id: string) => /^[a-zA-Z0-9._-]{1,80}$/.test(id);
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const taskId = (entry as { taskId?: unknown }).taskId;
+    const ownerHostId = (entry as { ownerHostId?: unknown }).ownerHostId;
+    const input = (entry as { input?: unknown }).input;
+    if (typeof taskId !== 'string' || !idOk(taskId)) return [];
+    if (typeof ownerHostId !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(ownerHostId)) return [];
+    if (!input || typeof input !== 'object') return [];
+    const prompt = (input as { prompt?: unknown }).prompt;
+    const id = (input as { id?: unknown }).id;
+    if (typeof id !== 'string' || typeof prompt !== 'string') return [];
+    if (!prompt || prompt.length > 20_000) return [];
+    return [{ taskId, ownerHostId, input: input as PlanMeetingTaskInput }];
+  }).slice(0, 32);
+}
+
+function parseNoteItems(value: unknown): Array<{ text: string; source?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const text = (item as { text?: unknown }).text;
+    if (typeof text !== 'string' || !text.trim() || text.length > 2_000) return [];
+    const source = (item as { source?: unknown }).source;
+    return [{ text, ...(typeof source === 'string' && source.length <= 200 ? { source } : {}) }];
+  }).slice(0, 50);
+}
+
+function parseRecoveredMeetingNotes(value: unknown): MeetingNotes | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const notes = value as Record<string, unknown>;
+  const parsed: MeetingNotes = {
+    conclusions: parseNoteItems(notes.conclusions),
+    decisions: parseNoteItems(notes.decisions),
+    workItems: parseNoteItems(notes.workItems),
+    todos: parseNoteItems(notes.todos),
+  };
+  const empty = parsed.conclusions.length + parsed.decisions.length + parsed.workItems.length + parsed.todos.length === 0;
+  return empty ? undefined : parsed;
+}
+
 export function registerSessionsIpc(ctx: IpcContext): void {
+  retainedRestoreTabs = new Map((getSettings().openTabs ?? []).map((tab) => [tab.cwd, tab]));
+  lastActiveReference = getSettings().lastActiveCwd ?? null;
   ipcMain.handle('sessions:open', async (_e, payload: OpenPayload) => {
     try {
       const rawCwd = typeof payload?.cwd === 'string' ? payload.cwd : '';
@@ -164,6 +255,16 @@ export function registerSessionsIpc(ctx: IpcContext): void {
       // custom gateway/model via ANTHROPIC_MODEL we honor it so the talker
       // doesn't request a model the gateway can't serve.
       const talkerModel = workerEnv.ANTHROPIC_MODEL || undefined;
+      let remoteHosts = parsePocketVibeRemoteHosts(recovery
+        ? recovery.state.hosts
+        : payload?.remoteHosts ?? getSettings().openTabs?.find((tab) => tab.cwd === resolvedCwd)?.remoteHosts);
+      if (remoteHosts.some((host) => !host.remoteTarget.device_id)) {
+        const catalog = await fetchPocketVibeRemoteSessions(getPocketVibeConnection(), true);
+        if (catalog.ok) remoteHosts = parsePocketVibeRemoteHosts(remoteHosts.map((host) => {
+          try { return { ...host, remoteTarget: resolveRemoteTarget(host.remoteTarget, catalog.directory) }; }
+          catch { return host; }
+        }));
+      }
 
       // Pre-bind sessionId into the emit closure so every event this
       // orchestrator emits is automatically routed to the right renderer slot.
@@ -195,6 +296,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
                   : [];
               }))
           : undefined,
+        remoteHosts,
         recoveredTasks: recovery && Array.isArray(recovery.state.tasks)
           ? recovery.state.tasks.filter((task): task is Record<string, unknown> => typeof task === 'object' && task !== null)
           : undefined,
@@ -209,16 +311,12 @@ export function registerSessionsIpc(ctx: IpcContext): void {
             )
           : undefined,
         // Invited host groups ride along so start() can re-add them; the
-        // resume handles above are keyed by the same host ids.
-        recoveredHosts: recovery
-          ? (Array.isArray(recovery.state.hosts) ? recovery.state.hosts : [])
-              .filter((host): host is Record<string, unknown> => typeof host === 'object' && host !== null)
-              .flatMap((host) => (
-                typeof host.id === 'string' && typeof host.backendId === 'string'
-                  ? [{ id: host.id, backendId: host.backendId }]
-                  : []
-              ))
-          : undefined,
+        // resume handles above are keyed by the same host ids. Profiles and
+        // owned sub-agent tasks come from the same snapshot so a restart
+        // keeps the 子 Agent tab and 重新开始.
+        recoveredHosts: recovery ? parseRecoveredHosts(recovery.state.hosts) : undefined,
+        recoveredOwnedTasks: recovery ? parseRecoveredOwnedTasks(recovery.state.ownedTasks) : undefined,
+        recoveredMeetingNotes: recovery ? parseRecoveredMeetingNotes(recovery.state.meetingNotes) : undefined,
       });
 
       const result = ctx.registry.open(sessionId, resolvedCwd, orch);
@@ -291,6 +389,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         backendId: selectedBackendId,
         recovered: Boolean(recovery),
         status: 'starting' as const,
+        remoteHosts: parsePocketVibeRemoteHosts(orch.listHosts()),
       };
     } catch (err: unknown) {
       const msg = formatError(err);
@@ -302,6 +401,7 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const id = typeof payload?.id === 'string' ? payload.id : '';
     const slot = ctx.registry.get(id);
     if (!slot) return { ok: false, error: 'not-found' };
+    retainedRestoreTabs.delete(slot.cwd);
     let endTimedOut = false;
     let endTimer: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -354,6 +454,15 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     };
   });
 
+  ipcMain.handle('sessions:forget-restored', async (_e, payload: { cwd?: string }) => {
+    if (typeof payload?.cwd !== 'string' || !path.isAbsolute(payload.cwd)) return { ok: false, error: 'invalid cwd' };
+    const live = ctx.registry.findByCwd(payload.cwd);
+    if (live) return { ok: false, error: 'meeting is already open', sessionId: live.id };
+    retainedRestoreTabs.delete(payload.cwd);
+    await forgetRestoredTab(payload.cwd);
+    return { ok: true };
+  });
+
   ipcMain.handle('sessions:list-recoverable', async () => ({
     ok: true,
     meetings: await MeetingRepository.listRecoverable(),
@@ -383,21 +492,71 @@ export function registerSessionsIpc(ctx: IpcContext): void {
 
   /** Add a host group to an existing session. The session's Orchestrator
    *  creates a new HostGroup tied to the specified backend. */
+  // Empty-project kickoff: the user's 开始 click is the stage confirmation (AME-D23).
+  ipcMain.handle('sessions:kickoff', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    const mode = p.mode === 'develop' ? 'develop' : p.mode === 'brainstorm' ? 'brainstorm' : null;
+    const title = typeof p.title === 'string' ? p.title.trim().slice(0, 20) : '';
+    const name = typeof p.name === 'string' ? p.name.trim().slice(0, 20) : '';
+    if (!mode || typeof p.expertBackendId !== 'string' || !title || !name) {
+      return { ok: false, error: 'mode, expertBackendId, title and name are required' };
+    }
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.startKickoff({ mode, expertBackendId: p.expertBackendId, profile: { title, name } });
+  });
+
+  ipcMain.handle('sessions:handback-task', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    if (typeof p.taskId !== 'string') return { ok: false, error: 'taskId is required' };
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.handBackTask(p.taskId, typeof p.note === 'string' ? p.note.slice(0, 2000) : undefined);
+  });
+
+  ipcMain.handle('sessions:restart-owned-task', async (_e, payload: unknown) => {
+    const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    if (typeof p.taskId !== 'string') return { ok: false, error: 'taskId is required' };
+    const orch = ctx.getOrchestrator(typeof p.sessionId === 'string' ? p.sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return orch.restartOwnedTask(p.taskId);
+  });
+
+  ipcMain.handle('sessions:meeting-notes', async (_e, payload: unknown) => {
+    const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
+    const orch = ctx.getOrchestrator(typeof sessionId === 'string' ? sessionId : undefined);
+    if (!orch) return { ok: false, error: 'session not found' };
+    return { ok: true, notes: orch.getMeetingNotes() };
+  });
+
   ipcMain.handle('sessions:add-host', async (_e, payload: unknown) => {
     if (typeof payload !== 'object' || payload === null) {
       return { ok: false, error: 'payload must be an object' };
     }
-    const { sessionId, backendId, hostId } = payload as {
+    const { sessionId, backendId, hostId, remoteTarget } = payload as {
       sessionId?: string;
       backendId?: string;
       hostId?: string;
+      remoteTarget?: PocketVibeRemoteTarget;
     };
     if (typeof backendId !== 'string') {
       return { ok: false, error: 'backendId must be a string' };
     }
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
-    return orch.addHost(backendId, hostId);
+    let target = remoteTarget;
+    if (remoteTarget !== undefined) {
+      const parsed = parsePocketVibeRemoteTarget(remoteTarget);
+      if (backendId !== 'pocket-vibe' || !parsed) return { ok: false, error: '无效的远端会话引用。' };
+      const directory = await fetchPocketVibeRemoteSessions(getPocketVibeConnection(), true);
+      if (!directory.ok) return directory;
+      try { target = resolveRemoteTarget(parsed, directory.directory); }
+      catch (error) { return { ok: false, error: String(error) }; }
+      orch.enrichRemoteTargets(directory.directory);
+    }
+    const result = orch.addHost(backendId, hostId, target);
+    if (result.ok && remoteTarget) snapshotOpenTabs(ctx);
+    return result;
   });
 
   /** Remove a host group from a session. Cannot remove the default host. */
@@ -411,7 +570,9 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     }
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
-    return orch.removeHost(hostId);
+    const result = orch.removeHost(hostId);
+    if (result.ok) snapshotOpenTabs(ctx);
+    return result;
   });
 
   /** List all host groups in a session. */
@@ -422,6 +583,21 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const orch = ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'session not found' };
     return { ok: true, hosts: orch.listHosts() };
+  });
+
+  ipcMain.handle('sessions:republish', async (_e, payload: unknown) => {
+    const sessionId = typeof (payload as { sessionId?: string })?.sessionId === 'string'
+      ? (payload as { sessionId: string }).sessionId
+      : null;
+    const orch = sessionId ? ctx.getOrchestrator(sessionId) : null;
+    if (!orch) return { ok: false, error: 'session not found' };
+    orch.republishState();
+    return { ok: true };
+  });
+
+  ipcMain.handle('sessions:remote-sessions', async (_e, payload: { refresh?: boolean } | undefined) => {
+    const auth = getPocketVibeConnection();
+    return fetchPocketVibeRemoteSessions(auth ?? { authMode: 'none' }, payload?.refresh === true);
   });
 
   ipcMain.handle('sessions:set-coordinator', async (_e, payload: unknown) => {

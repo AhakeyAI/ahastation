@@ -1,0 +1,94 @@
+{
+  "requestId": "a823af7f-4631-4486-9204-8ea428d9feb8",
+  "fetchedAt": "2026-10-23T09:00:46.888Z",
+  "providers": [
+    {
+      "providerId": "claude",
+      "displayName": "Claude (<account>)",
+      "status": "available",
+      "planLabel": "Pro ai",
+      "windows": [
+        {
+          "id": "five_hour",
+          "label": "Session",
+          "shortLabel": "5h",
+          "summary": true,
+          "usedPct": 20,
+          "remainingPct": 80,
+          "resetsAt": "2026-10-23T13:09:59.911782+00:00",
+          "tone": "ok"
+        },
+        {
+          "id": "weekly",
+          "label": "Weekly",
+          "shortLabel": "wk",
+          "summary": true,
+          "usedPct": 45,
+          "remainingPct": 55,
+          "resetsAt": "2026-10-24T08:59:59.911802+00:00",
+          "tone": "ok"
+        }
+      ],
+      "balances": [],
+      "details": [
+        {
+          "id": "extra_usage",
+          "label": "Extra usage",
+          "value": "Disabled"
+        }
+      ],
+      "error": null
+    },
+    {
+      "providerId": "codex",
+      "displayName": "Codex (<account>)",
+      "status": "available",
+      "planLabel": "prolite",
+      "windows": [
+        {
+          "id": "weekly",
+          "label": "Weekly",
+          "shortLabel": "wk",
+          "summary": true,
+          "usedPct": 45,
+          "remainingPct": 55,
+          "resetsAt": "2026-10-29T17:09:43.000Z",
+          "tone": "ok"
+        }
+      ],
+      "balances": [
+        {
+          "id": "credits",
+          "label": "Credits",
+          "remaining": 0,
+          "unit": "credits",
+          "tone": "danger"
+        }
+      ],
+      "details": [],
+      "error": null
+    },
+    {
+      "providerId": "cursor",
+      "displayName": "Cursor",
+      "status": "available",
+      "planLabel": null,
+      "windows": [],
+      "balances": [
+        {
+          "id": "plan_usage",
+          "label": "Plan usage",
+          "used": 2.81,
+          "remaining": 17.19,
+          "limit": 20,
+          "unit": "usd",
+          "resetsAt": "2026-11-22T11:05:14.000Z",
+          "tone": "ok"
+        }
+      ],
+      "details": [],
+      "error": null
+    }
+  ],
+  "_note": "Paseo 0.12.0 client.providers.listUsage() on N5095, AFTER the B04 matrix run. Account emails redacted."
+}

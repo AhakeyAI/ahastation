@@ -29,6 +29,7 @@ export const MEETING_TOOLS = {
   OBSERVED_SESSIONS_LIST: 'observed_sessions_list',
   OBSERVED_SESSION_FOCUS: 'observed_session_focus',
   OBSERVED_SESSION_SEND_TEXT: 'observed_session_send_text',
+  UPDATE_MEETING_NOTES: 'update_meeting_notes',
 } as const;
 
 export type MeetingToolName = (typeof MEETING_TOOLS)[keyof typeof MEETING_TOOLS];

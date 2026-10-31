@@ -132,6 +132,18 @@ const AUTH_WALL_BUFFER_MAX = 16 * 1024;
  *  interrupted by styling or cursor moves still matches the profile pattern.
  *  \r becomes \n — TUIs repaint with carriage returns, and the profile
  *  patterns use \s+ which bridges the splits either way. */
+/** TUIs often draw spaces as cursor-forward moves (CSI n C); turn those back
+ *  into spaces before stripping so phrase patterns still match. */
+export function toMatchableText(data: string): string {
+  return stripAnsi(data.replace(/\x1b\[(\d*)C/g, (_m, n: string) => ' '.repeat(Math.min(Number(n || 1), 8))));
+}
+
+/** "Do you trust this folder?" style first-run dialogs (Claude Code, Codex…).
+ *  Pasting the prompt there answers the dialog — Claude's default is "No,
+ *  exit" — so the prompt waits until the user has answered (#125). */
+export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created/i;
+const TRUST_SETTLE_MS = 800;
+
 export function stripAnsi(data: string): string {
   return data
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC
@@ -385,6 +397,10 @@ export class TerminalCliSession implements BackendSession {
   >();
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private firstOutputSeen = false;
+  /** A trust dialog is up: never paste until it is answered. */
+  private trustGated = false;
+  private trustBuffer = '';
+  private lastTrustSeenAt = 0;
   private unsubscribeData: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
 
@@ -478,6 +494,27 @@ export class TerminalCliSession implements BackendSession {
     this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
       this.scanForAuthWall(data);
       if (this.closed || this.ready) return;
+      this.trustBuffer = (this.trustBuffer + toMatchableText(data)).slice(-8_000);
+      if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
+        if (!this.trustGated) {
+          this.trustGated = true;
+          if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
+          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: '等待你确认是否信任这个文件夹' } });
+        }
+        this.trustBuffer = '';
+        this.lastTrustSeenAt = Date.now();
+        return;
+      }
+      if (this.trustGated) {
+        // Same repaint burst as the dialog: still unanswered.
+        if (Date.now() - this.lastTrustSeenAt < TRUST_SETTLE_MS) return;
+        // New frames without the dialog: answered. Let the TUI settle, then paste.
+        this.trustGated = false;
+        this.readyBuffer = '';
+        this.firstOutputSeen = true;
+        this.scheduleReady(READY_QUIESCE_MS);
+        return;
+      }
       if (this.profile.readyPattern) {
         // Pattern-gated: boot frames (token refresh, trust dialogs) are not
         // proof the input box exists — only the pattern is. But the pattern
@@ -519,7 +556,7 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private scheduleReady(delayMs: number, fallback = false): void {
-    if (this.ready || this.closed) return;
+    if (this.ready || this.closed || this.trustGated) return;
     if (this.readyTimer && !fallback) clearTimeout(this.readyTimer);
     else if (this.readyTimer && fallback) return; // first-output timer wins
     if (this.deps.timersEnabled === false) {
@@ -531,7 +568,7 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private markReady(): void {
-    if (this.ready || this.closed) return;
+    if (this.ready || this.closed || this.trustGated) return;
     this.ready = true;
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);

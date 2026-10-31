@@ -17,6 +17,7 @@ export type CompanionViewMode = 'ahabar' | 'companion';
 
 const AHABAR_COMPACT = { width: 420, height: 56 };
 const AHABAR_EXPANDED = { width: 420, height: 240 };
+const AHABAR_EXPANDED_MAX_HEIGHT = 460;
 const COMPANION_SIZE = { width: 480, height: 320, minWidth: 360, minHeight: 240 };
 
 let companionWin: BrowserWindow | null = null;
@@ -59,9 +60,16 @@ export function focusMainWindow(getMain: () => BrowserWindow | null): boolean {
   return true;
 }
 
-export function setAhaBarExpanded(expanded: boolean): boolean {
+export function setAhaBarExpanded(expanded: boolean, contentHeight?: number): boolean {
   if (!companionWin || companionWin.isDestroyed() || currentView !== 'ahabar') return false;
-  const size = expanded ? AHABAR_EXPANDED : AHABAR_COMPACT;
+  const size = !expanded
+    ? AHABAR_COMPACT
+    : {
+        width: AHABAR_EXPANDED.width,
+        height: contentHeight === undefined
+          ? AHABAR_EXPANDED.height
+          : Math.min(AHABAR_EXPANDED_MAX_HEIGHT, Math.max(AHABAR_COMPACT.height, contentHeight)),
+      };
   const [x, y] = companionWin.getPosition();
   companionWin.setBounds({ x, y, width: size.width, height: size.height }, true);
   return true;

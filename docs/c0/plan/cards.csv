@@ -1,0 +1,46 @@
+card,title,wbs,gate,size,estimate_pd,depends_on,design_ref,can_start_now
+A-00,Windows 测试归零 + CI 变绿（已合并 PR #47）,B02,C0,S,2-4,,docs/c0/plan/README.md §2,done
+A-01,领域 schema：事件信封 v2、五阶段与细分状态、旧状态映射,B03/B08,A,M,2-3,B03 评审,docs/c0/b03-contract/README.md §3 §5,after-review
+A-02,项目稳定身份 + ProjectMount + legacyIds,B08,A,M,2-3,A-01,docs/adr/0013-stable-project-identity.md,no
+A-03,旧日志只读迁移投影,B08,A,L,3-5,A-01;A-02,docs/c0/b03-contract/README.md §6,no
+A-04,ConfirmStagePlan 命令与旧确认拒绝,B18,A,M,2-3,A-01,docs/c0/b03-contract/README.md §4.1,no
+A-05,看板五列 + 细分状态徽标 + 需关注过滤,B15,A,M,2-3,A-01,docs/c0/b07-ux/README.md §3.2,no
+A-06,自举需求：看板记住最近项目筛选（保留给 A/B 闭环；Issue #48）,首个验收 Issue,A/B,S,0.5-1,,13 确认单第二组,no
+A-07,决定卡片三类分开,B18/B23,A,M,2-3,A-04,docs/c0/b07-ux/README.md §3.4,no
+A-08,VoiceProvider + WebAudio 播放 + 角色音色（系统音色与在线 TTS）,B13,A,M,3-4,,docs/c0/design/meeting-mode.md §7,yes
+A-09,InputController 短按/长按 + ContextLock + 待发送,B11,A,M,3-4,A-01,docs/c0/design/meeting-mode.md §4,no
+A-10,B06 用量接线（usage 信号与结算）,B06,B,M,2-3,,docs/c0/b06-quota/WIRING.md,yes
+A-11,sherpa-onnx utilityProcess 离线兜底推理,B05/B11,A,M,3-5,B05 选项确认,docs/c0/design/meeting-mode.md M2,no
+A-12,设备密钥 + 可信设备列表 + 新设备由已有设备确认 + 恢复凭据引导（C08）,B27,X,M,4-6,,docs/c0/design/remote-control.md §0.4,yes
+A-13,设备消息签名与验签，Station 与 Hub 两侧（ADR 0017）,B28,X,M,3-5,A-12;X0,docs/c0/design/remote-control.md §0.4,no
+B12-HOST,Host 只读调查 + grill + 版本化计划提案,B12,A,L,5-8,A-01;A-03;B14-GH,docs/c0/design/later-gates.md B12,no
+B14-GH,GitHub Issue 读取关联 + 外部差异提案（默认不回写）,B14,A,M,3-5,A-01;A-02,docs/c0/design/later-gates.md B14,no
+M4,FloorController + 专家唤起 + 发言事件,B13,A,L,5-8,A-08;A-09;B12-HOST,docs/c0/design/meeting-mode.md §5,no
+M5,实体语音键（Windows 低级钩子 / HID，macOS 同等）,B11/B39,H,M,3-6,样机,docs/c0/design/meeting-mode.md §4,no
+M6,真机回声、延迟、CPU 验证,B05,A,M,2-3,A-08;A-11,docs/c0/design/meeting-mode.md §9,no
+X0,etrnal-dev 修 K01、运行时修复合入后 rebase、拆 PR（eternal904）,B28,X,—,作者估,A-14;A-15;A-16;A-17;A-18;A-19;A-20,docs/c0/design/remote-control.md §0.4,no
+X1,执行端改走 TS adapter 并接 guardian（C03、ADR 0018）,B28/B10,X,L,6-10,X0;A-14;A-20,docs/c0/design/remote-control.md §0.4,no
+X2,已有对话接续 + 权限核对（C04）,B30,X,M,3-5,X1,docs/c0/design/remote-control.md §0.4,no
+X3,主持租约 + fencing + 明确接续（C06）,B30,X,M,3-5,X0,docs/c0/design/remote-control.md §0.4,no
+X4,GitHub 交接对齐：两级 PR、aha/ 前缀（C19）,B29,X,S,1-2,X0,docs/c0/design/remote-control.md §0.4,no
+X5,Hub 补齐：设备待确认、验签、删除同步与保存上限（C02）,B27/B28,X,M,4-6,A-12;A-13,docs/c0/design/remote-control.md §0.4,no
+X6,Hub 存 prj_ 映射，GitHub 条件必填（C11）,B27,X,M,2-3,A-02;X0,docs/c0/design/remote-control.md §0.4,no
+X11,跨设备已取消状态（C12）,B31,X,S,1-2,X0,docs/c0/design/remote-control.md §0.4,no
+X12,跨设备数据投影供 B07 界面（C13）,B15/B30,X,M,3-5,A-01;A-05,docs/c0/design/remote-control.md §0.4,no
+X13,自动批准的跨设备提醒（C15）+ 默认并发 2（C16）,B18/B30,X,S,1-2,X0,docs/c0/design/remote-control.md §0.4,no
+X8,双机故障测试：Mac 协调、N5095 执行，Claude 与 Codex（C05、C14）,B31,X,L,6-8,X1;X2;X3;X4;X5;X6,docs/c0/design/remote-control.md §0.4,no
+X9,（公开前）macOS 执行端 guardian + 双向验收（C05）,B31/B38,X,M,3-5,X1,docs/c0/design/remote-control.md §0.4,no
+X10,（公开前）Hub 改为只见密文：内容加密、客户端投影、恢复凭据解封备份（C01、ADR 0014）,B27/B28,X,XL,15-25,A-13;X5,docs/c0/design/remote-control.md §0.4,no
+X7,（公开前）30 天试用与到期收尾（C09）,B37,X,S,1-2,X5,docs/c0/design/remote-control.md §0.4,no
+B04-RUN,运行底座对照执行（已完成 2026-10-23，选定 C-A）,B04,C0,L,3,,docs/c0/b04-runtime/README.md,done
+L-01,账本切片①：单项目单服务池预留与结算,B19,B,L,5-8,A-01;A-10,docs/c0/design/later-gates.md B19,no
+L-02,账本切片②：多服务池与单位,B19,B,M,3-5,L-01,docs/c0/design/later-gates.md B19,no
+L-03,账本切片③：跨项目优先级,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
+L-04,账本切片④：周期刷新与订阅窗口对齐,B19,B,M,3-5,L-02,docs/c0/design/later-gates.md B19,no
+A-14,升级 Codex 固定版本 + 重新设计 Codex 授权映射,B10,B,M,3-5,,docs/c0/b04-runtime/README.md F1 F2 F5,yes
+A-15,Claude 默认模型失效：动态取可用模型,B10,B,S,1-2,,docs/c0/b04-runtime/README.md F3,yes
+A-16,Codex 写入批准按 itemId 关联路径,B10/B18,B,S,1-2,,docs/c0/b04-runtime/README.md F4,yes
+A-17,用户级 hooks（AhaKey）不得绕过宿主授权（D13 已定）,B18,B,M,2-3,,docs/c0/b04-runtime/README.md F6,yes
+A-18,Claude 就绪超时可配置 + 失败走 failed 信号,B10,B,S,1,,docs/c0/b04-runtime/README.md F9,yes
+A-19,中断双终止信号去重,B10,B,S,1,,docs/c0/b04-runtime/README.md F10,yes
+A-20,停止时撤销已批准未执行的命令,B10/B31,B,M,2-3,,docs/c0/b04-runtime/README.md F11,yes

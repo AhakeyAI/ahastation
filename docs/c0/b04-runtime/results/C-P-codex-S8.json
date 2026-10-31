@@ -1,0 +1,16 @@
+{
+  "candidate": "C-P",
+  "provider": "codex",
+  "scenario": "S8",
+  "versions": {
+    "paseo": "0.12.0",
+    "codex": "global 0.156.1",
+    "model": "gpt-6-sol"
+  },
+  "at": "2026-10-23T09:00:10.827Z",
+  "result": "pass",
+  "observed": "trigger=running+20s; agent survives host restart in daemon; status after reconnect=running; finished tests={\"pass\":2,\"fail\":0}",
+  "evidence": [
+    "results/logs/C-P-codex-S8.json"
+  ]
+}

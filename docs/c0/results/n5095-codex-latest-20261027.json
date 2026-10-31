@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "startedAt": "2026-10-27T07:03:53.581Z",
+  "finishedAt": "2026-10-27T07:03:54.163Z",
+  "package": "@openai/codex@0.164.0",
+  "binary": "@openai/codex-win32-x64 vendor executable (temporary path omitted)",
+  "version": "0.164.0",
+  "userAgent": "ahastation-compat/0.164.0 (Windows 10.0.26200; x86_64) Orca/1.4.237 (ahastation-compat; 1)",
+  "methods": ["initialize", "initialized"],
+  "modelTurn": false,
+  "accountRead": false,
+  "productionRangeExpanded": false,
+  "note": "Real initialize handshake only. Weekly CI must also pass adapter contracts before proposing a range expansion."
+}

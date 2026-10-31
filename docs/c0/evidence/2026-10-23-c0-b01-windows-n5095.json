@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "kind": "c0-b01-b02-baseline",
+  "date": "2026-10-23",
+  "host": { "name": "AHASTATION", "cpu": "Intel(R) Celeron(R) N5095 @ 2.00GHz", "ramGB": 15.8, "os": "Microsoft Windows 11 Pro 10.0.26200", "power": "AC" },
+  "source": { "branch": "docs/c0-handoff-2026-10-22", "productCodeEqualsMain": "c134de2 (branch adds docs only)" },
+  "tools": { "node": "v22.23.4 (portable, sha256 verified against nodejs.org SHASUMS256)", "npm": "10.9.9", "gitAutocrlf": true },
+  "steps": {
+    "npm-ci": { "exitCode": 0, "seconds": 607 },
+    "typecheck": { "exitCode": 0, "seconds": 336 },
+    "build": { "exitCode": 0, "seconds": 357 },
+    "test": { "exitCode": 1, "seconds": 205, "tests": 922, "pass": 883, "fail": 34, "skipped": 5, "logSha256": "c50d94d1fc4e790ecdf51de6eef10e169618f8e24dacaa42092efb00317a16b7", "logPath": "%USERPROFILE%\\aha-c0\\b01-win\\test.log (not committed)" }
+  },
+  "failureGroups": [
+    { "count": 18, "tests": "391-413 correlate/ObserveService (11) + 437-446 ps/lsof parsing (7)", "rootCause": "CRLF fixtures from git autocrlf; parsePsOutput splits on \\n and the trailing \\r breaks the line regex", "sameAsCI": true },
+    { "count": 7, "tests": "415-418, 425-427 kimi", "rootCause": "test writes Windows paths with backslashes into JSONL without JSON escaping", "sameAsCI": true },
+    { "count": 6, "tests": "661-666 qoder tailer", "rootCause": "fs.watch EPERM on Windows temp dirs; not yet diagnosed", "sameAsCI": true },
+    { "count": 1, "tests": "639 listQoderRuns symlink", "rootCause": "creating symlinks needs Developer Mode or admin on Windows; CI runners are admin. Test should skip on EPERM", "sameAsCI": false },
+    { "count": 2, "tests": "430-431 MCP suppression / fallback", "rootCause": "depends on ps fixture parsing (same CRLF cause)", "sameAsCI": true }
+  ],
+  "ci": { "run": "https://github.com/ShawnyinsGit/ahastation-internal/actions/runs/37176224639", "windows": { "pass": 887, "fail": 33 } },
+  "notes": "An earlier background attempt on 2026-10-23 00:23 was stopped by Claude Code during npm ci due to low system memory; this run was executed step by step in the foreground."
+}
