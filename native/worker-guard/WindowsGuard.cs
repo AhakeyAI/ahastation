@@ -119,7 +119,7 @@ class WindowsGuard {
       Dictionary<string,object> config=Parse(Line(Console.In)); string root=S(config,"directory");
       Check(CreateAppContainerProfile(profile,profile,"Ephemeral offline worker",IntPtr.Zero,0,out sid)==0,"container-create");
       string sidText=new SecurityIdentifier(sid).Value; string runtime=Path.Combine(root,"runtime"); PrivateRuntime(runtime,new SecurityIdentifier(sid));
-      string executable=Path.Combine(runtime,"worker.exe"); File.Copy(Process.GetCurrentProcess().MainModule.FileName,executable,false);
+      string executable=Path.Combine(runtime,"worker.exe"); File.Copy(System.Reflection.Assembly.GetExecutingAssembly().Location,executable,false);
       if(config.ContainsKey("cliPath")) {
         string cli=Path.Combine(runtime,"cli.exe"); File.Copy(S(config,"cliPath"),cli,false);
         using(var algorithm=System.Security.Cryptography.SHA256.Create()) using(var file=File.OpenRead(cli)) {
@@ -175,7 +175,10 @@ class WindowsGuard {
               if(emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=message})==null)break;
             }
             emit(new {kind="stream-closed"});stopping.Set();
-          }} catch(Exception error) {stopping.Set();if(Volatile.Read(ref sealedInput)==0)emit(new {kind="fatal",error=error.Message});}
+          }} catch(Exception error) {
+            if(Volatile.Read(ref sealedInput)==0)emit(new {kind="fatal",error=error.Message.StartsWith("worker-frame-not-object:")?error.Message:error.GetType().FullName});
+            stopping.Set();
+          }
         }); reader.IsBackground=true; reader.Start(); outputRead=IntPtr.Zero;
         Thread controlReader=new Thread(()=> {
           try {string command;while((command=Line(Console.In))!=null) {
@@ -216,7 +219,7 @@ class WindowsGuard {
   static Process IdleChild() {
     // This fixture descendant has no protocol role. It must not consume the
     // parent's inherited stdin or write into the parent's authenticated output.
-    var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {
+    var p=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location,"--idle") {
       UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true});
     p.StandardInput.Close();p.BeginOutputReadLine();p.BeginErrorReadLine();return p;
   }
@@ -229,7 +232,7 @@ class WindowsGuard {
         bool wrote=TryWrite(S(value,"probePath"));
         bool network=false; try { using(var client=new System.Net.Sockets.TcpClient()) { var result=client.BeginConnect("127.0.0.1",Convert.ToInt32(value["port"]),null,null); if(result.AsyncWaitHandle.WaitOne(1000)) {client.EndConnect(result);network=true;} } } catch {}
         // A descendant inherits AppContainer restrictions and the non-breakaway Job.
-        var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--descendant \""+S(value,"probePath")+".child\"") {UseShellExecute=false,CreateNoWindow=true}); p.WaitForExit();
+        var p=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location,"--descendant \""+S(value,"probePath")+".child\"") {UseShellExecute=false,CreateNoWindow=true}); p.WaitForExit();
         Emit(new {op="probe-result",credential=hello["credential"],basis=hello["basis"],directWrite=wrote,network=network,descendantExit=p.ExitCode});
       } else if(value.ContainsKey("probeCli") && hello.ContainsKey("cliPath")) {
         var p=Process.Start(new ProcessStartInfo(S(hello,"cliPath"),"--version") {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true});
@@ -256,7 +259,8 @@ class WindowsGuard {
     SetErrorMode(0x8003); // inherited by owned descendants; no WER/UI popups
     Console.InputEncoding=new UTF8Encoding(false,true);Console.OutputEncoding=new UTF8Encoding(false,true);
     if(args.Length>0 && args[0]=="--worker") {
-      try {return Worker();} catch(Exception error) {Emit(new {op="fixture-error",errorType=error.GetType().FullName,errorCode=error.HResult});return 2;}
+      try {return Worker();} catch(Exception error) {Emit(new {op="fixture-error",errorType=error.GetType().FullName,errorCode=error.HResult,
+        nativeErrorCode=error is System.ComponentModel.Win32Exception?((System.ComponentModel.Win32Exception)error).NativeErrorCode:0});return 2;}
     }
     if(args.Length>1 && args[0]=="--descendant") return TryWrite(args[1])?99:0;
     if(args.Length>0 && args[0]=="--idle") { Thread.Sleep(60000);return 0; }
