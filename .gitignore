@@ -31,3 +31,4 @@ deliveries/
 services/remote/runtime/
 runtime/
 build/station-native/
+build/worker-guard/

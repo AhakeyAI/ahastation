@@ -1,0 +1,131 @@
+{
+  "recordedAt": "2026-11-01T06:05:40.460Z",
+  "headAtRun": "42f1a51c0eb1ef481195ce0501e88b2d417da56c",
+  "dirtyAtRun": true,
+  "platform": "win32-x64",
+  "node": "v26.12.1",
+  "dependencyLockSha256": "a3df1bbc02be91b14815d6add9613de6e600d6bc32af9cc76d8b8791a7dd18c8",
+  "results": [
+    {
+      "label": "renderer typecheck",
+      "exit": 0
+    },
+    {
+      "label": "electron typecheck",
+      "exit": 0
+    },
+    {
+      "label": "clean build output",
+      "exit": 0
+    },
+    {
+      "label": "electron build",
+      "exit": 0
+    },
+    {
+      "label": "preloads",
+      "exit": 0
+    },
+    {
+      "label": "renderer build",
+      "exit": 0
+    },
+    {
+      "label": "guard build",
+      "exit": 0
+    },
+    {
+      "label": "native-worker-bridge",
+      "exit": 0
+    },
+    {
+      "label": "global-hooks-admission",
+      "exit": 0
+    },
+    {
+      "label": "permission-approval-memory",
+      "exit": 0
+    },
+    {
+      "label": "plan-task-profile",
+      "exit": 0
+    },
+    {
+      "label": "permission-broker",
+      "exit": 0
+    },
+    {
+      "label": "native-worker-scheduler-ports",
+      "exit": 0
+    },
+    {
+      "label": "real guard and channel",
+      "exit": 0
+    },
+    {
+      "label": "final electron typecheck/build",
+      "exit": 0
+    },
+    {
+      "label": "final admission/scheduler regression",
+      "exit": 0
+    }
+  ],
+  "acceptance": {
+    "status": "passed",
+    "platform": "win32-x64",
+    "node": "v26.12.1",
+    "boundary": "windows-offline-broker-v1",
+    "helperSha256": "062bf4a58221ff2849358c73f1f276bfabcec19034ed972f144d5024b451e6f9",
+    "asks": 5,
+    "reportDeliveries": 1,
+    "results": [
+      "real-AppContainer: direct/descendant external write and loopback network blocked",
+      "durable per-action approval -> one-shot broker consumption -> exact file bytes; replay rejected",
+      "deny and durable journal failure produce no permit/write",
+      "changed action and expired permit rejected at actual side-effect boundary",
+      "current-attempt report with real file hash; durable receipt idempotent; no EOF success",
+      "stop seals input/revokes pending allow before interruption; real non-breakaway descendant tree active=0",
+      "untrusted credential closes protected channel and stops actual tree",
+      "actual host transport EOF closes Job and confirms descendant tree exit"
+    ],
+    "cliVersions": [
+      {
+        "agent": "claude",
+        "sha256": "904de86d9f93b753fb00c7536b36fa47e552a18832471b40ad3193b49a878df8",
+        "version": "2.1.150 (Claude Code)",
+        "exitCode": 0,
+        "evidence": "actual native binary --version inside same AppContainer/Job; not a model/tool turn"
+      },
+      {
+        "agent": "codex",
+        "sha256": "70bcb05f9bf1a4e7306edd0cd1b57d02af3267ad02a34b26f45c8c4bb20a3301",
+        "version": "codex-cli 0.156.1",
+        "exitCode": 0,
+        "evidence": "actual native binary --version inside same AppContainer/Job; not a model/tool turn"
+      }
+    ],
+    "cliEngine": "unknown; only isolated native --version, no model/tool turn or PTY",
+    "defaultNativeAdmission": false
+  },
+  "scope": "targeted local checks and real Windows offline broker, not engine/B04 certification",
+  "sourceHashes": {
+    "electron/main.ts": "ec15e7f7c32d5dbfce2a05233eaab0df74f8662f7144e956817d14ceec3d4024",
+    "electron/worker-scheduler.ts": "50ba7c9485f756a719bd8375cbf38bf0af0a62272d17a9783e8f53faa9391257",
+    "electron/native-worker/run.ts": "dc85cfb2b654b992b4ed6e180992e41e307abe5ccc7c36f60e77ae71fa91cc9b",
+    "electron/native-worker/admission.ts": "8b2cb03751e02fbd5a97a6bd8c27fb51520242f514b6ec8ed91aee203e538dba",
+    "electron/native-worker/windows-guard.ts": "96c9ef9d40820b9304713463d9b4851168fec03dc2072d729cde0f7a73f51413",
+    "electron/native-worker/broker-channel.ts": "c0bc14a3a8316436b40646e6cb0bc82fa95b9f29f0cae6517f96ed1ae02a6ab3",
+    "electron/native-worker/profile-service.ts": "fb80cbb2900a119d3c5ed9645fb853fa1344504f5821a256d765b6ed3b12ca07",
+    "electron/native-worker/acceptance.ts": "5d3c3e3a32987d7c84419eed7d7ff6e5a950f73684d974bff3eff5321eb96071",
+    "native/worker-guard/WindowsGuard.cs": "f9bf23dd864be4a65b667350d72db1664aff7f86db2fdcba8ac4f8b1502a2289",
+    "scripts/build-worker-guard.mjs": "fcdf573f46d3d5daf19d9a2bf515f45549b211eab0e1a85612a7e0c1998576ee",
+    "scripts/accept-native-worker.mjs": "743f909ecdb964a757a38360a261ee73970b3e64bd5cddce4ffa9d536cfb3de2",
+    "scripts/verify-native-production.mjs": "3719cd69c2c7e71482e132941aedafa6ccff3b5620e274281170998344653c66",
+    "tests/native-worker-bridge.test.mjs": "386fa43b04c8956c75efec7cf4cb232df94788929801833a4db9bac650e6224f",
+    "tests/native-worker-scheduler-ports.test.mjs": "31da66eb4477e936bcee3031cd70aebaa03d231fda79808e176bf931e50fa734",
+    "package.json": "edc90d9d8d32a074f43427c6c0ff9b421226b4054d56b9270179c1b19d0365ef",
+    "electron-builder.json": "0f7cfa175a23e82a87cd8188d466ae7e7323064b708c898919aa5448cf0f3eb7",
+    ".github/workflows/build-matrix.yml": "9781292d3d490836b800205a022113f59045df2ab2d333732d3e05d0ac1a313e"
+  }
+}

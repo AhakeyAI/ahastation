@@ -24,6 +24,7 @@ import {
   type MinimizePromptKind,
 } from './minimize-prompt.js';
 import { ObserveService } from './observe/observe-service.js';
+import { registerNativeWorkerProfileService } from './native-worker/profile-service.js';
 import { captureProcessSnapshot, descendantsOf } from './observe/process/darwin.js';
 import type { ObservedSnapshot } from './observe/types.js';
 import {
@@ -51,6 +52,7 @@ let initializationComplete = false;
 let sharedRuntime: import('./collaboration/station-service.js').StationService | undefined;
 let stationTray: Tray | undefined;
 let focusRequested = false;
+let nativeWorkerService: ReturnType<typeof registerNativeWorkerProfileService> | undefined;
 // Multi-tab session store. Each slot owns one Orchestrator (= one Talker +
 // scheduler) tied to a single cwd. Replaces the prior global `orchestrator`
 // + `currentCwd` + `recapPending` triple — those now live per-slot inside
@@ -713,6 +715,9 @@ if (!hasSingleInstanceLock) {
 }
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
+  // Registration is inert: no owned.json creation/migration or CLI spawn.
+  // Existing/unknown Station profiles cannot be replaced by the Worker subset.
+  nativeWorkerService = registerNativeWorkerProfileService(app.getPath('userData'));
   registerAppProtocol();
   // Decrypt stored API keys (async safeStorage) before any IPC handler or
   // backend can read auth settings.
@@ -936,6 +941,7 @@ function shutdownAllSlots(): Promise<void> {
   // quit flush must not replace this snapshot with an empty registry.
   if (registry.list().length && _flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
   const endPromises: Promise<void>[] = [];
+  if (nativeWorkerService) endPromises.push(nativeWorkerService.stopAll());
   for (const slot of registry.values()) {
     try {
       endPromises.push(slot.orchestrator.end());
@@ -990,7 +996,7 @@ app.on('before-quit', (event) => {
           message:'本机 Station 任务实际退出尚未确认',detail:'强制退出会保留核对记录；下次启动不会自动重新执行。Codex 桌面不会被关闭。'});
         if(choice.response!==1) {isQuitting=false;observeService.start();return;}
       }
-      await Promise.race([shutdownAllSlots(), sleepMs(5000)]);
+      await Promise.race([(async () => { await shutdownAllSlots(); await nativeWorkerService?.close(); })(), sleepMs(5000)]);
     } finally {
       if (!isQuitting) return;
       if (_flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);
