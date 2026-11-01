@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-01T08:06:54.923Z",
-  "headAtRun": "764d229bee451f5f0f9b89ecd2d4dbde1b7e0890",
+  "recordedAt": "2026-11-01T08:23:03.182Z",
+  "headAtRun": "2141309c9f477e671f950081892f626df2dc2e3f",
   "dirtyAtRun": true,
   "platform": "win32-x64",
   "node": "v26.12.1",
@@ -13,13 +13,13 @@
     "electron/native-worker/broker-channel.ts": "45ed04fdedb9434ac46f139a526511615176b73b31d86e7a97d17746cd339521",
     "electron/native-worker/profile-service.ts": "e599ecd47302de654e5d3e9ceee457d9a89c977321ea2b8ec792115cbe68d3ec",
     "electron/native-worker/acceptance.ts": "185666525b88901fdd8453f682782e126a81adb5b26249b60c24b634443efd11",
-    "native/worker-guard/WindowsGuard.cs": "e0e1319a98cc4aa529f31bdc1b46c3bbedb26f530f1067fa5706706b9c16f7ab",
+    "native/worker-guard/WindowsGuard.cs": "fb31cbe97e92476473e650500cd85a059783d5fa20779fb116bcc40c69b605a8",
     "scripts/build-worker-guard.mjs": "fcdf573f46d3d5daf19d9a2bf515f45549b211eab0e1a85612a7e0c1998576ee",
     "scripts/accept-native-worker.mjs": "743f909ecdb964a757a38360a261ee73970b3e64bd5cddce4ffa9d536cfb3de2",
-    "scripts/verify-native-production.mjs": "909f7135b8ef8f5fd501708cc272e49373bb9c33b44d1c6883825da08a7e48a5",
+    "scripts/verify-native-production.mjs": "f9906ba566a8427a033cedb5e95ae1090647a3a8ce126939c9f81c725fb7e74c",
     "tests/native-worker-bridge.test.mjs": "386fa43b04c8956c75efec7cf4cb232df94788929801833a4db9bac650e6224f",
     "tests/native-worker-scheduler-ports.test.mjs": "31da66eb4477e936bcee3031cd70aebaa03d231fda79808e176bf931e50fa734",
-    "tests/native-worker-transport.test.mjs": "6f3de8b853d332277be1e91eb087b641829dab0711314c5fc0aa1dbb751991b2",
+    "tests/native-worker-transport.test.mjs": "4167182b8420c82380a66c600d96b9ca42910f84f3db360beb8f74f8f5a5b9c7",
     "electron/native-worker/utf8-frames.ts": "d4284ea0593fe2d96460302d2179f2abc91d3ebb928722197c5edbaf1ad89421",
     "package.json": "edc90d9d8d32a074f43427c6c0ff9b421226b4054d56b9270179c1b19d0365ef",
     "electron-builder.json": "0f7cfa175a23e82a87cd8188d466ae7e7323064b708c898919aa5448cf0f3eb7",
@@ -86,14 +86,6 @@
     {
       "label": "real guard and channel",
       "exit": 0
-    },
-    {
-      "label": "final transport fault regression",
-      "exit": 0
-    },
-    {
-      "label": "isolated descendant stdio and blocked input regression",
-      "exit": 0
     }
   ],
   "acceptance": {
@@ -101,7 +93,7 @@
     "platform": "win32-x64",
     "node": "v26.12.1",
     "boundary": "windows-offline-broker-v1",
-    "helperSha256": "ba0645f8d9c17b2900c5b1bd4bd3c74e7eb32a171efc2a15e8232eb80f890115",
+    "helperSha256": "9285adaf9fc1c9a8f9a0f507bb64d884107a0f0644b207796713eb5e8c7d137b",
     "asks": 6,
     "reportDeliveries": 1,
     "results": [
@@ -136,33 +128,19 @@
     "sessionIdentity": "synthetic fixture only; real native CLI binding unverified; factory rejects normal profiles",
     "defaultNativeAdmission": false
   },
-  "scope": "targeted local checks and real Windows offline broker, not engine/B04 certification",
-  "transportReview": {
-    "baseline": "caa8f9e913fb8943352c73dbbfe008cfe12a953c",
-    "negativeControl": "old worker pauseInput instrumentation only; original synchronous guardian loop retained",
-    "baselineResults": [
-      {
-        "mode": "stop",
-        "blockedAfterMs": 3000
-      },
-      {
-        "mode": "host-eof",
-        "blockedAfterMs": 3000
-      }
-    ],
-    "fixedResults": [
-      {
-        "mode": "stop",
-        "pendingBytes": 480015,
-        "stopMs": 13,
-        "activeProcesses": 0
-      },
-      {
-        "mode": "host-eof",
-        "pendingBytes": 480015,
-        "stopMs": 16,
-        "activeProcesses": 0
-      }
-    ]
-  }
+  "transportFaultEvidence": [
+    {
+      "mode": "stop",
+      "pendingBytes": 480015,
+      "stopMs": 11,
+      "activeProcesses": 0
+    },
+    {
+      "mode": "host-eof",
+      "pendingBytes": 480015,
+      "stopMs": 10,
+      "activeProcesses": 0
+    }
+  ],
+  "scope": "targeted local checks and real Windows offline broker, not engine/B04 certification"
 }

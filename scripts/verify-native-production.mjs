@@ -7,6 +7,7 @@ const root = resolve('.');
 const output = resolve('docs/evidence/native-worker-production'); mkdirSync(output, { recursive: true });
 const log = resolve('native-production-validation.log'); writeFileSync(log, '');
 const results = [];
+let transportFaultEvidence = [];
 const sourcePaths = ['electron/main.ts', 'electron/worker-scheduler.ts', 'electron/native-worker/run.ts',
   'electron/native-worker/admission.ts', 'electron/native-worker/windows-guard.ts', 'electron/native-worker/broker-channel.ts',
   'electron/native-worker/profile-service.ts', 'electron/native-worker/acceptance.ts', 'native/worker-guard/WindowsGuard.cs',
@@ -29,7 +30,9 @@ run('renderer build', ['node_modules/vite/bin/vite.js', 'build']);
 run('guard build', ['scripts/build-worker-guard.mjs']);
 const loader = 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/electron-stub.mjs", pathToFileURL("./"));';
 for (const name of ['native-worker-bridge', 'global-hooks-admission', 'permission-approval-memory', 'plan-task-profile', 'permission-broker', 'native-worker-scheduler-ports', 'native-worker-transport']) {
-  run(name, ['--test', '--test-isolation=none', '--test-timeout=120000', '--import', loader, `tests/${name}.test.mjs`]);
+  const stdout = run(name, ['--test', '--test-isolation=none', '--test-timeout=120000', '--import', loader, `tests/${name}.test.mjs`]);
+  if (name === 'native-worker-transport') transportFaultEvidence = stdout.split('\n')
+    .filter(line => /\{"mode":.*"pendingBytes":/.test(line)).map(line => JSON.parse(line.slice(line.indexOf('{'))));
 }
 const acceptance = JSON.parse(run('real guard and channel', ['scripts/accept-native-worker.mjs']));
 // Do not publish machine-specific temporary paths/identity/credentials.
@@ -38,5 +41,5 @@ const head = spawnSync('git', ['rev-parse', 'HEAD'], { windowsHide: true, encodi
 writeFileSync(resolve(output, 'local-validation.json'), JSON.stringify({ recordedAt: new Date().toISOString(),
   headAtRun: head, dirtyAtRun: true, platform: `${process.platform}-${process.arch}`, node: process.version,
   sourceHashes: Object.fromEntries(sourcePaths.map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')])),
-  dependencyLockSha256: createHash('sha256').update(readFileSync('package-lock.json')).digest('hex'), results, acceptance,
+  dependencyLockSha256: createHash('sha256').update(readFileSync('package-lock.json')).digest('hex'), results, acceptance, transportFaultEvidence,
   scope: 'targeted local checks and real Windows offline broker, not engine/B04 certification' }, null, 2) + '\n');
