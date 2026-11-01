@@ -1,0 +1,43 @@
+{
+  "recordedAt": "2026-11-01T11:02:30.487Z",
+  "headAtRun": "e93efb65e4d64168addea903dab16046c5ef6b05",
+  "dirtyAtRun": true,
+  "reason": "Serialize suspended identity before starting ConPTY output reader; no TypeScript/renderer/dependency change",
+  "sourceHashes": {
+    "native/worker-guard/WindowsConPty.cs": "d3cb405dac11d7ded6c451f0d439203a66cf7a59faec438b786af01e18e69fd6",
+    "native/worker-guard/WindowsGuard.cs": "8d6c4730aa1e3ef2811559dc1ba4bd2d784bd5406906de3c9380cf10b62d2de1"
+  },
+  "helperSha256": "dd29b5f09b8a0e14159d81732fbb7a89ead0942b2710825fbbfe53e633be275f",
+  "commands": [
+    "node scripts/build-worker-guard.mjs",
+    "node --test --test-isolation=none --test-timeout=30000 tests/native-worker-conpty.test.mjs tests/native-worker-transport.test.mjs"
+  ],
+  "observedVia": "returned hidden exec output; both commands exit 0",
+  "results": {
+    "tests": 7,
+    "pass": 7,
+    "fail": 0,
+    "skipped": 0
+  },
+  "conPtyEvidence": {
+    "stopMs": 2,
+    "activeProcesses": 0,
+    "rootAndDescendantPrivateSentinelUnchanged": true,
+    "loopbackTargetConnections": 0
+  },
+  "transportEvidence": [
+    {
+      "mode": "stop",
+      "stopMs": 12,
+      "activeProcesses": 0
+    },
+    {
+      "mode": "host-eof",
+      "stopMs": 12,
+      "activeProcesses": 0
+    }
+  ],
+  "unchangedChecks": "45/45 and both typechecks/builds recorded at e93efb6 in local-validation.json; not rerun as a full local suite",
+  "cliEngine": "unknown; owned fixture only",
+  "defaultNativeAdmission": false
+}
