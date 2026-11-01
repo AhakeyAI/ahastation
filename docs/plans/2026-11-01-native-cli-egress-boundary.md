@@ -86,6 +86,8 @@
 
 本轮本地结果：上述检查均 exit 0，6 个定向测试文件共 **45/45**，0 skipped。Windows 自有 ConPTY 的 stop 样本为 3 ms、Job active=0；这是单次隐藏样本，不作跨平台延迟承诺。未执行真实 provider、模型、账户、可见 PTY、全量本机测试或真实远端动作。最终提交的完整 CI 另以 PR head 记录；本地样本不继承为 CI/引擎证据。
 
+提交后自审另修一项启动时序竞态：先将 suspended 身份帧入队，再开启 ConPTY 输出 reader，避免极早终端字节先于身份帧到达宿主。仅重建受影响 helper 并运行 ConPTY/transport 两文件 **7/7**；新 ConPTY stop 2 ms，旧 transport stop/EOF 各 12 ms，均 active=0。当次新源/helper 摘要、命令及工具返回证据在 [guard-followup.json](../evidence/native-worker-conpty/guard-followup.json)；其余 TypeScript、两端检查和构建沿未改内容的 e93efb6 证据，不重复整套本机验证。
+
 `tests/native-worker-conpty.test.mjs` 仅编译并隐藏运行自有 `tests/fixtures/native-conpty.cs`：宿主正对照可达的 TCP 目标、独立私有 sentinel、新临时 home/workspace；测试 suspended 阶段零执行、中文文件及输入、根/后代越界目标未变、无本地连接、伪造终端控制帧无效、Job 整树停止、宿主 EOF 在挂起态封口和映像 hash mismatch。网络观察有时限，不声称测试了全部协议/Internet；普通 AppContainer 可达公开资源的限制另列。
 
 | 故障集 | 本候选证据 | 真实 CLI/指定环境 |

@@ -109,7 +109,7 @@ partial class WindowsGuard {
             if(emit(new {kind="terminal-output",pid=heldPi.pid,startId=start.ToString(),bootId=boot,data=Convert.ToBase64String(bytes,0,count)})==null)break;
           }
         }} catch {} finally {stop.Set();}
-      });outputReader.IsBackground=true;outputReader.Start();
+      });outputReader.IsBackground=true;
       var inputWriter=new Thread(()=> {
         try {using(var stream=new FileStream(new SafeFileHandle(heldInput,true),FileAccess.Write)) {
           foreach(byte[] bytes in incoming.GetConsumingEnumerable()) {
@@ -121,6 +121,9 @@ partial class WindowsGuard {
       // This evidence precedes ANY instruction in the target image. The host
       // may attach IF-2/adopt into PtyHost, then explicitly resume. No input yet.
       emit(new {kind="spawned",pid=pi.pid,startId=start.ToString(),bootId=boot,appContainerSid=sidText,suspended=true,network="none",workspace=workspace,home=home});
+      // Serialize the identity frame before even ConHost's startup bytes;
+      // the host must never receive terminal output for an unknown identity.
+      outputReader.Start();
       var control=new Thread(()=> {
         try {string line;while((line=Line(Console.In))!=null) {
           var frame=Parse(line);string kind=S(frame,"kind");
