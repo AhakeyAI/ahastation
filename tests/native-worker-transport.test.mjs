@@ -54,7 +54,8 @@ for (const stopMode of ['stop', 'host-eof']) test(`saturated worker input cannot
     while (Date.now() < deadline) {
       if (failure) throw failure;
       const describe = () => JSON.stringify(events.map(e => ({ kind: e.kind, error: e.error, op: e.message?.op,
-        errorType: e.message?.errorType, errorCode: e.message?.errorCode, messageKeys: Object.keys(e.message ?? {}) })));
+        errorType: e.message?.errorType, errorCode: e.message?.errorCode, nativeErrorCode: e.message?.nativeErrorCode,
+        messageKeys: Object.keys(e.message ?? {}) })));
       assert.equal(events.some(e => e.kind === 'fatal' || e.message?.op === 'fixture-error'), false,
         `guard lost fixture transport: ${describe()}`);
       const index = events.findIndex(predicate); if (index >= 0) return events.splice(index, 1)[0];
