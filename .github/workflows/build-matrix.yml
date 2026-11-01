@@ -89,6 +89,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: node --test --test-isolation=none tests/native-worker-transport.test.mjs
 
+      - name: Windows guarded ConPTY (hidden owned fixture, no provider/model/login)
+        if: matrix.os == 'windows-latest'
+        run: node --test --test-isolation=none tests/native-worker-conpty.test.mjs
+
       - name: Install test browser
         run: npx playwright install --with-deps chromium
 

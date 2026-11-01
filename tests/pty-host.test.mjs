@@ -240,3 +240,21 @@ test('tree stop revokes raw keyboard writes and resize even if cleanup fails', a
   assert.deepEqual(spawned[0].pty.writes, []);
   host.killAll();
 });
+
+test('guarded PTY keeps its sealed owner after unconfirmed stop; never falls through to ordinary kill', async () => {
+  const pty = createFakePty(); let confirmed = false;
+  pty.terminateTree = async () => {
+    if (confirmed) pty.emitExit(1);
+    return { confirmed };
+  };
+  const host = new PtyHost({ spawn: () => { throw new Error('must adopt existing guarded process'); } });
+  host.adopt('guarded', pty);
+  const stop = host.terminateTree('guarded');
+  assert.equal(host.write('guarded', 'late approve'), false);
+  await assert.rejects(stop, /unconfirmed/);
+  assert.equal(host.has('guarded'), true); assert.equal(pty.killed, false);
+  host.kill('guarded'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(host.has('guarded'), true); assert.equal(pty.killed, false);
+  confirmed = true; await host.terminateTree('guarded');
+  assert.equal(host.has('guarded'), false);
+});

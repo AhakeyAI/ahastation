@@ -14,7 +14,7 @@ using System.Security.AccessControl;
 using System.Web.Script.Serialization;
 using Microsoft.Win32.SafeHandles;
 
-class WindowsGuard {
+partial class WindowsGuard {
   static string Json(object value) { return new JavaScriptSerializer { MaxJsonLength = 1048576 }.Serialize(value); }
   static readonly object outputLock = new object();
   static void Emit(object value) { lock(outputLock) { Console.WriteLine(Json(value)); Console.Out.Flush(); } }
@@ -84,7 +84,7 @@ class WindowsGuard {
     // DACL at creation, no interval with public/runtime write access.
     Directory.CreateDirectory(directory,acl);
   }
-  static int Guardian() {
+  static int Guardian(Dictionary<string,object> config) {
     string profile="AhaWorker."+Guid.NewGuid().ToString("N"); IntPtr sid=IntPtr.Zero,job=IntPtr.Zero,attrs=IntPtr.Zero;
     IntPtr handles=IntPtr.Zero,capsPtr=IntPtr.Zero,environment=IntPtr.Zero,pipeSecurity=IntPtr.Zero; PI pi=new PI();
     IntPtr inputRead=IntPtr.Zero,inputWrite=IntPtr.Zero,outputRead=IntPtr.Zero,outputWrite=IntPtr.Zero;
@@ -116,7 +116,7 @@ class WindowsGuard {
       }} catch {stopping.Set();}
     });outputWriter.IsBackground=true;outputWriter.Start();
     try {
-      Dictionary<string,object> config=Parse(Line(Console.In)); string root=S(config,"directory");
+      string root=S(config,"directory");
       Check(CreateAppContainerProfile(profile,profile,"Ephemeral offline worker",IntPtr.Zero,0,out sid)==0,"container-create");
       string sidText=new SecurityIdentifier(sid).Value; string runtime=Path.Combine(root,"runtime"); PrivateRuntime(runtime,new SecurityIdentifier(sid));
       string executable=Path.Combine(runtime,"worker.exe"); File.Copy(System.Reflection.Assembly.GetExecutingAssembly().Location,executable,false);
@@ -268,6 +268,9 @@ class WindowsGuard {
     }
     if(args.Length>1 && args[0]=="--descendant") return TryWrite(args[1])?99:0;
     if(args.Length>0 && args[0]=="--idle") { Thread.Sleep(60000);return 0; }
-    return Guardian();
+    try {
+      var config=Parse(Line(Console.In));
+      return config.ContainsKey("terminal") ? TerminalGuardian(config) : Guardian(config);
+    } catch { Emit(new {kind="fatal",error="invalid-guard-config"});return 1; }
   }
 }

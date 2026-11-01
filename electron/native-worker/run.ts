@@ -230,7 +230,7 @@ export class NativeWorkerRun {
     return this.sameBasis(basis) && this.bound();
   }
   input(basis: RunBasis, writer: 'host' | 'human', data: string, lease?: unknown): boolean {
-    if (!this.sameBasis(basis) || !this.bound() || (writer === 'host' ? this.state !== 'automatic' : this.state !== 'human')) return false;
+    if (this.reportReceipt || !this.sameBasis(basis) || !this.bound() || (writer === 'host' ? this.state !== 'automatic' : this.state !== 'human')) return false;
     try {
       if (!this.options.guard.verifyWriter(lease, writer, basis)) return false;
       return this.options.guard.write(data, writer);
@@ -274,9 +274,15 @@ export class NativeWorkerRun {
     const delivery = Promise.resolve().then(async () => {
       if (!this.peer(peer) || !this.sameBasis(basis) || !this.bound()) throw new Error('report-rejected');
       await this.options.onReport(report, id); // candidate only, never task success
+      if (!this.peer(peer) || !this.sameBasis(basis) || !this.bound()) throw new Error('report-rejected');
       return id;
     }).catch(() => { void this.stop(); throw new Error('report-delivery-unconfirmed'); });
     this.reportReceipt = { id, digest: hash, delivery };
+    // Freeze input/tool authority as soon as the candidate is claimed. Keep
+    // the protected report channel alive for the awaited idempotent receipt.
+    this.permits.clear();
+    for (const controller of this.pending) controller.abort();
+    this.pending.clear();
     return delivery;
   }
   /** Root exit, hook Stop, EOF and reports deliberately have no stop-confirm API. */
