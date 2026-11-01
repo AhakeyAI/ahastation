@@ -1,0 +1,108 @@
+{
+  "recordedAt": "2026-11-01T12:24:39.866Z",
+  "base": "0bf8508e6c5dc835463feacd5d4054c61c0e5757",
+  "dirtyAtRun": true,
+  "reviewFinding": "P2: confirmed ConPTY exits were hardcoded to exitCode 1",
+  "platform": "win32-x64",
+  "node": "v26.12.1",
+  "sourceHashes": {
+    "electron/native-worker/windows-conpty.ts": "a2d7eb977db334ef2634243e9c825c15bceab00218a6fb04d4df25f44df33c15",
+    "electron/pty-host.ts": "f2bfdcb55428819ea42bdb2dc739e39f7d7025727962b8c32a1b4289390fea28",
+    "electron/windows-pty-startup.ts": "2aae75d2aeb789c052d8cea371ee33a5abcff59ef7c2cbe1903078aef3a1990c",
+    "native/worker-guard/WindowsConPty.cs": "56ed3a92e8499965cca538af4f634b5c5f838e3b740e322ffcc8fa25234d5ef6",
+    "tests/fixtures/native-conpty.cs": "d398dc98f677709dfa414adacbf36dda76c36830d1ed10841364e32b3e2ba510",
+    "tests/native-worker-conpty.test.mjs": "eba95c0afb68b466a5e323b9ac15cbdfedda9bbc71b170488be6bb781a2bf9b4",
+    "tests/pty-host.test.mjs": "7bf91c8b103932309153ada76fe1610243102d8665de08f57817e8392e6c0e46"
+  },
+  "helperSha256": "3bef9262e9e06c5935a35693fb4df13f8e4a01133bf85927a437789930fe7773",
+  "dependencyLockSha256": "a3df1bbc02be91b14815d6add9613de6e600d6bc32af9cc76d8b8791a7dd18c8",
+  "commands": [
+    {
+      "command": "node scripts/build-worker-guard.mjs",
+      "exit": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.electron.json",
+      "exit": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "exit": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.electron.json",
+      "exit": 0
+    },
+    {
+      "command": "node node_modules/vite/bin/vite.js build",
+      "exit": 0
+    },
+    {
+      "command": "node --test --test-isolation=none --test-timeout=30000 tests/native-worker-conpty.test.mjs tests/pty-host.test.mjs tests/native-worker-transport.test.mjs",
+      "exit": 0,
+      "tests": 31,
+      "pass": 31,
+      "fail": 0,
+      "skipped": 0
+    }
+  ],
+  "diagnostics": [
+    {
+      "boundary": "windows-offline-conpty-v1",
+      "stopMs": 6,
+      "nativeFileWrite": true,
+      "deniedDirectAndDescendantWrite": true,
+      "deniedLoopbackConnections": 0,
+      "treeExit": "Job ActiveProcesses=0",
+      "cliEngine": "unknown; owned fixture only",
+      "defaultNativeAdmission": false
+    },
+    {
+      "exitCode": 0,
+      "stopReason": "process-exit",
+      "rootExitedBeforeStop": true,
+      "activeProcesses": 0,
+      "forcedTermination": false
+    },
+    {
+      "exitCode": 37,
+      "stopReason": "process-exit",
+      "rootExitedBeforeStop": true,
+      "activeProcesses": 0,
+      "forcedTermination": false
+    },
+    {
+      "exitCode": 259,
+      "stopReason": "process-exit",
+      "rootExitedBeforeStop": true,
+      "activeProcesses": 0,
+      "forcedTermination": false
+    },
+    {
+      "exitCode": 4294967295,
+      "stopReason": "process-exit",
+      "rootExitedBeforeStop": true,
+      "activeProcesses": 0,
+      "forcedTermination": false
+    },
+    {
+      "mode": "stop",
+      "pendingBytes": 480015,
+      "stopMs": 11,
+      "activeProcesses": 0
+    },
+    {
+      "mode": "host-eof",
+      "pendingBytes": 480015,
+      "stopMs": 11,
+      "activeProcesses": 0
+    }
+  ],
+  "additionalRegressions": [
+    "console closes before exit 0; no forced failure",
+    "root exit 0 with a live owned descendant; root result preserved and Job active=0 after forced descendant cleanup",
+    "host-stop/host-eof reasons are distinct from natural process exit",
+    "PtyHost legacy numeric exit callback and metadata callback preserve the same OS result"
+  ],
+  "scope": "owned hidden console images only; no personal CLI/login/model/global config/remote write evidence; default native remains closed"
+}

@@ -106,3 +106,13 @@
 最小实机任务沿 B04 的 sum 小仓库：只允许 src 编辑、读 test、运行指定测试；连续范围内动作应自动核验，新增依赖/新目标升级授权，拒绝 test 写后 hash 不变，独立 attempt 停止，带 diff/test/unresolved 的 WorkReport 先作候选。原始证据须含固定 CLI/helper/config hash、原生 sessionId、profile/task/attempt/runtime/owner 及权限代次；无法取得则 unknown。没有能够安全运行的生产 BackendSession 前不提供会放宽边界的“实机启动开关”。
 
 本机不跑全量、不运行个人 CLI/登录扫描、不改真实配置、不自动信任、不调用模型/付费服务、不向真实外部目标写入。完整三平台测试与打包交候选精确 head 的 CI；Mac/Linux 的新 Windows OS 用例显式 skip。CI 绿不能取代 Shawn 指定 Mac Claude→WorkReport，及 N5095 对 Claude/Codex 各 S1–S6/S8/S11；B04 前 native 默认关闭。
+
+## 0bf8508 复审 P2：正常退出码与整树退出分开
+
+独立复审指出 `WindowsConPtyProcess` 将所有 confirmed 的退出硬编码为 `1`；原有隐藏用例只覆盖强制 stop/EOF，未覆盖程序正常返回。此问题已修正：helper 从持有的真实根进程 handle 读取 Windows DWORD 退出码，Node 不再用 helper 自己的退出码或常量代替；取不到值时明确为 `null`。
+
+退出通知现在分别包含 `exitCode`、`stopReason`、`rootExitedBeforeStop` 与匹配运行身份的 `treeExit`（confirmed、activeProcesses、forcedTermination）。`PtyHost.onExit` 保留原来的首参数数值，并通过第二参数传递完整元数据。根返回 `0` 不证明后代已退出；仅 Job active=0 确认整树。根已成功退出、仍有后代被回收时，保留根的 `0`，同时记录强制回收事实。停止原因与根结果不能互相替代，也不代表任务成果已验收。
+
+使用 [进程句柄等待](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject) 判定进程结束，再读取 [GetExitCodeProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess)，避免把 `259` 与仍运行混淆。自然退出结果在任何后代收树前保存；Job 计数清零与根进程对象完成置位分别核验，后者只做有界等待。控制台 EOF 先封输入，允许至多约 1 秒的正常退出核对；显式 stop/宿主 EOF 仍由独立控制线程立即触发收树，不等待该核对窗口。被动监测使用已持有的进程 handle，身份仍在启动及每次控制操作前核验，不把进程销毁中的瞬态误判成身份替换后强杀。
+
+新增隐藏自有回归：正常返回 `0`、`37`、`259`、`0xffffffff`；主动关闭控制台后返回 `0`；根返回 `0` 并遗留真实后代。全部经生产 helper/ConPTY 和 Job 核验；同时保留 stop、宿主 EOF、终端伪造帧、未知停止、饱和管道和 UTF-8 回归。两端 typecheck、Electron/helper/renderer build 通过，相关三文件 **31/31、0 skip**。当次源/helper/lock 摘要和实际结果见 [exit-preservation-review.json](../evidence/native-worker-conpty/exit-preservation-review.json)。生产准入、CLI/模型、Station owner 和 B04 的未知边界不变；最终新 head 的三平台 CI 另记 PR。

@@ -15,6 +15,7 @@ partial class WindowsGuard {
   [StructLayout(LayoutKind.Sequential)] struct COORD { public short x,y; }
   [DllImport("kernel32.dll")] static extern int CreatePseudoConsole(COORD size,IntPtr input,IntPtr output,uint flags,out IntPtr console);
   [DllImport("kernel32.dll")] static extern void ClosePseudoConsole(IntPtr console);
+  [DllImport("kernel32.dll",SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
   [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string s,uint revision,out IntPtr descriptor,out uint size);
   [DllImport("advapi32.dll",SetLastError=true)] static extern bool GetSecurityDescriptorSacl(IntPtr descriptor,out bool present,out IntPtr sacl,out bool defaulted);
   [DllImport("advapi32.dll",CharSet=CharSet.Unicode)] static extern uint SetNamedSecurityInfo(string name,int type,uint info,IntPtr owner,IntPtr group,IntPtr dacl,IntPtr sacl);
@@ -47,18 +48,20 @@ partial class WindowsGuard {
     IntPtr sid=IntPtr.Zero,job=IntPtr.Zero,attrs=IntPtr.Zero,capsPtr=IntPtr.Zero,env=IntPtr.Zero,console=IntPtr.Zero;
     IntPtr ir=IntPtr.Zero,iw=IntPtr.Zero,or=IntPtr.Zero,ow=IntPtr.Zero;PI pi=new PI();
     var stop=new ManualResetEventSlim(false);
+    string stopReason=null;
+    Action<string> stopWith=reason=> {Interlocked.CompareExchange(ref stopReason,reason,null);stop.Set();};
     var outgoing=new BlockingCollection<OutFrame>(32);var incoming=new BlockingCollection<byte[]>(32);
-    int sealedInput=0,resumed=0,outBytes=0,inBytes=0;
+    int sealedInput=0,resumed=0,outBytes=0,inBytes=0,outputClosed=0;
     Func<object,OutFrame> emit=value=> {
       string text=Json(value);int bytes=Encoding.UTF8.GetByteCount(text)+1;
-      if(Interlocked.Add(ref outBytes,bytes)>2097152) {Interlocked.Add(ref outBytes,-bytes);stop.Set();return null;}
+      if(Interlocked.Add(ref outBytes,bytes)>2097152) {Interlocked.Add(ref outBytes,-bytes);stopWith("backpressure");return null;}
       var frame=new OutFrame {text=text,bytes=bytes};
       try {if(outgoing.TryAdd(frame))return frame;} catch(InvalidOperationException) {}
-      Interlocked.Add(ref outBytes,-bytes);stop.Set();return null;
+      Interlocked.Add(ref outBytes,-bytes);stopWith("backpressure");return null;
     };
     var writer=new Thread(()=> {try {foreach(var frame in outgoing.GetConsumingEnumerable()) {
       try {Console.WriteLine(frame.text);Console.Out.Flush();frame.written.Set();} finally {Interlocked.Add(ref outBytes,-frame.bytes);}
-    }} catch {stop.Set();}});writer.IsBackground=true;writer.Start();
+    }} catch {stopWith("transport-loss");}});writer.IsBackground=true;writer.Start();
     try {
       var t=(Dictionary<string,object>)config["terminal"];string root=S(config,"directory");
       Check(CreateAppContainerProfile(profile,profile,"Offline ConPTY launch boundary",IntPtr.Zero,0,out sid)==0,"terminal-container");
@@ -108,7 +111,11 @@ partial class WindowsGuard {
             if(Volatile.Read(ref sealedInput)!=0)continue; // drain ConPTY during close
             if(emit(new {kind="terminal-output",pid=heldPi.pid,startId=start.ToString(),bootId=boot,data=Convert.ToBase64String(bytes,0,count)})==null)break;
           }
-        }} catch {} finally {stop.Set();}
+        }} catch {} finally {
+          // Console closure can precede normal process teardown. Seal input
+          // now; the control loop still handles explicit stop/EOF immediately.
+          Interlocked.Exchange(ref sealedInput,1);Interlocked.Exchange(ref outputClosed,1);
+        }
       });outputReader.IsBackground=true;
       var inputWriter=new Thread(()=> {
         try {using(var stream=new FileStream(new SafeFileHandle(heldInput,true),FileAccess.Write)) {
@@ -116,7 +123,7 @@ partial class WindowsGuard {
             try {if(Volatile.Read(ref sealedInput)!=0)break;stream.Write(bytes,0,bytes.Length);stream.Flush();}
             finally {Interlocked.Add(ref inBytes,-bytes.Length);}
           }
-        }} catch {stop.Set();}
+        }} catch {stopWith("transport-loss");}
       });inputWriter.IsBackground=true;inputWriter.Start();
       // This evidence precedes ANY instruction in the target image. The host
       // may attach IF-2/adopt into PtyHost, then explicitly resume. No input yet.
@@ -127,27 +134,48 @@ partial class WindowsGuard {
       var control=new Thread(()=> {
         try {string line;while((line=Line(Console.In))!=null) {
           var frame=Parse(line);string kind=S(frame,"kind");
-          if(kind=="stop" || Volatile.Read(ref sealedInput)!=0)break;
-          if(!Current(heldPi,heldJob,sidText,start))break;
+          if(kind=="stop") {stopWith("host-stop");return;}
+          if(Volatile.Read(ref sealedInput)!=0)return;
+          if(!Current(heldPi,heldJob,sidText,start)) {stopWith(WaitForSingleObject(heldPi.process,0)==0?"process-exit":"identity-lost");return;}
           if(kind=="resume") {
-            if(Interlocked.CompareExchange(ref resumed,1,0)!=0)break;
+            if(Interlocked.CompareExchange(ref resumed,1,0)!=0) {stopWith("protocol-error");return;}
             Check(ResumeThread(heldPi.thread)!=0xffffffff,"terminal-resume");
             emit(new {kind="resumed",pid=heldPi.pid,startId=start.ToString(),bootId=boot});
           } else if(kind=="terminal-input" && Volatile.Read(ref resumed)==1) {
             byte[] bytes=Convert.FromBase64String(S(frame,"data"));
-            if(bytes.Length>131072 || Interlocked.Add(ref inBytes,bytes.Length)>2097152 || !incoming.TryAdd(bytes))break;
-          } else break; // includes input before resume and unknown operations
-        }} catch {} finally {stop.Set();}
+            if(bytes.Length>131072 || Interlocked.Add(ref inBytes,bytes.Length)>2097152 || !incoming.TryAdd(bytes)) {stopWith("backpressure");return;}
+          } else {stopWith("protocol-error");return;} // includes input before resume
+        }stopWith("host-eof");} catch {stopWith("protocol-error");}
       });control.IsBackground=true;control.Start();
       // Bound a forgotten suspended launch; no timer/UI can implicitly resume.
-      for(int i=0;!stop.Wait(10);i++) {
-        if((Volatile.Read(ref resumed)==0 && i>=999) || !Current(pi,job,sidText,start)) {stop.Set();break;}
+      for(int i=0,closedTicks=0;!stop.Wait(10);i++) {
+        // Wait on the process handle, not exitCode==STILL_ACTIVE: 259 may
+        // itself be the program's exit value. Root exit is not Job exit.
+        uint state=WaitForSingleObject(pi.process,0);
+        if(state==0) {stopWith("process-exit");break;}
+        Check(state==258,"terminal-root-wait");
+        if(Volatile.Read(ref outputClosed)!=0 && ++closedTicks>=100) {stopWith("transport-loss");break;}
+        if(Volatile.Read(ref resumed)==0 && i>=999) {stopWith("startup-timeout");break;}
+        // The held process handle cannot be replaced by PID reuse. Identity
+        // is checked at launch and before each control operation; passive
+        // monitoring must not mistake partially finished process teardown for
+        // an identity change and overwrite a natural exit with TerminateJob.
       }
       Interlocked.Exchange(ref sealedInput,1);incoming.CompleteAdding();
-      Check(TerminateJobObject(job,1),"terminal-stop-tree");
+      bool rootExitedBeforeStop=WaitForSingleObject(pi.process,0)==0;
+      uint codeValue;uint? exitCode=null;
+      if(rootExitedBeforeStop && GetExitCodeProcess(pi.process,out codeValue))exitCode=codeValue;
       ACCOUNT accounting=new ACCOUNT();bool confirmed=false;
+      Check(QueryInformationJobObject(job,1,out accounting,Marshal.SizeOf(typeof(ACCOUNT)),IntPtr.Zero),"terminal-job-before-stop");
+      bool forcedTermination=accounting.active>0;
+      if(forcedTermination)Check(TerminateJobObject(job,1),"terminal-stop-tree");
       for(int i=0;i<500;i++) {Check(QueryInformationJobObject(job,1,out accounting,Marshal.SizeOf(typeof(ACCOUNT)),IntPtr.Zero),"terminal-job-accounting");if(accounting.active==0) {confirmed=true;break;}Thread.Sleep(10);}
-      var final=emit(new {kind="tree-exit",confirmed=confirmed,activeProcesses=accounting.active,pid=pi.pid,startId=start.ToString(),bootId=boot});
+      // Job accounting can reach zero slightly before the process object is
+      // signaled. Read the result only after a bounded handle wait; a missing
+      // result is null, never a fabricated failure/success code.
+      if(!exitCode.HasValue && WaitForSingleObject(pi.process,confirmed?1000u:0u)==0 && GetExitCodeProcess(pi.process,out codeValue))exitCode=codeValue;
+      var final=emit(new {kind="tree-exit",exitCode=exitCode,stopReason=stopReason,rootExitedBeforeStop=rootExitedBeforeStop,
+        forcedTermination=forcedTermination,confirmed=confirmed,activeProcesses=accounting.active,pid=pi.pid,startId=start.ToString(),bootId=boot});
       if(final!=null)final.written.Wait(1000);return confirmed?0:2;
     } catch(Exception error) {
       Interlocked.Exchange(ref sealedInput,1);if(job!=IntPtr.Zero)TerminateJobObject(job,1);

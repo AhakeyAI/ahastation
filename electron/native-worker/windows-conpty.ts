@@ -3,10 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
-import type { PtyProcess } from '../pty-host.js';
+import type { PtyProcess, PtyExitEvent } from '../pty-host.js';
 import { ensurePrivateHookDirectory } from '../global-hooks/file-security.js';
 import type { ProcessIdentity } from './ownership.js';
 import { Utf8Frames } from './utf8-frames.js';
+
+const stopReasons = new Set(['process-exit', 'host-stop', 'host-eof', 'startup-timeout',
+  'transport-loss', 'protocol-error', 'identity-lost', 'backpressure']);
 
 /** Concrete OFFLINE startup seam. Not NativeExecutionGuard: it does not yet
  * authenticate hooks, separate model/tool egress or bind a Station owner.
@@ -24,7 +27,7 @@ export class WindowsConPtyProcess implements PtyProcess {
   private confirmed = false;
   private error?: Error;
   private readonly dataListeners = new Set<(data: string) => void>();
-  private readonly exitListeners = new Set<(event: { exitCode: number }) => void>();
+  private readonly exitListeners = new Set<(event: PtyExitEvent) => void>();
   private readonly decoder = new TextDecoder('utf-8', { fatal: true });
   private finishStop!: (confirmed: boolean) => void;
   private readonly stopped = new Promise<boolean>(resolve => { this.finishStop = resolve; });
@@ -79,9 +82,15 @@ export class WindowsConPtyProcess implements PtyProcess {
             } else if (event.kind === 'resumed' && terminal.matches(event) && terminal.resumed) {
               // OS acknowledgement only; never a native sessionId/trust receipt.
             } else if (event.kind === 'tree-exit' && terminal.matches(event) && event.confirmed === true && event.activeProcesses === 0) {
+              if (!(event.exitCode === null || Number.isInteger(event.exitCode) && event.exitCode >= 0 && event.exitCode <= 0xffffffff)
+                || !stopReasons.has(event.stopReason) || typeof event.rootExitedBeforeStop !== 'boolean'
+                || typeof event.forcedTermination !== 'boolean') throw new Error();
               if (terminal.confirmed) continue;
               terminal.sealed = true; terminal.confirmed = true; terminal.finishStop(true);
-              for (const listener of terminal.exitListeners) { try { listener({ exitCode: 1 }); } catch { /* display only */ } }
+              const exit: PtyExitEvent = Object.freeze({ exitCode: event.exitCode, stopReason: event.stopReason,
+                rootExitedBeforeStop: event.rootExitedBeforeStop, treeExit: Object.freeze({ ...terminal.identity!,
+                  confirmed: true as const, activeProcesses: 0 as const, forcedTermination: event.forcedTermination }) });
+              for (const listener of terminal.exitListeners) { try { listener(exit); } catch { /* display only */ } }
             } else if (event.kind === 'fatal') {
               fail('terminal-helper-fatal');
             } else throw new Error();
@@ -110,7 +119,7 @@ export class WindowsConPtyProcess implements PtyProcess {
     this.resumed = true;
   }
   onData(listener: (data: string) => void) { this.dataListeners.add(listener); return { dispose: () => this.dataListeners.delete(listener) }; }
-  onExit(listener: (event: { exitCode: number }) => void) { this.exitListeners.add(listener); return { dispose: () => this.exitListeners.delete(listener) }; }
+  onExit(listener: (event: PtyExitEvent) => void) { this.exitListeners.add(listener); return { dispose: () => this.exitListeners.delete(listener) }; }
   write(data: string): void {
     if (this.sealed || !this.resumed || Buffer.byteLength(data) > 128 * 1024
       || !this.send({ kind: 'terminal-input', data: Buffer.from(data).toString('base64') })) throw new Error('terminal-input-sealed');

@@ -147,8 +147,11 @@ test('pty exit notifies subscribers and disposes the session', () => {
   host.spawn('w1', SPAWN_OPTS);
   const exits = [];
   host.onExit('w1', (code) => exits.push(code));
+  const metadata = [];
+  host.onExit('w1', (_code, event) => metadata.push(event));
   spawned[0].pty.emitExit(3);
   assert.deepEqual(exits, [3]);
+  assert.deepEqual(metadata, [{ exitCode: 3 }]);
   assert.equal(host.has('w1'), false);
   assert.equal(host.replayBuffer('w1'), null);
 });
