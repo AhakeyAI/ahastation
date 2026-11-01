@@ -108,11 +108,22 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
 
     const report = { status: 'partial', summary: 'offline broker candidate', files: [{ path: 'allowed.txt', action: 'created' }],
       tests: [{ command: 'real model/CLI', status: 'not-run' }], unresolved: [{ code: 'engine-unverified', message: 'not B04 evidence', blocking: true }] };
-    const first = await f.request('report', { report }); const second = await f.request('report', { report });
+    // Ask the owned fixture to send report retries itself before the host
+    // input gate seals. Report IPC remains alive; new host task input does not.
+    const reportIds = [randomUUID(), randomUUID(), randomUUID()];
+    assert.equal(f.c.input({ sendBatch: [
+      { op: 'report', id: reportIds[0], report }, { op: 'report', id: reportIds[1], report },
+      { op: 'ask', id: reportIds[2], call: f.call('after-report.txt') },
+    ] }), true);
+    const response = async (id: string) => (await f.wait(e => e.op === 'response' && (e.value as { id?: string })?.id === id)).value as Record<string, unknown>;
+    const first = await response(reportIds[0]), second = await response(reportIds[1]);
     assert.equal(first.receipt, second.receipt); assert.equal(reports, 1);
     results.push('current-attempt report with real file hash; durable receipt idempotent; no EOF success');
 
-    assert.equal((await f.request('ask', { call: f.call('after-report.txt') })).permit, null);
+    assert.equal((await response(reportIds[2])).permit, null);
+    assert.equal(f.c.input({ send: { op: 'report', id: randomUUID(), report } }), false);
+    assert.equal(f.c.input({ send: { op: 'ask', id: randomUUID(), call: f.call('after-report-input.txt') } }), false);
+    results.push('report retry uses protected child IPC; new host task input and tool permits stay sealed');
     await f.c.run.stop();
     const stopping = await fixture();
     const stopCall = stopping.call('stopped.txt'); assert.ok((await stopping.request('ask', { call: stopCall })).permit);
@@ -145,7 +156,7 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
     }
     const result = { status: 'passed', platform: `${process.platform}-${process.arch}`, node: process.version,
       boundary: 'windows-offline-broker-v1', root, helperSha256, asks, reportDeliveries: reports, results, cliVersions,
-      cliEngine: 'unknown; only isolated native --version, no model/tool turn or PTY',
+      cliEngine: cliProbes.length ? 'unknown; only isolated native --version, no model/tool turn or PTY' : 'unknown; no CLI/model/tool turn or PTY',
       sessionIdentity: 'synthetic fixture only; real native CLI binding unverified; factory rejects normal profiles', defaultNativeAdmission: false };
     writeFileSync(join(root, 'result.json'), JSON.stringify(result, null, 2)); return result;
   } finally { await Promise.all(channels.map(c => c.run.stop())); await service.close(); await new Promise<void>(resolve => server.close(() => resolve())); }

@@ -242,6 +242,15 @@ partial class WindowsGuard {
         var p=Process.Start(new ProcessStartInfo(S(hello,"cliPath"),"--version") {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true});
         string version=p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();p.WaitForExit();
         Emit(new {op="cli-version",credential=hello["credential"],basis=hello["basis"],version=version.Trim(),exitCode=p.ExitCode});
+      } else if(value.ContainsKey("sendBatch")) {
+        // Offline fixture only: the child sends independent report retries
+        // over its existing protected channel. This is not new task input
+        // after report, nor an authorization bypass in the production router.
+        foreach(Dictionary<string,object> wire in (System.Collections.IEnumerable)value["sendBatch"]) {
+          if(!wire.ContainsKey("credential"))wire["credential"]=hello["credential"];
+          if(!wire.ContainsKey("basis"))wire["basis"]=hello["basis"];
+          Emit(wire);
+        }
       } else if(value.ContainsKey("send")) {
         var wire=(Dictionary<string,object>)value["send"];
         if(!wire.ContainsKey("credential")) wire["credential"]=hello["credential"];

@@ -1,0 +1,97 @@
+{
+  "recordedAt": "2026-11-01T11:19:47.936Z",
+  "headAtRun": "b646dd90705a7881d059ff28f65198735f8cfdc7",
+  "dirtyAtRun": true,
+  "fix": "The protected child sends report retries; sealed host task input stays rejected",
+  "failedCI": {
+    "run": 41300109411,
+    "head": "b646dd90705a7881d059ff28f65198735f8cfdc7",
+    "step": "Windows AppContainer broker boundary",
+    "reason": "old driver tried to submit a report retry through the sealed host task-input API"
+  },
+  "sourceHashes": {
+    "native/worker-guard/WindowsGuard.cs": "72fdad95d60febdededfd737d0aee2c404bd0c1451e63cda1e63e84ac0347b44",
+    "native/worker-guard/WindowsConPty.cs": "d3cb405dac11d7ded6c451f0d439203a66cf7a59faec438b786af01e18e69fd6",
+    "electron/native-worker/acceptance.ts": "0e0f04b2fe756934c323a8b365fb65637394b1181cd02c7606c89e4530aeab47",
+    "scripts/accept-native-worker.mjs": "2eec69bf00aa13601f58fc36c6ef6a163f11743f4cffe651b1ca69906d088f3a",
+    "scripts/verify-native-conpty.mjs": "ae9a1cea9cbed888aaf10462481ff8b154cef0e258d8e5b1adcabc07651ae0f2"
+  },
+  "helperSha256": "4c7d6327d82a228bbea88ac68aca6fbc4b4bdc5527695b4db6bb936fd54d2dfb",
+  "commands": [
+    {
+      "command": "node scripts/build-worker-guard.mjs",
+      "exit": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.electron.json",
+      "exit": 0
+    },
+    {
+      "command": "node scripts/accept-native-worker.mjs --no-cli-probes",
+      "exit": 0
+    },
+    {
+      "command": "node --test --test-isolation=none --test-timeout=30000 tests/native-worker-conpty.test.mjs tests/native-worker-transport.test.mjs",
+      "exit": 0,
+      "tests": 7,
+      "pass": 7,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "exit": 0
+    }
+  ],
+  "acceptance": {
+    "status": "passed",
+    "platform": "win32-x64",
+    "node": "v26.12.1",
+    "boundary": "windows-offline-broker-v1",
+    "helperSha256": "4c7d6327d82a228bbea88ac68aca6fbc4b4bdc5527695b4db6bb936fd54d2dfb",
+    "asks": 6,
+    "reportDeliveries": 1,
+    "results": [
+      "real-AppContainer: direct/descendant external write and loopback network blocked",
+      "durable per-action approval -> one-shot broker consumption -> exact file bytes; replay rejected",
+      "Chinese and emoji remain exact through approval, permit, private channel and actual UTF-8 file",
+      "deny and durable journal failure produce no permit/write",
+      "changed action and expired permit rejected at actual side-effect boundary",
+      "current-attempt report with real file hash; durable receipt idempotent; no EOF success",
+      "report retry uses protected child IPC; new host task input and tool permits stay sealed",
+      "stop seals input/revokes pending allow before interruption; real non-breakaway descendant tree active=0",
+      "untrusted credential closes protected channel and stops actual tree",
+      "actual host transport EOF closes Job and confirms descendant tree exit",
+      "Windows DOS device target rejected before approval or file/device open"
+    ],
+    "cliVersions": [],
+    "cliEngine": "unknown; no CLI/model/tool turn or PTY",
+    "sessionIdentity": "synthetic fixture only; real native CLI binding unverified; factory rejects normal profiles",
+    "defaultNativeAdmission": false
+  },
+  "diagnostics": [
+    {
+      "boundary": "windows-offline-conpty-v1",
+      "stopMs": 1,
+      "nativeFileWrite": true,
+      "deniedDirectAndDescendantWrite": true,
+      "deniedLoopbackConnections": 0,
+      "treeExit": "Job ActiveProcesses=0",
+      "cliEngine": "unknown; owned fixture only",
+      "defaultNativeAdmission": false
+    },
+    {
+      "mode": "stop",
+      "pendingBytes": 480015,
+      "stopMs": 11,
+      "activeProcesses": 0
+    },
+    {
+      "mode": "host-eof",
+      "pendingBytes": 480015,
+      "stopMs": 10,
+      "activeProcesses": 0
+    }
+  ],
+  "scope": "hidden owned process trees, offline broker and mocks; no CLI/login/model/real remote action; default native remains closed"
+}

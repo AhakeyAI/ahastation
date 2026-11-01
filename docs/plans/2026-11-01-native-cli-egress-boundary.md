@@ -88,6 +88,10 @@
 
 提交后自审另修一项启动时序竞态：先将 suspended 身份帧入队，再开启 ConPTY 输出 reader，避免极早终端字节先于身份帧到达宿主。仅重建受影响 helper 并运行 ConPTY/transport 两文件 **7/7**；新 ConPTY stop 2 ms，旧 transport stop/EOF 各 12 ms，均 active=0。当次新源/helper 摘要、命令及工具返回证据在 [guard-followup.json](../evidence/native-worker-conpty/guard-followup.json)；其余 TypeScript、两端检查和构建沿未改内容的 e93efb6 证据，不重复整套本机验证。
 
+`b646dd9` 的 [CI 41300109411](https://github.com/AhakeyAI/ahastation/actions/runs/41300109411) 三平台全量测试均 0 失败（Mac 1330 pass/28 skip，Linux 1337/21，Windows 1356/2）；Mac/Linux 打包成功，但 Windows 随后的旧 broker 驱动失败，**该 run 整体为 failure，未完成 Windows 打包**。日志精确定位到第二次 report：驱动在 report claim 后继续调用宿主任务输入 API，新封口正确返回 false。修正 fixture 在第一次受控输入后自行通过原有私有子进程通道发送重复 report 和后续工具请求；不重新开放任务输入、不放宽 guard。新增 `--no-cli-probes`，本地 broker 回归可以完全不启动 CLI；默认 CI 的隔离版本探测保持。验证器也补入此无 CLI broker 入口，避免只测核心 mock 漏掉驱动接缝。
+
+修正后隐藏本地：broker 允许/拒绝/journal 失败/变参/过期/重放/重复报告/回报后封口/stop/EOF 均通过，reportDeliveries=1、cliVersions=[]；受影响 ConPTY/transport **7/7**（stop 样本 1/11/10 ms、active=0），两端 typecheck 通过。新源/helper hash 和实际结果保存在 [broker-followup.json](../evidence/native-worker-conpty/broker-followup.json)。最终 head 的全量 CI/打包结果另记在 PR，不把上述失败 run 改写为通过，也不把未改核心的旧结果冒充最终 head 全量执行。
+
 `tests/native-worker-conpty.test.mjs` 仅编译并隐藏运行自有 `tests/fixtures/native-conpty.cs`：宿主正对照可达的 TCP 目标、独立私有 sentinel、新临时 home/workspace；测试 suspended 阶段零执行、中文文件及输入、根/后代越界目标未变、无本地连接、伪造终端控制帧无效、Job 整树停止、宿主 EOF 在挂起态封口和映像 hash mismatch。网络观察有时限，不声称测试了全部协议/Internet；普通 AppContainer 可达公开资源的限制另列。
 
 | 故障集 | 本候选证据 | 真实 CLI/指定环境 |

@@ -34,12 +34,15 @@ const loader = 'data:text/javascript,import { register } from "node:module"; imp
 for (const name of ['native-worker-conpty', 'pty-host', 'native-worker-bridge', 'native-worker-scheduler-ports', 'global-hooks-admission', 'native-worker-transport']) {
   run(name, ['--test', '--test-isolation=none', '--test-timeout=120000', '--import', loader, `tests/${name}.test.mjs`]);
 }
+// Exercise the actual report channel as well as the core mock: report retries
+// must not depend on reopening the now-sealed host task input path.
+run('offline broker without CLI probes', ['scripts/accept-native-worker.mjs', '--no-cli-probes']);
 const sourcePaths = ['electron/native-worker/windows-conpty.ts', 'native/worker-guard/WindowsConPty.cs',
   'native/worker-guard/WindowsGuard.cs', 'electron/pty-host.ts', 'electron/native-worker/run.ts',
   'electron/native-worker/admission.ts', 'electron/worker-scheduler.ts', 'scripts/build-worker-guard.mjs',
   'scripts/verify-native-conpty.mjs', 'tests/fixtures/native-conpty.cs', 'tests/native-worker-conpty.test.mjs',
   'tests/pty-host.test.mjs', 'tests/native-worker-bridge.test.mjs', 'tests/native-worker-scheduler-ports.test.mjs',
-  '.github/workflows/build-matrix.yml'];
+  'electron/native-worker/acceptance.ts', 'scripts/accept-native-worker.mjs', '.github/workflows/build-matrix.yml'];
 const head = spawnSync('git', ['rev-parse', 'HEAD'], { windowsHide: true, encoding: 'utf8' }).stdout.trim();
 writeFileSync(resolve(output, 'local-validation.json'), JSON.stringify({ recordedAt: new Date().toISOString(),
   headAtRun: head, dirtyAtRun: true, base: '8bbb7e07b9b3a375e6a8d28a3bf02c65e0a74008',
