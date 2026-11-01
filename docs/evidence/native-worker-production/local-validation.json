@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-01T06:18:21.004Z",
-  "headAtRun": "60327018a0cc5af7be73058221f7906b7c16d284",
+  "recordedAt": "2026-11-01T06:38:04.735Z",
+  "headAtRun": "df05cba6610da1d8b3681fb4fda073072accc862",
   "dirtyAtRun": true,
   "platform": "win32-x64",
   "node": "v26.12.1",
@@ -77,6 +77,22 @@
     {
       "label": "Windows device target real guard regression",
       "exit": 0
+    },
+    {
+      "label": "isolate synthetic session profile electron typecheck/build",
+      "exit": 0
+    },
+    {
+      "label": "isolated factory and real guard regression",
+      "exit": 0
+    },
+    {
+      "label": "final isolated profile boundary typecheck/build",
+      "exit": 0
+    },
+    {
+      "label": "final isolated profile OS regression",
+      "exit": 0
     }
   ],
   "acceptance": {
@@ -115,6 +131,7 @@
       }
     ],
     "cliEngine": "unknown; only isolated native --version, no model/tool turn or PTY",
+    "sessionIdentity": "synthetic fixture only; real native CLI binding unverified; factory rejects normal profiles",
     "defaultNativeAdmission": false
   },
   "scope": "targeted local checks and real Windows offline broker, not engine/B04 certification",
@@ -125,8 +142,8 @@
     "electron/native-worker/admission.ts": "8b2cb03751e02fbd5a97a6bd8c27fb51520242f514b6ec8ed91aee203e538dba",
     "electron/native-worker/windows-guard.ts": "96c9ef9d40820b9304713463d9b4851168fec03dc2072d729cde0f7a73f51413",
     "electron/native-worker/broker-channel.ts": "45ed04fdedb9434ac46f139a526511615176b73b31d86e7a97d17746cd339521",
-    "electron/native-worker/profile-service.ts": "fb80cbb2900a119d3c5ed9645fb853fa1344504f5821a256d765b6ed3b12ca07",
-    "electron/native-worker/acceptance.ts": "a6d5500a47d04b6ba739540e5f24b3d699de7cc8e2b705c10ffe1ad8a2482864",
+    "electron/native-worker/profile-service.ts": "e599ecd47302de654e5d3e9ceee457d9a89c977321ea2b8ec792115cbe68d3ec",
+    "electron/native-worker/acceptance.ts": "00ca10341eb0bd72e9f0b5aa0a4f8cc86bc492bcf9187e849e0e5fd815788b91",
     "native/worker-guard/WindowsGuard.cs": "f9bf23dd864be4a65b667350d72db1664aff7f86db2fdcba8ac4f8b1502a2289",
     "scripts/build-worker-guard.mjs": "fcdf573f46d3d5daf19d9a2bf515f45549b211eab0e1a85612a7e0c1998576ee",
     "scripts/accept-native-worker.mjs": "743f909ecdb964a757a38360a261ee73970b3e64bd5cddce4ffa9d536cfb3de2",

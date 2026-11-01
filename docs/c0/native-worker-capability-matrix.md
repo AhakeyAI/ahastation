@@ -2,6 +2,8 @@
 
 2026-11-01。证据等级：S=固定官方源码/schema；V=隔离实际二进制启动；O=真实 OS/broker sentinel；E=真实模型工具回合；B=B04 实机。各列独立，不能用 S/V/O 冒充 E/B。
 
+会话身份限制：离线守卫 relay 的 `fixture-*` ID 不是 CLI 原生 sessionId。工厂仅在显式新建的隔离验收 profile 工作，普通 profile 拒绝；原生会话的 IF-2 绑定仍 unknown。main 注册和 scheduler ports 是接线准备，实际 terminal adapter 启动/报告到此守卫的产品链尚未完成。
+
 ## 平台 × 版本
 
 | 平台/provider | 固定版本 | 本轮证据 | 引擎强制控制/准入 |

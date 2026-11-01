@@ -21,6 +21,9 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
   const authorityJournal = join(root, 'authority.jsonl'); createPrivateHookFile(authorityJournal, '');
   const sentinel = join(root, 'outside.txt'); createPrivateHookFile(sentinel, 'original');
   const service = new NativeWorkerProfileService(profile); service.initializeAcceptanceProfile();
+  const normalProfileService = new NativeWorkerProfileService(join(root, 'normal-profile'));
+  assert.throws(() => normalProfileService.createOfflineBroker({} as never), /isolated-acceptance-profile/);
+  assert.equal(existsSync(join(root, 'normal-profile')), false);
   let connections = 0, reports = 0, asks = 0, journalHealthy = true;
   const server = createServer(socket => { connections++; socket.destroy(); });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -136,7 +139,8 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
     }
     const result = { status: 'passed', platform: `${process.platform}-${process.arch}`, node: process.version,
       boundary: 'windows-offline-broker-v1', root, helperSha256, asks, reportDeliveries: reports, results, cliVersions,
-      cliEngine: 'unknown; only isolated native --version, no model/tool turn or PTY', defaultNativeAdmission: false };
+      cliEngine: 'unknown; only isolated native --version, no model/tool turn or PTY',
+      sessionIdentity: 'synthetic fixture only; real native CLI binding unverified; factory rejects normal profiles', defaultNativeAdmission: false };
     writeFileSync(join(root, 'result.json'), JSON.stringify(result, null, 2)); return result;
   } finally { await Promise.all(channels.map(c => c.run.stop())); await service.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }
