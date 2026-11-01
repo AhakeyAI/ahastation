@@ -171,11 +171,11 @@ class WindowsGuard {
             string line; while((line=Line(child))!=null) {
               if(Volatile.Read(ref sealedInput)!=0 || !Current(heldPi,heldJob,sidText,start))break;
               var message=Parse(line);
-              if(message==null)throw new Exception("worker-frame-not-object");
+              if(message==null)throw new Exception("worker-frame-not-object:"+line.Length);
               if(emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=message})==null)break;
             }
             emit(new {kind="stream-closed"});stopping.Set();
-          }} catch {stopping.Set();}
+          }} catch(Exception error) {stopping.Set();if(Volatile.Read(ref sealedInput)==0)emit(new {kind="fatal",error=error.Message});}
         }); reader.IsBackground=true; reader.Start(); outputRead=IntPtr.Zero;
         Thread controlReader=new Thread(()=> {
           try {string command;while((command=Line(Console.In))!=null) {
@@ -255,7 +255,9 @@ class WindowsGuard {
   static int Main(string[] args) {
     SetErrorMode(0x8003); // inherited by owned descendants; no WER/UI popups
     Console.InputEncoding=new UTF8Encoding(false,true);Console.OutputEncoding=new UTF8Encoding(false,true);
-    if(args.Length>0 && args[0]=="--worker") return Worker();
+    if(args.Length>0 && args[0]=="--worker") {
+      try {return Worker();} catch(Exception error) {Emit(new {op="fixture-error",errorType=error.GetType().FullName,errorCode=error.HResult});return 2;}
+    }
     if(args.Length>1 && args[0]=="--descendant") return TryWrite(args[1])?99:0;
     if(args.Length>0 && args[0]=="--idle") { Thread.Sleep(60000);return 0; }
     return Guardian();
