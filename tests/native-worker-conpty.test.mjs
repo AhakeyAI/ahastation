@@ -20,7 +20,7 @@ function removeOwnedTemp(path, prefix) {
   rmSync(absolute, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
-async function fixture(t) {
+async function fixture(t, argv) {
   const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'aha-owned-console-'));
   const imagePath = join(root, 'console.exe');
   const build = spawnSync(join(process.env.SystemRoot, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'),
@@ -37,7 +37,7 @@ async function fixture(t) {
   const sentinel = join(root, 'outside.txt'); writeFileSync(sentinel, 'original');
   const config = { helperPath: resolve('build/worker-guard/WindowsGuard.exe'), imagePath,
     imageSha256: hash(imagePath), helperSha256: hash('build/worker-guard/WindowsGuard.exe'),
-    argv: [sentinel, String(server.address().port)] };
+    argv: argv ?? [sentinel, String(server.address().port)] };
   const pty = await WindowsConPtyProcess.spawnOffline(config);
   let output = '';
   pty.onData(data => { output = (output + data).slice(-64000); });
@@ -57,6 +57,7 @@ async function fixture(t) {
 
 test('guarded ConPTY attaches suspended identity before code; native file/console and descendants stay isolated', windows, async t => {
   const f = await fixture(t), { pty } = f;
+  const exits = []; pty.onExit(event => exits.push(event));
   const identity = pty.processIdentity(); assert.ok(identity.pid > 0); assert.match(identity.startId, /^\d+$/);
   assert.throws(() => pty.write('must not enter before resume'), /sealed/);
   const host = new PtyHost({ spawn: () => { throw new Error('must not launch a second process'); } });
@@ -71,16 +72,73 @@ test('guarded ConPTY attaches suspended identity before code; native file/consol
   assert.equal(host.write('owned-fixture', '输入 🧪\r'), true); await f.wait('fixture-input=输入 🧪');
   const start = Date.now(); await host.terminateTree('owned-fixture');
   assert.equal(host.has('owned-fixture'), false); assert.equal(host.write('owned-fixture', 'late'), false);
+  assert.equal(exits.length, 1); assert.equal(exits[0].stopReason, 'host-stop');
+  assert.equal(exits[0].rootExitedBeforeStop, false); assert.equal(exits[0].treeExit.forcedTermination, true);
+  assert.equal(exits[0].treeExit.activeProcesses, 0); assert.equal(exits[0].exitCode, 1, 'actual TerminateJobObject exit value');
   t.diagnostic(JSON.stringify({ boundary: 'windows-offline-conpty-v1', identity, stopMs: Date.now() - start,
     nativeFileWrite: true, deniedDirectAndDescendantWrite: true, deniedLoopbackConnections: f.connections(),
     treeExit: 'Job ActiveProcesses=0', cliEngine: 'unknown; owned fixture only', defaultNativeAdmission: false }));
 });
 
 test('host EOF reaps a suspended ConPTY without running target instructions', windows, async t => {
-  const { pty } = await fixture(t); pty.disconnectHostTransport();
+  const { pty } = await fixture(t), exits = []; pty.onExit(event => exits.push(event)); pty.disconnectHostTransport();
   assert.equal((await pty.terminateTree()).confirmed, true);
+  assert.equal(exits[0].stopReason, 'host-eof'); assert.equal(exits[0].rootExitedBeforeStop, false);
+  assert.equal(exits[0].treeExit.confirmed, true); assert.equal(exits[0].treeExit.activeProcesses, 0);
   assert.equal(existsSync(join(pty.workspace, 'started.txt')), false);
   assert.throws(() => pty.resume(), /rejected/);
+});
+
+for (const [value, expected] of [['0', 0], ['37', 37], ['259', 259], ['-1', 0xffffffff]]) {
+  test(`normal ConPTY root exit ${value} retains its OS code independently of Job confirmation`, windows, async t => {
+    const { pty } = await fixture(t, ['--exit', value]);
+    const host = new PtyHost(); host.adopt('normal-exit', pty);
+    let timer;
+    const exited = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('normal root exit was not confirmed')), 7000);
+      host.onExit('normal-exit', (exitCode, event) => resolve({ exitCode, event }));
+    });
+    try {
+      pty.resume(); const { exitCode, event } = await exited;
+      assert.equal(exitCode, expected); assert.equal(event.exitCode, expected);
+      assert.equal(event.stopReason, 'process-exit'); assert.equal(event.rootExitedBeforeStop, true);
+      const identity = pty.processIdentity();
+      assert.deepEqual({ pid: event.treeExit.pid, startId: event.treeExit.startId, bootId: event.treeExit.bootId }, identity);
+      assert.equal(event.treeExit.confirmed, true); assert.equal(event.treeExit.activeProcesses, 0);
+      assert.equal(typeof event.treeExit.forcedTermination, 'boolean');
+      assert.equal(host.has('normal-exit'), false); assert.equal(pty.startupError, undefined);
+      t.diagnostic(JSON.stringify({ exitCode, stopReason: event.stopReason, rootExitedBeforeStop: event.rootExitedBeforeStop,
+        activeProcesses: event.treeExit.activeProcesses, forcedTermination: event.treeExit.forcedTermination }));
+    } finally { clearTimeout(timer); }
+  });
+}
+
+test('closing the console before normal teardown does not turn exit 0 into forced failure', windows, async t => {
+  const { pty } = await fixture(t, ['--exit-after-console-close']); let timer;
+  const exited = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('normal console teardown was not confirmed')), 7000); pty.onExit(resolve);
+  });
+  try {
+    pty.resume(); const event = await exited;
+    assert.equal(event.exitCode, 0); assert.equal(event.stopReason, 'process-exit');
+    assert.equal(event.rootExitedBeforeStop, true); assert.equal(event.treeExit.activeProcesses, 0);
+  } finally { clearTimeout(timer); }
+});
+
+test('root success and forced descendant cleanup are separate facts', windows, async t => {
+  const { pty } = await fixture(t, ['--exit-with-child']);
+  let timer;
+  const exited = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('remaining descendant was not reaped')), 7000);
+    pty.onExit(resolve);
+  });
+  try {
+    pty.resume(); const event = await exited;
+    assert.equal(event.exitCode, 0); assert.equal(event.stopReason, 'process-exit');
+    assert.ok(Number(readFileSync(join(pty.workspace, 'remaining-child.txt'), 'utf8')) > 0);
+    assert.equal(event.rootExitedBeforeStop, true); assert.equal(event.treeExit.forcedTermination, true);
+    assert.equal(event.treeExit.confirmed, true); assert.equal(event.treeExit.activeProcesses, 0);
+  } finally { clearTimeout(timer); }
 });
 
 test('staged console image mismatch is rejected before target startup', windows, async () => {

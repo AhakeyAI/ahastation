@@ -22,9 +22,19 @@ import { guardWindowsPtyStartup } from './windows-pty-startup.js';
 const require_ = createRequire(import.meta.url);
 
 /** Minimal surface of an IPty we rely on - matches @lydell/node-pty. */
+export interface PtyExitEvent {
+  /** Root process result, independently of why the guardian stopped the tree. */
+  exitCode: number | null;
+  signal?: number;
+  stopReason?: string;
+  rootExitedBeforeStop?: boolean;
+  /** Present only when a guarded owner supplied matching OS Job evidence. */
+  treeExit?: { confirmed: true; activeProcesses: 0; forcedTermination: boolean;
+    pid: number; startId: string; bootId: string };
+}
 export interface PtyProcess {
   onData(cb: (data: string) => void): { dispose(): void };
-  onExit(cb: (e: { exitCode: number; signal?: number }) => void): { dispose(): void };
+  onExit(cb: (e: PtyExitEvent) => void): { dispose(): void };
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(signal?: string): void;
@@ -105,7 +115,7 @@ interface LivePty {
   pty: PtyProcess;
   buffer: PtyRingBuffer;
   dataListeners: Set<(data: string) => void>;
-  exitListeners: Set<(exitCode: number | null) => void>;
+  exitListeners: Set<(exitCode: number | null, event: PtyExitEvent) => void>;
   disposables: Array<{ dispose(): void }>;
   exited: boolean;
   stopping: boolean;
@@ -216,10 +226,10 @@ export class PtyHost {
         try { cb(data); } catch { /* listener must not break the stream */ }
       }
     }));
-    live.disposables.push(pty.onExit(({ exitCode }) => {
+    live.disposables.push(pty.onExit((event) => {
       live.exited = true;
       for (const cb of live.exitListeners) {
-        try { cb(exitCode); } catch { /* ignore */ }
+        try { cb(event.exitCode, event); } catch { /* ignore */ }
       }
       this.dispose(id);
     }));
@@ -261,7 +271,7 @@ export class PtyHost {
   }
 
   /** Subscribe to pty exit. Returns an unsubscribe function. */
-  onExit(id: string, cb: (exitCode: number | null) => void): () => void {
+  onExit(id: string, cb: (exitCode: number | null, event: PtyExitEvent) => void): () => void {
     const live = this.sessions.get(id);
     if (!live) return () => undefined;
     live.exitListeners.add(cb);

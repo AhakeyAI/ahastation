@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Threading;
 using System.Text;
 class Fixture {
+  [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool FreeConsole();
   static bool Write(string path) {try {File.WriteAllText(path,"changed");return true;}catch {return false;}}
   static bool Connect(int port) {try {using(var c=new TcpClient()) {
     var connect=c.ConnectAsync("127.0.0.1",port);if(!connect.Wait(1000))return false;
@@ -24,6 +25,9 @@ class Fixture {
   static int Run(string[] args) {
     Console.OutputEncoding=new UTF8Encoding(false);Console.InputEncoding=new UTF8Encoding(false);
     if(args[0]=="--idle") {Thread.Sleep(60000);return 0;}
+    if(args[0]=="--exit")return int.Parse(args[1]);
+    if(args[0]=="--exit-after-console-close") {if(!FreeConsole())return 5;Thread.Sleep(200);return 0;}
+    if(args[0]=="--exit-with-child") {var child=Child("--idle");File.WriteAllText("remaining-child.txt",child.Id.ToString());return 0;}
     if(args[0]=="--child") return Write(args[1]) || Connect(int.Parse(args[2]))?99:0;
     // The host checks this file does not exist while the process is suspended.
     File.WriteAllText("started.txt","中文 🧪");

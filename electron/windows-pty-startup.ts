@@ -1,5 +1,5 @@
 import type { Socket } from 'node:net';
-import type { PtyProcess } from './pty-host.js';
+import type { PtyProcess, PtyExitEvent } from './pty-host.js';
 
 // @lydell/node-pty 1.2.0-beta.12 throws from deferred connect rather than
 // reporting a per-terminal error. Keep its private compatibility surface here.
@@ -17,10 +17,10 @@ interface WindowsPty extends PtyProcess {
 export function guardWindowsPtyStartup(pty: PtyProcess): PtyProcess {
   const agent = (pty as WindowsPty)._agent;
   const connect = agent._completePtyConnection.bind(agent);
-  const exits = new Set<(event: { exitCode: number }) => void>();
+  const exits = new Set<(event: PtyExitEvent) => void>();
   let startupError: Error | undefined;
   let ended = false;
-  const publishExit = (event: { exitCode: number }) => {
+  const publishExit = (event: PtyExitEvent) => {
     if (ended) return;
     ended = true;
     for (const callback of exits) callback(event);
