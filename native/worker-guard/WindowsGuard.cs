@@ -170,7 +170,9 @@ class WindowsGuard {
           try { using(StreamReader child=new StreamReader(new FileStream(new SafeFileHandle(heldOutput,true),FileAccess.Read),new UTF8Encoding(false,true),false)) {
             string line; while((line=Line(child))!=null) {
               if(Volatile.Read(ref sealedInput)!=0 || !Current(heldPi,heldJob,sidText,start))break;
-              if(emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=Parse(line)})==null)break;
+              var message=Parse(line);
+              if(message==null)throw new Exception("worker-frame-not-object");
+              if(emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=message})==null)break;
             }
             emit(new {kind="stream-closed"});stopping.Set();
           }} catch {stopping.Set();}
@@ -211,6 +213,13 @@ class WindowsGuard {
     }
   }
   static bool TryWrite(string path) { try { File.WriteAllText(path,"ESCAPED"); return true; } catch {return false;} }
+  static Process IdleChild() {
+    // This fixture descendant has no protocol role. It must not consume the
+    // parent's inherited stdin or write into the parent's authenticated output.
+    var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {
+      UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true});
+    p.StandardInput.Close();p.BeginOutputReadLine();p.BeginErrorReadLine();return p;
+  }
   static int Worker() {
     var hello=Parse(Line(Console.In)); Emit(new {op="bind",credential=hello["credential"],basis=hello["basis"],sessionId=hello["sessionId"]});
     // No task/probe before host has committed IF-2 and sent the first input.
@@ -233,10 +242,10 @@ class WindowsGuard {
         Emit(wire);
       }
       else if(value.ContainsKey("idleChild")) {
-        var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {UseShellExecute=false,CreateNoWindow=true});
+        var p=IdleChild();
         Emit(new {op="idle-child",credential=hello["credential"],basis=hello["basis"],pid=p.Id});
       } else if(value.ContainsKey("pauseInput")) {
-        var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {UseShellExecute=false,CreateNoWindow=true});
+        var p=IdleChild();
         Emit(new {op="input-paused",credential=hello["credential"],basis=hello["basis"],pid=p.Id});
         Thread.Sleep(Timeout.Infinite);
       } else Emit(new {op="response",credential=hello["credential"],basis=hello["basis"],value=value});

@@ -53,6 +53,8 @@ for (const stopMode of ['stop', 'host-eof']) test(`saturated worker input cannot
     const deadline = Date.now() + 4000;
     while (Date.now() < deadline) {
       if (failure) throw failure;
+      assert.equal(events.some(e => e.kind === 'fatal'), false,
+        `guard lost fixture transport: ${JSON.stringify(events.map(e => ({ kind: e.kind, error: e.error, messageKeys: Object.keys(e.message ?? {}) })))}`);
       const index = events.findIndex(predicate); if (index >= 0) return events.splice(index, 1)[0];
       assert.equal(ended, false, 'helper exited before returning OS evidence');
       await delay(10);

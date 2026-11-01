@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-01T07:42:49.795Z",
-  "headAtRun": "caa8f9e913fb8943352c73dbbfe008cfe12a953c",
+  "recordedAt": "2026-11-01T08:06:54.923Z",
+  "headAtRun": "764d229bee451f5f0f9b89ecd2d4dbde1b7e0890",
   "dirtyAtRun": true,
   "platform": "win32-x64",
   "node": "v26.12.1",
@@ -13,17 +13,17 @@
     "electron/native-worker/broker-channel.ts": "45ed04fdedb9434ac46f139a526511615176b73b31d86e7a97d17746cd339521",
     "electron/native-worker/profile-service.ts": "e599ecd47302de654e5d3e9ceee457d9a89c977321ea2b8ec792115cbe68d3ec",
     "electron/native-worker/acceptance.ts": "185666525b88901fdd8453f682782e126a81adb5b26249b60c24b634443efd11",
-    "native/worker-guard/WindowsGuard.cs": "a7fb55355348169d89e9bb6081954ab6220b794a5d7d029218bea3288e4ffcd5",
+    "native/worker-guard/WindowsGuard.cs": "e0e1319a98cc4aa529f31bdc1b46c3bbedb26f530f1067fa5706706b9c16f7ab",
     "scripts/build-worker-guard.mjs": "fcdf573f46d3d5daf19d9a2bf515f45549b211eab0e1a85612a7e0c1998576ee",
     "scripts/accept-native-worker.mjs": "743f909ecdb964a757a38360a261ee73970b3e64bd5cddce4ffa9d536cfb3de2",
     "scripts/verify-native-production.mjs": "909f7135b8ef8f5fd501708cc272e49373bb9c33b44d1c6883825da08a7e48a5",
     "tests/native-worker-bridge.test.mjs": "386fa43b04c8956c75efec7cf4cb232df94788929801833a4db9bac650e6224f",
     "tests/native-worker-scheduler-ports.test.mjs": "31da66eb4477e936bcee3031cd70aebaa03d231fda79808e176bf931e50fa734",
-    "tests/native-worker-transport.test.mjs": "d2f423bd04a676a7af636cb3d20aebc3c1fdbd5ca828968f961e071d3d14a846",
+    "tests/native-worker-transport.test.mjs": "6f3de8b853d332277be1e91eb087b641829dab0711314c5fc0aa1dbb751991b2",
     "electron/native-worker/utf8-frames.ts": "d4284ea0593fe2d96460302d2179f2abc91d3ebb928722197c5edbaf1ad89421",
     "package.json": "edc90d9d8d32a074f43427c6c0ff9b421226b4054d56b9270179c1b19d0365ef",
     "electron-builder.json": "0f7cfa175a23e82a87cd8188d466ae7e7323064b708c898919aa5448cf0f3eb7",
-    ".github/workflows/build-matrix.yml": "9781292d3d490836b800205a022113f59045df2ab2d333732d3e05d0ac1a313e"
+    ".github/workflows/build-matrix.yml": "67dddf3eb945dc634b4e6aabac75fecee918078a5a8998455f4c2a9347cb1ac0"
   },
   "dependencyLockSha256": "a3df1bbc02be91b14815d6add9613de6e600d6bc32af9cc76d8b8791a7dd18c8",
   "results": [
@@ -90,6 +90,10 @@
     {
       "label": "final transport fault regression",
       "exit": 0
+    },
+    {
+      "label": "isolated descendant stdio and blocked input regression",
+      "exit": 0
     }
   ],
   "acceptance": {
@@ -97,7 +101,7 @@
     "platform": "win32-x64",
     "node": "v26.12.1",
     "boundary": "windows-offline-broker-v1",
-    "helperSha256": "e06fb76285f8b62e83df8a2dfd892ed6622a11a0c687ccf561819b51602f67b1",
+    "helperSha256": "ba0645f8d9c17b2900c5b1bd4bd3c74e7eb32a171efc2a15e8232eb80f890115",
     "asks": 6,
     "reportDeliveries": 1,
     "results": [
@@ -150,13 +154,13 @@
       {
         "mode": "stop",
         "pendingBytes": 480015,
-        "stopMs": 12,
+        "stopMs": 13,
         "activeProcesses": 0
       },
       {
         "mode": "host-eof",
         "pendingBytes": 480015,
-        "stopMs": 10,
+        "stopMs": 16,
         "activeProcesses": 0
       }
     ]
