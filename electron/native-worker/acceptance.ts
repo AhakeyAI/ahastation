@@ -120,6 +120,11 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
     disconnected.c.guard.disconnectHostTransport();
     assert.equal(await disconnected.c.run.stop(), true);
     results.push('actual host transport EOF closes Job and confirms descendant tree exit');
+    const device = await fixture();
+    assert.equal(device.c.input({ send: { op: 'ask', id: randomUUID(), call: device.call('CON.txt') } }), true);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(await device.c.run.stop(), true);
+    results.push('Windows DOS device target rejected before approval or file/device open');
     const cliVersions: unknown[] = [];
     for (const binary of cliProbes) {
       const probe = await fixture(binary);

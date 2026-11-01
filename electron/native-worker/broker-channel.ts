@@ -61,6 +61,7 @@ export class NativeWorkerBrokerChannel {
       if (this.calls.size >= 32) { this.guard.reply({ id, permit: null }); return; }
       const call = callSchema.parse(message.call);
       if (call.input.cwd !== cwd || basename(call.input.file_path) !== call.input.file_path
+        || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(call.input.file_path)
         || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,150}\.txt$/.test(call.input.file_path)) throw new Error('broker-target-rejected');
       const permit = await this.run.requestTool(peer, basis, call);
       if (permit) this.calls.set(permit.id, { call: structuredClone(call), expiresAt: permit.expiresAt });

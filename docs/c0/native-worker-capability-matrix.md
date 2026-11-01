@@ -36,6 +36,7 @@ Codex 0.156.1 固定源码 commit `b412ff32c417f855c2b2d1581b77058eed87c84b`：
 | 宿主丢失 | 私有 stdin EOF → helper 关闭 Job；helper 崩溃依赖 KILL_ON_JOB_CLOSE | O：实际 EOF + 存活后代后 active=0；未执行整机崩溃 | E/B unknown |
 | 批准后、动作前 stop | 同步封口/撤权，再中断；旧 permit 不能消费 | O：已发 permit、后代存活、stop 后文件不存在；active=0 | E unknown |
 | 凭据伪造/旧代次/重放 | 私有管道 OS 身份 + nonce + run basis + permit map | O：伪造凭据封口，变参/过期/重放不写；旧代次核心回归 | E unknown |
+| Windows DOS 设备名 | broker 在裁决/打开前拒绝 CON/NUL/COM 等设备目标 | O：受保护通道提交 CON.txt 后拒绝并整树退出 | 非真实引擎路径 |
 | 直接/后代越界写 | AppContainer Token 权限检查，broker 无任意 exec | O：受限 root 与实际 descendant 均无法修改私有外部 sentinel | 不概括任意公开 ACL 目标；E unknown |
 | shell 间接写/外部写 | broker 不提供 shell/网络；AppContainer 限制直接访问私有目标与网络 | O：后代写和 TCP localhost 被拒；没有 shell/真实远端写取证 | 任意 CLI 脚本矩阵仍 unknown |
 | 回报/回执 | 当前 attempt、已创建文件实际 hash、fsync 与 awaited scheduler | O：同 report 同 receipt，只交付一次；核心异步失败回归 | 真实模型 WorkReport unknown |

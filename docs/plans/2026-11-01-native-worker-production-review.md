@@ -28,6 +28,9 @@
 5. **保留 P0 阻塞：事后检查不能替代隔离。** `boundary.ts` 只比较有限文件 hash；旧 process-tree/PTY 也不能阻止 shell 间接写入/联网。本轮使用真实 AppContainer 资源边界，Job 仅管理生命周期。测试结果只覆盖本次私有目标，不概括全部 Windows 可访问资源。
 6. **#146 复审：逐次外部写裁决保留。** `canonical-execution.ts:commandApprovalRisk` 与 `task-authority.ts:evaluateTaskAuthority` 每次重新识别外部副作用；不使用工具名/fingerprint/同 provider ID 跨会话复用。本候选 broker 不执行任意 shell 或远端写，即使 UI 批准也不扩展该能力。
 7. **#142 复审：私有文件创建与受控准入保持。** `file-security.ts` 在 Windows 创建文件时设置 DACL/owner；不接受先写再改 ACL。本轮私有通道同样在 CreatePipe 时设 DACL，HANDLE_LIST 只继承两个 worker 端句柄。旧终端 daemon 的事后 pipe ACL 脚本不能作为本次新通道证据。
+8. **已修：Windows DOS 设备目标。** 仅限制 basename/`.txt` 后缀不能排除 `CON.txt`、`NUL.txt` 等设备名；broker 在审批/打开文件前显式拒绝此类目标。真实受保护通道回归确认拒绝后整树停止。
+
+补充实时状态：[#83 已结项](https://github.com/AhakeyAI/ahastation/issues/83#issuecomment-6517382900)，其关闭只代表契约确认，未代表运行时 owner/守卫接线完成；下文“缺接口”指所选代码基线缺运行时接线，不重新把已确认字段列为待定。
 
 ## 最小真实调用链
 
