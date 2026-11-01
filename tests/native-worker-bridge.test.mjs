@@ -230,6 +230,7 @@ test('takeover cannot admit a human writer until old automatic execution is fenc
 test('reports are attempt-scoped idempotent candidates and cannot resurrect stop; boundary violations stop', async t => {
   const f = fixture(t); await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
   const basis = f.run.basis(), receipt = await f.run.report(f.peer, basis, report);
+  assert.equal(f.run.input(basis, 'host', 'late task after report', f.peer), false);
   assert.equal(await f.run.report(f.peer, basis, report), receipt); assert.equal(f.reports.length, 1);
   await assert.rejects(f.run.report(f.peer, basis, { ...report, summary: 'different' }), /conflict/);
   assert.equal(await f.run.requestTool(f.peer, basis, call()), null);
@@ -259,6 +260,22 @@ test('failed asynchronous report persistence never gets an acknowledged receipt'
   await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
   await assert.rejects(f.run.report(f.peer, f.run.basis(), report), /unconfirmed/);
   assert.equal(f.states.at(-1), 'stopping'); await f.run.stop();
+});
+
+test('report claim cancels approval cards and input; stop during candidate I/O cannot acknowledge the old run', async t => {
+  let persist, askSignal;
+  const f = fixture(t, { onReport: () => new Promise(resolve => { persist = resolve; }),
+    askUser: (_request, signal) => { askSignal = signal; return new Promise(() => {}); } });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  const basis = f.run.basis();
+  const asking = f.run.requestTool(f.peer, basis, call('pending-before-report'));
+  while (!askSignal) await new Promise(resolve => setImmediate(resolve));
+  const reporting = f.run.report(f.peer, basis, report);
+  assert.equal(askSignal.aborted, true); assert.equal(await asking, null);
+  assert.equal(f.run.input(basis, 'host', 'late', f.peer), false);
+  while (!persist) await new Promise(resolve => setImmediate(resolve));
+  const rejected = assert.rejects(reporting, /unconfirmed/);
+  const stopped = f.run.stop(); persist(); await rejected; await stopped;
 });
 
 test('G4 detects finite local boundary changes and refuses unbounded/unverifiable snapshots', t => {
