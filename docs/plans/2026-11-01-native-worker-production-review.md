@@ -34,6 +34,8 @@
 
 ## 最小真实调用链
 
+这里“真实”指 OS 守卫、私有通道及实际 broker 副作用。驱动使用显式 `fixture-*` 会话 ID，只写新建的隔离验收 registry，不是 Claude/Codex 原生 ID；工厂拒绝普通 profile。真实 CLI sessionId 的取得与核验、terminal adapter → guard 仍未接通。不能把下列 IF-2 事务回归称为原生 CLI 已登记或最小生产任务链已完成。
+
 指定离线验收：`scripts/accept-native-worker.mjs` → `NativeWorkerProfileService` → 既有 `NativeWorkerRun.start` → IF-2 reserve → `WindowsAppContainerGuard` → C# helper 创建独立 AppContainer、私有管道、挂起进程、Job attach、校验真实 TokenAppContainerSid/GetProcessTimes/boot GUID → resume → protected bind → IF-2 bind 持久化 → 才开放输入。
 
 动作：受限 relay → 私有继承管道 → helper 每帧核验持有的进程 handle/start/token/Job → opaque peer + 每运行随机凭据 → `NativeWorkerBrokerChannel` → `requestTool` → 真实 authority journal flush → 私有 run journal fsync → 一次 permit → broker 核验完整 call/cwd/输入摘要/期限/代次并 `consume` → 同一事件循环同步 `wx` 创建并 fsync 精确 UTF-8 内容。没有将 allow 交还任意 shell。

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, writeSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
 import { createPrivateHookFile, ensurePrivateHookDirectory } from '../global-hooks/file-security.js';
 import { WorkerOwnershipService, type WorkerBinding } from './ownership.js';
 import { NativeWorkerBrokerChannel } from './broker-channel.js';
@@ -19,24 +21,31 @@ export class NativeWorkerProfileService {
   private ownership?: WorkerOwnershipService;
   private readonly channels = new Set<NativeWorkerBrokerChannel>();
   private closed = false;
+  private isolatedAcceptance = false;
   constructor(readonly profileDirectory: string) {}
   /** Explicitly initialize a NEW isolated acceptance profile only. Normal
    * existing profiles require their owning service/migration to create IF-2. */
   initializeAcceptanceProfile(): void {
     if (this.ownership || this.closed) throw new Error('profile-service-unavailable');
+    const rel = relative(realpathSync.native(tmpdir()), resolve(this.profileDirectory));
+    if (!isAbsolute(this.profileDirectory) || !rel || rel.startsWith('..') || isAbsolute(rel)
+      || existsSync(this.profileDirectory)) throw new Error('acceptance-profile-must-be-new-under-system-temp');
     ensurePrivateHookDirectory(this.profileDirectory);
     if (existsSync(join(this.profileDirectory, 'sessions', 'owned.json'))) throw new Error('acceptance-profile-must-be-new');
     const owner = new WorkerOwnershipService(this.profileDirectory);
-    try { owner.initialize(); this.ownership = owner; } catch (error) { owner.close(); throw error; }
+    try { owner.initialize(); this.ownership = owner; this.isolatedAcceptance = true; } catch (error) { owner.close(); throw error; }
   }
   createOfflineBroker(input: { agent: 'claude' | 'codex'; workerId: string; taskId: string; attemptId: string;
     helperPath: string; helperSha256: string; ports: NativeAuthorityPorts; cliVersionProbe?: { path: string; sha256: string } }): NativeWorkerBrokerChannel {
     if (this.closed || process.platform !== 'win32') throw new Error('unsupported-native-boundary');
+    // This relay's session ID is a synthetic protocol fixture, not a CLI ID.
+    // Never put it into a normal profile's native session registry. A future
+    // provider launcher must obtain and verify its real session ID separately.
+    if (!this.isolatedAcceptance) throw new Error('offline-broker-requires-isolated-acceptance-profile');
     const grant = input.ports.getGrant();
     if (!grant || grant.taskId !== input.taskId || !input.ports.isCurrentAttempt()) throw new Error('authority-unavailable');
-    if (!this.ownership) { const owner = new WorkerOwnershipService(this.profileDirectory);
-      try { owner.read(); this.ownership = owner; } catch (error) { owner.close(); throw error; } }
-    const runtimeId = randomUUID(), credentialRef = randomUUID(), sessionId = randomUUID();
+    if (!this.ownership) throw new Error('acceptance-owner-unavailable');
+    const runtimeId = randomUUID(), credentialRef = randomUUID(), sessionId = `fixture-${randomUUID()}`;
     const binding: WorkerBinding = { agent: input.agent, origin: 'worker', runtimeId, hostEpoch: this.hostEpoch,
       workerId: input.workerId, taskId: input.taskId, attemptId: input.attemptId,
       permissionOwnerRef: grant.approvalDecisionId, credentialRef };
