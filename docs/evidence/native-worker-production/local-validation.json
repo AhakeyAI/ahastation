@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-01T06:05:40.460Z",
-  "headAtRun": "42f1a51c0eb1ef481195ce0501e88b2d417da56c",
+  "recordedAt": "2026-11-01T06:18:21.004Z",
+  "headAtRun": "60327018a0cc5af7be73058221f7906b7c16d284",
   "dirtyAtRun": true,
   "platform": "win32-x64",
   "node": "v26.12.1",
@@ -69,6 +69,14 @@
     {
       "label": "final admission/scheduler regression",
       "exit": 0
+    },
+    {
+      "label": "Windows device target fix electron typecheck/build",
+      "exit": 0
+    },
+    {
+      "label": "Windows device target real guard regression",
+      "exit": 0
     }
   ],
   "acceptance": {
@@ -87,7 +95,8 @@
       "current-attempt report with real file hash; durable receipt idempotent; no EOF success",
       "stop seals input/revokes pending allow before interruption; real non-breakaway descendant tree active=0",
       "untrusted credential closes protected channel and stops actual tree",
-      "actual host transport EOF closes Job and confirms descendant tree exit"
+      "actual host transport EOF closes Job and confirms descendant tree exit",
+      "Windows DOS device target rejected before approval or file/device open"
     ],
     "cliVersions": [
       {
@@ -115,9 +124,9 @@
     "electron/native-worker/run.ts": "dc85cfb2b654b992b4ed6e180992e41e307abe5ccc7c36f60e77ae71fa91cc9b",
     "electron/native-worker/admission.ts": "8b2cb03751e02fbd5a97a6bd8c27fb51520242f514b6ec8ed91aee203e538dba",
     "electron/native-worker/windows-guard.ts": "96c9ef9d40820b9304713463d9b4851168fec03dc2072d729cde0f7a73f51413",
-    "electron/native-worker/broker-channel.ts": "c0bc14a3a8316436b40646e6cb0bc82fa95b9f29f0cae6517f96ed1ae02a6ab3",
+    "electron/native-worker/broker-channel.ts": "45ed04fdedb9434ac46f139a526511615176b73b31d86e7a97d17746cd339521",
     "electron/native-worker/profile-service.ts": "fb80cbb2900a119d3c5ed9645fb853fa1344504f5821a256d765b6ed3b12ca07",
-    "electron/native-worker/acceptance.ts": "5d3c3e3a32987d7c84419eed7d7ff6e5a950f73684d974bff3eff5321eb96071",
+    "electron/native-worker/acceptance.ts": "a6d5500a47d04b6ba739540e5f24b3d699de7cc8e2b705c10ffe1ad8a2482864",
     "native/worker-guard/WindowsGuard.cs": "f9bf23dd864be4a65b667350d72db1664aff7f86db2fdcba8ac4f8b1502a2289",
     "scripts/build-worker-guard.mjs": "fcdf573f46d3d5daf19d9a2bf515f45549b211eab0e1a85612a7e0c1998576ee",
     "scripts/accept-native-worker.mjs": "743f909ecdb964a757a38360a261ee73970b3e64bd5cddce4ffa9d536cfb3de2",
