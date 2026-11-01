@@ -8,6 +8,8 @@
 - **P2 UTF-8 分块损坏：** 原 Node 接收每个 Buffer 单独 toString，会替换跨块汉字。本轮 `Utf8Frames` 使用严格流式 TextDecoder，跨块保留字节序列；非法/截断 UTF-8、未结束帧或超限均拒绝。helper 两侧也使用严格 UTF-8，避免在 .NET 中先发生替换。
 - **实际回归：** `tests/native-worker-transport.test.mjs` 令自有隐藏 AppContainer 进程创建后代后永久停读，填入超过管道容量的数据；先连续核对 writer 仍处于 blocked，再分别 stop/宿主 EOF，要求 3 秒内返回匹配 OS identity 的 ActiveProcesses=0。UTF-8 覆盖中文/emoji 的每个分割点、逐字节、多帧、无效与截断数据；实际审批/permit/文件写入另核对中文原样。
 - **反例：** 固定 `caa8f9e` 守卫，仅向旧 worker 增加 pauseInput 测试行为、保留旧控制转发代码；两种停止路径均在 3 秒后无 tree-exit。失败后只结束测试持有的确切 helper 进程句柄，由 Job 关闭回收自有树。未运行真实 PTY、模型、个人配置或真实远端写。
+- **CI 排障：** 新传输用例曾在 AppContainer 创建后代前失败；不是管道回收断言失败。补充不含私密数据的错误类型/码后观察到 `Win32Exception / 267 (ERROR_DIRECTORY)`。测试改为规范化自有临时目录，后代显式指定执行目录，并隔离其标准流；自身映像路径用已加载程序集位置取得，不额外依赖进程模块枚举。helper 对非对象子进程帧仍 fail-closed。Windows CI 将传输故障专项前置，保留此前失败日志，完整矩阵结果按最终 head 单独记录。
+  修正后的 `2141309` 已在 [CI 41288467526](https://github.com/AhakeyAI/ahastation/actions/runs/41288467526/job/124794607367) 通过前置专项。旧版阻塞反例与最初本机样本保留在 [764d229 的固定证据](https://github.com/AhakeyAI/ahastation/blob/764d229bee451f5f0f9b89ecd2d4dbde1b7e0890/docs/evidence/native-worker-production/local-validation.json)；当前验证器每次从当次测试输出提取 transportFaultEvidence，不将历史样本冒充当次执行。
 
 ## 后续路径选择
 
