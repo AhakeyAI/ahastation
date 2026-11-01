@@ -11,7 +11,8 @@ const sourcePaths = ['electron/main.ts', 'electron/worker-scheduler.ts', 'electr
   'electron/native-worker/admission.ts', 'electron/native-worker/windows-guard.ts', 'electron/native-worker/broker-channel.ts',
   'electron/native-worker/profile-service.ts', 'electron/native-worker/acceptance.ts', 'native/worker-guard/WindowsGuard.cs',
   'scripts/build-worker-guard.mjs', 'scripts/accept-native-worker.mjs', 'scripts/verify-native-production.mjs',
-  'tests/native-worker-bridge.test.mjs', 'tests/native-worker-scheduler-ports.test.mjs', 'package.json', 'electron-builder.json', '.github/workflows/build-matrix.yml'];
+  'tests/native-worker-bridge.test.mjs', 'tests/native-worker-scheduler-ports.test.mjs', 'tests/native-worker-transport.test.mjs',
+  'electron/native-worker/utf8-frames.ts', 'package.json', 'electron-builder.json', '.github/workflows/build-matrix.yml'];
 function run(label, args) {
   const r = spawnSync(process.execPath, args, { cwd: root, windowsHide: true, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024 });
   appendFileSync(log, `${label}\n${r.stdout ?? ''}${r.stderr ?? ''}\nexit=${r.status}\n`);
@@ -27,7 +28,7 @@ run('preloads', ['scripts/copy-preloads.mjs']);
 run('renderer build', ['node_modules/vite/bin/vite.js', 'build']);
 run('guard build', ['scripts/build-worker-guard.mjs']);
 const loader = 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/electron-stub.mjs", pathToFileURL("./"));';
-for (const name of ['native-worker-bridge', 'global-hooks-admission', 'permission-approval-memory', 'plan-task-profile', 'permission-broker', 'native-worker-scheduler-ports']) {
+for (const name of ['native-worker-bridge', 'global-hooks-admission', 'permission-approval-memory', 'plan-task-profile', 'permission-broker', 'native-worker-scheduler-ports', 'native-worker-transport']) {
   run(name, ['--test', '--test-isolation=none', '--test-timeout=120000', '--import', loader, `tests/${name}.test.mjs`]);
 }
 const acceptance = JSON.parse(run('real guard and channel', ['scripts/accept-native-worker.mjs']));

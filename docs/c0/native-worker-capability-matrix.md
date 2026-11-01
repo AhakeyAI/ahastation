@@ -37,6 +37,8 @@ Codex 0.156.1 固定源码 commit `b412ff32c417f855c2b2d1581b77058eed87c84b`：
 | journal 失败 | 持久化回调拒绝，不能发行 permit | O：真实通道请求无 permit，目标不存在 | E unknown |
 | 宿主丢失 | 私有 stdin EOF → helper 关闭 Job；helper 崩溃依赖 KILL_ON_JOB_CLOSE | O：实际 EOF + 存活后代后 active=0；未执行整机崩溃 | E/B unknown |
 | 批准后、动作前 stop | 同步封口/撤权，再中断；旧 permit 不能消费 | O：已发 permit、后代存活、stop 后文件不存在；active=0 | E unknown |
+| worker 停读、管道写满后 stop/宿主 EOF | 独立控制 reader/回收线程；有界后台 writer | O：连续确认实际 writer blocked，两路径均在 3 秒内 Job active=0；旧 caa8f9e 加停读 fixture 可复现失败 | E unknown |
+| UTF-8 跨块、非法/截断字节 | 严格流式帧解码；错误封口 | 每个字节分割点/逐字节回归；O：中文/emoji 审批与实际文件内容一致 | E unknown |
 | 凭据伪造/旧代次/重放 | 私有管道 OS 身份 + nonce + run basis + permit map | O：伪造凭据封口，变参/过期/重放不写；旧代次核心回归 | E unknown |
 | Windows DOS 设备名 | broker 在裁决/打开前拒绝 CON/NUL/COM 等设备目标 | O：受保护通道提交 CON.txt 后拒绝并整树退出 | 非真实引擎路径 |
 | 直接/后代越界写 | AppContainer Token 权限检查，broker 无任意 exec | O：受限 root 与实际 descendant 均无法修改私有外部 sentinel | 不概括任意公开 ACL 目标；E unknown |

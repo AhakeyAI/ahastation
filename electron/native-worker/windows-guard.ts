@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { NativeExecutionGuard, RunBasis } from './run.js';
 import type { ProcessIdentity, WorkerBinding } from './ownership.js';
+import { Utf8Frames } from './utf8-frames.js';
 
 export interface GuardMessage { peer: object; message: Record<string, unknown> }
 /** First concrete boundary: Windows AppContainer, offline broker peer only.
@@ -34,7 +35,9 @@ export class WindowsAppContainerGuard implements NativeExecutionGuard {
   writerLease(): object { return this.hostWriter; }
   private send(kind: 'input' | 'reply' | 'stop', message?: unknown): boolean {
     if (!this.child || this.child.stdin.destroyed || this.child.stdin.writableEnded || this.child.exitCode !== null) return false;
-    this.child.stdin.write(JSON.stringify({ kind, message }) + '\n'); return true;
+    const frame = JSON.stringify({ kind, message }) + '\n';
+    if (Buffer.byteLength(frame) + this.child.stdin.writableLength > 2 * 1024 * 1024) { this.lost(); return false; }
+    this.child.stdin.write(frame); return true;
   }
   async spawn(): Promise<ProcessIdentity> {
     if (process.platform !== 'win32' || this.launched || this.sealed) throw new Error('guard-launch-rejected');
@@ -50,16 +53,16 @@ export class WindowsAppContainerGuard implements NativeExecutionGuard {
       ...(this.config.cliVersionProbe ? { cliPath: this.config.cliVersionProbe.path, cliSha256: this.config.cliVersionProbe.sha256 } : {}), hello: {
       credential: this.credential, basis: this.config.initialBasis, sessionId: this.config.sessionId } }) + '\n');
     return new Promise((resolve, reject) => {
-      let buffer = '', settled = false;
+      const frames = new Utf8Frames();
+      let settled = false;
       const timer = setTimeout(() => { reject(new Error('guard-spawn-timeout')); this.lost(); }, 10_000);
       const fail = () => { clearTimeout(timer); if (!settled) { settled = true; reject(new Error('guard-unavailable')); } this.lost(); };
       child.on('error', fail); child.on('exit', fail);
+      child.stdout.on('end', () => { try { frames.end(); } catch { fail(); } });
       child.stdout.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf8');
-        if (Buffer.byteLength(buffer) > 2 * 1024 * 1024) { fail(); return; }
-        let end;
-        while ((end = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+        let lines: string[];
+        try { lines = frames.push(chunk); } catch { fail(); return; }
+        for (const line of lines) {
           try {
             const event = JSON.parse(line);
             if (event.kind === 'spawned' && !this.identity && Number.isSafeInteger(event.pid) && event.pid > 0

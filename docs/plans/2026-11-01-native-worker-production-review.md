@@ -2,6 +2,19 @@
 
 日期：2026-11-01，Asia/Singapore。范围：P0、P1 与最小 P2；不是 #86/B04 完成声明。
 
+## caa8f9e 独立复审后的两项修复
+
+- **P1 管道背压阻塞停止：** 原 helper 在同一线程读取宿主命令并同步向 worker 写入；worker 停读会让该线程卡在 WriteLine，stop/EOF 无法进入 Job 回收。本轮将控制读取、输入转发、输出转发和整树回收分离。输入/输出均使用 32 帧、2 MiB 有界队列；写入阻塞只影响后台 writer，溢出或异常触发封口与回收。回收先于任何 fatal/退出诊断；宿主不读输出时仅有限等待诊断，不能阻塞收树。没有从 writer 队列为空推断停止，confirmed 仍只接受真实 Job ActiveProcesses=0。
+- **P2 UTF-8 分块损坏：** 原 Node 接收每个 Buffer 单独 toString，会替换跨块汉字。本轮 `Utf8Frames` 使用严格流式 TextDecoder，跨块保留字节序列；非法/截断 UTF-8、未结束帧或超限均拒绝。helper 两侧也使用严格 UTF-8，避免在 .NET 中先发生替换。
+- **实际回归：** `tests/native-worker-transport.test.mjs` 令自有隐藏 AppContainer 进程创建后代后永久停读，填入超过管道容量的数据；先连续核对 writer 仍处于 blocked，再分别 stop/宿主 EOF，要求 3 秒内返回匹配 OS identity 的 ActiveProcesses=0。UTF-8 覆盖中文/emoji 的每个分割点、逐字节、多帧、无效与截断数据；实际审批/permit/文件写入另核对中文原样。
+- **反例：** 固定 `caa8f9e` 守卫，仅向旧 worker 增加 pauseInput 测试行为、保留旧控制转发代码；两种停止路径均在 3 秒后无 tree-exit。失败后只结束测试持有的确切 helper 进程句柄，由 Job 关闭回收自有树。未运行真实 PTY、模型、个人配置或真实远端写。
+
+## 后续路径选择
+
+用户本轮已选择“保留原生登录与工具，补受控网络出口和现有 PTY 接线”，不改为 API key 专用或仅自定义 broker 工具。本轮两项缺陷修复不改变原生准入，也不把 fixture ID 升格为原生 sessionId。
+
+这条后续链必须先解决实际执行边界：当前 AppContainer 不授予网络/用户凭据；`PtyHost` 的 node-pty 启动接口不能在恢复前注入 AppContainer/Job 身份。下一阶段需在同一现有 TerminalCliSession/PtyHost 的 spawn seam 实现受控 ConPTY 启动，并补按运行身份约束的网络出口与原生凭据访问。CLI 的 `HTTP_PROXY`/`--settings`/hook 本身只能配置流量，不能证明脚本无法直连；不会仅增加这些环境变量就开放 Worker。登录或 OS 出口所需的实机配置动作与模型消耗没有在本轮执行，保留 G13/真实引擎/B04 验收门。
+
 ## 固定基线与判断
 
 实时查询源仓库 `AhakeyAI/ahastation`：main `8770207ca4e41f3f31201d418a980593adf51efd`；#142 `6ea1fc1a752967fa19d4ddf08a50b3f75d0fc706`、#146 `ae9d27246e105c97ea72275a0cbbee91a2980fc8`、#147 `42f1a51c0eb1ef481195ce0501e88b2d417da56c` 均仍为开放 Draft。#147 独立新增范围 `1ff0468392cfef710c13be52e9a086bd94f84b00..42f1a51`。本候选新分支继承 #147，不修改旧任务分支；独立 diff 从 `42f1a51` 起算，依赖尚未合入 main。
