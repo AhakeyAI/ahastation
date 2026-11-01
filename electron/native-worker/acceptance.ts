@@ -36,7 +36,8 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
       { writePaths: [], toolKinds: ['write'], commands: [], workingDirectories: ['.'], environmentKeys: [], networkHosts: [], maxCommandTimeoutMs: 1000 }, Date.now());
     const c = service.createOfflineBroker({ agent: cliVersionProbe?.agent ?? 'claude', workerId: randomUUID(), taskId, attemptId, helperPath, helperSha256, cliVersionProbe,
       ports: { attempt: 1, workspaceRoot: workspace, getGrant: () => grant, isCurrentAttempt: () => true,
-        askUser: async request => { asks++; return request.call.input.content === 'deny' ? 'deny' : 'allow'; },
+        askUser: async request => { asks++; if (request.call.input.file_path === 'unicode.txt') assert.equal(request.call.input.content, '中文审批 🧪\n原样写入');
+          return request.call.input.content === 'deny' ? 'deny' : 'allow'; },
         persistPermissionDecision: async value => {
           if (!journalHealthy) throw new Error('injected-durable-storage-failure');
           const fd = openSync(authorityJournal, 'a'); try { writeSync(fd, JSON.stringify(value) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
@@ -83,6 +84,11 @@ export async function runNativeWorkerOfflineAcceptance(helperPath: string, helpe
     assert.equal(readFileSync(join(workspace, 'allowed.txt'), 'utf8'), 'approved');
     assert.equal((await f.request('execute', { call: allowed, permitId: approved.permit.id })).executed, false);
     results.push('durable per-action approval -> one-shot broker consumption -> exact file bytes; replay rejected');
+    const unicode = f.call('unicode.txt', '中文审批 🧪\n原样写入');
+    const unicodePermit = (await f.request('ask', { call: unicode })).permit; assert.ok(unicodePermit);
+    assert.equal((await f.request('execute', { call: unicode, permitId: unicodePermit.id })).executed, true);
+    assert.equal(readFileSync(join(workspace, 'unicode.txt'), 'utf8'), unicode.input.content);
+    results.push('Chinese and emoji remain exact through approval, permit, private channel and actual UTF-8 file');
 
     const denied = await f.request('ask', { call: f.call('denied.txt', 'deny') }); assert.equal(denied.permit, null);
     assert.equal(existsSync(join(workspace, 'denied.txt')), false);

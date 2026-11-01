@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Security.AccessControl;
@@ -14,10 +15,11 @@ using System.Web.Script.Serialization;
 using Microsoft.Win32.SafeHandles;
 
 class WindowsGuard {
-  static JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 1048576 };
+  static string Json(object value) { return new JavaScriptSerializer { MaxJsonLength = 1048576 }.Serialize(value); }
   static readonly object outputLock = new object();
-  static void Emit(object value) { lock(outputLock) { Console.WriteLine(json.Serialize(value)); Console.Out.Flush(); } }
-  static Dictionary<string,object> Parse(string s) { return json.Deserialize<Dictionary<string,object>>(s); }
+  static void Emit(object value) { lock(outputLock) { Console.WriteLine(Json(value)); Console.Out.Flush(); } }
+  static Dictionary<string,object> Parse(string s) { return new JavaScriptSerializer { MaxJsonLength = 1048576 }.Deserialize<Dictionary<string,object>>(s); }
+  class OutFrame { public string text; public int bytes; public ManualResetEventSlim written=new ManualResetEventSlim(false); }
   static string Line(TextReader reader) { StringBuilder b=new StringBuilder(); int c; while((c=reader.Read())!=-1) { if(c==10) return b.ToString(); if(b.Length>=1048576) throw new Exception("frame-too-large"); if(c!=13)b.Append((char)c); } return b.Length==0?null:b.ToString(); }
   static string S(Dictionary<string,object> v, string k) { return (string)v[k]; }
   static void Check(bool ok, string name) { if(!ok) throw new Exception(name + ":" + Marshal.GetLastWin32Error()); }
@@ -86,6 +88,33 @@ class WindowsGuard {
     string profile="AhaWorker."+Guid.NewGuid().ToString("N"); IntPtr sid=IntPtr.Zero,job=IntPtr.Zero,attrs=IntPtr.Zero;
     IntPtr handles=IntPtr.Zero,capsPtr=IntPtr.Zero,environment=IntPtr.Zero,pipeSecurity=IntPtr.Zero; PI pi=new PI();
     IntPtr inputRead=IntPtr.Zero,inputWrite=IntPtr.Zero,outputRead=IntPtr.Zero,outputWrite=IntPtr.Zero;
+    var stopping=new ManualResetEventSlim(false);
+    var output=new BlockingCollection<OutFrame>(32);
+    var input=new BlockingCollection<string>(32);
+    int sealedInput=0,inputBytes=0,outputBytes=0,writing=0;
+    // The control reader and reaper never write to a pipe. Backpressure can
+    // block background writers only; overflow seals the run instead of growing
+    // memory or putting stop behind the child that must be stopped.
+    Func<object,OutFrame> emit=value=> {
+      string text=Json(value);int bytes=Encoding.UTF8.GetByteCount(text)+1;
+      if(Interlocked.Add(ref outputBytes,bytes)>2097152) {Interlocked.Add(ref outputBytes,-bytes);stopping.Set();return null;}
+      var frame=new OutFrame {text=text,bytes=bytes};
+      try {if(output.TryAdd(frame))return frame;} catch(InvalidOperationException) {}
+      Interlocked.Add(ref outputBytes,-bytes);stopping.Set();return null;
+    };
+    Func<object,bool> enqueue=value=> {
+      if(Volatile.Read(ref sealedInput)!=0)return false;
+      string text=Json(value);int bytes=Encoding.UTF8.GetByteCount(text)+1;
+      if(Interlocked.Add(ref inputBytes,bytes)>2097152) {Interlocked.Add(ref inputBytes,-bytes);stopping.Set();return false;}
+      try {if(input.TryAdd(text))return true;} catch(InvalidOperationException) {}
+      Interlocked.Add(ref inputBytes,-bytes);stopping.Set();return false;
+    };
+    Thread outputWriter=new Thread(()=> {
+      try {foreach(var frame in output.GetConsumingEnumerable()) {
+        try {Console.WriteLine(frame.text);Console.Out.Flush();frame.written.Set();}
+        finally {Interlocked.Add(ref outputBytes,-frame.bytes);}
+      }} catch {stopping.Set();}
+    });outputWriter.IsBackground=true;outputWriter.Start();
     try {
       Dictionary<string,object> config=Parse(Line(Console.In)); string root=S(config,"directory");
       Check(CreateAppContainerProfile(profile,profile,"Ephemeral offline worker",IntPtr.Zero,0,out sid)==0,"container-create");
@@ -120,38 +149,60 @@ class WindowsGuard {
       long start,end,kernel,user; Check(GetProcessTimes(pi.process,out start,out end,out kernel,out user),"process-start");
       Check(TokenSid(pi.process)==sidText,"wrong-token"); string boot=Boot();
       CloseHandle(inputRead); inputRead=IntPtr.Zero; CloseHandle(outputWrite); outputWrite=IntPtr.Zero;
-      using(StreamWriter writer=new StreamWriter(new FileStream(new SafeFileHandle(inputWrite,true),FileAccess.Write),new UTF8Encoding(false))) {
-        inputWrite=IntPtr.Zero; writer.AutoFlush=true;
+      {
+        IntPtr heldInput=inputWrite;inputWrite=IntPtr.Zero;
+        Thread inputWriter=new Thread(()=> {
+          try {using(StreamWriter writer=new StreamWriter(new FileStream(new SafeFileHandle(heldInput,true),FileAccess.Write),new UTF8Encoding(false))) {
+            writer.AutoFlush=true;
+            foreach(string text in input.GetConsumingEnumerable()) {
+              if(Volatile.Read(ref sealedInput)!=0)break;
+              try {Interlocked.Exchange(ref writing,1);writer.WriteLine(text);}
+              finally {Interlocked.Exchange(ref writing,0);Interlocked.Add(ref inputBytes,-Encoding.UTF8.GetByteCount(text)-1);}
+            }
+          }} catch {stopping.Set();}
+        });inputWriter.IsBackground=true;inputWriter.Start();
         // Secret is delivered through the private inherited descriptor, never argv/env/disk.
-        writer.WriteLine(json.Serialize(config["hello"]));
-        Emit(new {kind="spawned",pid=pi.pid,startId=start.ToString(),bootId=boot,appContainerSid=sidText});
+        Check(enqueue(config["hello"]),"initial-input-rejected");
+        emit(new {kind="spawned",pid=pi.pid,startId=start.ToString(),bootId=boot,appContainerSid=sidText});
         Check(ResumeThread(pi.thread)!=0xffffffff,"resume");
         IntPtr heldJob=job,heldOutput=outputRead; PI heldPi=pi;
         Thread reader=new Thread(()=> {
-          try { using(StreamReader child=new StreamReader(new FileStream(new SafeFileHandle(heldOutput,true),FileAccess.Read),Encoding.UTF8)) {
+          try { using(StreamReader child=new StreamReader(new FileStream(new SafeFileHandle(heldOutput,true),FileAccess.Read),new UTF8Encoding(false,true),false)) {
             string line; while((line=Line(child))!=null) {
-              if(line.Length>1048576 || !Current(heldPi,heldJob,sidText,start)) { TerminateJobObject(heldJob,1); break; }
-              Emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=Parse(line)});
+              if(Volatile.Read(ref sealedInput)!=0 || !Current(heldPi,heldJob,sidText,start))break;
+              if(emit(new {kind="request",pid=heldPi.pid,startId=start.ToString(),bootId=boot,message=Parse(line)})==null)break;
             }
-            Emit(new {kind="stream-closed"});
-          }} catch { TerminateJobObject(heldJob,1); }
+            emit(new {kind="stream-closed"});stopping.Set();
+          }} catch {stopping.Set();}
         }); reader.IsBackground=true; reader.Start(); outputRead=IntPtr.Zero;
-        string command;
-        while((command=Line(Console.In))!=null) {
-          var v=Parse(command); string kind=S(v,"kind");
-          if(kind=="stop") break;
-          if(kind!="reply" && kind!="input") throw new Exception("invalid-host-command");
-          if(!Current(pi,job,sidText,start)) break;
-          writer.WriteLine(json.Serialize(v["message"]));
-        }
+        Thread controlReader=new Thread(()=> {
+          try {string command;while((command=Line(Console.In))!=null) {
+            var v=Parse(command);string kind=S(v,"kind");
+            if(kind=="stop" || Volatile.Read(ref sealedInput)!=0)break;
+            // Host-side transport diagnosis for the isolated saturation test;
+            // no child identity/permission/exit assertion is accepted here.
+            if(kind=="transport-state") {emit(new {kind="transport-state",writing=Volatile.Read(ref writing),pendingBytes=Volatile.Read(ref inputBytes)});continue;}
+            if(kind!="reply" && kind!="input")break;
+            if(!Current(heldPi,heldJob,sidText,start) || !enqueue(v["message"]))break;
+          }} catch {} finally {stopping.Set();}
+        });controlReader.IsBackground=true;controlReader.Start();
+        stopping.Wait();
+        Interlocked.Exchange(ref sealedInput,1);input.CompleteAdding();
         Check(TerminateJobObject(job,1),"job-terminate");
         ACCOUNT accounting=new ACCOUNT(); bool confirmed=false;
         for(int i=0;i<500;i++) { Check(QueryInformationJobObject(job,1,out accounting,Marshal.SizeOf(typeof(ACCOUNT)),IntPtr.Zero),"job-accounting"); if(accounting.active==0) {confirmed=true;break;} Thread.Sleep(10); }
-        Emit(new {kind="tree-exit",confirmed=confirmed,activeProcesses=accounting.active,pid=pi.pid,startId=start.ToString(),bootId=boot});
+        var finalFrame=emit(new {kind="tree-exit",confirmed=confirmed,activeProcesses=accounting.active,pid=pi.pid,startId=start.ToString(),bootId=boot});
+        // Reaping is already complete. A host that stopped reading gets no
+        // confirmation, and can never block the reaper on its diagnostic.
+        if(finalFrame!=null)finalFrame.written.Wait(1000);
         return confirmed?0:2;
       }
-    } catch(Exception e) { Emit(new {kind="fatal",error=e.Message}); return 1; }
+    } catch(Exception e) {
+      Interlocked.Exchange(ref sealedInput,1);if(job!=IntPtr.Zero)TerminateJobObject(job,1);
+      var frame=emit(new {kind="fatal",error=e.Message});if(frame!=null)frame.written.Wait(1000);return 1;
+    }
     finally {
+      Interlocked.Exchange(ref sealedInput,1);input.CompleteAdding();output.CompleteAdding();
       if(job!=IntPtr.Zero) { TerminateJobObject(job,1); CloseHandle(job); }
       if(pi.process!=IntPtr.Zero) { TerminateProcess(pi.process,1); CloseHandle(pi.process); } if(pi.thread!=IntPtr.Zero) CloseHandle(pi.thread);
       foreach(IntPtr h in new[]{inputRead,inputWrite,outputRead,outputWrite}) if(h!=IntPtr.Zero) CloseHandle(h);
@@ -184,13 +235,17 @@ class WindowsGuard {
       else if(value.ContainsKey("idleChild")) {
         var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {UseShellExecute=false,CreateNoWindow=true});
         Emit(new {op="idle-child",credential=hello["credential"],basis=hello["basis"],pid=p.Id});
+      } else if(value.ContainsKey("pauseInput")) {
+        var p=Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName,"--idle") {UseShellExecute=false,CreateNoWindow=true});
+        Emit(new {op="input-paused",credential=hello["credential"],basis=hello["basis"],pid=p.Id});
+        Thread.Sleep(Timeout.Infinite);
       } else Emit(new {op="response",credential=hello["credential"],basis=hello["basis"],value=value});
     }
     return 0;
   }
   static int Main(string[] args) {
     SetErrorMode(0x8003); // inherited by owned descendants; no WER/UI popups
-    Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);
+    Console.InputEncoding=new UTF8Encoding(false,true);Console.OutputEncoding=new UTF8Encoding(false,true);
     if(args.Length>0 && args[0]=="--worker") return Worker();
     if(args.Length>1 && args[0]=="--descendant") return TryWrite(args[1])?99:0;
     if(args.Length>0 && args[0]=="--idle") { Thread.Sleep(60000);return 0; }
