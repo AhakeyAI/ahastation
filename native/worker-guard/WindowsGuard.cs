@@ -219,8 +219,10 @@ class WindowsGuard {
   static Process IdleChild() {
     // This fixture descendant has no protocol role. It must not consume the
     // parent's inherited stdin or write into the parent's authenticated output.
-    var p=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location,"--idle") {
-      UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true});
+    string image=System.Reflection.Assembly.GetExecutingAssembly().Location;
+    var p=Process.Start(new ProcessStartInfo(image,"--idle") {
+      WorkingDirectory=Path.GetDirectoryName(image),UseShellExecute=false,CreateNoWindow=true,
+      RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true});
     p.StandardInput.Close();p.BeginOutputReadLine();p.BeginErrorReadLine();return p;
   }
   static int Worker() {
@@ -232,7 +234,9 @@ class WindowsGuard {
         bool wrote=TryWrite(S(value,"probePath"));
         bool network=false; try { using(var client=new System.Net.Sockets.TcpClient()) { var result=client.BeginConnect("127.0.0.1",Convert.ToInt32(value["port"]),null,null); if(result.AsyncWaitHandle.WaitOne(1000)) {client.EndConnect(result);network=true;} } } catch {}
         // A descendant inherits AppContainer restrictions and the non-breakaway Job.
-        var p=Process.Start(new ProcessStartInfo(System.Reflection.Assembly.GetExecutingAssembly().Location,"--descendant \""+S(value,"probePath")+".child\"") {UseShellExecute=false,CreateNoWindow=true}); p.WaitForExit();
+        string image=System.Reflection.Assembly.GetExecutingAssembly().Location;
+        var p=Process.Start(new ProcessStartInfo(image,"--descendant \""+S(value,"probePath")+".child\"") {
+          WorkingDirectory=Path.GetDirectoryName(image),UseShellExecute=false,CreateNoWindow=true}); p.WaitForExit();
         Emit(new {op="probe-result",credential=hello["credential"],basis=hello["basis"],directWrite=wrote,network=network,descendantExit=p.ExitCode});
       } else if(value.ContainsKey("probeCli") && hello.ContainsKey("cliPath")) {
         var p=Process.Start(new ProcessStartInfo(S(hello,"cliPath"),"--version") {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true});

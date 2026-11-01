@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -33,7 +33,9 @@ test('invalid, truncated, or oversized UTF-8 frames fail closed', () => {
 for (const stopMode of ['stop', 'host-eof']) test(`saturated worker input cannot block ${stopMode} and Job reaping`, {
   skip: process.platform !== 'win32', timeout: 15_000,
 }, async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'aha-guard-saturation-'));
+  // Windows CI's TEMP may use RUNNER~1. Resolve this owned directory before
+  // passing it into a token that cannot enumerate the user's parent folder.
+  const directory = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'aha-guard-saturation-')));
   const child = spawn(resolve(process.env.AHA_GUARD_TEST_HELPER ?? 'build/worker-guard/WindowsGuard.exe'), [],
     { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
