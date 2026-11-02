@@ -1,10 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { getClaudeCodeCliSource } from '../claude-cli/resolve.js';
-import {
-  CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION,
-  CODEX_APP_SERVER_MIN_VERSION,
-  isSupportedCodexAppServerVersion,
-} from './codex-app-server-transport.js';
+import { CODEX_RUNTIME, isSupportedCodexAppServerVersion } from './codex-runtime.js';
 
 export type WorkerRuntimeState =
   | 'available'
@@ -16,7 +12,7 @@ export type WorkerRuntimeState =
 
 const EXPECTED_VERSION: Readonly<Record<string, string>> = {
   'claude-code': '2.1.150',
-  codex: `>=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}`,
+  codex: `>=${CODEX_RUNTIME.min} <${CODEX_RUNTIME.maxExclusive}`,
   kimi: '0.24.1',
   opencode: '1.18.3',
 };
@@ -194,7 +190,7 @@ export function assessWorkerRelease(input: {
 }
 
 export function extractRuntimeVersion(output: string): string | null {
-  return output.match(/(?:^|[^\d])v?(\d+\.\d+\.\d+)(?:[^\d]|$)/)?.[1] ?? null;
+  return output.match(/(?:^|[^\d])v?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)(?:[^\w.+-]|$)/)?.[1] ?? null;
 }
 
 export function resolveWorkerExpectedVersion(
@@ -270,7 +266,9 @@ export function assessWorkerRuntime(input: {
       reason: input.version
         ? input.backendId === 'claude-code'
           ? `检测到 ${input.version}，当前仅验证 ${expectedVersion}。请在 Lobby → Host CLI → Claude Code CLI 来源 中选择「系统 PATH」以使用本机版本，或选择「内置版本」使用 ${expectedVersion}。`
-          : `检测到 ${input.version}，当前仅验证 ${expectedVersion}。`
+          : input.backendId === 'codex'
+            ? `检测到 ${input.version}，当前验证区间为 [${CODEX_RUNTIME.min}, ${CODEX_RUNTIME.maxExclusive})。`
+            : `检测到 ${input.version}，当前仅验证 ${expectedVersion}。`
         : '无法读取运行时版本。',
     };
   }

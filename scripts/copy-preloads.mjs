@@ -15,3 +15,6 @@ await Promise.all(preloads.map((name) => copyFile(
 await mkdir(join(output, 'terminal-daemon'), { recursive: true });
 await copyFile(join(root, 'electron/terminal-daemon/windows-pipe-acl.ps1'),
   join(output, 'terminal-daemon/windows-pipe-acl.ps1'));
+
+await mkdir(join(output, 'runtime'), { recursive: true });
+await copyFile(join(root, 'contracts/runtime/codex.json'), join(output, 'runtime/codex.json'));

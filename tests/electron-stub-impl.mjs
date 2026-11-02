@@ -7,13 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export const TEST_USER_DATA_DIR = mkdtempSync(join(tmpdir(), 'ahastation-electron-stub-'));
-export const testMeetingsPath = (meetingId) => join(TEST_USER_DATA_DIR, 'meetings', meetingId);
-export const testSettingsPath = () => join(TEST_USER_DATA_DIR, 'settings.json');
+export const testMeetingsPath = (meetingId) => join(app.getPath('userData'), 'meetings', meetingId);
+export const testSettingsPath = () => join(app.getPath('userData'), 'settings.json');
 process.once('exit', () => rmSync(TEST_USER_DATA_DIR, { recursive: true, force: true }));
 
 export const app = {
-  getPath: () => TEST_USER_DATA_DIR,
+  getPath: () => process.env.AHASTATION_TEST_PROFILE || TEST_USER_DATA_DIR,
   isPackaged: false,
+  isReady: () => true,
   whenReady: async () => {},
 };
 export const ipcMain = { handle: () => {}, on: () => {} };
@@ -37,8 +38,6 @@ export const safeStorage = {
   decryptStringAsync: async (value) => ({ result: value.toString().replace('test-encrypted:', ''), shouldReEncrypt: false }),
   isEncryptionAvailable: () => true,
   getSelectedStorageBackend: () => 'gnome_libsecret',
-  encryptString: (value) => Buffer.from(`test-encrypted:${value}`),
-  decryptString: (value) => value.toString().replace('test-encrypted:', ''),
 };
 export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
 export const nativeTheme = { shouldUseDarkColors: false, on: () => {} };

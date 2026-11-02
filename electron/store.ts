@@ -24,7 +24,7 @@ import { parsePocketVibeRemoteHosts, type PocketVibeRemoteHost } from './backend
 import type { RemoteControlSettings } from './remote-control-types.js';
 
 export function remoteCredentialStorageAvailable(): boolean {
-  if (!safeStorageAvailable()) return false;
+  if (!encryptionAvailable) return false;
   return process.platform !== 'linux' || ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(safeStorage.getSelectedStorageBackend?.() ?? 'unknown');
 }
 
@@ -143,8 +143,8 @@ export interface Settings {
   // field is never written to settings.json when encryption is available.
   anthropicApiKey?: string;
   // Base64 of safeStorage.encryptStringAsync(anthropicApiKey). This is the on-disk
-  // form; load() decrypts it back into `anthropicApiKey` and drops this field
-  // from the in-memory cache. Present in the type only so JSON round-trips.
+  // form; warmSecrets() adds the plaintext to the in-memory cache. Retaining
+  // the ciphertext protects it if a later OS encryption operation fails.
   anthropicApiKeyEnc?: string;
   // Custom gateway base URL (ANTHROPIC_BASE_URL). Only injected when
   // authMode === 'apikey'. Empty/undefined falls back to settings.json env.
@@ -176,104 +176,88 @@ const RECENT_CWDS_MAX = 10;
 let cached: Settings | null = null;
 let cachedPath: string | null = null;
 
-// --- API key at-rest encryption (S2) ----------------------------------------
-// safeStorage is backed by the OS keychain (Keychain on macOS, DPAPI on
-// Windows). Electron 45 deprecates the synchronous API and 46 removes it, so
-// only the async API is used: `warmSecrets()` (awaited on app ready, before
-// IPC registration) decrypts every ciphertext once into `decryptedSecrets`,
-// the synchronous readers below consult only that cache, and encryption runs
-// on the async write path. Data written by the old sync encryptString stays
-// readable by decryptStringAsync. Every call is guarded — a failure degrades
-// to "key absent this session" rather than crashing, and we never wipe an
-// existing ciphertext we couldn't read.
-
-const decryptedSecrets = new Map<string, string>(); // ciphertext base64 → plaintext
+// Secrets are decrypted once on startup; synchronous readers only consult this cache.
+// Every OS operation uses the async API. Failed reads preserve the original ciphertext.
+const decryptedSecrets = new Map<string, { value: string; reEncrypt: boolean }>();
+let encryptionAvailable = false;
 let plaintextKeyOnDisk = false;
 
 async function safeStorageAvailable(): Promise<boolean> {
   try {
-    // The async encryptor only initializes after `ready`; waiting here keeps
-    // an early write from dropping the key as "encryption unavailable".
     await app.whenReady();
-    return await safeStorage.isAsyncEncryptionAvailable();
+    encryptionAvailable = await safeStorage.isAsyncEncryptionAvailable();
   } catch {
-    return false;
+    encryptionAvailable = false;
   }
+  return encryptionAvailable;
 }
 
 async function tryEncryptKey(plain: string): Promise<string | null> {
   try {
     if (!(await safeStorageAvailable())) return null;
-    const b64 = (await safeStorage.encryptStringAsync(plain)).toString('base64');
-    decryptedSecrets.set(b64, plain);
-    return b64;
-  } catch (err) {
-    console.warn('[store] safeStorage encrypt failed; key will remain memory-only:', err);
+    const cipher = (await safeStorage.encryptStringAsync(plain)).toString('base64');
+    decryptedSecrets.set(cipher, { value: plain, reEncrypt: false });
+    return cipher;
+  } catch {
+    console.warn('[store] secure encryption failed; secret remains memory-only');
     return null;
   }
 }
 
-function tryDecryptKey(b64: string): string | null {
-  return decryptedSecrets.get(b64) ?? null;
+function tryDecryptKey(cipher: string): string | null {
+  return decryptedSecrets.get(cipher)?.value ?? null;
 }
 
-/** Decrypt one ciphertext into the cache. Returns whether the OS asked for
- *  the value to be re-encrypted (key rotated / better key available). */
-async function decryptIntoCache(b64: string): Promise<{ ok: boolean; reEncrypt: boolean }> {
-  if (decryptedSecrets.has(b64)) return { ok: true, reEncrypt: false };
+async function decryptIntoCache(cipher: string): Promise<{ ok: boolean; reEncrypt: boolean }> {
+  const previous = decryptedSecrets.get(cipher);
+  if (previous) return { ok: true, reEncrypt: previous.reEncrypt };
   try {
-    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(Buffer.from(b64, 'base64'));
-    decryptedSecrets.set(b64, result);
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(Buffer.from(cipher, 'base64'));
+    decryptedSecrets.set(cipher, { value: result, reEncrypt: shouldReEncrypt });
     return { ok: true, reEncrypt: shouldReEncrypt };
-  } catch (err) {
-    console.warn('[store] safeStorage decrypt failed; API key unavailable this session:', err);
+  } catch {
+    console.warn('[store] secure decryption failed; original ciphertext retained');
     return { ok: false, reEncrypt: false };
   }
 }
 
-/** Decrypt the at-rest API keys into memory. Call once on app ready, before
- *  anything reads auth settings. Also finishes the plaintext → ciphertext
- *  migration and re-encrypts values the OS flagged as stale. */
+/** Warm before IPC/backends read credentials. Shares the settings write lock so
+ * an account change cannot be overwritten by a late startup decryption. */
 export function warmSecrets(): Promise<void> {
   return withWriteLock(async () => {
     const current = load();
     if (!(await safeStorageAvailable())) return;
     let rewrite = plaintextKeyOnDisk;
     const next: Settings = { ...current };
-    // In-memory convention for the Anthropic key is plaintext; see load().
     if (next.anthropicApiKeyEnc) {
       const { ok, reEncrypt } = await decryptIntoCache(next.anthropicApiKeyEnc);
       if (ok) {
         next.anthropicApiKey = tryDecryptKey(next.anthropicApiKeyEnc) ?? undefined;
-        delete next.anthropicApiKeyEnc;
         rewrite ||= reEncrypt;
       }
     }
     if (next.backendAuth) {
-      const entries: BackendAuthEntry[] = [];
-      for (const entry of next.backendAuth) {
-        if (entry.apiKeyEnc) {
-          const { ok, reEncrypt } = await decryptIntoCache(entry.apiKeyEnc);
-          if (ok && reEncrypt) {
-            // Hand the plaintext to toDiskForm so the rewrite re-encrypts it.
-            const { apiKeyEnc, ...rest } = entry;
-            entries.push({ ...rest, apiKey: tryDecryptKey(apiKeyEnc) ?? undefined });
-            rewrite = true;
-            continue;
-          }
-        } else if (entry.apiKey) {
+      next.backendAuth = await Promise.all(next.backendAuth.map(async (entry) => {
+        if (!entry.apiKeyEnc) { rewrite ||= Boolean(entry.apiKey); return entry; }
+        const { ok, reEncrypt } = await decryptIntoCache(entry.apiKeyEnc);
+        if (ok && reEncrypt) {
           rewrite = true;
+          return { ...entry, apiKey: tryDecryptKey(entry.apiKeyEnc) ?? undefined };
         }
-        entries.push(entry);
+        return entry;
+      }));
+    }
+    if (next.remoteControl?.controlTokenEnc && remoteCredentialStorageAvailable()) {
+      const { ok, reEncrypt } = await decryptIntoCache(next.remoteControl.controlTokenEnc);
+      if (ok) {
+        next.remoteControl = { ...next.remoteControl, controlToken: tryDecryptKey(next.remoteControl.controlTokenEnc) ?? undefined };
+        rewrite ||= reEncrypt;
       }
-      next.backendAuth = entries;
     }
     if (rewrite) {
       await persist(next);
       plaintextKeyOnDisk = false;
-    } else {
-      cached = next;
-    }
+    } else cached = next;
   });
 }
 
@@ -286,21 +270,23 @@ async function toDiskForm(s: Settings): Promise<Settings> {
     const { apiKey, apiKeyEnc, ...safe } = entry;
     if (apiKey) {
       const encrypted = await tryEncryptKey(apiKey);
-      return encrypted ? { ...safe, apiKeyEnc: encrypted } : safe;
+      return encrypted ? { ...safe, apiKeyEnc: encrypted } : apiKeyEnc ? { ...safe, apiKeyEnc } : safe;
     }
     return apiKeyEnc ? { ...safe, apiKeyEnc } : safe;
   }));
   let safeRest: Settings = backendAuth ? { ...rest, backendAuth } : rest;
   if (rest.remoteControl) {
     const { controlToken, controlTokenEnc, ...safeRemote } = rest.remoteControl;
-    const enc = controlToken && remoteCredentialStorageAvailable() ? await tryEncryptKey(controlToken) : controlTokenEnc;
+    const canEncrypt = await safeStorageAvailable() && remoteCredentialStorageAvailable();
+    const enc = controlToken && canEncrypt ? await tryEncryptKey(controlToken) ?? controlTokenEnc : controlTokenEnc;
     safeRest = { ...safeRest, remoteControl: enc ? { ...safeRemote, controlTokenEnc: enc } : safeRemote };
   }
   if (anthropicApiKey) {
     const enc = await tryEncryptKey(anthropicApiKey);
     // safeStorage down → keep the key in memory only. Persisting plaintext is
     // never an acceptable silent fallback.
-    return enc ? { ...safeRest, anthropicApiKeyEnc: enc } : safeRest;
+    return enc ? { ...safeRest, anthropicApiKeyEnc: enc }
+      : anthropicApiKeyEnc ? { ...safeRest, anthropicApiKeyEnc } : safeRest;
   }
   // No plaintext in memory — preserve any pre-existing ciphertext (e.g. a blob
   // we couldn't decrypt this session) so a routine write doesn't erase it.
@@ -377,13 +363,6 @@ function load(): Settings {
     delete cached.remoteControl.controlToken; // Public credentials are accepted from safeStorage only, never plaintext disk.
     needsRewrite = true;
   }
-  if (cached.remoteControl?.controlTokenEnc && remoteCredentialStorageAvailable()) {
-    const token = tryDecryptKey(cached.remoteControl.controlTokenEnc);
-    if (token !== null) {
-      cached.remoteControl.controlToken = token;
-      delete cached.remoteControl.controlTokenEnc;
-    }
-  }
   if (cached.lastCwd && (!cached.recentCwds || cached.recentCwds.length === 0)) {
     const migrated: Settings = {
       ...cached,
@@ -394,14 +373,8 @@ function load(): Settings {
     cached = migrated;
     needsRewrite = true;
   }
-  // The at-rest API key is decrypted into the in-memory plaintext field by
-  // warmSecrets(), so every existing reader (settings-loader, auth) keeps
-  // seeing `anthropicApiKey` unchanged. A legacy plaintext key on disk (no
-  // ciphertext) is migrated to encrypted form by warmSecrets().
-  plaintextKeyOnDisk =
-    typeof cached.anthropicApiKey === 'string' &&
-    cached.anthropicApiKey.length > 0 &&
-    !cached.anthropicApiKeyEnc;
+  // warmSecrets() completes legacy plaintext migration after app ready.
+  plaintextKeyOnDisk = Boolean(cached.anthropicApiKey && !cached.anthropicApiKeyEnc);
   // One-shot migration: promote legacy auth fields into backendAuth array.
   // If backendAuth doesn't exist yet but legacy auth fields do, create a
   // 'claude-code' entry from them. Idempotent: skips if backendAuth already
@@ -412,10 +385,10 @@ function load(): Settings {
         backendId: 'claude-code',
         authMode: cached.authMode === 'subscription' ? 'oauth' : (cached.authMode ?? 'none'),
         apiKey: cached.anthropicApiKey,
+        apiKeyEnc: cached.anthropicApiKeyEnc,
         baseUrl: cached.anthropicBaseUrl,
         model: cached.anthropicModel,
       };
-      // The plaintext apiKey is encrypted by toDiskForm on the rewrite below.
       cached = {
         ...cached,
         backendAuth: [claudeEntry],
@@ -443,20 +416,29 @@ async function persist(next: Settings): Promise<void> {
   const tmp = `${p}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify(onDisk, null, 2), { encoding: 'utf8', mode: 0o600 });
   await fsp.rename(tmp, p);
-  // Cache flips only after the rename succeeds — if write/rename throws we
-  // keep the prior cache so the rest of the app sees a coherent value.
-  cached = next;
+  // Keep the latest ciphertext with its in-memory plaintext, so a later OS
+  // failure cannot erase a credential that was already persisted successfully.
+  cached = {
+    ...next,
+    anthropicApiKeyEnc: onDisk.anthropicApiKeyEnc,
+    backendAuth: next.backendAuth?.map((entry, index) => ({
+      ...entry, apiKeyEnc: onDisk.backendAuth?.[index]?.apiKeyEnc,
+    })),
+    remoteControl: next.remoteControl && {
+      ...next.remoteControl, controlTokenEnc: onDisk.remoteControl?.controlTokenEnc,
+    },
+  };
+  const referenced = new Set([
+    onDisk.anthropicApiKeyEnc, onDisk.remoteControl?.controlTokenEnc,
+    ...(onDisk.backendAuth ?? []).map((entry) => entry.apiKeyEnc),
+  ]);
+  for (const cipher of decryptedSecrets.keys()) {
+    if (!referenced.has(cipher)) decryptedSecrets.delete(cipher);
+  }
 }
 
 export function getSettings(): Settings {
-  const state=load();
-  // Static imports may read settings before Electron's secure storage is
-  // ready. Rehydrate the collaboration credential when it becomes available.
-  if(state.remoteControl?.controlTokenEnc&&!state.remoteControl.controlToken&&remoteCredentialStorageAvailable()) {
-    const token=tryDecryptKey(state.remoteControl.controlTokenEnc);
-    if(token!==null)state.remoteControl={...state.remoteControl,controlToken:token};
-  }
-  return { ...state };
+  return { ...load() };
 }
 
 /** Remote-only atomic edits share the existing settings write queue. */
@@ -551,7 +533,7 @@ export function getBackendAuth(backendId: string): BackendAuthEntry | undefined 
   const result = { ...entry };
   if (result.apiKeyEnc) {
     const dec = tryDecryptKey(result.apiKeyEnc);
-    if (dec !== null) {
+    if (dec !== null && !result.apiKey) {
       result.apiKey = dec;
     }
     delete result.apiKeyEnc;
@@ -566,7 +548,7 @@ export function listBackendAuth(): BackendAuthEntry[] {
     const result = { ...entry };
     if (result.apiKeyEnc) {
       const dec = tryDecryptKey(result.apiKeyEnc);
-      if (dec !== null) {
+      if (dec !== null && !result.apiKey) {
         result.apiKey = dec;
       }
       delete result.apiKeyEnc;
@@ -593,14 +575,7 @@ export function setBackendAuth(
       updated.baseUrl = normalizeBackendBaseUrl(updated.baseUrl);
     }
 
-    // Encrypt API key for at-rest storage.
-    if (updated.apiKey) {
-      const enc = await tryEncryptKey(updated.apiKey);
-      if (enc) {
-        updated.apiKeyEnc = enc;
-        delete updated.apiKey;
-      }
-    }
+    if ('apiKey' in patch && !patch.apiKey) delete updated.apiKeyEnc;
 
     if (idx >= 0) {
       entries[idx] = updated;

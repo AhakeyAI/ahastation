@@ -19,7 +19,7 @@ with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as stream:
     for name in sorted(set(p for p in paths if p)):
         parts=Path(name).parts
         if (len(parts)==1 and name not in root_files) or (len(parts)>1 and parts[0] not in folders):continue
-        if any(p in blocked for p in parts) or (name.startswith('services/') and not name.startswith('services/remote/')):continue
+        if (name != 'contracts/runtime/codex.json' and any(p in blocked for p in parts)) or (name.startswith('services/') and not name.startswith('services/remote/')):continue
         source=ROOT/name
         if source.name=='.env' or source.name.startswith('.env.') and not source.name.endswith('.example'):continue
         if source.suffix.lower() in {'.pyc','.db','.sqlite','.exe','.dll'} or source.name.startswith('private-'):continue
