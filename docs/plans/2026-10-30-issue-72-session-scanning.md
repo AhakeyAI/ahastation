@@ -51,3 +51,16 @@ S2 的扫描许可只覆盖 Claude/Codex。旧 Kimi 与 Codex Desktop 全局索�
 保留原来的身份、退出确认、禁止自动重跑与明确继续断言；未更改 Station/Hub 恢复生产逻辑。
 该定向测试在 Windows Node 24.19 和本机 WSL Ubuntu Node 22.22/Python 3.12 均通过，
 没有以重跑旧 head 或延长等待代替修正测试前置条件。新 head 的全量结果仍以 CI 为准。
+
+`fd2615e` 的 CI `41405049881` 与后续 PR #151 `3ed19ee` 的 CI `41405111736` 中，
+macOS/Ubuntu 均成功，Windows 唯一失败均是 `station-collaboration` 的运行中 Hub 重启用例。
+一份日志显示重启前 nativeThreadId 为 undefined，另一份显示启动消息投递时断线，夹具随后
+处于 reconcile/stop-unconfirmed。测试首次看到 running 就重启，但 running 事件早于夹具
+执行、原生身份落盘和启动 output 投递确认，不能证明已进入本用例要测试的运行中等待阶段。
+
+本次仅改测试：旁路观察执行设备真实 send 的成功返回（原调用、参数、返回和失败均保留），
+并核对 executionInvoked、原生身份和运行状态，再重启 Hub。额外断言原生身份不为空；
+原有重连代次、身份保持、实际停止、明确继续和凭据失效断言均保留，未加超时、跳过或重试。
+没有改变 Station/Hub 的生产状态机，也未声称已修复生产启动中断线的所有边界。
+最终定向验证：Windows 7/7；WSL Ubuntu 6/6、1 项 Windows 专用用例按原规则跳过；
+两端类型检查通过。最新三平台完整测试与打包等待对应新 head 的 CI。

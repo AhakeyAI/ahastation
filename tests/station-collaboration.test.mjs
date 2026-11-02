@@ -93,7 +93,14 @@ test('two production Station receivers share real Hub state, persist receipt, ex
       child.on('exit',code=>{clearTimeout(timeout);reject(new Error('Hub exited '+code+': '+stderr));});
     });
     await updateRemoteControlFields(()=>({enabled:true,mode:'public',serviceUrl:fixture.url,ownerId:fixture.owner,controlToken:fixture.token}));
-    a=new StationService(join(root,'A'));b=new StationService(join(root,'B'));await a.initialize();await b.initialize();
+    a=new StationService(join(root,'A'));b=new StationService(join(root,'B'));
+    const startupAcknowledged=new Set(),send=b.send.bind(b);
+    b.send=async(action,payload,...rest)=>{
+      const result=await send(action,payload,...rest);
+      if(action==='task.event'&&payload.status==='running'&&payload.output==='非模型适配器已开始完整交付')startupAcknowledged.add(payload.taskId);
+      return result;
+    };
+    await a.initialize();await b.initialize();
     await until(()=>a.view().connected&&b.view().connected,'Both authenticated Station WSS connections must become ready');
     for(const [service,name] of [[a,'A'],[b,'B']])await service.action('configure',{config:{...service.view().config,name,acceptingTasks:true,maxConcurrency:1},allowedAgents:['file-test']});
     const command=async(service,action,payload)=>{
@@ -117,8 +124,18 @@ test('two production Station receivers share real Hub state, persist receipt, ex
     assert.ok(!JSON.stringify(a.view()).includes(fixture.token));assert.ok(disk.tokenEnc&&!disk.controlToken);
     const waiting=await command(a,'task.create',{meetingId:meeting.id,title:'wait',objective:'[wait]',targetDeviceId:b.view().deviceId,agentId:'file-test',resource:'text',permission:'read-only',dependencies:[],inputs:[]});
     await until(()=>b.view().snapshot.entities.task?.find(t=>t.id===waiting.id)?.status==='running','Waiting adapter should occupy the one device slot');
+    // The first running event precedes handle.run(), its native identity and
+    // output acknowledgment. Restart an executing fixture, not its startup
+    // handshake: cutting that handshake can throw before it enters [wait].
+    await until(()=>{
+      const receipt=b.storage.read().receipts[waiting.id];
+      return receipt?.executionInvoked===true&&receipt.status==='running'
+        &&typeof receipt.nativeThreadId==='string'&&typeof receipt.nativeTurnId==='string'
+        &&startupAcknowledged.has(waiting.id);
+    },'Waiting fixture identity and startup output must be durably acknowledged before Hub restart');
     const originalGeneration=b.view().snapshot.entities.device.find(d=>d.id===b.view().deviceId).connectionGeneration;
     const beforeRestart=JSON.parse(await readFile(join(root,'B','station-v2.json'),'utf8')).receipts[waiting.id];
+    assert.match(beforeRestart.nativeThreadId,/^fixture-/);assert.match(beforeRestart.nativeTurnId,/^fixture-turn-/);
     child.stdin.write('restart\n');
     await until(()=>a.view().connected&&b.view().connected&&b.view().snapshot.entities.device.find(d=>d.id===b.view().deviceId)?.connectionGeneration>originalGeneration,'Real Hub process restart must restore both WSS connections');
     const afterRestart=JSON.parse(await readFile(join(root,'B','station-v2.json'),'utf8')).receipts[waiting.id];
