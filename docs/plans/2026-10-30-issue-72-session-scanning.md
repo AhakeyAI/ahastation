@@ -34,3 +34,12 @@ S2 的扫描许可只覆盖 Claude/Codex。旧 Kimi 与 Codex Desktop 全局索�
 前两轮 CI 中 Ubuntu 全量测试及打包通过。Windows runner 的 8.3 短路径断言改用 native realpath 后通过。macOS/Windows 夹具首屏超时通过新增诊断定位到缺少 `rateLimits.onUpdate`；已补齐开发夹具的 get/refresh/onUpdate，保留失败诊断，不重试或跳过业务断言。macOS 另暴露预算暂停持久化未结束时继续任务被旧操作合并的竞态；回归用例在旧代码稳定失败，修复为等待旧操作完成后重新校验并延长预算。修复后两端类型检查、36 项直接回归及 164 项任务/Worker/浏览器回归通过。最新全量 CI 结果以 PR 检查为准。
 
 尚需 Mac 与 N5095 上的真实 CLI/原生对话框验收，以及 IF-1 生产者、IF-2 写入者的联调。目录消失或证据不足时宁可显示未知，不能将其计入“进行中/待批准”。本地构建和 fixture 不代替实机验收，因此本 PR 使用 `Refs #72`，不自动关闭 Issue。
+
+## 2026-11-02 同步 main
+
+合入官方 main `86a1466`，保留 #144 的退出开场恢复、Windows 仓库路径和 UI 预热改动。
+唯一冲突在 `tests/project-cleanup.test.mjs`：双方修复相同的平台路径断言，保留本分支统一的
+原生路径常量和 `join` 导入；未更改清理生产逻辑。同步后两端类型检查与构建通过；
+全量 1320 项、1314 通过、6 跳过、0 失败。首次本机运行未配置测试要求的
+`COLLABORATION_PYTHON` / `POCKET_VIBE_TEST_PYTHON`，联调未能启动；补齐已有 Python 3.12
+环境后完整重跑得到上述结果，未放宽断言或跳过联调。新的三平台结果以推送后对应 head 的 CI 为准。

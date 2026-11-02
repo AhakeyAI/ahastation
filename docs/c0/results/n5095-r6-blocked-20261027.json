@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-27",
+  "status": "blocked-input-required",
+  "realApiCalls": false,
+  "credentialPresence": {
+    "XFYUN_APP_ID": false,
+    "XFYUN_API_KEY": false,
+    "XFYUN_API_SECRET": false,
+    "XFYUN_TTS_SPEAKER": false,
+    "DOUBAO_API_KEY": false,
+    "DOUBAO_TTS_SPEAKER": false,
+    "AZURE_SPEECH_KEY": false,
+    "AZURE_SPEECH_REGION": false
+  },
+  "pricing": {
+    "path": "docs/c0/b05-voice/online/pricing.json",
+    "xfyunTtsUnitPriceCny": null,
+    "xfyunAsrUnitPriceCny": null,
+    "totalBudgetCny": "100.00"
+  },
+  "requiredToResume": [
+    "Provide provider credentials through process environment variables, never committed files",
+    "Confirm current xfyun console TTS and ASR unit prices in CNY and fill pricing.json",
+    "Provide an authorized doubao seed-tts-2.0 speaker and Azure region/voice",
+    "Provide a fixed 16 kHz mono PCM16 WAV sample and confirm the actual Azure USD/CNY rate"
+  ],
+  "note": "No paid voice request was made. Dry-run and offline tests from the previous evidence branch remain valid; this task is not marked as a three-provider real benchmark."
+}
