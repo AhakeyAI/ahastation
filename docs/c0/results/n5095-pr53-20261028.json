@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-28",
+  "source": "fix/security-baseline@b6012e9613a2ceeb5fec8f14590a28e0751bc594",
+  "node": "24.19.0",
+  "electron": "45.0.0",
+  "typecheck": "pass",
+  "windowsPackaging": {
+    "artifact": "AhaStation Setup 0.18.4.exe",
+    "bytes": 940543276,
+    "sha256": "89c02f71d295d4046cd560621bfdcc0c57ca1b0c42095d21ae4b008a9bd7c99b",
+    "silentInstallExitCode": 0,
+    "installedExecutable": "AhaStation.exe",
+    "aliveAtDeadline": true,
+    "processTreeStopped": true,
+    "fatalLogPatterns": [],
+    "evidence": "n5095-pr53-nsis-install-smoke-20261028.json",
+    "note": "electron-builder initially failed on two winCodeSign symlink privilege errors. The standard builder was completed with a temporary 7za wrapper that copies the real dylib files; the original 7za.exe was restored afterward."
+  },
+  "dpapiMigration": {
+    "oldVersion": "42.11.18",
+    "newVersion": "45.0.0",
+    "oldWriter": "safeStorage.encryptString",
+    "newReader": "safeStorage.decryptStringAsync + store.warmSecrets",
+    "directDecryptMatches": true,
+    "legacyFieldMatches": true,
+    "backendFieldMatches": true,
+    "plaintextAbsent": true,
+    "syntheticCredentialOnly": true,
+    "note": "The same isolated userData and Electron 42 ciphertext were used. No real API key was read or recorded."
+  },
+  "unpackedSmoke": {
+    "aliveAtDeadline": true,
+    "processTreeStopped": true,
+    "fatalLogPatterns": [],
+    "evidence": "n5095-pr53-win-unpacked-smoke-20261027.json"
+  }
+}
