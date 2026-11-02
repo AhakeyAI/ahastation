@@ -334,7 +334,7 @@ export const ClaudeWorkspace = memo(function ClaudeWorkspace({
             className="workspace-hero-terminal-btn"
             onClick={onOpenInTerminal}
             title="查看真实 CLI 执行情况"
-            aria-label="Open CLI execution view"
+            aria-label="查看 CLI 执行情况"
           >
             <Terminal size={14} />
             <span className="workspace-terminal-btn-label">
@@ -342,7 +342,7 @@ export const ClaudeWorkspace = memo(function ClaudeWorkspace({
                 ? 'Codex CLI'
                 : backendId === 'claude-code'
                   ? 'Claude CLI'
-                  : 'Terminal'}
+                  : '终端'}
             </span>
           </button>
         </div>
@@ -350,13 +350,13 @@ export const ClaudeWorkspace = memo(function ClaudeWorkspace({
 
       {showCurrentTask && (
         <section className="workspace-now workspace-current-task">
-          <div className="workspace-now-label">Current task</div>
+          <div className="workspace-now-label">当前任务</div>
           <button
             type="button"
             className={`workspace-now-card workspace-task-card ${currentTaskExpanded ? 'workspace-task-card-open' : ''}`}
             onClick={() => toggleExpand('__current__')}
             aria-expanded={currentTaskExpanded}
-            aria-label={task ? `Current task: ${task}` : 'No current task'}
+            aria-label={task ? `当前任务：${task}` : '没有当前任务'}
           >
             <div className="workspace-task-row">
               <span className="workspace-task-caret" aria-hidden>
@@ -684,10 +684,10 @@ export const ClaudeWorkspace = memo(function ClaudeWorkspace({
       )}
 
       <section className="workspace-feed">
-        <div className="workspace-feed-label">Recent activity</div>
+        <div className="workspace-feed-label">最近动态</div>
         <div className="workspace-feed-list">
           {feedRows.length === 0 ? (
-            <div className="workspace-feed-empty">No activity yet.</div>
+            <div className="workspace-feed-empty">还没有动态。</div>
           ) : (
             feedRows.map((row) => {
               const isOpen = expanded.has(row.key);

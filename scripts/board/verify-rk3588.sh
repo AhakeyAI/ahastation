@@ -25,7 +25,7 @@ git worktree list >/dev/null 2>&1 || fail "git worktree support is unavailable"
 command -v aplay >/dev/null 2>&1 || fail "alsa-utils/aplay is missing"
 command -v arecord >/dev/null 2>&1 || fail "alsa-utils/arecord is missing"
 
-APP_RESOURCES=${AHASTATION_APP_RESOURCES:-/opt/AhaStation/resources}
+APP_RESOURCES=${AHASTATION_APP_RESOURCES:-/opt/AhaStudio/resources}
 
 if [ -f "$VERSIONS_FILE" ]; then
   # shellcheck disable=SC1090

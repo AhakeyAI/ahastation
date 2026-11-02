@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { MeetingRepository } from '../dist-electron/meeting-repository.js';
 import { Orchestrator } from '../dist-electron/orchestrator.js';
+import { testMeetingsPath } from './electron-stub-impl.mjs';
 
 function fakeSessionFactory(opts) {
   return {
@@ -69,6 +70,6 @@ test('Coordinator applies a versioned running-plan revision and journals it', as
     assert.equal(revisions[0].payload.planVersion, 2);
   } finally {
     await orchestrator.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });

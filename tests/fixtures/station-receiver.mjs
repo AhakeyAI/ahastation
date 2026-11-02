@@ -1,0 +1,15 @@
+import {app,safeStorage} from 'electron';
+import {readFile} from 'node:fs/promises';
+import {StationService} from '../../dist-electron/collaboration/station-service.js';
+import {updateRemoteControlFields} from '../../dist-electron/store.js';
+const [root,connection]=process.argv.slice(2);app.getPath=()=>root;
+safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=s=>Buffer.from('fixture:'+s);safeStorage.decryptString=b=>b.toString().slice(8);
+process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
+const config=JSON.parse(await readFile(connection,'utf8'));
+await updateRemoteControlFields(()=>({enabled:true,mode:'public',serviceUrl:config.url,ownerId:config.owner,controlToken:config.token}));
+const service=new StationService(root);await service.initialize();
+for(let n=0;!service.view().connected&&n<300;n++)await new Promise(r=>setTimeout(r,50));
+if(!service.view().connected)throw new Error('Receiver connection timed out');
+await service.action('configure',{config:{...service.view().config,name:'B',acceptingTasks:true,maxConcurrency:1},allowedAgents:['file-test']});
+console.log(JSON.stringify({ready:true,deviceId:service.view().deviceId,pid:process.pid}));
+process.stdin.once('data',()=>void service.shutdown().then(confirmed=>process.exit(confirmed?0:2)));

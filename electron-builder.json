@@ -1,6 +1,6 @@
 {
   "appId": "com.ahastation.app",
-  "productName": "AhaStation",
+  "productName": "AhaStudio",
   "icon": "build/icon.icns",
   "directories": {
     "output": "release",
@@ -9,9 +9,12 @@
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
+    "contracts/collaboration/v1.schema.json",
+    "contracts/collaboration/v2.schema.json",
     "package.json"
   ],
   "asarUnpack": [
+    "dist-electron/terminal-daemon/windows-pipe-acl.ps1",
     "**/node_modules/@anthropic-ai/**/*",
     "**/node_modules/@openai/codex-darwin-*/**/*",
     "**/node_modules/@openai/codex-linux-*/**/*",
@@ -23,28 +26,55 @@
     "dist/voice-id/**/*"
   ],
   "extraResources": [
-    { "from": "build/claude-defaults", "to": "claude-defaults", "filter": ["**/*"] }
+    {
+      "from": "build/station-native",
+      "to": "station-native",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
+      "from": "resources/remote-service.json",
+      "to": "remote-service.json"
+    },
+    {
+      "from": "build/claude-defaults",
+      "to": "claude-defaults",
+      "filter": [
+        "**/*"
+      ]
+    }
   ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": [
-      { "target": "dmg", "arch": ["arm64"] }
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      }
     ],
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
     "extendInfo": {
-      "NSMicrophoneUsageDescription": "AhaStation 需要使用麦克风进行语音输入、转写和会议交互。"
+      "NSMicrophoneUsageDescription": "AhaStudio 需要使用麦克风进行语音输入、转写和会议交互。"
     }
   },
   "dmg": {
     "icon": null,
-    "title": "AhaStation ${version}"
+    "title": "AhaStudio ${version}"
   },
   "win": {
     "target": [
-      { "target": "nsis", "arch": ["x64", "arm64"] }
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
     ],
     "icon": "build/icon.ico"
   },
@@ -64,7 +94,7 @@
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "executableName": "ahastation",
     "synopsis": "AI meeting orchestrator with four Worker backends",
-    "description": "AhaStation coordinates Claude, OpenCode, Codex and Kimi workers through a journaled delivery verification loop."
+    "description": "AhaStudio coordinates Claude, OpenCode, Codex and Kimi workers through a journaled delivery verification loop."
   },
   "deb": {
     "priority": "optional",

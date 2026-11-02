@@ -161,6 +161,10 @@ export class HostGroup {
 
   private host: BackendSession | null = null;
   private ready = false;
+  // A newly registered group is pending even before start() reaches the
+  // backend factory (meeting initialization and memory reads can await).
+  private lifecycle: 'starting' | 'ready' | 'ended' | 'failed' = 'starting';
+  private lifecycleError: string | undefined;
   private suppressUnexpectedHostEnd = false;
   private scheduler: WorkerScheduler;
   private emit: (e: OrchestratorEvent) => void;
@@ -268,6 +272,10 @@ export class HostGroup {
     return this.ready && this.host !== null;
   }
 
+  getLifecycle(): { phase: 'starting' | 'ready' | 'ended' | 'failed'; error?: string } {
+    return { phase: this.lifecycle, ...(this.lifecycleError ? { error: this.lifecycleError } : {}) };
+  }
+
   getScheduler(): WorkerScheduler {
     return this.scheduler;
   }
@@ -283,6 +291,19 @@ export class HostGroup {
   }
 
   async start(greeting?: string) {
+    this.lifecycle = 'starting';
+    this.lifecycleError = undefined;
+    try {
+      await this.startHost(greeting);
+    } catch (error) {
+      this.ready = false;
+      this.lifecycle = 'failed';
+      this.lifecycleError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
+  private async startHost(greeting?: string) {
     this.ready = false;
     const meetingMcp = buildTalkerMcp(this.bridge, this.isCoordinator, this.id);
 
@@ -334,6 +355,7 @@ export class HostGroup {
     if (!this.host) {
       throw new Error(`backend '${this.backendId}' ended before readiness`);
     }
+    this.lifecycle = 'ready';
     if (greeting) {
       this.ready = true;
       this.host.sendUserText(greeting, 'normal');
@@ -386,6 +408,8 @@ export class HostGroup {
     this.host?.end();
     this.host = null;
     this.ready = false;
+    this.lifecycle = 'ended';
+    this.lifecycleError = undefined;
     return finalLines;
   }
 
@@ -420,12 +444,19 @@ export class HostGroup {
       this.suppressUnexpectedHostEnd = true;
       this.host?.end();
       this.host = null;
+      this.ready = false;
+      this.lifecycle = 'failed';
+      this.lifecycleError = e.error;
       this.taggedEmit({ source: 'talker', event: e });
       return;
     }
     if (e.kind === 'ended') {
       this.host = null;
       this.ready = false;
+      if (!this.suppressUnexpectedHostEnd) {
+        this.lifecycle = 'ended';
+        this.lifecycleError = undefined;
+      }
     }
     this.taggedEmit({ source: 'talker', event: e });
 

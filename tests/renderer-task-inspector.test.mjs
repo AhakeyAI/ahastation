@@ -83,6 +83,9 @@ test('high-risk approval is visible and normal mode has no per-task accept actio
   assert.match(approval, /需进入详情/);
   assert.match(detail, /高风险操作 · 需完整确认/);
   assert.match(detail, /我已阅读/);
+  assert.match(approval, /该命令以完整权限运行/);
+  assert.match(detail, /发现越界将停止 Run/);
+  assert.match(read('src/components/WorkerCard.tsx'), /该命令以完整权限运行/);
   assert.match(inspector, /确认已人工检查/);
   assert.match(inspector, /tasks\.confirmReviewEvidence/);
   assert.match(inspector, /该内容不会发送给 Coordinator 模型/);

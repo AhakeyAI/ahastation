@@ -27,7 +27,7 @@ export const TerminalPanel = memo(function TerminalPanel({ commands }: TerminalP
     return (
       <div className="terminal-panel-empty">
         <TerminalIcon size={32} />
-        <p>No terminal commands yet</p>
+        <p>还没有终端命令</p>
         <small>Bash / shell 命令会在这里按调用实时展示完整输出。</small>
       </div>
     );

@@ -12,3 +12,6 @@ await Promise.all(preloads.map((name) => copyFile(
   join(root, 'electron', name),
   join(output, name),
 )));
+await mkdir(join(output, 'terminal-daemon'), { recursive: true });
+await copyFile(join(root, 'electron/terminal-daemon/windows-pipe-acl.ps1'),
+  join(output, 'terminal-daemon/windows-pipe-acl.ps1'));

@@ -11,6 +11,7 @@ interface ApprovalDetailModalProps {
   /** 完整参数（JSON 展示）。 */
   rawInput: Record<string, unknown>;
   blocked?: boolean;
+  fullPermissionCommand?: boolean;
   busy?: boolean;
   error?: string | null;
   onConfirm: () => void;
@@ -30,6 +31,7 @@ export function ApprovalDetailModal({
   assessment,
   rawInput,
   blocked = false,
+  fullPermissionCommand = false,
   busy = false,
   error,
   onConfirm,
@@ -70,6 +72,11 @@ export function ApprovalDetailModal({
         <p className="aha-modal-sub">
           请逐项核对以下四要素与影响面。确认对象仅限当前请求，不会扩大任务授权。
         </p>
+        {fullPermissionCommand && (
+          <p className="aha-modal-sub" role="note">
+            该命令以完整权限运行；宿主会在命令前后检测授权范围外的文件变化，发现越界将停止 Run。
+          </p>
+        )}
 
         <div className="aha-detail-box">
           <div className="aha-kv"><strong>项目</strong><span>{project}</span></div>

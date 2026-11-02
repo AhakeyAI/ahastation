@@ -1,0 +1,89 @@
+{
+  "targetBranch": "etrnal-dev",
+  "upstreamCommit": "c134de22efed4fbf17bb5af1c727f6f7c36a15f6",
+  "nodeVersion": "v24.22.0",
+  "node": {
+    "upstream": {
+      "tests": 922,
+      "pass": 883,
+      "fail": 34,
+      "cancelled": 0,
+      "skipped": 5,
+      "exitCode": 1
+    },
+    "integrated": {
+      "tests": 972,
+      "pass": 933,
+      "fail": 34,
+      "cancelled": 0,
+      "skipped": 5,
+      "exitCode": 1
+    },
+    "concurrency": 4,
+    "forceExit": false,
+    "pythonFixturesEnabled": true,
+    "additionalTests": 50,
+    "newFailureNames": [],
+    "resolvedFailureNames": [],
+    "baselineFailureNames": [
+      "CLI/Desktop split: app-server host is detected, never a CLI candidate",
+      "correlate desktop: live chat pid → active; dead chat pids + live host → host-backed idle",
+      "correlate desktop: dead host degrades host-idle threads to unknown; live chat pid stays active",
+      "collision: live desktop chat pid + stale CLI rollout → desktop rules, chat pid owns the row",
+      "collision: live CLI pid + dead desktop side → CLI rules win",
+      "correlate desktop: untitled non-active threads fold into noise; active or titled stay visible",
+      "ObserveService: desktop threads publish; CLI rollout ids never duplicate as desktop rows",
+      "ObserveService: self-excluded host pid drops host backing (own adapter children stay hidden)",
+      "correlate: full pipeline over the fixture tree",
+      "ObserveService.tickOnce: publishes a full snapshot from the fixture home",
+      "correlate: live sessions with <2 messages are not noise; path-like titles fall back",
+      "listKimiSessions: dedupe, corrupt lines skipped, missing state.json skipped",
+      "kimi parse: state.json title wins, provenance session-index",
+      "kimi parse: empty title falls back to lastPrompt (60 chars), first-prompt provenance",
+      "kimi parse: corrupt state.json degrades to null",
+      "correlate: kimi rows — titles, states, noise, unknown without pid",
+      "ObserveService.tickOnce: kimi sessions with cwd-associated pids",
+      "ObserveService: self-exclusion by pid degrades kimi to unknown",
+      "MCP suppression: mcp-server pids detected, held rollouts collected",
+      "fallback 1: command-line session id wins",
+      "ps parsing: pid/ppid/cpu/rss/comm/args columns",
+      "ps parsing: full args survive spaces and truncation of comm",
+      "ps parsing: tt column (tty vs ?? for terminal-less processes)",
+      "findClientPids: matches CLI processes, skips helpers/mcp/grep/args",
+      "descendantsOf: two levels, cycle-protected",
+      "maxDescendantCpu: max over the two-level tree",
+      "parseLsofFieldOutput: cwd, files, permission-denied drop",
+      "listQoderRuns skips symlinked manifests (fail closed)",
+      "qoder tailer streams replies from the session transcript into events",
+      "qoder tailer follows the PID-linked live session transcript",
+      "qoder tailer holds a torn trailing row until its append completes",
+      "qoder tailer follows session-file rotation across turns",
+      "qoder tailer keeps simultaneous same-cwd sessions isolated by PID",
+      "qoder tailer ignores transcripts written before this session spawned"
+    ]
+  },
+  "python": {
+    "tests": 110,
+    "pass": 92,
+    "fail": 0,
+    "skipped": 18,
+    "exitCode": 0
+  },
+  "checks": {
+    "rendererTypecheck": "passed",
+    "electronTypecheck": "passed",
+    "rendererBuild": "passed",
+    "electronBuild": "passed"
+  },
+  "notVerified": [
+    "native Desktop/Station GUI",
+    "deployed Hub and cross-network connection",
+    "native MySQL",
+    "macOS/Linux/ARM64 packages"
+  ],
+  "notes": [
+    "Source-baseline upload only; Station-native collaboration contracts and feature modules are not completed.",
+    "Node failure sets are identical on unmodified upstream and integrated source in this Windows environment.",
+    "Python uses an existing isolated environment; production DB and model accounts are not accessed."
+  ]
+}

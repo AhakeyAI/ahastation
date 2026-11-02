@@ -1,4 +1,22 @@
+import type { PocketVibeRemoteTarget, PocketVibeRemoteHost, PocketVibeRemoteDirectory } from '../electron/backends/pocket-vibe-target';
+export type { PocketVibeRemoteTarget, PocketVibeRemoteHost, PocketVibeRemoteDirectory };
 export type AutoApproveScope = 'off' | 'read' | 'all';
+
+export interface LocalCliInfo {
+  id: string;
+  label: string;
+  command: string;
+  binaryPath: string;
+}
+
+/** Continue an observed CLI session in a local terminal tab: 'fork' branches a
+ *  session still running elsewhere, 'resume' reopens one nobody is running. */
+export interface ContinueSessionRequest {
+  observedId: string;
+  mode: 'fork' | 'resume';
+  /** End the original process once the branch session is up (terminal-owned only). */
+  endOriginal?: boolean;
+}
 
 export interface FileEntry {
   name: string;
@@ -244,6 +262,7 @@ export interface TaskMessage {
     | 'interrupt'
     | 'status-request'
     | 'progress'
+    | 'report'
     | 'question'
     | 'approval-request'
     | 'approval-response';
@@ -890,10 +909,12 @@ export type RendererEvent =
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'host-added'; backendId: string; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'session-ready'; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget }
+  | { kind: 'host-added'; backendId: string; profile?: { title: string; name: string }; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'meeting-notes-updated'; notes: MeetingNotes; updatedAt: number; source?: AgentSource; sessionId?: string; hostId?: string }
+  | { kind: 'task-owner-assigned'; taskId: string; title: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
-  | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string };
+  | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget };
 
 export interface DesktopSource {
   id: string;
@@ -973,6 +994,8 @@ export interface AuthApi {
 }
 
 export interface BackendInfo {
+  sharedStatus?: string;
+  remoteControlMode?: 'public' | 'legacy';
   id: string;
   displayName: string;
   iconId: string;
@@ -1122,12 +1145,17 @@ export interface RecentCwdMeta {
 export interface OpenTabMeta {
   cwd: string;
   openedAt: number;
+  remoteHosts?: PocketVibeRemoteHost[];
 }
 
 export interface HostMeta {
   id: string;
   backendId: string;
   role: 'coordinator' | 'expert';
+  remoteTarget?: PocketVibeRemoteTarget;
+  ready?: boolean;
+  phase?: 'starting' | 'ready' | 'ended' | 'failed';
+  error?: string;
 }
 
 export interface SessionsApi {
@@ -1136,12 +1164,14 @@ export interface SessionsApi {
     greeting?: string,
     backendId?: string,
     recoveryMeetingId?: string,
+    remoteHosts?: PocketVibeRemoteHost[],
   ) => Promise<
-    | { ok: true; sessionId: string; cwd: string; backendId?: string; recovered?: boolean; status?: 'starting' }
+    | { ok: true; sessionId: string; cwd: string; backendId?: string; recovered?: boolean; status?: 'starting'; remoteHosts?: PocketVibeRemoteHost[] }
     | { ok: false; error: 'duplicate'; sessionId: string; cwd?: string }
     | { ok: false; error: string }
   >;
   close: (id: string) => Promise<{ ok: boolean; activeId?: string | null; error?: string }>;
+  forgetRestored: (cwd: string) => Promise<{ ok: boolean; error?: string; sessionId?: string }>;
   setActive: (id: string) => Promise<{ ok: boolean; error?: string }>;
   list: () => Promise<{ ok: true; sessions: SessionMeta[]; activeId: string | null }>;
   listRestore: () => Promise<{
@@ -1161,11 +1191,24 @@ export interface SessionsApi {
       | 'resolve-integration-conflict'
       | 'abandon-task',
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Empty-project kickoff: invite the expert and start its sub-agent (AME-D14, D23). */
+  kickoff?: (
+    sessionId: string | null,
+    mode: 'brainstorm' | 'develop',
+    expertBackendId: string,
+    title: string,
+    name: string,
+  ) => Promise<{ ok: true; expertHostId: string; taskId: string } | { ok: false; error: string }>;
+  meetingNotes?: (sessionId: string | null) => Promise<{ ok: true; notes: MeetingNotes } | { ok: false; error: string }>;
+  handBackTask?: (sessionId: string | null, taskId: string, note?: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  restartOwnedTask?: (sessionId: string | null, taskId: string) => Promise<{ ok: true; taskId: string } | { ok: false; error: string }>;
   addHost: (
     sessionId: string | null,
     backendId: string,
     hostId?: string,
+    remoteTarget?: PocketVibeRemoteTarget,
   ) => Promise<{ ok: true; hostId: string } | { ok: false; error: string }>;
+  remoteSessions: (refresh?: boolean) => Promise<{ ok: true; directory: PocketVibeRemoteDirectory } | { ok: false; error: string }>;
   removeHost: (
     sessionId: string | null,
     hostId: string,
@@ -1173,6 +1216,8 @@ export interface SessionsApi {
   listHosts: (
     sessionId: string | null,
   ) => Promise<{ ok: true; hosts: HostMeta[] } | { ok: false; error: string }>;
+  /** Ask main to re-emit plan state for a renderer that just attached. */
+  republish?: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
   setCoordinator: (
     sessionId: string | null,
     hostId: string,
@@ -1252,6 +1297,8 @@ export interface XfyunAsrCredentials {
 }
 
 export interface VibeMeetApi {
+  remoteControl: { request: (action: string, payload?: Record<string, unknown>) => Promise<import('../electron/remote-control-types').RemoteControlReply>; onChanged: (cb: () => void) => () => void };
+  collaboration: {request(action:string,payload?:Record<string,unknown>):Promise<{ok:boolean;value?:unknown;error?:string}>;onChanged(cb:()=>void):()=>void};
   sessions: SessionsApi;
   sendUserText: (sessionId: string | null, text: string) => Promise<{ ok: boolean; error?: string }>;
   sendUserImage: (sessionId: string | null, dataUrl: string, caption: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1275,6 +1322,7 @@ export interface VibeMeetApi {
     sessionId: string | null,
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ) => Promise<{ ok: boolean; error?: string }>;
   acceptDelivery: (
     sessionId: string | null,
@@ -1393,6 +1441,11 @@ export interface VibeMeetApi {
     close: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
     list: () => Promise<{ ok: true; windows: Array<{ hostId: string; backendId: string; sessionId: string; focused: boolean }> } | { ok: false; error: string }>;
   };
+  /** Per-agent subscription quota. Optional: an older preload without the
+   *  namespace degrades to an empty usage strip. */
+  rateLimits?: import('./lib/rate-limits').RateLimitsApi;
+  /** Lobby project rooms. Optional: an older preload groups rooms by folder. */
+  projects?: import('./lib/project-rooms').ProjectsApi;
   ideRegistry: {
     list: () => Promise<{ ok: true; state: IdeRegistryState } | { ok: false; error: string }>;
     setDefault: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1410,7 +1463,7 @@ export interface VibeMeetApi {
   app: {
     /** Fired when main intercepts a minimize/close to ask about AhaBar. */
     onMinimizePrompt: (cb: (payload: { kind: 'minimize' | 'close' }) => void) => () => void;
-    minimizeChoice: (choice: { action: 'ahabar' | 'hide'; never: boolean }) => Promise<{ ok: boolean; error?: string }>;
+    minimizeChoice: (choice: { action: 'ahabar' | 'hide' | 'quit' | 'cancel'; never: boolean }) => Promise<{ ok: boolean; error?: string }>;
   };
   companion: CompanionApi;
   /** Floating AhaBar window bridge (preload-companion.cjs only). */
@@ -1434,6 +1487,7 @@ export interface VibeMeetApi {
   /** Terminal-mode worker PTY bridge (main window). Attach mirrors the
    *  pty ring buffer + live output; input takes over the TUI keyboard. */
   workerPty: {
+    ready: (sessionId: string, workerId: string) => Promise<{ ok: boolean }>;
     attach: (workerId: string) => Promise<{ ok: boolean; error?: string; replay?: string }>;
     input: (workerId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
     resize: (workerId: string, rows: number, cols: number) => Promise<{ ok: boolean; error?: string }>;
@@ -1449,18 +1503,27 @@ export interface VibeMeetApi {
   };
   /** Main-window bottom-drawer shell PTY. Renderer owns lifecycle (create/kill). */
   shellPty: {
+    listClis: () => Promise<{ ok: true; clis: LocalCliInfo[] } | { ok: false; error: string }>;
+    listShells: () => Promise<{ ok: true; shells: LocalCliInfo[]; defaultCwd: string } | { ok: false; error: string }>;
     create: (opts?: {
       cwd?: string;
       cols?: number;
       rows?: number;
+      cliId?: string;
+      shellId?: string;
+      terminalId?: string;
+      /** Continue an observed session: fork it if still running elsewhere, else resume. */
+      continueSession?: ContinueSessionRequest;
+      /** First prompt for claude / codex; other CLIs ignore it. */
+      initialPrompt?: string;
     }) => Promise<
-      | { ok: true; ptyId: string; replay: string }
+      | { ok: true; ptyId: string; replay: string; sequence: number; exited?: boolean; exitCode?: number | null; notice?: string }
       | { ok: false; error?: string }
     >;
     input: (ptyId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
     resize: (ptyId: string, rows: number, cols: number) => Promise<{ ok: boolean; error?: string }>;
     kill: (ptyId: string) => Promise<{ ok: boolean; error?: string }>;
-    onData: (cb: (e: { ptyId: string; data: string }) => void) => () => void;
+    onData: (cb: (e: { ptyId: string; data: string; sequence: number }) => void) => () => void;
     onExit: (cb: (e: { ptyId: string; exitCode: number | null }) => void) => () => void;
   };
   /** Editor-window live panel state. Only exposed by the narrow editor
@@ -1470,6 +1533,8 @@ export interface VibeMeetApi {
     onEvent: (cb: (msg: { hostId: string; payload: EditorWindowEvent }) => void) => () => void;
   };
   popoutSession: (tabId: string) => Promise<{ ok: boolean }>;
+  /** Open a running project room in its own full AhaStudio window. */
+  openRoomWindow?: (cwd: string) => Promise<{ ok: boolean; error?: string }>;
   popoutStage: (windowId: string, type: string) => Promise<{ ok: boolean }>;
   browser: BrowserApi;
   steerWorker: (
@@ -1571,7 +1636,8 @@ export interface AhaBarApi {
   ) => Promise<{ ok: boolean; error?: string }>;
   focusMain: () => Promise<{ ok: boolean }>;
   copyResume: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  setExpanded: (expanded: boolean) => Promise<{ ok: boolean }>;
+  /** `height` is the bar's measured content height; main clamps it. */
+  setExpanded: (expanded: boolean, height?: number) => Promise<{ ok: boolean }>;
   setGhost: (ghost: boolean) => Promise<{ ok: boolean }>;
 }
 
@@ -1686,6 +1752,7 @@ export interface MeetingPlanBrief {
 /** Renderer-side input for the manual Plan Meeting flow. The main process
  * validates the same shape before installing it into the scheduler. */
 export interface PlanMeetingTaskInput {
+  sharedTarget?:{deviceId:string;agentId:string;resource:'text'|'directory'|'repository'|'native';permission:'read-only'|'workspace-write'|'full-access';projectId?:string;baseCommit?:string;nativeSessionId?:string;parentTaskId?:string;inputs?:Array<{repository:string;commit:string;paths:string[]}>};
   id: string;
   title: string;
   prompt: string;
@@ -1734,4 +1801,17 @@ export interface PendingPermission {
   toolName: string;
   input: Record<string, unknown>;
   toolUseID: string;
+}
+
+export interface MeetingNoteItem {
+  text: string;
+  source?: string;
+}
+
+/** Coordinator's live meeting notes (工作区 tab). */
+export interface MeetingNotes {
+  conclusions: MeetingNoteItem[];
+  decisions: MeetingNoteItem[];
+  workItems: MeetingNoteItem[];
+  todos: MeetingNoteItem[];
 }

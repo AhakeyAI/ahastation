@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -510,6 +510,8 @@ test('scheduler persists canonical allow before resolving the backend request', 
   const resolved = [];
   const emitted = [];
   const backend = new CodexBackend();
+  let approvedCommandGuard;
+  let endCalls = 0;
   const session = {
     async start() {},
     sendUserText() {},
@@ -519,7 +521,7 @@ test('scheduler persists canonical allow before resolving the backend request', 
       resolved.push({ id, decision });
     },
     async interrupt() {},
-    end() {},
+    end() { endCalls += 1; },
   };
   const scheduler = new WorkerScheduler({
     emit(event) { emitted.push(event); },
@@ -560,6 +562,8 @@ test('scheduler persists canonical allow before resolving the backend request', 
     sessionFactory(options) {
       assert.equal(options.autoApproveScope, 'off');
       assert.equal(options.confirmDestructive, undefined);
+      approvedCommandGuard = options.sessionOptions.approvedCommandGuard;
+      assert.ok(approvedCommandGuard);
       return session;
     },
     buildWorkerMcp() { return {}; },
@@ -619,6 +623,31 @@ test('scheduler persists canonical allow before resolving the backend request', 
   assert.equal(approvalCard.id, 'permission-secret');
   assert.equal(approvalCard.input.normalizationDiagnostic, 'secret-bearing-argument');
   assert.doesNotMatch(JSON.stringify(approvalCard), /never-store-this/);
+
+  await approvedCommandGuard.before('approved-npm-test');
+  writeFileSync(join(root, 'escape.txt'), 'outside the grant\n');
+  await assert.rejects(
+    approvedCommandGuard.after('approved-npm-test'),
+    /approved-command-scope-violation|outside its authorized write scope/,
+  );
+  scheduler.onWorkerEvent('permission-task', {
+    kind: 'worker-signal',
+    signal: {
+      kind: 'failed',
+      code: 'approved-command-scope-violation',
+      message: 'added: escape.txt',
+      retryable: false,
+    },
+  });
+  const deadline = Date.now() + 1_000;
+  while (scheduler.snapshot().find((task) => task.id === 'permission-task')?.status !== 'failed'
+    && Date.now() < deadline) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
+  }
+  const stopped = scheduler.snapshot().find((task) => task.id === 'permission-task');
+  assert.equal(stopped.status, 'failed');
+  assert.equal(stopped.attempt, 1);
+  assert.equal(endCalls, 1);
 });
 
 test('repeated identical authority denials fail the worker instead of burning budget', async () => {

@@ -54,7 +54,7 @@ function requireAccessibility(): ActionErr | null {
   if (isAccessibilityGranted()) return null;
   return {
     ok: false,
-    error: 'Accessibility permission not granted. Open System Settings → Privacy & Security → Accessibility and enable AhaStation.',
+    error: 'Accessibility permission not granted. Open System Settings → Privacy & Security → Accessibility and enable AhaStudio.',
     needsPermission: 'accessibility',
   };
 }

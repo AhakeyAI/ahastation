@@ -26,7 +26,7 @@ const MEETING_TOOL_NAMES_SET = new Set<string>([
   'submit_delivery_chunk_review', 'complete_delivery_review',
   'request_delivery_rework', 'ask_coordinator', 'task_done',
   'submit_work_report', 'submit_delivery', 'request_user_decision',
-  'ask_host', 'reply_to_coordinator',
+  'ask_host', 'reply_to_coordinator', 'update_meeting_notes',
   // 观察层只读查询（两个动作工具由 OBSERVED_SESSION_ACTION_TOOLS 先行拦截）
   'observed_sessions_list',
 ]);

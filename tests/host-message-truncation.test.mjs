@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises';
 import test from 'node:test';
 
 import { Orchestrator } from '../dist-electron/orchestrator.js';
+import { testMeetingsPath } from './electron-stub-impl.mjs';
 
 // sendHostMessage used to reject any text over 20_000 chars. The auto-forwarded
 // expert response path builds `[expert response from X] <text.slice(0,20_000)>`
@@ -44,7 +45,7 @@ test('sendHostMessage truncates over-length text instead of dropping it', async 
     assert.match(delivered, /\[truncated\]/);
   } finally {
     await orch.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });
 
@@ -68,6 +69,6 @@ test('sendHostMessage passes short text through unchanged', async () => {
     assert.doesNotMatch(delivered, /\[truncated\]/);
   } finally {
     await orch.end();
-    await rm(`/tmp/meetings/${meetingId}`, { recursive: true, force: true });
+    await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
   }
 });

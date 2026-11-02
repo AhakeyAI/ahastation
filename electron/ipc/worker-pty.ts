@@ -15,6 +15,7 @@
 import { z } from 'zod';
 import { getPtyHost } from '../pty-host.js';
 import type { IpcContext } from './context.js';
+import { sendToAppWindows } from '../room-windows.js';
 import { handleSecure, mainWindowSenderPolicy } from './validators.js';
 import { PtyInputLimiter, PTY_INPUT_MAX_BYTES } from './ide-pty.js';
 
@@ -92,7 +93,7 @@ export function registerWorkerPtyIpc(ctx: IpcContext): void {
       // Re-attach replaces the previous subscription (renderer remounts).
       detach(workerId);
       const send = (channel: string, data: unknown) => {
-        ctx.liveWindow()?.webContents.send(channel, data);
+        sendToAppWindows(ctx.liveWindow(), channel, data);
       };
       const unsubscribeData = host.onData(workerId, (data) => {
         send('worker-pty:data', {

@@ -1,6 +1,6 @@
 # B03 · 项目、任务、阶段、决定和证据契约（草案 v0）
 
-日期：2026-10-22。状态：**评审草案，未改代码**。基线 main `c134de2`。
+日期：2026-10-22（R3 补 §8 跨设备扩展，2026-10-27）。状态：**评审草案，未改代码**。基线 main `c134de2`。
 依据：规格 10、架构 11「领域对象与状态建议」、决策 09（D23、D25–D27、D58、看板阶段规则）、WBS 12 的 B03 验收：「对象身份、版本和命令事件样例明确；阶段与细分状态、旧数据映射可评审」。
 
 本文件只定义契约，不选存储引擎（B08），不选运行底座（B04）。
@@ -178,7 +178,82 @@ interface DomainEventV2<T = unknown> {
 | Q5 | 父任务的阶段如何由子任务汇总 | 父任务阶段 = 必需子任务里最靠前的阶段；全部 done 后，父任务还需要整体验证和用户接受才能 done（Q09） | 产品负责人确认 |
 | Q6 | Decision 的 `stage-confirm` 是否要求语音原话证据 | 要求有 `utteranceId` 或界面点击记录二选一；纯模型转述不算 | 产品负责人确认 |
 
-## 8. 下一步
+## 8. 跨设备扩展（R3，2026-10-27）
+
+依据：R2 裁决（`../review-etrnal-dev/CONFLICTS.md`）、ADR 0017 / 0018、`../design/remote-control.md` §0。跨设备以 `etrnal-dev` 的 v2 契约（`contracts/collaboration/v2*`）为基础，本节写的是 C0 契约要和它对齐的地方，以及要求它补上的字段。对齐后合成一份契约，不并存两套。
+
+### 8.1 信封要补的字段
+
+`DomainEventV2` 在跨设备传输时增加以下字段（本机事件不需要）：
+
+```ts
+interface DeviceSignature {
+  deviceId: string;          // 发送设备
+  keyId: string;             // 设备签名密钥版本，轮换后单调递增
+  issuedAt: number;
+  expiresAt: number;         // 命令类消息必填；普通会议消息可以留长一点
+  basedOn?: { aggregateId: string; revision: number }; // 改变执行状态的命令必填
+  hostEpoch?: number;        // 改计划或派发的命令必填（C06 主持租约）
+  bodyHash: string;          // 正文的 sha256
+  sig: string;               // Ed25519，对规范 CBOR 编码的以上字段 + msgId + type + 会议 / 任务 / attempt 签名
+}
+```
+
+接收方的检查顺序按 ADR 0017 第 3 项。检查不通过时产生 `sync.rejected { msgId, reason }` 事件，不静默丢弃。
+
+### 8.2 新增对象
+
+| 对象 | ID | 关键字段 | 来源 |
+| --- | --- | --- | --- |
+| Device | `dev_<uuid>` | 名称、公钥、`trust: pending / trusted / revoked`、加入时的确认记录 | C08 |
+| TrustEntry | `(seq)` | `previousHash`、`sequence`、加入或撤销的设备、确认设备的签名 | C08、ADR 0014 |
+| HostLease | `(meetingId, epoch)` | `holderDeviceId`、`epoch`、接续时间、发起设备 | C06 |
+| ProjectMount | `(projectId, deviceId)` | `path`、本机授权 | ADR 0013；Hub 只存 `projectId` 和仓库身份，不存路径 |
+
+### 8.3 阶段映射补充
+
+`etrnal-dev` 第 4 节分开记录了执行、交付、检查 / 集成和验收。映射到五阶段的方式如下（C18）：
+
+| `etrnal-dev` 的状态 | stage / substatus |
+| --- | --- |
+| 建议分配、已发出 | ready / `dispatched` |
+| 等待名额 | ready / `awaiting-capacity` |
+| 已接收（执行端确认） | ready / `accepted-by-device` |
+| 等待桌面接续 | ready / `awaiting-desktop` |
+| 执行中、等待审批 | running / `active`、running / `awaiting-approval` |
+| 停止请求中、停止未确认 | running / `stopping`、running / `stop-unconfirmed` |
+| 已停止、原设备待恢复 | running / `interrupted`、running / `awaiting-origin-device` |
+| 执行完成、交付待处理 | testing / `delivery-pending` |
+| 成果已可获取、待检查 / 返工 | testing / `verifying`、testing / `returned` |
+| 会议集成已验证 | testing / `integrating` → `integration-verified` |
+| 用户最终验收 | testing / `accepted` |
+| 最终 PR 合并 | done / `merged` |
+
+- 新增的 substatus：`dispatched`、`awaiting-capacity`、`accepted-by-device`、`awaiting-desktop`、`awaiting-approval`、`stopping`、`stop-unconfirmed`、`awaiting-origin-device`、`delivery-pending`、`integration-verified`。
+- **只有 `stop-unconfirmed` 之后实际收到执行端的 `applied`，才能进入 `interrupted`**（remote-control §5.2）。
+
+### 8.4 取消（C12）
+
+- `cancelled` 只能从 running / `interrupted`（已停止且已确认退出）进入。从 `stopping`、`stop-unconfirmed`、`awaiting-origin-device` 进入一律拒绝。
+- 取消产生 `work-item.cancelled { reason, by }`，工作区、文件和提交保留，任务移出五列（D9）。
+- 取消后不接受 `ContinueRun`；要恢复就新建一个 WorkItem，`relatedTo` 指向原任务。
+
+### 8.5 决定的来源
+
+- **计划确认只在主持设备（C10）**：`ConfirmStagePlan` 的签名设备必须等于该会议当前 `HostLease.holderDeviceId`，`hostEpoch` 必须等于当前 epoch，否则拒绝，原因为 `not-host`。
+- **自动批准（C15）**：开关打开时，由主持设备上的系统发出 `ConfirmStagePlan`，`actor.kind = 'system'`，`Decision.payload.auto = true`。§7 Q6 的「要求 utteranceId 或点击记录」对自动确认不适用，改为记录开关被打开的那条设置事件 ID。计划含跨设备任务时，同时发出 `meeting.notice { kind: 'auto-dispatched', taskIds, deviceIds }`。
+- **工具审批**：任何可信设备都可以答复；`etrnal-dev` ADR 0012 的「只接受一次有效答复」保留，用 `basedOn` 加审批请求 ID 去重。
+
+### 8.6 迁移
+
+`etrnal-dev` 现有 Hub 数据（MySQL 5.7，`station_hub`）里的项目以 GitHub 仓库为身份。迁移时：
+1. 为每个仓库生成 `prj_`，旧仓库身份记为 `legacyRepoKey`；
+2. 已有设备全部标为 `trusted`，并生成一条 `migration` 来源的 TrustEntry，由用户在第一台设备上确认一次；
+3. 现有会议的协调设备写成 epoch 1 的 HostLease。
+
+迁移不改旧表，只新增表和投影，与 §6 的回退原则一致。
+
+## 9. 下一步
 
 1. 评审本文 §2–§5（对象身份、信封、阶段表）。
 2. 评审通过后，把 §3 信封和 §5 状态表写成 zod schema，放到 `electron/domain/`，只有类型和纯函数，配套确定性测试：旧状态映射、`accepted` 迁移规则、revision 连续性检测、过期确认拒绝。

@@ -54,7 +54,7 @@ export class DirtyWorkspaceWriteBlockedError extends Error {
 
   constructor(readonly baseline: WorkspaceBaseline) {
     super(
-      'Git workspace has uncommitted changes. Handle them outside AhaStation, '
+      'Git workspace has uncommitted changes. Handle them outside AhaStudio, '
       + 'choose shared-locked compatibility mode through a versioned plan revision, or cancel the task.',
     );
     this.name = 'DirtyWorkspaceWriteBlockedError';
@@ -222,7 +222,7 @@ export class TaskWorkspaceManager {
         code: 'git-worktree-requires-repository',
         message:
           'git-worktree mode requires a Git repository. Revise the task to shared-locked '
-          + 'compatibility mode, or initialize a repository outside AhaStation.',
+          + 'compatibility mode, or initialize a repository outside AhaStudio.',
         baseline,
         actions: ['revise-to-shared-locked', 'cancel-task'],
       };

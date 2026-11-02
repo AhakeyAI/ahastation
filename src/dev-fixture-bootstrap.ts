@@ -1,6 +1,7 @@
 /* Browser-only visual fixture for responsive/interaction regression.
  * Vite replaces import.meta.env.DEV with false in production builds, and the
  * bridge is installed only for an explicit ?ui-fixture=... URL. */
+import {unifiedFixture} from './dev-unified-fixture';
 let startInstalledFixture: (() => void) | null = null;
 
 if (import.meta.env.DEV) {
@@ -64,7 +65,7 @@ function installFixture(fixture: string): void {
   const backends = [
     backend('claude-code', 'Claude Code', 'claude', '2.1.150', true),
     backend('opencode', 'OpenCode', 'opencode', '1.18.3'),
-    backend('codex', 'Codex', 'codex', '0.144.1'),
+    backend('codex', 'Codex', 'codex', '0.156.1'),
     backend('kimi', 'Kimi Code', 'kimi', '0.24.1'),
   ];
   const ok = async () => ({ ok: true });
@@ -425,6 +426,9 @@ function installFixture(fixture: string): void {
   startInstalledFixture = seed;
 
   const bridge = {
+    collaboration:unifiedFixture(fixture==='unified'),
+    getDesktopSources:async()=>({ok:true,sources:[]}),
+    remoteControl:{request:async()=>({ok:true,settings:{enabled:false,mode:'public',serviceUrl:'',loggedIn:false,securePersistence:true}}),onChanged:()=>()=>{}},
     platform: 'linux',
     backendAuth: {
       list: async () => backends,
@@ -672,6 +676,8 @@ function installFixture(fixture: string): void {
     },
     onUpdateAvailable: noopSubscription,
     onDisplayChanged: noopSubscription,
+    onVoicePrefChanged: noopSubscription,
+    onStageFileChanged: noopSubscription,
     observe: {
       getSnapshot: async () => observedFixtureSnapshot,
       onEvent: (listener: (snapshot: typeof observedFixtureSnapshot) => void) => {
@@ -699,7 +705,7 @@ function installFixture(fixture: string): void {
   window.vibeMeet = new Proxy(bridge as never, {
     get(target, property, receiver) {
       if (Reflect.has(target, property)) return Reflect.get(target, property, receiver);
-      return ok;
+      return typeof property==='string'&&/^on[A-Z]/.test(property)?noopSubscription:ok;
     },
   });
 }

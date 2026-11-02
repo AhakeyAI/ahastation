@@ -51,6 +51,21 @@ test('resolveMinimizeOutcome: hide replays the original window action', () => {
   );
 });
 
+test('resolveMinimizeOutcome: quit exits without enabling the bar, cancel stays', () => {
+  assert.equal(
+    resolveMinimizeOutcome('close', { action: 'quit', never: false }),
+    'quit',
+  );
+  assert.equal(
+    resolveMinimizeOutcome('close', { action: 'cancel', never: true }),
+    'stay',
+  );
+  assert.equal(
+    resolveMinimizeOutcome('minimize', { action: 'cancel', never: false }),
+    'stay',
+  );
+});
+
 test('store: ahaBarPromptDisabled flag round-trips through settings', async (t) => {
   const { getSettings, updateSettings } = await import('../dist-electron/store.js');
   const original = getSettings().ahaBarPromptDisabled;

@@ -156,6 +156,11 @@ export function ApprovalCard({
 
       {/* 3. 代价是什么 */}
       <p className="aha-approval-impact">{assessment.impact}</p>
+      {backendId === 'codex' && pending.toolName === 'Bash' && (
+        <p className="aha-approval-impact" role="note">
+          该命令以完整权限运行；宿主会在命令前后检测授权范围外的文件变化。
+        </p>
+      )}
 
       {shownError && <p className="aha-approval-error" role="alert">{shownError}</p>}
 
@@ -192,6 +197,7 @@ export function ApprovalCard({
         assessment={assessment}
         rawInput={pending.input}
         blocked={assessment.level === 'blocked'}
+        fullPermissionCommand={backendId === 'codex' && pending.toolName === 'Bash'}
         busy={busy}
         error={shownError}
         onConfirm={handleAllow}

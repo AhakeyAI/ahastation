@@ -1,0 +1,25 @@
+name: Collaboration contracts (manual, no cloud deployment)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: 'npm'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: npm ci --no-audit --no-fund
+      - run: python -m pip install -r services/remote/requirements-public.txt -r services/remote/requirements-station-native.txt
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm run test:collaboration
+        env:
+          COLLABORATION_PYTHON: python
+      - run: npm run demo:collaboration

@@ -8,6 +8,7 @@ import {
   backendRuntimeSchema,
 } from '../dist-electron/backends/task-profile.js';
 import { ClaudeCodeBackend } from '../dist-electron/backends/claude-code-adapter.js';
+import { ClaudeTerminalBackend } from '../dist-electron/backends/claude-terminal-adapter.js';
 import { CodexBackend } from '../dist-electron/backends/codex-adapter.js';
 import { KimiBackend } from '../dist-electron/backends/kimi-adapter.js';
 import {
@@ -36,7 +37,7 @@ const requested = (backendId, overrides = {}) => ({
 test('Codex deep compiles to the pinned native high reasoning effort', () => {
   const profile = new CodexBackend().compileTaskProfile(
     requested('codex', { modelPreference: 'gpt-5.4' }),
-    runtime('codex', '0.144.1'),
+    runtime('codex', '0.156.1'),
   );
 
   assert.equal(profile.model, 'gpt-5.4');
@@ -55,6 +56,16 @@ test('Claude emits only pinned SDK effort and adaptive thinking settings', () =>
     effort: 'medium',
     thinking: { type: 'adaptive' },
   });
+});
+
+test('Claude terminal without a model preference compiles to auto (CLI picks the account default)', () => {
+  const profile = new ClaudeTerminalBackend().compileTaskProfile(
+    requested('claude-code-terminal', { workMode: 'balanced' }),
+    runtime('claude-code-terminal', '2.1.299'),
+  );
+
+  assert.equal(profile.model, 'auto');
+  assert.deepEqual(profile.downgraded, ['workMode:balanced->tui-interactive']);
 });
 
 test('OpenCode compiles a provider/model prompt binding and reports reasoning downgrade', () => {
@@ -100,10 +111,10 @@ test('Kimi never claims an unsupported reasoning control', () => {
 test('compilation is pure, stable, secret-free, and preserves requested intent', () => {
   const backend = new CodexBackend();
   const input = requested('codex', { modelPreference: 'gpt-5.4' });
-  const first = backend.compileTaskProfile(input, runtime('codex', '0.144.1'));
+  const first = backend.compileTaskProfile(input, runtime('codex', '0.156.1'));
   const second = backend.compileTaskProfile(
     structuredClone(input),
-    runtime('codex', '0.144.1'),
+    runtime('codex', '0.156.1'),
   );
 
   assert.deepEqual(input, requested('codex', { modelPreference: 'gpt-5.4' }));
@@ -222,10 +233,10 @@ test('scheduler persists effective profile before workspace and session', async 
     async compileTaskProfile(profile) {
       order.push('profile-compile');
       return {
-        runtime: runtime(profile.backendId, '0.144.1'),
+        runtime: runtime(profile.backendId, '0.156.1'),
         effectiveProfile: new CodexBackend().compileTaskProfile(
           profile,
-          runtime(profile.backendId, '0.144.1'),
+          runtime(profile.backendId, '0.156.1'),
         ),
       };
     },

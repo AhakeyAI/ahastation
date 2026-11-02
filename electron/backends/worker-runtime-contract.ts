@@ -1,5 +1,10 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { getClaudeCodeCliSource } from '../claude-cli/resolve.js';
+import {
+  CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION,
+  CODEX_APP_SERVER_MIN_VERSION,
+  isSupportedCodexAppServerVersion,
+} from './codex-app-server-transport.js';
 
 export type WorkerRuntimeState =
   | 'available'
@@ -11,7 +16,7 @@ export type WorkerRuntimeState =
 
 const EXPECTED_VERSION: Readonly<Record<string, string>> = {
   'claude-code': '2.1.150',
-  codex: '0.144.1',
+  codex: `>=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}`,
   kimi: '0.24.1',
   opencode: '1.18.3',
 };
@@ -92,6 +97,16 @@ const REQUIRED_REAL_CHECKS = new Set<RealWorkerVerticalEvidence['checks'][number
   'recovery',
 ]);
 
+export function isWorkerRuntimeVersionCompatible(
+  backendId: string,
+  actualVersion: string,
+  expectedVersion: string,
+): boolean {
+  return backendId === 'codex'
+    ? isSupportedCodexAppServerVersion(actualVersion)
+    : actualVersion === expectedVersion;
+}
+
 function validRealVerticalEvidence(
   backendId: string,
   expectedRuntimeVersion: string | null,
@@ -104,7 +119,11 @@ function validRealVerticalEvidence(
     || evidence.backendId !== backendId
     || !evidence.runId.trim()
     || !Number.isFinite(Date.parse(evidence.verifiedAt))
-    || (expectedRuntimeVersion !== null && evidence.runtimeVersion !== expectedRuntimeVersion)
+    || (expectedRuntimeVersion !== null && !isWorkerRuntimeVersionCompatible(
+      backendId,
+      evidence.runtimeVersion,
+      expectedRuntimeVersion,
+    ))
   ) return false;
   const checks = new Set(evidence.checks);
   return checks.size === evidence.checks.length
@@ -240,7 +259,10 @@ export function assessWorkerRuntime(input: {
       reason: '未找到可执行文件，请先安装。',
     };
   }
-  if (expectedVersion && input.version !== expectedVersion) {
+  if (
+    expectedVersion
+    && (!input.version || !isWorkerRuntimeVersionCompatible(input.backendId, input.version, expectedVersion))
+  ) {
     return {
       state: input.version ? 'version-incompatible' : 'diagnostic-failed',
       version: input.version,
@@ -291,14 +313,23 @@ function versionProbeTarget(binaryPath: string): VersionProbeTarget {
   };
 }
 
-export function probeWorkerRuntimeVersion(backendId: string, binaryPath: string | null): string | null {
+export function workerVersionProbeTimeoutMs(override?: number): number {
+  const raw = override ?? Number(process.env.AHASTATION_WORKER_VERSION_PROBE_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? Math.min(30_000, Math.max(1, Math.floor(raw))) : 10_000;
+}
+
+export function probeWorkerRuntimeVersion(
+  backendId: string,
+  binaryPath: string | null,
+  options: { timeoutMs?: number } = {},
+): string | null {
   if (!binaryPath) return null;
   try {
     const target = versionProbeTarget(binaryPath);
     const output = execFileSync(target.file, target.args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 3_000,
+      timeout: workerVersionProbeTimeoutMs(options.timeoutMs),
       windowsHide: true,
       ...(target.shell ? { shell: true } : {}),
     });
@@ -314,6 +345,7 @@ export function probeWorkerRuntimeVersion(backendId: string, binaryPath: string 
 export function probeWorkerRuntimeVersionAsync(
   backendId: string,
   binaryPath: string | null,
+  options: { timeoutMs?: number } = {},
 ): Promise<string | null> {
   if (!binaryPath) return Promise.resolve(null);
   const target = versionProbeTarget(binaryPath);
@@ -323,7 +355,7 @@ export function probeWorkerRuntimeVersionAsync(
       target.args,
       {
         encoding: 'utf8' as const,
-        timeout: 3_000,
+        timeout: workerVersionProbeTimeoutMs(options.timeoutMs),
         windowsHide: true,
         ...(target.shell ? { shell: true } : {}),
       },
