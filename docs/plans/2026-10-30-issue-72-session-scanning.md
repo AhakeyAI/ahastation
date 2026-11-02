@@ -43,3 +43,11 @@ S2 的扫描许可只覆盖 Claude/Codex。旧 Kimi 与 Codex Desktop 全局索�
 全量 1320 项、1314 通过、6 跳过、0 失败。首次本机运行未配置测试要求的
 `COLLABORATION_PYTHON` / `POCKET_VIBE_TEST_PYTHON`，联调未能启动；补齐已有 Python 3.12
 环境后完整重跑得到上述结果，未放宽断言或跳过联调。新的三平台结果以推送后对应 head 的 CI 为准。
+
+同步后的 CI `41402643839`：macOS 测试与打包成功；Ubuntu 唯一失败在既有
+`station-process-recovery` 崩溃测试。Station 在持久化 executionInvoked、进入夹具 run
+之前就发布 running，测试仅等 Hub 状态就杀进程，会偶发落在尚未调用夹具的启动窗口。
+测试改为先确认本机持久化的 executionInvoked、原生 fixture 会话 ID 与接收器 PID，再制造崩溃。
+保留原来的身份、退出确认、禁止自动重跑与明确继续断言；未更改 Station/Hub 恢复生产逻辑。
+该定向测试在 Windows Node 24.19 和本机 WSL Ubuntu Node 22.22/Python 3.12 均通过，
+没有以重跑旧 head 或延长等待代替修正测试前置条件。新 head 的全量结果仍以 CI 为准。
