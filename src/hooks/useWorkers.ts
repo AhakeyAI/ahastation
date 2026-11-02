@@ -9,6 +9,7 @@ import type {
   MeetingPlanBrief,
   PlanMeetingTaskInput,
   StagedAttachment,
+  PocketVibeRemoteTarget,
 } from '../types';
 
 export interface UseWorkersResult {
@@ -56,9 +57,10 @@ export interface UseWorkersResult {
   decidePendingPlan: (
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
+    brief?:MeetingPlanBrief,
   ) => Promise<{ ok: boolean; error?: string }>;
   toggleHostGroupCollapsed: (hostId: string) => void;
-  addHostGroup: (backendId: string) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
+  addHostGroup: (backendId: string, remoteTarget?: PocketVibeRemoteTarget) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
   removeHostGroup: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
   setCoordinator: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
   restartHost: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -78,7 +80,7 @@ export function useWorkers(): UseWorkersResult {
     meetingStore.setSpeakCallback(cb);
   }, []);
 
-  const restartSession = useCallback(() => meetingStore.restartSession(), []);
+  const restartSession = useCallback(async () => { await meetingStore.restartSession(); }, []);
   const sendText = useCallback(
     (text: string, options?: { displayText?: string }) => meetingStore.sendText(text, options),
     [],
@@ -118,8 +120,8 @@ export function useWorkers(): UseWorkersResult {
     [],
   );
   const decidePendingPlan = useCallback(
-    (approved: boolean, tasks?: PlanMeetingTaskInput[]) =>
-      meetingStore.decidePendingPlan(approved, tasks),
+    (approved: boolean, tasks?: PlanMeetingTaskInput[],brief?:MeetingPlanBrief) =>
+      meetingStore.decidePendingPlan(approved, tasks,brief),
     [],
   );
   const toggleHostGroupCollapsed = useCallback(
@@ -127,7 +129,7 @@ export function useWorkers(): UseWorkersResult {
     [],
   );
   const addHostGroup = useCallback(
-    (backendId: string) => meetingStore.addHostGroup(backendId),
+    (backendId: string, remoteTarget?: PocketVibeRemoteTarget) => meetingStore.addHostGroup(backendId, remoteTarget),
     [],
   );
   const removeHostGroup = useCallback(

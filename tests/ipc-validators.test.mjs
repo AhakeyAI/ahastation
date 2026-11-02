@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   editorWindowSenderPolicy,
   emptyPayloadSchema,
+  anySenderPolicy,
   mainWindowSenderPolicy,
   parsePayload,
 } from '../dist-electron/ipc/validators.js';
@@ -45,6 +46,18 @@ test('emptyPayloadSchema accepts no-payload calls but nothing else', () => {
 // ---------------------------------------------------------------------------
 // mainWindowSenderPolicy — only the main window's webContents id passes
 // ---------------------------------------------------------------------------
+
+test('anySenderPolicy lets the settings window reach main-window panels', () => {
+  // The IDE panel lives in the Settings window; it was rejected as
+  // "Forbidden sender" when ide-registry only admitted the main window.
+  let settingsId = null;
+  const policy = anySenderPolicy(mainWindowSenderPolicy(() => 7), mainWindowSenderPolicy(() => settingsId));
+  assert.equal(policy(7), true);
+  assert.equal(policy(9), false);
+  settingsId = 9;
+  assert.equal(policy(9), true);
+  assert.equal(policy(11), false);
+});
 
 test('mainWindowSenderPolicy passes the main window id and rejects others', () => {
   const policy = mainWindowSenderPolicy(() => 7);

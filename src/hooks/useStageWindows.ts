@@ -1,5 +1,5 @@
 import { useSyncExternalStore, useCallback } from 'react';
-import { stageWindowStore, type StageWindowType } from '../lib/stage-window-store';
+import { stageWindowStore, type StageWindowType, type StageWindowOptions } from '../lib/stage-window-store';
 
 export function useStageWindows() {
   const state = useSyncExternalStore(
@@ -8,7 +8,7 @@ export function useStageWindows() {
     stageWindowStore.getSnapshot,
   );
 
-  const createWindow = useCallback((type: StageWindowType, opts?: { workerId?: string; title?: string }) => {
+  const createWindow = useCallback((type: StageWindowType, opts?: StageWindowOptions) => {
     void stageWindowStore.createWindow(type, opts);
   }, []);
 

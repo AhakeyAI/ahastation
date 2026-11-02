@@ -31,33 +31,8 @@ import { editorWindowSenderPolicy, emptyPayloadSchema, handleSecure } from './va
 
 // ── Pure helpers (exported for tests) ───────────────────────────────────────
 
-export const PTY_INPUT_MAX_BYTES = 8192;
-export const PTY_INPUT_MAX_PER_SECOND = 60;
-
-/** Per-window input limiter: drop frames over 8KB or over 60/sec (rule 8). */
-export class PtyInputLimiter {
-  private second = -1;
-  private count = 0;
-  dropped = 0;
-
-  allow(bytes: number, now: number = Date.now()): boolean {
-    if (bytes > PTY_INPUT_MAX_BYTES) {
-      this.dropped += 1;
-      return false;
-    }
-    const sec = Math.floor(now / 1000);
-    if (sec !== this.second) {
-      this.second = sec;
-      this.count = 0;
-    }
-    if (this.count >= PTY_INPUT_MAX_PER_SECOND) {
-      this.dropped += 1;
-      return false;
-    }
-    this.count += 1;
-    return true;
-  }
-}
+import { PtyInputLimiter, PTY_INPUT_MAX_BYTES } from '../pty-input-limiter.js';
+export { PtyInputLimiter, PTY_INPUT_MAX_BYTES, PTY_INPUT_MAX_PER_SECOND } from '../pty-input-limiter.js';
 
 /** Resize body for PUT /pty/{id} — clamped to sane terminal dimensions. */
 export function buildPtyResizeBody(rows: number, cols: number): { size: { rows: number; cols: number } } {

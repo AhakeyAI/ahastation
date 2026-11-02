@@ -17,20 +17,22 @@ test('openSession duplicate branch adopts the main-side live session', () => {
   const duplicateIdx = openBody.indexOf("res.error === 'duplicate'");
   assert.notEqual(duplicateIdx, -1, 'openSession must handle the duplicate reply');
   const branch = openBody.slice(duplicateIdx, openBody.indexOf('return { ok: false, error: res.error };', duplicateIdx));
-  assert.match(branch, /adoptLiveSession\(res\.sessionId\)/,
+  assert.match(branch, /adoptLiveSession\(res\.sessionId,/,
     'duplicate branch must adopt the live session, not bare-setActive a missing slot');
   assert.doesNotMatch(branch, /await this\.setActive\(res\.sessionId\);\s*return/,
     'bare setActive no-ops when the renderer has no slot for the session');
 });
 
-test('adoptLiveSession rebuilds a ready local slot from registry metadata', () => {
+test('adoptLiveSession rebuilds a local slot and queries actual host readiness', () => {
   const store = read('src/lib/meeting-store.ts');
   const body = store.slice(store.indexOf('private async adoptLiveSession('));
   assert.match(body, /window\.vibeMeet\.sessions\.list\(\)/);
-  assert.match(body, /slot\.status = 'ready'/);
+  assert.match(body, /attachExisting\(slot, meta\.id, meta\.cwd\)/);
+  assert.doesNotMatch(body.slice(0, body.indexOf('async openSession(')), /running: true/,
+    'adopting a registry entry must not assume the host is running');
   assert.match(body, /this\.slots\.set\(slot\.id, slot\)/);
   assert.match(body, /this\.activeId = slot\.id/);
-  assert.match(body, /loadHistoryForSlot\(slot\)/);
+  assert.match(body, /loadHistoryForSlot\(live\)/);
   assert.match(body, /ok: false, error: 'Meeting is no longer running; please try again'/,
     'a session that vanished between duplicate and list must surface a retryable error');
 });
@@ -41,7 +43,7 @@ test('resumePlaceholder duplicate branch cannot strand a slot-less activeId', ()
   const duplicateIdx = body.indexOf("res.error === 'duplicate'");
   assert.notEqual(duplicateIdx, -1);
   const branch = body.slice(duplicateIdx, body.indexOf('return { ok: false, error: res.error };', duplicateIdx));
-  assert.match(branch, /adoptLiveSession\(res\.sessionId\)/);
+  assert.match(branch, /adoptLiveSession\(res\.sessionId,/);
   assert.doesNotMatch(branch, /this\.activeId = res\.sessionId/,
     'pointing activeId at a slot-less id strands the user on the Lobby');
 });

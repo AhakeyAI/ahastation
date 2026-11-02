@@ -244,3 +244,25 @@ test('interrupt sends Esc — Claude TUI\'s native stop key', async (t) => {
   assert.equal(spawned[0].pty.writes.at(-1), '\u001b');
   session.end();
 });
+
+test('a trust-folder dialog holds the prompt until the user answers it (#125)', async (t) => {
+  const { backend, spawned } = createFixture(t, { timersEnabled: true });
+  const cwd = await createWorkspace(t);
+  const events = [];
+  const session = backend.createSession({ cwd, extra: { workerId: 'w-trust' } }, (event) => events.push(event));
+  session.sendUserText('调研任务');
+  await session.start();
+  const pty = spawned[0].pty;
+  // Claude draws spaces as cursor-forward moves; "❯ No, exit" is the default.
+  pty.emitData('Quick\u001b[1Csafety\u001b[1Ccheck:\u001b[1CIs\u001b[1Cthis\u001b[1Ca\u001b[1Cproject\u001b[1Cyou\u001b[1Ccreated?\r\n❯ No, exit\r\n  Yes, I\u001b[1Ctrust\u001b[1Cthis\u001b[1Cfolder\r\n');
+  await new Promise((r) => setTimeout(r, 2_000));
+  assert.deepEqual(pty.writes, [], 'nothing may be pasted while the dialog is up');
+  assert.ok(events.some((e) => e.signal?.kind === 'progress' && /信任/.test(e.signal.message)));
+
+  // The user answers; the TUI repaints its input box; the prompt follows once quiet.
+  await new Promise((r) => setTimeout(r, 900));
+  pty.emitData('\u001b[2J╭────╮\r\n│ > │\r\n╰────╯');
+  await waitFor(() => pty.writes.length >= 2, 8_000);
+  assert.equal(pty.writes[0], `${PASTE_START}调研任务${PASTE_END}`);
+  session.end();
+});

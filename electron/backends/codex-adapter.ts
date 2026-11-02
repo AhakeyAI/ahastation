@@ -26,6 +26,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type {
+  ApprovedCommandBoundaryGuard,
   BackendSession,
   BackendSessionConfig,
   BackendSessionEvent,
@@ -211,7 +212,7 @@ function codexModelOverride(model: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-/** OAuth entry point for the bundled Codex 0.144.x command contract. */
+/** OAuth entry point for the bundled Codex 0.156.x command contract. */
 export function codexLoginArgs(): string[] {
   return ['login'];
 }
@@ -237,6 +238,7 @@ async function loadCodexSdk(): Promise<CodexSdk | null> {
 
 export function mapCodexApprovalRequest(
   request: CodexAppServerRequest,
+  lookupFileChangePaths?: (itemId: string) => string[] | undefined,
 ): { toolName: string; input: Record<string, unknown>; toolUseID: string } | null {
   const params = isRecord(request.params) ? request.params : {};
   const toolUseID = String(params.itemId ?? params.callId ?? request.id);
@@ -253,15 +255,23 @@ export function mapCodexApprovalRequest(
         },
         toolUseID,
       };
-    case 'item/fileChange/requestApproval':
+    case 'item/fileChange/requestApproval': {
+      // A-16: the approval itself carries no path ({reason, grantRoot} only).
+      // The paths live on the item/started fileChange entry with the same
+      // itemId; without them task-authority must deny every such write (F4).
+      const paths = typeof params.itemId === 'string'
+        ? lookupFileChangePaths?.(params.itemId)
+        : undefined;
       return {
         toolName: 'Write',
         input: {
           reason: params.reason ?? null,
           grantRoot: params.grantRoot ?? null,
+          ...(paths && paths.length > 0 ? { paths } : {}),
         },
         toolUseID,
       };
+    }
     case 'item/permissions/requestApproval':
       return {
         toolName: 'RequestPermissions',
@@ -327,6 +337,16 @@ export function codexApprovalResponse(
   }
 }
 
+function approvedCommandItemId(request: CodexAppServerRequest): string | null {
+  if (
+    request.method !== 'item/commandExecution/requestApproval'
+    && request.method !== 'execCommandApproval'
+  ) return null;
+  const params = isRecord(request.params) ? request.params : {};
+  const id = params.itemId ?? params.callId ?? request.id;
+  return id === undefined || id === null || id === '' ? null : String(id);
+}
+
 // ── Session implementation ─────────────────────────────────────────────────────
 
 class CodexAppServerSession implements BackendSession {
@@ -349,6 +369,15 @@ class CodexAppServerSession implements BackendSession {
     request: CodexAppServerRequest;
     resolve: (value: unknown) => void;
   }>();
+  // A-16: itemId → file paths, captured from item/started|updated|completed
+  // fileChange entries so the path-less fileChange approval can be authorized
+  // against real targets. Bounded FIFO to avoid unbounded growth.
+  private fileChangePaths = new Map<string, string[]>();
+  private readonly approvedCommandGuard?: ApprovedCommandBoundaryGuard;
+  private readonly approvedCommandIds = new Set<string>();
+  // Set on any non-steer interrupt: approvals are revoked and new ones are
+  // auto-declined (A-20). Steer deliberately keeps the approval channel open.
+  private stopping = false;
 
   constructor(
     private readonly binaryPath: string | null,
@@ -361,6 +390,15 @@ class CodexAppServerSession implements BackendSession {
     const handler = config.extra?.meetingCommandHandler;
     if (typeof handler === 'function') {
       this.meetingCommandHandler = handler as (command: unknown) => Promise<unknown> | unknown;
+    }
+    const guard = config.extra?.approvedCommandGuard;
+    if (
+      guard
+      && typeof guard === 'object'
+      && typeof (guard as ApprovedCommandBoundaryGuard).before === 'function'
+      && typeof (guard as ApprovedCommandBoundaryGuard).after === 'function'
+    ) {
+      this.approvedCommandGuard = guard as ApprovedCommandBoundaryGuard;
     }
   }
 
@@ -397,8 +435,11 @@ class CodexAppServerSession implements BackendSession {
       this.backendVersion = extractCodexRuntimeVersion(ready.userAgent) ?? undefined;
       const options: Record<string, unknown> = {
         cwd: this.config.cwd,
-        approvalPolicy: this.config.executionRole === 'worker' ? 'untrusted' : 'never',
-        sandbox: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
+        // Directory-scoped grants cannot be enforced inside workspace-write:
+        // Codex would edit denied sibling paths without asking the host.
+        // Read-only + on-request makes every write escalate with file paths.
+        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
+        sandbox: 'read-only',
         developerInstructions: this.config.systemPrompt,
         experimentalRawEvents: false,
       };
@@ -418,9 +459,15 @@ class CodexAppServerSession implements BackendSession {
   }
 
   private onRequest(request: CodexAppServerRequest): Promise<unknown> {
-    const mapped = mapCodexApprovalRequest(request);
+    const mapped = mapCodexApprovalRequest(request, (itemId) => this.fileChangePaths.get(itemId));
     if (!mapped) {
       return Promise.reject(new Error(`Unsupported Codex app-server request: ${request.method}`));
+    }
+    if (this.stopping || this.closed) {
+      // A-20: once a non-steer stop begins, no new approval may authorize
+      // further execution — decline at the adapter boundary instead of
+      // surfacing a request the host is already tearing down.
+      return Promise.resolve(codexApprovalResponse(request, 'deny'));
     }
     const id = `codex:${++this.permissionSequence}:${String(request.id)}`;
     return new Promise((resolve) => {
@@ -497,8 +544,29 @@ class CodexAppServerSession implements BackendSession {
         || notification.method === 'item/completed')
       && isRecord(notification.params.item)
     ) {
+      const item = notification.params.item;
+      if ((item.type === 'fileChange' || item.type === 'file_change') && typeof item.id === 'string') {
+        const changes = Array.isArray(item.changes) ? item.changes : [];
+        const paths = changes.filter(isRecord)
+          .map((change) => String(change.path ?? ''))
+          .filter(Boolean);
+        this.fileChangePaths.set(item.id, paths);
+        if (this.fileChangePaths.size > 500) {
+          const oldest = this.fileChangePaths.keys().next().value;
+          if (oldest !== undefined) this.fileChangePaths.delete(oldest);
+        }
+      }
       if (this.isWorker) {
-        const item = notification.params.item;
+        const itemId = typeof item.id === 'string' ? item.id : '';
+        if (
+          notification.method === 'item/completed'
+          && (item.type === 'commandExecution' || item.type === 'command_execution')
+          && itemId
+          && this.approvedCommandIds.has(itemId)
+        ) {
+          void this.completeApprovedCommand(itemId, item);
+          return;
+        }
         if (notification.method === 'item/completed' && item.type === 'agentMessage' && typeof item.text === 'string') {
           this.workerText.push(item.text);
         }
@@ -561,6 +629,39 @@ class CodexAppServerSession implements BackendSession {
         } else this.emit({ kind: 'error', error: detail });
       }
     }
+  }
+
+  private async completeApprovedCommand(
+    commandId: string,
+    item: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.approvedCommandGuard?.after(commandId);
+      this.approvedCommandIds.delete(commandId);
+      if (this.closed) return;
+      for (const signal of mapCodexItemToWorkerSignals(item, 'completed')) {
+        this.emit({ kind: 'worker-signal', signal });
+      }
+    } catch (error) {
+      this.approvedCommandIds.delete(commandId);
+      this.emitApprovedCommandGuardFailure(error);
+    }
+  }
+
+  private emitApprovedCommandGuardFailure(error: unknown): void {
+    if (this.closed) return;
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : 'approved-command-guard-failed';
+    this.emit({
+      kind: 'worker-signal',
+      signal: {
+        kind: 'failed',
+        code,
+        message: error instanceof Error ? error.message : String(error),
+        retryable: false,
+      },
+    });
   }
 
   private normalizeAppServerItem(item: Record<string, unknown>): NormalizedMessage | null {
@@ -628,26 +729,63 @@ class CodexAppServerSession implements BackendSession {
     const pending = this.permissionResolvers.get(id);
     if (!pending) return;
     this.permissionResolvers.delete(id);
+    const commandId = approvedCommandItemId(pending.request);
+    if (decision === 'allow' && commandId && this.approvedCommandGuard) {
+      void this.approveCommandAfterBaseline(id, commandId, pending);
+      return;
+    }
     pending.resolve(codexApprovalResponse(pending.request, decision));
   }
 
+  private async approveCommandAfterBaseline(
+    requestId: string,
+    commandId: string,
+    pending: { request: CodexAppServerRequest; resolve: (value: unknown) => void },
+  ): Promise<void> {
+    try {
+      await this.approvedCommandGuard?.before(commandId);
+      if (this.stopping || this.closed) {
+        this.approvedCommandGuard?.cancel(commandId);
+        pending.resolve(codexApprovalResponse(pending.request, 'deny'));
+        this.emit({ kind: 'permission-cancelled', id: requestId });
+        return;
+      }
+      this.approvedCommandIds.add(commandId);
+      pending.resolve(codexApprovalResponse(pending.request, 'allow'));
+    } catch (error) {
+      this.approvedCommandGuard?.cancel(commandId);
+      pending.resolve(codexApprovalResponse(pending.request, 'deny'));
+      this.emitApprovedCommandGuardFailure(error);
+    }
+  }
+
   async interrupt(reason: 'steer' | 'user' | 'shutdown' = 'user'): Promise<void> {
-    if (!this.transport || !this.threadId || !this.currentTurnId) return;
-    const turnId = this.currentTurnId;
-    if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
-    await this.transport.interruptTurn(this.threadId, turnId);
     if (reason === 'steer') {
-      // turn/interrupt acknowledgement is the safe handoff boundary for a
-      // steering message. sendUserText() appends the new instruction to this
-      // session's serialized turnQueue, so it cannot start until the native
-      // turn/completed notification releases the current turn. Waiting here
-      // would make slow command cancellation look like a failed delivery and
-      // discard an otherwise durable steering message.
+      if (!this.transport || !this.threadId || !this.currentTurnId) return;
+      const turnId = this.currentTurnId;
+      if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
+      await this.transport.interruptTurn(this.threadId, turnId);
       return;
     }
-    await withCodexTimeout(this.waitForTurn(turnId), 10_000, 'Codex interrupt timed out');
+
     if (this.isWorker) {
-      this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
+      this.stopping = true;
+      this.cancelPendingPermissions();
+    }
+    if (!this.transport || !this.threadId || !this.currentTurnId) {
+      if (this.isWorker) this.end();
+      return;
+    }
+    const turnId = this.currentTurnId;
+    if (this.isWorker) this.suppressedWorkerTurns.add(turnId);
+    try {
+      await this.transport.interruptTurn(this.threadId, turnId);
+      await withCodexTimeout(this.waitForTurn(turnId), 10_000, 'Codex interrupt timed out');
+      if (this.isWorker) {
+        this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'interrupted' } });
+      }
+    } finally {
+      if (this.isWorker) this.end();
     }
   }
 
@@ -657,6 +795,8 @@ class CodexAppServerSession implements BackendSession {
     this.transport?.close();
     this.transport = null;
     this.cancelPendingPermissions();
+    this.approvedCommandGuard?.clear();
+    this.approvedCommandIds.clear();
     this.resolveTurnWaiters();
     this.emitEnded();
     this.emit = () => {};
@@ -766,8 +906,8 @@ class CodexSession implements BackendSession {
         workingDirectory: this.config.cwd,
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
-        approvalPolicy: this.config.executionRole === 'worker' ? 'untrusted' : 'never',
-        sandboxMode: this.config.executionRole === 'worker' ? 'workspace-write' : 'read-only',
+        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
+        sandboxMode: 'read-only',
         skipGitRepoCheck: true,
       } as const;
       this.thread = this.config.resumeSessionId
@@ -1296,7 +1436,7 @@ export class CodexBackend implements CliBackend {
     try {
       const run = this.deps.execFile ?? ((file: string, args: string[]) =>
         execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000 }));
-      // Codex 0.144.x writes both success and failure status messages to stderr.
+      // Codex CLI writes both success and failure status messages to stderr.
       // execFileSync returns stdout only, so the command's exit status is the
       // stable machine-readable contract: zero means authenticated; non-zero
       // throws and is handled below.
@@ -1347,11 +1487,7 @@ export class CodexBackend implements CliBackend {
  * loaded from app.asar, but child_process.spawn cannot execute an ASAR virtual
  * path. electron-builder unpacks the native platform package, so prefer that
  * real path and pass it to the SDK via codexPathOverride.
- *
- * PIN NOTE: the bundled 0.144.x is deliberate — codex 0.145 removed
- * wire_api="chat" (Responses API only), and third-party endpoints that only
- * speak chat/completions (Kimi/Moonshot) need the chat wire API. Do not
- * upgrade the bundled codex past 0.144.x until a protocol bridge exists. */
+ */
 export function resolveCodexRuntime(resourcesPath = process.resourcesPath): string | null {
   const platformPackage = process.platform === 'darwin'
     ? `codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`

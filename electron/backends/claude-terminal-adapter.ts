@@ -44,11 +44,12 @@ const CLAUDE_TERMINAL_CAPABILITIES: BackendCapabilities = {
   systemPrompt: false,
   skills: false,
   interrupt: true,
-  defaultModel: 'claude-sonnet-4-20250514',
+  // See claude-code-adapter: no pinned default model, aliases only as
+  // suggestions; 'auto' lets the CLI pick the account's default model.
   models: [
-    'claude-sonnet-4-20250514',
-    'claude-haiku-4-5-20251001',
-    'claude-opus-4-20250514',
+    'sonnet',
+    'opus',
+    'haiku',
   ],
   installHint: '使用本机已安装的 claude CLI（PATH 上的 claude 命令）',
 };
@@ -59,7 +60,7 @@ export const CLAUDE_TERMINAL_PROFILE: TerminalCliProfile = {
   displayLabel: 'Claude',
   resolveBinary: () => resolveClaudeBinaryForSource(),
   buildCliArgs: (config: BackendSessionConfig) =>
-    config.model ? ['--model', config.model] : [],
+    config.model && config.model !== 'auto' ? ['--model', config.model] : [],
   registerTurnHook: ({ suffix, ahaDir, hookCommand }) => {
     // Claude Code accepts a per-session --settings file; the Stop hook lives
     // there so the user's own settings are never touched.

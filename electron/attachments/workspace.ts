@@ -1,10 +1,14 @@
 // Workspace fallback for oversized / non-inline attachments. Files land at
-// `<cwd>/.vibe-attachments/` with collision-safe rename, and `.gitignore` is
-// touched up if the cwd is a git repo. Talker is told the absolute path so it
+// `<cwd>/.vibe-attachments/` with collision-safe rename, and the directory is
+// ignored through `.git/info/exclude` if the cwd is a git repo. Talker is told the absolute path so it
 // can hand the file off to Worker via the Read tool.
 
+import { execFile } from 'node:child_process';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const DIR_NAME = '.vibe-attachments';
 
@@ -54,27 +58,33 @@ export async function writeAttachmentSafely(
   }
 }
 
+/** Ignore an app scratch dir (`.vibe-*`) in a git cwd. Writes the repo-local
+ *  `info/exclude` rather than `.gitignore`: editing a tracked file leaves the
+ *  checkout dirty, and a dirty baseline blocks isolated git-worktree tasks.
+ *  `git rev-parse --git-path` resolves the shared exclude from linked worktrees. */
 export async function maybeAppendGitignore(cwd: string, dirName: string = DIR_NAME): Promise<void> {
   const key = `${cwd}\0${dirName}`;
   if (gitignoreTouched.has(key)) return;
   gitignoreTouched.add(key);
   if (!existsSync(path.join(cwd, '.git'))) return;
 
-  const gitignorePath = path.join(cwd, '.gitignore');
   const entry = `${dirName}/`;
   try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd, timeout: 10_000 });
+    const excludePath = path.resolve(cwd, stdout.trim());
     let current = '';
     try {
-      current = await fs.readFile(gitignorePath, 'utf8');
+      current = await fs.readFile(excludePath, 'utf8');
     } catch {
       current = '';
     }
     const lines = current.split(/\r?\n/).map((l) => l.trim());
     if (lines.includes(entry) || lines.includes(dirName)) return;
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
     const sep = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
-    await fs.appendFile(gitignorePath, `${sep}${entry}\n`);
+    await fs.appendFile(excludePath, `${sep}${entry}\n`);
   } catch {
-    // best-effort — never break a send because of gitignore housekeeping.
+    // best-effort — never break a send because of ignore housekeeping.
   }
 }
 

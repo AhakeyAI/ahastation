@@ -13,8 +13,11 @@
 // electron-rebuild step is needed. It is loaded lazily so unit tests can
 // inject a fake spawn and never touch the native module.
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
+import { guardWindowsPtyStartup } from './windows-pty-startup.js';
 
 const require_ = createRequire(import.meta.url);
 
@@ -25,12 +28,15 @@ export interface PtyProcess {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(signal?: string): void;
+  /** Release native handles after an externally confirmed owned-tree stop. */
+  releaseAfterTreeExit?(): void;
   readonly pid: number;
+  readonly startupError?: Error;
 }
 
 export type PtySpawn = (
   file: string,
-  args: string[],
+  args: string[] | string,
   options: {
     name: string;
     cols: number;
@@ -99,6 +105,7 @@ interface LivePty {
   exitListeners: Set<(exitCode: number | null) => void>;
   disposables: Array<{ dispose(): void }>;
   exited: boolean;
+  stopping: boolean;
 }
 
 function defaultPtySpawn(): PtySpawn {
@@ -106,7 +113,19 @@ function defaultPtySpawn(): PtySpawn {
   const nodePty = require_('@lydell/node-pty') as {
     spawn: PtySpawn;
   };
-  return nodePty.spawn;
+  return process.platform === 'win32'
+    ? (file, args, options) => guardWindowsPtyStartup(nodePty.spawn(file, args, options))
+    : nodePty.spawn;
+}
+
+const CMD_META = /([()\[\]%!^"`<>&|;, *?])/g;
+
+/** Quote for the native argv parser, then for both cmd.exe and the batch
+ *  launcher's argument forwarding. The raw string bypasses node-pty's
+ *  executable-style quoting, which is incompatible with cmd /s /c. */
+function quoteBatchArgument(value: string): string {
+  const quoted = `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+  return quoted.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
 }
 
 /** Best-effort default interactive shell for the main-window shell terminal.
@@ -157,7 +176,14 @@ export class PtyHost {
     for (const [k, v] of Object.entries(options.env)) {
       if (typeof v === 'string') env[k] = v;
     }
-    const pty = spawnFn(options.file, options.args, {
+    let file = options.file;
+    let args: string[] | string = options.args;
+    if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
+      const command = [file.replace(CMD_META, '^$1'), ...options.args.map(quoteBatchArgument)].join(' ');
+      file = env.ComSpec ?? env.COMSPEC ?? process.env.ComSpec ?? 'cmd.exe';
+      args = `/d /s /v:off /c "${command}"`;
+    }
+    const pty = spawnFn(file, args, {
       name: 'xterm-256color',
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
@@ -171,6 +197,7 @@ export class PtyHost {
       exitListeners: new Set(),
       disposables: [],
       exited: false,
+      stopping: false,
     };
     live.disposables.push(pty.onData((data) => {
       live.buffer.push(data);
@@ -191,14 +218,14 @@ export class PtyHost {
 
   write(id: string, data: string): boolean {
     const live = this.sessions.get(id);
-    if (!live || live.exited) return false;
+    if (!live || live.exited || live.stopping) return false;
     live.pty.write(data);
     return true;
   }
 
   resize(id: string, rows: number, cols: number): boolean {
     const live = this.sessions.get(id);
-    if (!live || live.exited) return false;
+    if (!live || live.exited || live.stopping) return false;
     const clamp = (n: number) => Math.min(500, Math.max(1, Math.floor(n) || 1));
     try {
       live.pty.resize(clamp(cols), clamp(rows));
@@ -230,17 +257,65 @@ export class PtyHost {
     return () => { live.exitListeners.delete(cb); };
   }
 
-  kill(id: string): void {
+  kill(id: string, options?: { strict: boolean }): void {
     const live = this.sessions.get(id);
     if (!live) return;
     if (!live.exited) {
-      try { live.pty.kill(); } catch { /* already dead */ }
+      try { live.pty.kill(); } catch (error) {
+        if (options?.strict) throw error;
+      }
     }
     this.dispose(id);
   }
 
   killAll(): void {
     for (const id of [...this.sessions.keys()]) this.kill(id);
+  }
+
+  /** Daemon and terminal Workers opt into confirmed, owned-tree termination.
+   * taskkill /T targets this still-owned live root, never a command name.
+   * Keep subscriptions until ConPTY reports exit; kill() alone is no receipt. */
+  async terminateTree(id: string): Promise<void> {
+    const live = this.sessions.get(id);
+    if (!live || live.exited) return;
+    // Renderer keyboard IPC also writes through this owner, bypassing the
+    // adapter's input queue. Revoke it before awaiting native teardown.
+    live.stopping = true;
+    let finish!: () => void;
+    const exited = new Promise<void>(resolve => { finish = resolve; });
+    const unsubscribe = this.onExit(id, finish);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await this.readyPid(id);
+      if (process.platform === 'win32') {
+        await promisify(execFile)(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+          ['/pid', String(live.pty.pid), '/t', '/f'], { windowsHide: true, timeout: 10_000 });
+        // taskkill confirms the owned OS tree; also release node-pty's ConPTY
+        // handles and conout worker rather than retain them until daemon exit.
+        if (live.pty.releaseAfterTreeExit) live.pty.releaseAfterTreeExit();
+        else live.pty.kill();
+      } else {
+        live.pty.kill();
+      }
+      await Promise.race([exited, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for PTY exit')), 10_000);
+      })]);
+    } finally { clearTimeout(timer); unsubscribe(); }
+  }
+
+  /** Recent node-pty ConPTY connects asynchronously; spawn() may return pid=0.
+   * Do not publish that placeholder as a stable process identity. */
+  async readyPid(id: string): Promise<number> {
+    const starting = this.sessions.get(id);
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      if (starting?.pty.startupError) throw starting.pty.startupError;
+      const live = this.sessions.get(id);
+      if (!live || live.exited) throw new Error('PTY exited before startup completed');
+      if (live.pty.pid > 0) return live.pty.pid;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error('PTY process startup timed out');
   }
 
   private dispose(id: string): void {

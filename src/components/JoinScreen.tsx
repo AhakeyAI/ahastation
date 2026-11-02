@@ -98,10 +98,10 @@ export function JoinScreen({ onJoin, defaultCwd, lastError }: JoinScreenProps) {
       <div className="join-card">
         <div className="join-brand">
           <div className="join-logo">
-            <img src="icon-96.png" alt="AhaStation" className="join-logo-img" />
+            <img src="icon-96.png" alt="AhaStudio" className="join-logo-img" />
           </div>
           <div>
-            <div className="join-title">AhaStation</div>
+            <div className="join-title">AhaStudio</div>
             <div className="join-sub">Pair with Claude over screen + voice</div>
           </div>
         </div>
@@ -121,7 +121,7 @@ export function JoinScreen({ onJoin, defaultCwd, lastError }: JoinScreenProps) {
           {authOpen && (
             <div className="join-auth-body">
               <p className="join-auth-desc">
-                Choose how AhaStation connects to Claude. Use an API key for programmatic access,
+                Choose how AhaStudio connects to Claude. Use an API key for programmatic access,
                 or log in with your Claude.ai subscription account.
               </p>
 

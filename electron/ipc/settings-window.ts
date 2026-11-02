@@ -12,6 +12,11 @@ const __dirname = dirname(__filename);
 
 let settingsWindow: BrowserWindow | null = null;
 
+/** webContents id of the open settings window, for IPC sender policies. */
+export function settingsWindowWebContentsId(): number | null {
+  return settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow.webContents.id : null;
+}
+
 function getThemeBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f2f2f7';
 }
@@ -20,8 +25,8 @@ function createSettingsWindow(focus?: string | null): BrowserWindow {
   const dev = !app.isPackaged && !!process.env.VITE_DEV_SERVER_URL;
 
   const win = new BrowserWindow({
-    width: 680,
-    height: 780,
+    width: 880,
+    height: 720,
     title: '设置',
     backgroundColor: getThemeBackgroundColor(),
     transparent: false,

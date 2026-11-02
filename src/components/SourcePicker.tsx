@@ -100,7 +100,7 @@ export function SourcePicker({ open, onClose, onPick }: SourcePickerProps) {
             <div className="picker-permission-icon" aria-hidden="true"><Lock size={28} /></div>
             <div className="picker-permission-title">
               {error.status === 'not-determined'
-                ? 'macOS 需要授权 AhaStation 录制屏幕'
+                ? 'macOS 需要授权 AhaStudio 录制屏幕'
                 : '屏幕录制权限被拒绝'}
             </div>
             <div className="picker-permission-text">
@@ -108,21 +108,21 @@ export function SourcePicker({ open, onClose, onPick }: SourcePickerProps) {
                 <>
                   系统正在弹出授权请求。如果没看到，可手动打开
                   <b> 系统设置 → 隐私与安全性 → 屏幕录制</b>，
-                  勾选 <b>AhaStation</b>，再回到这里继续。
+                  勾选 <b>AhaStudio</b>，再回到这里继续。
                 </>
               ) : (
                 <>
                   打开 <b>系统设置 → 隐私与安全性 → 屏幕录制</b>，
-                  勾选 <b>AhaStation</b>，然后
-                  <b> 重新启动 AhaStation</b>。
+                  勾选 <b>AhaStudio</b>，然后
+                  <b> 重新启动 AhaStudio</b>。
                   macOS 要求重启应用后新授权才会生效。
                 </>
               )}
             </div>
             <ol className="picker-permission-steps">
               <li>点 <b>打开系统设置</b>，跳到「屏幕录制」面板。</li>
-              <li>在列表里找到 <b>AhaStation</b>，把开关打开（如未出现，先关掉这个弹窗再重新点共享屏幕，让 macOS 注册一次）。</li>
-              <li>{needsRelaunch ? '点下方「重启 AhaStation」让新权限生效。' : '切回 AhaStation，会自动检测并继续。'}</li>
+              <li>在列表里找到 <b>AhaStudio</b>，把开关打开（如未出现，先关掉这个弹窗再重新点共享屏幕，让 macOS 注册一次）。</li>
+              <li>{needsRelaunch ? '点下方「重启 AhaStudio」让新权限生效。' : '切回 AhaStudio，会自动检测并继续。'}</li>
             </ol>
             <div className="picker-permission-actions">
               <button className="picker-btn picker-btn-primary" onClick={openSettings}>
@@ -131,7 +131,7 @@ export function SourcePicker({ open, onClose, onPick }: SourcePickerProps) {
               {needsRelaunch && (
                 <button className="picker-btn picker-btn-relaunch" onClick={relaunch}>
                   <RotateCw size={13} aria-hidden="true" />
-                  <span>重启 AhaStation</span>
+                  <span>重启 AhaStudio</span>
                 </button>
               )}
               <button className="picker-btn" onClick={load}>

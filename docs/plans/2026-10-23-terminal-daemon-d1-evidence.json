@@ -1,0 +1,1834 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "author-local-offline-no-model",
+  "date": "2026-10-23",
+  "baseline": {
+    "branch": "codex/multi-cli-phase1",
+    "head": "c134de22efed4fbf17bb5af1c727f6f7c36a15f6",
+    "includesInheritedUncommittedD0": true
+  },
+  "checks": {
+    "typecheckExitCode": 0,
+    "buildExitCode": 0,
+    "finalElectronBuildExitCode": 0,
+    "targetedTests": {
+      "passed": 40,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "packagingExitCode": 0,
+    "developmentSmokeExitCode": 0,
+    "packagedSmokeExitCode": 0
+  },
+  "packaging": {
+    "testMain": "d1-main/main.cjs",
+    "productionMainUnchanged": true,
+    "installerOrSigningTested": false,
+    "exeSha256": "bd5e67bba29cebc4591e6deaee669c7e51291e45273009ae627243a3133918cd",
+    "asarSha256": "727320968f040bcbc9b98a26be6f129485c4395b78891f09f376006e88c1a46f",
+    "modules": {
+      "pty-host.js": "2c6169ff854baa89fdc3f1e9c1078f5eb73870ac9aa52666cbe4cc855b596134",
+      "terminal-sessions.js": "efce167612f8de51e72c0bb9c80103e999ad0f9f8e3dc8882e99be9b2063458e",
+      "pty-input-limiter.js": "d24e598ef660089043b42afbc6c7a0ce7f2250cae034ab60a7f37ac20a50198e",
+      "terminal-daemon/entry.js": "bb51a3adaa8e3e478e97d287c4cc6c943ee7bf3bf465dfd53d4c32e2dcc87249",
+      "terminal-daemon/protocol.js": "f13dc0f1fd639d4fdfad0a0e3bd5e0f357024ab77756b4cfc334a7c339c803cd",
+      "terminal-daemon/client.js": "8454502c2123c0bd60381d04b0c277739a53545ad1258067e2eb60c8fffacb52",
+      "terminal-daemon/launcher.js": "4b9ad3dee3c801c66870e3fd8c0db13829241b791e889c543858b95f96580bc4",
+      "terminal-daemon/storage.js": "bd7de75d3c0115948736d63a56ae54698636892d5749dbebc47071cfe7bce11e"
+    }
+  },
+  "development": {
+    "runtime": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+    "code": "<USER_HOME>\\Desktop\\ahastation-internal1\\dist-electron",
+    "packaged": false,
+    "artifact": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf",
+    "rounds": [
+      {
+        "mode": "normal",
+        "mainPid": 19884,
+        "isPackaged": false,
+        "versions": {
+          "node": "24.15.0",
+          "acorn": "8.16.0",
+          "ada": "3.4.4",
+          "amaro": "1.1.8",
+          "ares": "1.34.6",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.3.1",
+          "merve": "1.2.2",
+          "modules": "146",
+          "napi": "10",
+          "nbytes": "0.1.3",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.68.0",
+          "openssl": "0.0.0",
+          "simdjson": "4.5.0",
+          "simdutf": "7.7.0",
+          "sqlite": "3.51.3",
+          "tz": "2025c",
+          "undici": "7.24.4",
+          "unicode": "17.0",
+          "uv": "1.51.0",
+          "uvwasi": "0.0.23",
+          "v8": "14.8.178.22-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "42.3.0",
+          "chrome": "148.0.7778.180"
+        },
+        "before": [
+          {
+            "ProcessId": 3264,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2825860Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 4124,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.1622190Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 4920,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.4586670Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 8296,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2316620Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10432,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:11.8510570Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 14864,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2963450Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19336,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:12.2730000Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19884,
+            "ParentProcessId": 35304,
+            "CreationDate": "2026-10-23T15:25:09.9064400Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 21400,
+            "ParentProcessId": 26240,
+            "CreationDate": "2026-10-23T15:25:12.2838390Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22064,
+            "ParentProcessId": 19336,
+            "CreationDate": "2026-10-23T15:25:12.2834430Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22824,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.1706200Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26240,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:12.2725500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26724,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.3397330Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27628,
+            "ParentProcessId": 26724,
+            "CreationDate": "2026-10-23T15:25:11.8381990Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33844,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:11.8511100Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34180,
+            "ParentProcessId": 3264,
+            "CreationDate": "2026-10-23T15:25:11.8379660Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "beforeDaemon": [
+          {
+            "ProcessId": 3264,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2825860Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 4920,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.4586670Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 8296,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2316620Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10432,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:11.8510570Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 14864,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2963450Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19336,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:12.2730000Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 21400,
+            "ParentProcessId": 26240,
+            "CreationDate": "2026-10-23T15:25:12.2838390Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22064,
+            "ParentProcessId": 19336,
+            "CreationDate": "2026-10-23T15:25:12.2834430Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26240,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:12.2725500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26724,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.3397330Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27628,
+            "ParentProcessId": 26724,
+            "CreationDate": "2026-10-23T15:25:11.8381990Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33844,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:11.8511100Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34180,
+            "ParentProcessId": 3264,
+            "CreationDate": "2026-10-23T15:25:11.8379660Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "dataDirSddl": "O:<USER_SID>G:<GROUP_SID>D:PAI(A;OICI;FA;;;<USER_SID>)",
+        "pipeSddl": "D:P(A;;FA;;;<USER_SID>)",
+        "descriptor": {
+          "schemaVersion": 1,
+          "protocolVersion": 1,
+          "instanceId": "48a1a5e9-dc45-4354-9c7c-2cafe9b0d562",
+          "pid": 4920,
+          "startedAt": "2026-10-23T15:25:10.721Z",
+          "endpoint": "\\\\.\\pipe\\ahastation-terminal-03e9a6f05a699f85fd1f95d117be7e40"
+        },
+        "sessions": [
+          {
+            "terminalId": "ea91e687-888c-4b59-87a0-5465e060e1bc",
+            "pid": 3264,
+            "startedAt": "2026-10-23T15:25:11.235Z",
+            "requestId": "6804bc4a-07ce-4561-b0dc-636aaf96684b"
+          },
+          {
+            "terminalId": "be8220c2-dcb6-442f-afb1-b4ac4866ef3b",
+            "pid": 26724,
+            "startedAt": "2026-10-23T15:25:11.298Z",
+            "requestId": "9d1f54bd-fd26-42c6-b368-757355f97885"
+          }
+        ],
+        "probes": [
+          {
+            "role": "0",
+            "pid": 3264
+          },
+          {
+            "role": "0-child",
+            "pid": 34180
+          },
+          {
+            "role": "0-child-grandchild",
+            "pid": 26240
+          },
+          {
+            "role": "1",
+            "pid": 26724
+          },
+          {
+            "role": "1-child",
+            "pid": 27628
+          },
+          {
+            "role": "1-child-grandchild",
+            "pid": 19336
+          }
+        ],
+        "mainExitCode": 0,
+        "mainExited": true,
+        "after": [
+          {
+            "ProcessId": 3264,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2825860Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 4920,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.4586670Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 8296,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2316620Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10432,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:11.8510570Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 14864,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2963450Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19336,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:12.2730000Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 21400,
+            "ParentProcessId": 26240,
+            "CreationDate": "2026-10-23T15:25:12.2838390Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22064,
+            "ParentProcessId": 19336,
+            "CreationDate": "2026-10-23T15:25:12.2834430Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26240,
+            "ParentProcessId": 34180,
+            "CreationDate": "2026-10-23T15:25:12.2725500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26724,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.3397330Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27628,
+            "ParentProcessId": 26724,
+            "CreationDate": "2026-10-23T15:25:11.8381990Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33844,
+            "ParentProcessId": 27628,
+            "CreationDate": "2026-10-23T15:25:11.8511100Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34180,
+            "ParentProcessId": 3264,
+            "CreationDate": "2026-10-23T15:25:11.8379660Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "reconnected": true,
+        "inputResize": true,
+        "spawnCount": 2,
+        "isolatedStop": true,
+        "stoppedInventory": [
+          {
+            "terminalId": "ea91e687-888c-4b59-87a0-5465e060e1bc",
+            "pid": 3264,
+            "startedAt": "2026-10-23T15:25:11.235Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
+            "label": "offline-0",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 74,
+            "exited": true,
+            "exitCode": 1
+          },
+          {
+            "terminalId": "be8220c2-dcb6-442f-afb1-b4ac4866ef3b",
+            "pid": 26724,
+            "startedAt": "2026-10-23T15:25:11.298Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\normal",
+            "label": "offline-1",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 86,
+            "exited": true,
+            "exitCode": 1
+          }
+        ],
+        "stoppingTree": [
+          {
+            "ProcessId": 4920,
+            "ParentProcessId": 19884,
+            "CreationDate": "2026-10-23T15:25:10.4586670Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 8296,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2316620Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 14864,
+            "ParentProcessId": 4920,
+            "CreationDate": "2026-10-23T15:25:11.2963450Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "remaining": [],
+        "allExited": true
+      },
+      {
+        "mode": "forced",
+        "mainPid": 30404,
+        "isPackaged": false,
+        "versions": {
+          "node": "24.15.0",
+          "acorn": "8.16.0",
+          "ada": "3.4.4",
+          "amaro": "1.1.8",
+          "ares": "1.34.6",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.3.1",
+          "merve": "1.2.2",
+          "modules": "146",
+          "napi": "10",
+          "nbytes": "0.1.3",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.68.0",
+          "openssl": "0.0.0",
+          "simdjson": "4.5.0",
+          "simdutf": "7.7.0",
+          "sqlite": "3.51.3",
+          "tz": "2025c",
+          "undici": "7.24.4",
+          "unicode": "17.0",
+          "uv": "1.51.0",
+          "uvwasi": "0.0.23",
+          "v8": "14.8.178.22-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "42.3.0",
+          "chrome": "148.0.7778.180"
+        },
+        "before": [
+          {
+            "ProcessId": 2860,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.0187080Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 5440,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.9032120Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10220,
+            "ParentProcessId": 31392,
+            "CreationDate": "2026-10-23T15:25:37.6664720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11388,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.0143170Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11600,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8698410Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12984,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.2745440Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 18660,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8251610Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19216,
+            "ParentProcessId": 5440,
+            "CreationDate": "2026-10-23T15:25:37.2632680Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19448,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8587950Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19532,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.2726070Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22276,
+            "ParentProcessId": 30480,
+            "CreationDate": "2026-10-23T15:25:37.6662350Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 29244,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.1787840Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30404,
+            "ParentProcessId": 35304,
+            "CreationDate": "2026-10-23T15:25:35.8706720Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30480,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.6545490Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30752,
+            "ParentProcessId": 19448,
+            "CreationDate": "2026-10-23T15:25:37.2632630Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 31392,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.6545610Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "beforeDaemon": [
+          {
+            "ProcessId": 5440,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.9032120Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10220,
+            "ParentProcessId": 31392,
+            "CreationDate": "2026-10-23T15:25:37.6664720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11600,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8698410Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12984,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.2745440Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 18660,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8251610Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19216,
+            "ParentProcessId": 5440,
+            "CreationDate": "2026-10-23T15:25:37.2632680Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19448,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8587950Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19532,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.2726070Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22276,
+            "ParentProcessId": 30480,
+            "CreationDate": "2026-10-23T15:25:37.6662350Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 29244,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.1787840Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30480,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.6545490Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30752,
+            "ParentProcessId": 19448,
+            "CreationDate": "2026-10-23T15:25:37.2632630Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 31392,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.6545610Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "dataDirSddl": "O:<USER_SID>G:<GROUP_SID>D:PAI(A;OICI;FA;;;<USER_SID>)",
+        "pipeSddl": "D:P(A;;FA;;;<USER_SID>)",
+        "descriptor": {
+          "schemaVersion": 1,
+          "protocolVersion": 1,
+          "instanceId": "aefdc7c0-4c44-4848-a171-cc449e123dc7",
+          "pid": 29244,
+          "startedAt": "2026-10-23T15:25:36.343Z",
+          "endpoint": "\\\\.\\pipe\\ahastation-terminal-e2ce9f8e30a3a879c9e2772e8c5bedf9"
+        },
+        "sessions": [
+          {
+            "terminalId": "b72916e6-54da-4624-b4f1-13ccbf8ab101",
+            "pid": 19448,
+            "startedAt": "2026-10-23T15:25:36.831Z",
+            "requestId": "4578be93-5fcc-47b1-9ef9-cb6ee1cbadb9"
+          },
+          {
+            "terminalId": "d553abce-6f6d-4759-95a9-cfba3c2c50b6",
+            "pid": 5440,
+            "startedAt": "2026-10-23T15:25:36.874Z",
+            "requestId": "876022b4-f1e6-4355-ae9c-d20f0ed8c719"
+          }
+        ],
+        "probes": [
+          {
+            "role": "0",
+            "pid": 19448
+          },
+          {
+            "role": "0-child",
+            "pid": 30752
+          },
+          {
+            "role": "0-child-grandchild",
+            "pid": 30480
+          },
+          {
+            "role": "1",
+            "pid": 5440
+          },
+          {
+            "role": "1-child",
+            "pid": 19216
+          },
+          {
+            "role": "1-child-grandchild",
+            "pid": 31392
+          }
+        ],
+        "mainExitCode": null,
+        "mainExited": true,
+        "after": [
+          {
+            "ProcessId": 5440,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.9032120Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 10220,
+            "ParentProcessId": 31392,
+            "CreationDate": "2026-10-23T15:25:37.6664720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11600,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8698410Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12984,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.2745440Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 18660,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8251610Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19216,
+            "ParentProcessId": 5440,
+            "CreationDate": "2026-10-23T15:25:37.2632680Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19448,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8587950Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 19532,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.2726070Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22276,
+            "ParentProcessId": 30480,
+            "CreationDate": "2026-10-23T15:25:37.6662350Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 29244,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.1787840Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30480,
+            "ParentProcessId": 30752,
+            "CreationDate": "2026-10-23T15:25:37.6545490Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 30752,
+            "ParentProcessId": 19448,
+            "CreationDate": "2026-10-23T15:25:37.2632630Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 31392,
+            "ParentProcessId": 19216,
+            "CreationDate": "2026-10-23T15:25:37.6545610Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          }
+        ],
+        "reconnected": true,
+        "inputResize": true,
+        "spawnCount": 2,
+        "isolatedStop": true,
+        "stoppedInventory": [
+          {
+            "terminalId": "b72916e6-54da-4624-b4f1-13ccbf8ab101",
+            "pid": 19448,
+            "startedAt": "2026-10-23T15:25:36.831Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
+            "label": "offline-0",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 78,
+            "exited": true,
+            "exitCode": 1
+          },
+          {
+            "terminalId": "d553abce-6f6d-4759-95a9-cfba3c2c50b6",
+            "pid": 5440,
+            "startedAt": "2026-10-23T15:25:36.874Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 dev 中文 YYRDkf\\forced",
+            "label": "offline-1",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 83,
+            "exited": true,
+            "exitCode": 1
+          }
+        ],
+        "stoppingTree": [
+          {
+            "ProcessId": 11600,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8698410Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 18660,
+            "ParentProcessId": 29244,
+            "CreationDate": "2026-10-23T15:25:36.8251610Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 29244,
+            "ParentProcessId": 30404,
+            "CreationDate": "2026-10-23T15:25:36.1787840Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\node_modules\\electron\\dist\\electron.exe",
+            "InJob": true
+          }
+        ],
+        "remaining": [],
+        "allExited": true
+      }
+    ]
+  },
+  "packaged": {
+    "runtime": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+    "code": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\resources\\app.asar\\dist-electron",
+    "packaged": true,
+    "artifact": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx",
+    "rounds": [
+      {
+        "mode": "normal",
+        "mainPid": 34468,
+        "isPackaged": true,
+        "versions": {
+          "node": "24.15.0",
+          "acorn": "8.16.0",
+          "ada": "3.4.4",
+          "amaro": "1.1.8",
+          "ares": "1.34.6",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.3.1",
+          "merve": "1.2.2",
+          "modules": "146",
+          "napi": "10",
+          "nbytes": "0.1.3",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.68.0",
+          "openssl": "0.0.0",
+          "simdjson": "4.5.0",
+          "simdutf": "7.7.0",
+          "sqlite": "3.51.3",
+          "tz": "2025c",
+          "undici": "7.24.4",
+          "unicode": "17.0",
+          "uv": "1.51.0",
+          "uvwasi": "0.0.23",
+          "v8": "14.8.178.22-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "42.3.0",
+          "chrome": "148.0.7778.180"
+        },
+        "before": [
+          {
+            "ProcessId": 1168,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7895580Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 2336,
+            "ParentProcessId": 12904,
+            "CreationDate": "2026-10-23T15:26:31.5645600Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 3100,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.8328590Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 3904,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.5474150Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11992,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.8215520Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12320,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7791080Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12904,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.5529950Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 20924,
+            "ParentProcessId": 3904,
+            "CreationDate": "2026-10-23T15:26:31.5592900Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22892,
+            "ParentProcessId": 12320,
+            "CreationDate": "2026-10-23T15:26:31.1612700Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 23320,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.1701720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 32928,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.8276410Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34096,
+            "ParentProcessId": 11992,
+            "CreationDate": "2026-10-23T15:26:31.1612710Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34468,
+            "ParentProcessId": 12184,
+            "CreationDate": "2026-10-23T15:26:29.5841600Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34476,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7479260Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34488,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.9592560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35460,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.1707250Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "beforeDaemon": [
+          {
+            "ProcessId": 1168,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7895580Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 2336,
+            "ParentProcessId": 12904,
+            "CreationDate": "2026-10-23T15:26:31.5645600Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 3904,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.5474150Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11992,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.8215520Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12320,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7791080Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12904,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.5529950Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 20924,
+            "ParentProcessId": 3904,
+            "CreationDate": "2026-10-23T15:26:31.5592900Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22892,
+            "ParentProcessId": 12320,
+            "CreationDate": "2026-10-23T15:26:31.1612700Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 23320,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.1701720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34096,
+            "ParentProcessId": 11992,
+            "CreationDate": "2026-10-23T15:26:31.1612710Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34476,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7479260Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34488,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.9592560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35460,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.1707250Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "dataDirSddl": "O:<USER_SID>G:<GROUP_SID>D:PAI(A;OICI;FA;;;<USER_SID>)",
+        "pipeSddl": "D:P(A;;FA;;;<USER_SID>)",
+        "descriptor": {
+          "schemaVersion": 1,
+          "protocolVersion": 1,
+          "instanceId": "605b6514-bacc-475b-9e37-f325a29fbeb0",
+          "pid": 34488,
+          "startedAt": "2026-10-23T15:26:30.127Z",
+          "endpoint": "\\\\.\\pipe\\ahastation-terminal-03e080b8687498434e574b17e5e125a8"
+        },
+        "sessions": [
+          {
+            "terminalId": "40f4f843-24b5-41e5-9608-7bc4c953c637",
+            "pid": 12320,
+            "startedAt": "2026-10-23T15:26:30.750Z",
+            "requestId": "a339cba6-7b8c-4740-9435-6b0360eac46b"
+          },
+          {
+            "terminalId": "6a0f2587-d99d-4df7-964a-ee7d46a56d08",
+            "pid": 11992,
+            "startedAt": "2026-10-23T15:26:30.790Z",
+            "requestId": "2614b4dc-e08d-4ea1-9126-c0890a1807c7"
+          }
+        ],
+        "probes": [
+          {
+            "role": "0",
+            "pid": 12320
+          },
+          {
+            "role": "0-child",
+            "pid": 22892
+          },
+          {
+            "role": "0-child-grandchild",
+            "pid": 3904
+          },
+          {
+            "role": "1",
+            "pid": 11992
+          },
+          {
+            "role": "1-child",
+            "pid": 34096
+          },
+          {
+            "role": "1-child-grandchild",
+            "pid": 12904
+          }
+        ],
+        "mainExitCode": 0,
+        "mainExited": true,
+        "after": [
+          {
+            "ProcessId": 1168,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7895580Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 2336,
+            "ParentProcessId": 12904,
+            "CreationDate": "2026-10-23T15:26:31.5645600Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 3904,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.5474150Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11992,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.8215520Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12320,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7791080Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 12904,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.5529950Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 20924,
+            "ParentProcessId": 3904,
+            "CreationDate": "2026-10-23T15:26:31.5592900Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 22892,
+            "ParentProcessId": 12320,
+            "CreationDate": "2026-10-23T15:26:31.1612700Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 23320,
+            "ParentProcessId": 34096,
+            "CreationDate": "2026-10-23T15:26:31.1701720Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34096,
+            "ParentProcessId": 11992,
+            "CreationDate": "2026-10-23T15:26:31.1612710Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34476,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7479260Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34488,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.9592560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35460,
+            "ParentProcessId": 22892,
+            "CreationDate": "2026-10-23T15:26:31.1707250Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "reconnected": true,
+        "inputResize": true,
+        "spawnCount": 2,
+        "isolatedStop": true,
+        "stoppedInventory": [
+          {
+            "terminalId": "40f4f843-24b5-41e5-9608-7bc4c953c637",
+            "pid": 12320,
+            "startedAt": "2026-10-23T15:26:30.750Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
+            "label": "offline-0",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 57,
+            "exited": true,
+            "exitCode": 1
+          },
+          {
+            "terminalId": "6a0f2587-d99d-4df7-964a-ee7d46a56d08",
+            "pid": 11992,
+            "startedAt": "2026-10-23T15:26:30.790Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\normal",
+            "label": "offline-1",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 70,
+            "exited": true,
+            "exitCode": 1
+          }
+        ],
+        "stoppingTree": [
+          {
+            "ProcessId": 1168,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7895580Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34476,
+            "ParentProcessId": 34488,
+            "CreationDate": "2026-10-23T15:26:30.7479260Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34488,
+            "ParentProcessId": 34468,
+            "CreationDate": "2026-10-23T15:26:29.9592560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          }
+        ],
+        "remaining": [],
+        "allExited": true
+      },
+      {
+        "mode": "forced",
+        "mainPid": 28268,
+        "isPackaged": true,
+        "versions": {
+          "node": "24.15.0",
+          "acorn": "8.16.0",
+          "ada": "3.4.4",
+          "amaro": "1.1.8",
+          "ares": "1.34.6",
+          "brotli": "1.2.0",
+          "cldr": "48.0",
+          "icu": "78.2",
+          "llhttp": "9.3.1",
+          "merve": "1.2.2",
+          "modules": "146",
+          "napi": "10",
+          "nbytes": "0.1.3",
+          "ncrypto": "0.0.1",
+          "nghttp2": "1.68.0",
+          "openssl": "0.0.0",
+          "simdjson": "4.5.0",
+          "simdutf": "7.7.0",
+          "sqlite": "3.51.3",
+          "tz": "2025c",
+          "undici": "7.24.4",
+          "unicode": "17.0",
+          "uv": "1.51.0",
+          "uvwasi": "0.0.23",
+          "v8": "14.8.178.22-electron.0",
+          "zlib": "1.3.2.1-motley",
+          "zstd": "1.6.0",
+          "electron": "42.3.0",
+          "chrome": "148.0.7778.180"
+        },
+        "before": [
+          {
+            "ProcessId": 6348,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.4080920Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11032,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3760670Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11520,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:53.1580500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11876,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.7691560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 16684,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:52.8104590Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25312,
+            "ParentProcessId": 27084,
+            "CreationDate": "2026-10-23T15:26:52.8001400Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25464,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:53.1580520Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26084,
+            "ParentProcessId": 25464,
+            "CreationDate": "2026-10-23T15:26:53.1662040Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27084,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3646260Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27396,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.6581190Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 28268,
+            "ParentProcessId": 12184,
+            "CreationDate": "2026-10-23T15:26:51.4700310Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33172,
+            "ParentProcessId": 6348,
+            "CreationDate": "2026-10-23T15:26:52.8074230Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33412,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3332940Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34952,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:52.8170960Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34992,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.6536470Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35272,
+            "ParentProcessId": 11520,
+            "CreationDate": "2026-10-23T15:26:53.1662260Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "beforeDaemon": [
+          {
+            "ProcessId": 6348,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.4080920Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11032,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3760670Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11520,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:53.1580500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11876,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.7691560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 16684,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:52.8104590Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25312,
+            "ParentProcessId": 27084,
+            "CreationDate": "2026-10-23T15:26:52.8001400Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25464,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:53.1580520Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26084,
+            "ParentProcessId": 25464,
+            "CreationDate": "2026-10-23T15:26:53.1662040Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27084,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3646260Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33172,
+            "ParentProcessId": 6348,
+            "CreationDate": "2026-10-23T15:26:52.8074230Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33412,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3332940Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34952,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:52.8170960Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35272,
+            "ParentProcessId": 11520,
+            "CreationDate": "2026-10-23T15:26:53.1662260Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "dataDirSddl": "O:<USER_SID>G:<GROUP_SID>D:PAI(A;OICI;FA;;;<USER_SID>)",
+        "pipeSddl": "D:P(A;;FA;;;<USER_SID>)",
+        "descriptor": {
+          "schemaVersion": 1,
+          "protocolVersion": 1,
+          "instanceId": "67ad0610-9be5-418c-bc5c-3dd6ba8f5c45",
+          "pid": 11876,
+          "startedAt": "2026-10-23T15:26:51.927Z",
+          "endpoint": "\\\\.\\pipe\\ahastation-terminal-52c91692ba7233b13aeb2e30ea223bd9"
+        },
+        "sessions": [
+          {
+            "terminalId": "db40b34f-8987-45bf-b313-e472ebc92efa",
+            "pid": 27084,
+            "startedAt": "2026-10-23T15:26:52.338Z",
+            "requestId": "dbfd18c1-8f6a-4326-8cb0-dd7077c9ad26"
+          },
+          {
+            "terminalId": "573bfb81-94d2-463a-bc81-4193c569f2a5",
+            "pid": 6348,
+            "startedAt": "2026-10-23T15:26:52.379Z",
+            "requestId": "3b6bf0e2-13b2-430c-b9ad-8bab47edd7a5"
+          }
+        ],
+        "probes": [
+          {
+            "role": "0",
+            "pid": 27084
+          },
+          {
+            "role": "0-child",
+            "pid": 25312
+          },
+          {
+            "role": "0-child-grandchild",
+            "pid": 11520
+          },
+          {
+            "role": "1",
+            "pid": 6348
+          },
+          {
+            "role": "1-child",
+            "pid": 33172
+          },
+          {
+            "role": "1-child-grandchild",
+            "pid": 25464
+          }
+        ],
+        "mainExitCode": null,
+        "mainExited": true,
+        "after": [
+          {
+            "ProcessId": 6348,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.4080920Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11032,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3760670Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11520,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:53.1580500Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11876,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.7691560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 16684,
+            "ParentProcessId": 25312,
+            "CreationDate": "2026-10-23T15:26:52.8104590Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25312,
+            "ParentProcessId": 27084,
+            "CreationDate": "2026-10-23T15:26:52.8001400Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 25464,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:53.1580520Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 26084,
+            "ParentProcessId": 25464,
+            "CreationDate": "2026-10-23T15:26:53.1662040Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 27084,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3646260Z",
+            "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33172,
+            "ParentProcessId": 6348,
+            "CreationDate": "2026-10-23T15:26:52.8074230Z",
+            "ExecutablePath": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33412,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3332940Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 34952,
+            "ParentProcessId": 33172,
+            "CreationDate": "2026-10-23T15:26:52.8170960Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 35272,
+            "ParentProcessId": 11520,
+            "CreationDate": "2026-10-23T15:26:53.1662260Z",
+            "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "reconnected": true,
+        "inputResize": true,
+        "spawnCount": 2,
+        "isolatedStop": true,
+        "stoppedInventory": [
+          {
+            "terminalId": "db40b34f-8987-45bf-b313-e472ebc92efa",
+            "pid": 27084,
+            "startedAt": "2026-10-23T15:26:52.338Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
+            "label": "offline-0",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 59,
+            "exited": true,
+            "exitCode": 1
+          },
+          {
+            "terminalId": "573bfb81-94d2-463a-bc81-4193c569f2a5",
+            "pid": 6348,
+            "startedAt": "2026-10-23T15:26:52.379Z",
+            "cwd": "<USER_HOME>\\AppData\\Local\\Temp\\aha D1 packaged 中文 SAJyMx\\forced",
+            "label": "offline-1",
+            "cols": 117,
+            "rows": 37,
+            "sequence": 65,
+            "exited": true,
+            "exitCode": 1
+          }
+        ],
+        "stoppingTree": [
+          {
+            "ProcessId": 11032,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3760670Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 11876,
+            "ParentProcessId": 28268,
+            "CreationDate": "2026-10-23T15:26:51.7691560Z",
+            "ExecutablePath": "<USER_HOME>\\Desktop\\ahastation-internal1\\release\\d1-smoke\\win-unpacked\\AhaStation.exe",
+            "InJob": true
+          },
+          {
+            "ProcessId": 33412,
+            "ParentProcessId": 11876,
+            "CreationDate": "2026-10-23T15:26:52.3332940Z",
+            "ExecutablePath": "\\\\?\\C:\\WINDOWS\\system32\\conhost.exe",
+            "InJob": true
+          }
+        ],
+        "remaining": [],
+        "allExited": true
+      }
+    ]
+  },
+  "redactions": {
+    "userHome": "<USER_HOME>",
+    "userSid": "<USER_SID>",
+    "groupSid": "<GROUP_SID>",
+    "note": "Historical observations are preserved; SDDL placeholders are documentation, not executable ACLs."
+  }
+}

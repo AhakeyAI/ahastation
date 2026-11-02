@@ -1,0 +1,13 @@
+# Generic Linux migration path; external MySQL is required (no container SQLite).
+services:
+  ahastation-hub:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: ./hub.env
+    ports: ["127.0.0.1:8787:8787"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # One replica, one worker. Reverse proxy must preserve Upgrade and Authorization.
+    deploy:
+      replicas: 1

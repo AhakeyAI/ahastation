@@ -157,7 +157,7 @@ export function OpenCodeEditor({ hostId, backendId, sessionId, cwd, capabilities
         setFileMtime(result.file.mtimeMs);
         setDraft(result.file.content);
         // Scene reporting for overlay ↔ window migration (Phase 6a).
-        void window.vibeMeet.ideOverlay.reportScene({
+        void window.vibeMeet.ideOverlay?.reportScene({
           hostId, selectedFile: path, scrollTop: 0, updatedAt: Date.now(),
         });
       } else {
@@ -181,7 +181,7 @@ export function OpenCodeEditor({ hostId, backendId, sessionId, cwd, capabilities
   useEffect(() => {
     if (sceneRestoredRef.current === hostId) return;
     sceneRestoredRef.current = hostId;
-    void window.vibeMeet.ideOverlay.getScene(hostId).then((res) => {
+    void window.vibeMeet.ideOverlay?.getScene(hostId).then((res) => {
       if (!res.ok || !res.scene.selectedFile) return;
       pendingScrollRef.current = res.scene.scrollTop;
       void openFile(res.scene.selectedFile);
@@ -207,7 +207,7 @@ export function OpenCodeEditor({ hostId, backendId, sessionId, cwd, capabilities
       scrollReportTimer.current = null;
       const el = codeContentRef.current;
       if (!el || !selectedFile) return;
-      void window.vibeMeet.ideOverlay.reportScene({
+      void window.vibeMeet.ideOverlay?.reportScene({
         hostId, selectedFile, scrollTop: el.scrollTop, updatedAt: Date.now(),
       });
     }, 1000);

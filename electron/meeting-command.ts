@@ -140,7 +140,13 @@ export type PlanRevisionOperation = z.infer<typeof planRevisionOperationSchema>;
 export type MeetingCommandActor = {
   hostId: string;
   role: 'coordinator' | 'expert';
+  /** AME-D14: an expert directs the sub-agent tasks it owns (and only those). */
+  ownsTask?: (taskId: string) => boolean;
 };
+
+/** Commands an expert may send to a task it owns; everything else stays with
+ *  the coordinator so the meeting keeps one plan (AME-D17). */
+const EXPERT_OWNED_TASK_COMMANDS = new Set(['send-task-message', 'follow-up-task', 'steer-task']);
 
 export type MeetingCommandResult =
   | { ok: true; value?: unknown }
@@ -209,7 +215,10 @@ export function authorizeMeetingCommand(
     || command.kind === 'request-decision'
     || command.kind === 'save-memory'
     || command.kind === 'speak';
-  if (coordinatorOnly && actor.role !== 'coordinator') {
+  const ownedTaskCommand = EXPERT_OWNED_TASK_COMMANDS.has(command.kind)
+    && 'taskId' in command
+    && actor.ownsTask?.(command.taskId) === true;
+  if (coordinatorOnly && actor.role !== 'coordinator' && !ownedTaskCommand) {
     return { ok: false, code: 'forbidden', error: `${command.kind} requires the coordinator role` };
   }
   return { ok: true, command };

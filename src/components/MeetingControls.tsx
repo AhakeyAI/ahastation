@@ -6,6 +6,8 @@ interface MeetingControlsProps {
   onChangeAutoApproveScope: (scope: AutoApproveScope) => void;
   multiAgent: boolean;
   onToggleMultiAgent: () => void;
+  /** Where the scope picker opens: above (bottom toolbar) or below (top bar). */
+  placement?: 'up' | 'down';
 }
 
 const SCOPE_LABELS: Record<AutoApproveScope, string> = {
@@ -15,14 +17,15 @@ const SCOPE_LABELS: Record<AutoApproveScope, string> = {
 };
 
 /**
- * 会议工具栏控制组（04 §9.3 会议工具栏的 auto 档 + 多 Agent 开关）。
- * 从原 MeetingHeader 右侧迁入 BottomToolbar——顶栏让位给视图切换器。
+ * 会议控制组（04 §9.3 的 auto 档）。底部菜单栏取消后放在顶栏右侧，
+ * 档位选择向下展开。
  */
 export const MeetingControls = memo(function MeetingControls({
   autoApproveScope,
   onChangeAutoApproveScope,
   multiAgent,
   onToggleMultiAgent,
+  placement = 'down',
 }: MeetingControlsProps) {
   const isOn = autoApproveScope !== 'off';
   const multiAgentTitle = multiAgent
@@ -66,19 +69,7 @@ export const MeetingControls = memo(function MeetingControls({
 
   return (
     <>
-      <button
-        type="button"
-        className={`mtg-approve-toggle mtg-multi-toggle ${multiAgent ? 'mtg-multi-toggle-on' : ''}`}
-        role="switch"
-        aria-checked={multiAgent}
-        onClick={onToggleMultiAgent}
-        title={multiAgentTitle}
-      >
-        <span className="mtg-approve-toggle-track" aria-hidden="true">
-          <span className="mtg-approve-toggle-knob" />
-        </span>
-        <span className="mtg-approve-toggle-label">多 Agent</span>
-      </button>
+
       <div className="mtg-scope-wrap" ref={pickerRef}>
         <button
           type="button"
@@ -96,7 +87,7 @@ export const MeetingControls = memo(function MeetingControls({
           </span>
         </button>
         {scopePickerOpen && (
-          <div className="mtg-scope-picker mtg-scope-picker-up">
+          <div className={`mtg-scope-picker${placement === 'up' ? ' mtg-scope-picker-up' : ''}`}>
             <div className="mtg-scope-picker-title">选择自动批准范围</div>
             <button
               type="button"

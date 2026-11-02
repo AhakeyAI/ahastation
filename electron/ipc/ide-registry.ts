@@ -1,11 +1,12 @@
 // ide-registry.ts IPC — IDE catalog state + default/override management.
-// Main-window only (Settings panel); every payload zod-validated via the
-// validators.ts handleSecure gate.
+// Main window and the Settings window (the IDE panel lives in Settings);
+// every payload zod-validated via the validators.ts handleSecure gate.
 
 import { z } from 'zod';
 import { getIdeRegistry } from '../ide/ide-registry.js';
 import type { IpcContext } from './context.js';
-import { emptyPayloadSchema, handleSecure, mainWindowSenderPolicy } from './validators.js';
+import { settingsWindowWebContentsId } from './settings-window.js';
+import { anySenderPolicy, emptyPayloadSchema, handleSecure, mainWindowSenderPolicy } from './validators.js';
 
 const ideIdSchema = z.string().min(1).max(64);
 
@@ -16,11 +17,14 @@ export const ideRegistrySetOverrideSchema = z
   .strict();
 
 export function registerIdeRegistryIpc(ctx: IpcContext): void {
-  const mainWindowOnly = mainWindowSenderPolicy(() => ctx.liveWindow()?.webContents.id ?? null);
+  const mainOrSettings = anySenderPolicy(
+    mainWindowSenderPolicy(() => ctx.liveWindow()?.webContents.id ?? null),
+    mainWindowSenderPolicy(settingsWindowWebContentsId),
+  );
 
   handleSecure('ide-registry:list', {
     schema: emptyPayloadSchema,
-    authorize: mainWindowOnly,
+    authorize: mainOrSettings,
     handler: async () => {
       const registry = getIdeRegistry();
       await registry.init();
@@ -30,7 +34,7 @@ export function registerIdeRegistryIpc(ctx: IpcContext): void {
 
   handleSecure('ide-registry:set-default', {
     schema: ideRegistrySetDefaultSchema,
-    authorize: mainWindowOnly,
+    authorize: mainOrSettings,
     handler: async (payload) => {
       const registry = getIdeRegistry();
       await registry.init();
@@ -40,7 +44,7 @@ export function registerIdeRegistryIpc(ctx: IpcContext): void {
 
   handleSecure('ide-registry:set-override', {
     schema: ideRegistrySetOverrideSchema,
-    authorize: mainWindowOnly,
+    authorize: mainOrSettings,
     handler: async (payload) => {
       const registry = getIdeRegistry();
       await registry.init();

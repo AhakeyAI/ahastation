@@ -381,10 +381,13 @@ export function registerCompanionIpc(ctx: IpcContext): void {
   });
 
   handleSecure('ahabar:set-expanded', {
-    schema: z.object({ expanded: z.boolean() }).strict(),
+    schema: z.object({
+      expanded: z.boolean(),
+      height: z.number().int().min(0).max(2000).optional(),
+    }).strict(),
     authorize: companionWindowOnly,
     authorizeError: 'Sender is not the companion window',
-    handler: (payload) => ({ ok: setAhaBarExpanded(payload.expanded) }),
+    handler: (payload) => ({ ok: setAhaBarExpanded(payload.expanded, payload.height) }),
   });
 
   handleSecure('ahabar:set-ghost', {

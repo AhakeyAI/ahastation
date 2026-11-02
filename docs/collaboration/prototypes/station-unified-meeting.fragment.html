@@ -1,0 +1,558 @@
+<div id="station-unified-preview" aria-label="AhaStation 统一会议交互原型">
+  <style>
+    #station-unified-preview {
+      --st-bg: light-dark(#f1f3f9,#151922);
+      --st-panel: light-dark(#ffffff,#202632);
+      --st-soft: light-dark(#f5f6fb,#292f3c);
+      --st-ink: light-dark(#202b40,#edf0f7);
+      --st-muted: light-dark(#616e84,#b1bbcc);
+      --st-line: light-dark(#dce1ec,#424b5e);
+      --st-blue: light-dark(#285fe0,#9abaff);
+      --st-blue-soft: light-dark(#eaf0ff,#293b5e);
+      --st-green: light-dark(#236b49,#9bd4b6);
+      --st-green-soft: light-dark(#eaf6ee,#263f33);
+      --st-warn: light-dark(#85550d,#f2ca8d);
+      --st-warn-soft: light-dark(#fff4df,#473a26);
+      --st-red: light-dark(#a52b3d,#ffb1be);
+      --st-host: light-dark(#f0ebfd,#363049);
+      color-scheme: light dark;
+      color: var(--st-ink);
+      font: 14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+      width: 100%;
+    }
+    #station-unified-preview * { box-sizing: border-box; }
+    #station-unified-preview [hidden] { display:none !important; }
+    #station-unified-preview h1,#station-unified-preview h2,#station-unified-preview h3,#station-unified-preview p { margin:0; }
+    #station-unified-preview h1 { font-size:19px; font-weight:500; }
+    #station-unified-preview h2 { font-size:17px; font-weight:500; }
+    #station-unified-preview h3 { font-size:15px; font-weight:500; }
+    #station-unified-preview strong { font-weight:500; }
+    #station-unified-preview button,#station-unified-preview input,#station-unified-preview select,#station-unified-preview textarea { font:inherit; }
+    #station-unified-preview button { cursor:var(--cursor-interaction,pointer); }
+    #station-unified-preview button:disabled { cursor:not-allowed; opacity:.48; }
+    #station-unified-preview .st-preview { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 2px; color:var(--st-muted); font-size:12px; }
+    #station-unified-preview .st-preview select { max-width:100%; }
+    #station-unified-preview .st-preview strong { color:var(--st-ink); }
+    #station-unified-preview .st-app { border:1px solid var(--st-line); border-radius:15px; overflow:hidden; background:var(--st-bg); min-height:730px; }
+    #station-unified-preview .st-titlebar { display:flex; justify-content:space-between; padding:6px 16px; font-size:12px; background:var(--st-soft); border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-top { display:flex; flex-wrap:wrap; align-items:center; gap:14px; padding:16px 20px; background:var(--st-panel); border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-brand { font-size:20px; font-weight:500; margin-right:4px; }
+    #station-unified-preview .st-spacer { flex:1; }
+    #station-unified-preview .st-tabs { display:inline-flex; padding:3px; border-radius:24px; background:var(--st-soft); gap:2px; }
+    #station-unified-preview .st-tab { border:0; padding:7px 18px; border-radius:20px; color:var(--st-muted); background:transparent; }
+    #station-unified-preview .st-tab[aria-selected="true"] { background:var(--st-panel); color:var(--st-ink); box-shadow:0 1px 3px color-mix(in srgb,var(--st-ink) 10%,transparent); }
+    #station-unified-preview .st-button { border:1px solid var(--st-line); border-radius:9px; padding:7px 12px; background:var(--st-panel); color:var(--st-ink); }
+    #station-unified-preview .st-button.primary { border-color:var(--st-blue); background:var(--st-blue); color:light-dark(#fff,#15233d); }
+    #station-unified-preview .st-button.quiet { background:transparent; }
+    #station-unified-preview .st-button.danger { color:var(--st-red); }
+    #station-unified-preview .st-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    #station-unified-preview .st-context { display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; padding:12px 20px; border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-context .st-meeting-title { font-weight:500; }
+    #station-unified-preview .st-mini { font-size:12px; color:var(--st-muted); }
+    #station-unified-preview .st-badge { display:inline-flex; gap:5px; align-items:center; padding:2px 8px; border-radius:20px; background:var(--st-soft); font-size:12px; color:var(--st-muted); white-space:normal; }
+    #station-unified-preview .st-badge.good { color:var(--st-green); background:var(--st-green-soft); }
+    #station-unified-preview .st-badge.active { color:var(--st-blue); background:var(--st-blue-soft); }
+    #station-unified-preview .st-badge.wait { color:var(--st-warn); background:var(--st-warn-soft); }
+    #station-unified-preview .st-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+    #station-unified-preview .st-layout { display:grid; grid-template-columns:minmax(0,1fr) 310px; gap:16px; padding:16px; align-items:start; }
+    #station-unified-preview .st-gallery { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+    #station-unified-preview .st-person { background:var(--st-panel); border:1px solid var(--st-line); border-radius:16px; padding:13px; min-height:165px; display:flex; align-items:center; flex-direction:column; gap:7px; text-align:center; }
+    #station-unified-preview .st-person.host { background:var(--st-host); }
+    #station-unified-preview .st-person.executor { background:var(--st-blue-soft); }
+    #station-unified-preview .st-avatar { width:42px; height:42px; display:grid; place-items:center; border-radius:50%; background:var(--st-soft); font-size:18px; font-weight:500; color:var(--st-ink); }
+    #station-unified-preview .st-person-label { font-size:12px; color:var(--st-muted); }
+    #station-unified-preview .st-task-link { padding:0; color:var(--st-blue); background:transparent; border:0; text-align:center; }
+    #station-unified-preview .st-invite { justify-content:center; background:transparent; border-style:dashed; color:var(--st-muted); }
+    #station-unified-preview .st-invite span:first-child { font-size:25px; }
+    #station-unified-preview .st-panel { padding:16px; background:var(--st-panel); border:1px solid var(--st-line); border-radius:14px; }
+    #station-unified-preview .st-workspace { margin-top:16px; }
+    #station-unified-preview .st-section-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    #station-unified-preview .st-empty { padding:26px 6px; text-align:center; color:var(--st-muted); }
+    #station-unified-preview .st-empty p { margin:7px 0; }
+    #station-unified-preview .st-callout { border-left:3px solid var(--st-blue); background:var(--st-blue-soft); padding:10px 12px; border-radius:5px; margin:10px 0; }
+    #station-unified-preview .st-warning { border-left-color:var(--st-warn); background:var(--st-warn-soft); }
+    #station-unified-preview .st-logline { padding:7px 0; border-bottom:1px solid var(--st-line); overflow-wrap:anywhere; }
+    #station-unified-preview .st-side { min-width:0; }
+    #station-unified-preview .st-side-tabs { display:flex; gap:6px; border-bottom:1px solid var(--st-line); margin:-4px -4px 12px; }
+    #station-unified-preview .st-side-tabs button { flex:1; padding:8px 4px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--st-muted); }
+    #station-unified-preview .st-side-tabs button[aria-selected="true"] { color:var(--st-blue); border-bottom-color:var(--st-blue); }
+    #station-unified-preview .st-message { margin:13px 0; }
+    #station-unified-preview .st-message .st-bubble { padding:10px 12px; border-radius:10px; background:var(--st-soft); margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; }
+    #station-unified-preview .st-message.mine .st-bubble { background:var(--st-blue-soft); }
+    #station-unified-preview .st-message.host .st-bubble { background:var(--st-host); }
+    #station-unified-preview .st-composer { display:grid; gap:8px; border-top:1px solid var(--st-line); padding-top:12px; margin-top:14px; }
+    #station-unified-preview .st-mentions { background:var(--st-panel); border:1px solid var(--st-line); border-radius:10px; padding:5px; }
+    #station-unified-preview .st-mention { display:block; width:100%; padding:9px; border:0; border-radius:6px; background:transparent; color:var(--st-ink); text-align:left; overflow-wrap:anywhere; }
+    #station-unified-preview .st-mention[aria-selected="true"] { background:var(--st-blue-soft); }
+    #station-unified-preview .st-setup { border:1px solid var(--st-line); border-radius:12px; margin:12px 0; overflow:hidden; }
+    #station-unified-preview .st-setup-head { display:flex; width:100%; align-items:center; flex-wrap:wrap; gap:8px; text-align:left; padding:13px; color:var(--st-ink); background:var(--st-soft); border:0; }
+    #station-unified-preview .st-setup-body { padding:14px; display:grid; gap:12px; }
+    #station-unified-preview .st-advanced { margin-top:18px; color:var(--st-muted); }
+    #station-unified-preview .st-advanced summary { color:var(--st-ink); cursor:var(--cursor-interaction,pointer); padding:8px 0; }
+    #station-unified-preview .st-field { display:grid; gap:5px; min-width:0; }
+    #station-unified-preview .st-input { width:100%; border:1px solid var(--st-line); border-radius:8px; padding:9px 10px; background:var(--st-panel); color:var(--st-ink); min-width:0; }
+    #station-unified-preview textarea.st-input { resize:vertical; min-height:78px; }
+    #station-unified-preview .st-divider { height:1px; background:var(--st-line); margin:14px 0; }
+    #station-unified-preview .st-device-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; padding:12px 0; border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-device-row input { width:17px; height:17px; accent-color:var(--st-blue); }
+    #station-unified-preview .st-device-info { min-width:0; overflow-wrap:anywhere; }
+    #station-unified-preview .st-device-info p { font-size:12px; color:var(--st-muted); }
+    #station-unified-preview .st-sheet-zone { padding:20px; }
+    #station-unified-preview .st-sheet { max-width:860px; margin:0 auto; background:var(--st-panel); border:1px solid var(--st-line); padding:22px; border-radius:16px; }
+    #station-unified-preview .st-sheet-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
+    #station-unified-preview .st-sheet-footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:9px; margin-top:20px; }
+    #station-unified-preview .st-two { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    #station-unified-preview .st-plan-task { border-top:1px solid var(--st-line); padding:16px 0; }
+    #station-unified-preview .st-plan-task p { margin:8px 0; }
+    #station-unified-preview .st-meta { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+    #station-unified-preview .st-table-wrap { width:100%; overflow-x:auto; }
+    #station-unified-preview .st-table { width:100%; border-collapse:collapse; text-align:left; }
+    #station-unified-preview .st-table th { padding:10px 8px; font-weight:400; color:var(--st-muted); font-size:12px; border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-table td { padding:12px 8px; border-bottom:1px solid var(--st-line); vertical-align:top; min-width:100px; }
+    #station-unified-preview .st-table td:first-child { min-width:190px; }
+    #station-unified-preview .st-board { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:16px; }
+    #station-unified-preview .st-column { min-width:0; padding:12px; background:var(--st-soft); border-radius:12px; min-height:350px; }
+    #station-unified-preview .st-column h3 { margin-bottom:12px; }
+    #station-unified-preview .st-task-card { display:block; width:100%; text-align:left; border:1px solid var(--st-line); border-radius:12px; padding:13px; margin:10px 0; background:var(--st-panel); color:var(--st-ink); }
+    #station-unified-preview .st-task-card strong { display:block; margin:6px 0; }
+    #station-unified-preview .st-task-card .st-card-meta { display:block; margin-top:6px; color:var(--st-muted); font-size:12px; }
+    #station-unified-preview .st-delivery-grid { display:grid; grid-template-columns:minmax(150px,1fr) minmax(0,2fr); gap:16px; }
+    #station-unified-preview .st-file { display:block; width:100%; text-align:left; padding:9px; border:0; background:transparent; color:var(--st-ink); border-radius:7px; overflow-wrap:anywhere; }
+    #station-unified-preview .st-file[aria-pressed="true"] { background:var(--st-blue-soft); color:var(--st-blue); }
+    #station-unified-preview .st-file-preview { padding:14px; border-radius:10px; background:var(--st-soft); white-space:pre-wrap; overflow-wrap:anywhere; min-height:160px; }
+    #station-unified-preview .st-footer { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 20px; color:var(--st-muted); font-size:12px; border-top:1px solid var(--st-line); }
+    #station-unified-preview .st-notice { padding:9px 20px; background:var(--st-blue-soft); color:var(--st-ink); border-bottom:1px solid var(--st-line); }
+    #station-unified-preview .st-checkbox { display:flex; align-items:center; gap:8px; margin:12px 0; }
+    #station-unified-preview .st-checkbox input { width:17px; height:17px; accent-color:var(--st-blue); }
+    #station-unified-preview .st-path { overflow-wrap:anywhere; color:var(--st-muted); font-size:12px; }
+    #station-unified-preview .st-status-list { margin:10px 0; padding-left:20px; }
+    #station-unified-preview .st-status-list li { margin:5px 0; }
+    @media (max-width:850px) {
+      #station-unified-preview .st-layout { grid-template-columns:1fr; }
+      #station-unified-preview .st-board { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      #station-unified-preview .st-top { gap:9px; padding:13px; }
+      #station-unified-preview .st-side-tabs { max-width:360px; }
+    }
+    @media (max-width:500px) {
+      #station-unified-preview .st-two,#station-unified-preview .st-board,#station-unified-preview .st-delivery-grid { grid-template-columns:1fr; }
+      #station-unified-preview .st-sheet-zone { padding:10px; }
+      #station-unified-preview .st-sheet { padding:14px; }
+      #station-unified-preview .st-top .st-spacer { display:none; }
+      #station-unified-preview .st-gallery { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      #station-unified-preview .st-device-row { grid-template-columns:auto minmax(0,1fr); }
+      #station-unified-preview .st-device-row > .st-badge { grid-column:2; justify-self:start; }
+      #station-unified-preview .st-column { min-height:120px; }
+      #station-unified-preview .st-preview .st-spacer { display:none; }
+    }
+    @media (pointer:coarse) {
+      #station-unified-preview button,#station-unified-preview select { min-height:44px; }
+      #station-unified-preview input,#station-unified-preview textarea { font-size:16px; }
+    }
+  </style>
+  <div id="station-preview-controls" class="st-preview" aria-label="原型演示控制"></div>
+  <div id="station-preview-app" class="st-app"></div>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('station-unified-preview');
+  const app = root.querySelector('#station-preview-app');
+  const controls = root.querySelector('#station-preview-controls');
+  const sampleGoal = '完善登录接口并补齐自动化测试，同时交付独立的项目使用说明。由 Host 按完整交付拆分，说明各任务由哪台电脑执行。';
+  const state = {
+    viewer:'A',tab:'meeting',side:'chat',sheet:null,detailTab:'overview',selectedTask:'TASK-01',selectedFile:0,
+    onlineB:true,receivingA:true,receivingB:true,members:[],draftMembers:[],nativeJoined:false,draftNative:false,
+    mode:'manual',autoApprove:false,approved:false,dispatched:false,goal:'',composer:sampleGoal,
+    mentionOpen:false,mentionQuery:'',mentionStart:0,mentionEnd:0,mentionIndex:0,settingsSection:'account',
+    setup:{account:'eternal',deviceA:'电脑 A',deviceB:'电脑 B',githubA:true,githubB:true,repo:'https://github.com/your-account/codex-test',pathA:'C:/work/codex-test',pathB:'D:/working/codex-test',grantA:true,grantB:true},
+    tasks:[],messages:[{who:'Host · Codex',type:'host',text:'我在电脑 A 主持这场会议。你可以邀请其他电脑，在这里提出完整目标；计划、任务和结果都留在当前会议。'}],
+    native:{mode:'idle',synced:'idle',desktopBusy:true,text:'',stopRequested:false},hostReviewed:false,accepted:false,notice:'',
+  };
+  const previous = window.openai?.widgetState?.privateContent;
+  if (previous?.version === 1) {
+    if (['A','B'].includes(previous.viewer)) state.viewer=previous.viewer;
+    if (['meeting','tasks'].includes(previous.tab)) state.tab=previous.tab;
+  }
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const label = id => `${esc(state.setup['device'+id]||'电脑 '+id)}${id===state.viewer?'（本机）':''}`;
+  const online = id => id==='A'||state.onlineB;
+  const receives = id => id==='A'?state.receivingA:state.receivingB;
+  const currentTask = () => state.tasks.find(t=>t.id===state.selectedTask);
+  const visibleLevel = t => t.device===state.viewer?t.level:t.synced;
+  const visibleStopped = t => t.device===state.viewer?t.stopped:t.syncedStopped;
+  const visibleStopRequested = t => online(t.device)?t.stopRequested:t.stopRequested&&t.stopSource===state.viewer;
+  const badge = (text,kind='') => `<span class="st-badge ${kind}">${esc(text)}</span>`;
+  const button = (action,text,kind='',disabled=false,extra='') => `<button type="button" class="st-button ${kind}" data-action="${action}" ${disabled?'disabled':''} ${extra}>${text}</button>`;
+  const msg = (who,text,type='host') => {state.messages.push({who,text,type});state.messages=state.messages.slice(-16);};
+  function persist() {
+    if (typeof window.openai?.setWidgetState === 'function') {
+      Promise.resolve(window.openai.setWidgetState({
+        modelContent:{prototype:'统一原会议与任务',viewer:state.viewer,view:state.tab,selectedDevices:state.members.map(x=>'电脑 '+x),localExecutionOptIn:state.members.includes('A'),planApproved:state.approved,taskStates:state.tasks.map(t=>({task:t.title,device:t.device,stage:status(t).text}))},
+        privateContent:{version:1,viewer:state.viewer,tab:state.tab},
+      })).catch(()=>{});
+    }
+  }
+  function status(t) {
+    const level=visibleLevel(t);
+    if (visibleStopped(t)) return {text:'已停止 · 等待明确继续',kind:'wait'};
+    if (visibleStopRequested(t)&&!t.syncedStopped) return {text:'停止待确认',kind:'wait'};
+    if (level<0) return {text:state.approved?'已批准 · 待分配':'计划待批准',kind:'wait'};
+    if (level===0) return {text:online(t.device)?'已发出 · 等待设备接收':'等待设备上线 · 尚未接收',kind:'wait'};
+    if (level===1) return {text:'已接收 · 等待执行名额',kind:'active'};
+    if (level===2&&!online(t.device)) return {text:t.device===state.viewer?'本机继续执行 · 等待恢复同步':'执行状态待同步',kind:'wait'};
+    if (level===2) return {text:'执行中',kind:'active'};
+    if (level===3&&!online(t.device)&&t.device===state.viewer) return {text:'成果已保存在本机 · 待上传',kind:'wait'};
+    if (level===3) return {text:'成果已上传 · 等待 Host 检查',kind:'active'};
+    return {text:state.accepted?'已验收':'检查通过 · 待最终验收',kind:'good'};
+  }
+  function nativeState() {
+    const n=state.native;
+    const mode=state.viewer==='B'?n.mode:n.synced;
+    if(n.mode==='queued'&&!state.onlineB&&n.synced==='idle')return '等待设备上线 · 尚未接收';
+    if(n.stopRequested&&mode!=='stopped')return '停止待确认';
+    return ({idle:'原对话可用',queued:n.desktopBusy?'等待 Codex 桌面当前轮次结束':'等待本机执行名额',running:state.onlineB?'Station 接续执行中':'状态等待恢复同步',completed:'接续完成 · 原上下文保留',stopped:'已停止 · 等待明确继续'})[mode];
+  }
+  function makePlan() {
+    const candidates=state.members.filter(id=>online(id)&&receives(id));
+    if(!candidates.length){state.notice='请先邀请至少一台已就绪的执行设备。本机也可以由你明确勾选。';return;}
+    const first=candidates.includes('B')?'B':candidates[0];
+    const second=candidates.includes('A')?'A':first;
+    const common={level:-1,synced:-1,attempt:1,stopped:false,syncedStopped:false,stopRequested:false,manualConfirmed:false};
+    state.tasks=[
+      {...common,id:'TASK-01',title:'登录接口与回归测试',device:first,brief:'完成登录接口的输入校验与错误处理，补齐成功、失败和异常场景测试，交付代码、实际测试记录和修改说明。',files:['src/auth/login.ts','tests/auth/login.test.ts'],tests:'6 项回归测试通过（示例）',branch:'station/task-login-api',commit:'a81d7c2',result:'已完成输入校验、统一错误处理，并覆盖成功、密码错误和无效参数场景。'},
+      {...common,id:'TASK-02',title:'项目使用说明完整交付',device:second,brief:'以当前仓库已约定的配置与接口为依据，编写安装、启动、配置及常见问题说明，检查命令与链接，交付可直接使用的文档。',files:['docs/GETTING_STARTED.md'],tests:'文档命令与链接检查通过（示例）',branch:'station/task-project-guide',commit:'c42e9a6',result:'已整理安装、启动、配置和常见问题，形成独立可用的项目使用说明。'},
+    ];
+    state.tasks.forEach(t=>{t.suggestedDevice=t.device;});
+    state.approved=false;state.dispatched=false;state.hostReviewed=false;state.accepted=false;
+    msg('Host · Codex','我按两项可独立验收的成果提出计划：登录接口与测试、项目使用说明。每项都包含完整交付和验证；如果都交给同一台电脑，就按其并发名额顺序执行。');
+    state.sheet='plan';state.notice='Host 已提出计划，还没有执行。请查看完整要求与设备安排。';
+    if(state.autoApprove){state.approved=true;if(state.mode==='auto'){state.sheet=null;dispatch();}}
+  }
+  function dispatch() {
+    if(!state.approved){state.notice='先审阅并批准 Host 计划。';return;}
+    if(state.mode==='manual'&&state.tasks.some(t=>!t.manualConfirmed)){state.sheet='plan';state.notice='手动分配由你逐项指定执行设备；Host 建议不会自动当作你的选择。';return;}
+    if(state.dispatched)return;
+    state.dispatched=true;state.tasks.forEach(t=>{t.level=0;t.synced=0;});
+    msg('Host · Codex','已按获准计划发出任务。设备完成本机核验并确认接收后，才会显示“已接收”；我不会在派发时悄悄换电脑。');
+    state.notice='任务已发出。点击上方“推进演示进度”，观察接收、执行和成果。';
+  }
+  function planSummary() {
+    if(!state.tasks.length)return `<div class="st-empty"><p>这里会显示 Host 的计划与任务。</p><p class="st-mini">先邀请执行设备，再向右侧 Host 提出完整目标。</p></div>`;
+    return `<div class="st-section-head"><div><h3>当前计划 · 2 项完整交付</h3><p class="st-mini">${state.approved?'计划已批准':'等待计划批准'} · ${state.mode==='auto'?'自动分配':'手动分配'}</p></div><div class="st-actions">${button('plan','查看 Host 计划')}${!state.dispatched?button(state.approved?'dispatch':'plan',state.approved?'按计划分配任务':'审阅并批准','primary'):''}</div></div>
+      <div class="st-table-wrap"><table class="st-table"><thead><tr><th>任务与交付</th><th>执行设备 / Agent</th><th>真实阶段</th></tr></thead><tbody>${state.tasks.map(t=>`<tr><td><button class="st-task-link" data-action="task" data-id="${t.id}">${esc(t.title)}</button><div class="st-mini">${esc(t.id)} · ${t.files.length} 个成果文件</div></td><td>${label(t.device)}<div class="st-mini">Codex · 独立任务工作区</div></td><td>${badge(status(t).text,status(t).kind)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  function gallery() {
+    const cards=[`<article class="st-person"><span class="st-person-label">You · ${label(state.viewer)}</span><span class="st-avatar">你</span><strong>会议参与者</strong>${badge('文字交流')}</article>`,
+      `<article class="st-person host"><span class="st-person-label">Host · ${label('A')}</span><span class="st-avatar">H</span><strong>Codex 主持</strong>${badge(state.hostReviewed?'成果已汇总':state.tasks.length?'统筹当前计划':'等待目标','active')}<span class="st-mini">理解目标 · 拆分 · 检查</span></article>`];
+    for(const id of state.members){
+      const ts=state.tasks.filter(t=>t.device===id);const running=ts.find(t=>visibleLevel(t)===2&&!visibleStopped(t))??ts.find(t=>visibleLevel(t)<3&&!visibleStopped(t));
+      cards.push(`<article class="st-person executor"><span class="st-person-label">执行 Agent · ${label(id)}</span><span class="st-avatar">${id}</span><strong>Codex</strong>${badge(online(id)?(running?status(running).text:'在线 · 等待任务'):'设备离线',online(id)?'active':'wait')}${running?`<button class="st-task-link" data-action="task" data-id="${running.id}">${esc(running.title)}</button>`:'<span class="st-mini">只执行获准分配的任务</span>'}</article>`);
+    }
+    if(state.nativeJoined)cards.push(`<article class="st-person"><span class="st-person-label">已有对话 · ${label('B')}</span><span class="st-avatar">↗</span><strong>codex-test</strong>${badge(nativeState(),'active')}<button class="st-task-link" data-action="native">查看原对话</button></article>`);
+    cards.push(`<button type="button" class="st-person st-invite" data-action="invite"><span>＋</span><strong>邀请设备 / 对话</strong><span class="st-mini">同账号已授权设备</span></button>`);
+    return `<section class="st-gallery" aria-label="会议参与者与执行设备">${cards.join('')}</section>`;
+  }
+  function participants() {
+    return `<div class="st-section-head"><h3>执行成员</h3>${button('invite','选择设备')}</div><p class="st-mini">Host 始终在电脑 A；本机由你勾选，不自动接任务。</p>${['A','B'].map(id=>`<div class="st-device-row"><span class="st-avatar">${id}</span><div class="st-device-info"><strong>${label(id)}</strong><p>Codex · ${receives(id)?'允许接收新工作':'接收已关闭'}</p><p>${state.members.includes(id)?'已选入当前会议':'未选入执行成员'}</p></div>${badge(online(id)?'在线':'离线',online(id)?'good':'wait')}</div>`).join('')}${state.nativeJoined?`<div class="st-device-row"><span>↗</span><div><strong>codex-test</strong><p class="st-mini">电脑 B · 已有 Codex 对话</p></div>${button('native','查看')}</div>`:''}`;
+  }
+  function mentionTargets() {
+    return [{key:'host',token:'Host',name:'Host · Codex',detail:'电脑 A · 主持与计划'},
+      ...state.members.map(id=>({key:'exec-'+id,token:'Codex-'+id,name:'Codex · '+label(id),detail:'执行 Agent · 补充已分配任务'})),
+      ...(state.nativeJoined?[{key:'native-B',token:'codex-test',name:'codex-test · 电脑 B',detail:'已有 Codex 对话 · 保留原上下文'}]:[])];
+  }
+  function mentionMenu() {
+    if(!state.mentionOpen)return '';
+    const items=mentionTargets().filter(t=>(t.token+' '+t.name+' '+t.detail).toLowerCase().includes(state.mentionQuery.toLowerCase()));
+    return `<div class="st-mentions" role="listbox" aria-label="@ 参会对象">${items.map((t,i)=>`<button class="st-mention" role="option" aria-selected="${i===state.mentionIndex}" data-action="mention-select" data-key="${t.key}"><strong>@${esc(t.token)} · ${esc(t.name)}</strong><div class="st-mini">${esc(t.detail)}</div></button>`).join('')||'<p class="st-mini">未找到已加入的对象，先在参与者中邀请。</p>'}</div>`;
+  }
+  function updateMentionMenu() {const menu=root.querySelector('[data-mention-menu]');if(menu)menu.innerHTML=mentionMenu();}
+  function selectMention(key) {
+    const t=mentionTargets().find(x=>x.key===key);if(!t)return;
+    state.composer=state.composer.slice(0,state.mentionStart)+'@'+t.token+' '+state.composer.slice(state.mentionEnd);
+    state.mentionOpen=false;render();
+    const input=root.querySelector('[data-field="composer"]');input?.focus();
+    const cursor=state.mentionStart+t.token.length+2;input?.setSelectionRange(cursor,cursor);
+  }
+  function chat() {
+    return `<div aria-label="同一会议的聊天记录">${state.messages.slice(-7).map(m=>`<article class="st-message ${m.type}"><span class="st-mini">${esc(m.who)}</span><div class="st-bubble">${esc(m.text)}</div></article>`).join('')}</div>
+      <div class="st-composer"><label class="st-field"><span class="st-mini">群聊 · 从${label(state.viewer)}发言</span><textarea class="st-input" data-field="composer" aria-label="会议消息" placeholder="在群聊中发言，输入 @ 点名参会对象">${esc(state.composer)}</textarea></label><div data-mention-menu>${mentionMenu()}</div><div class="st-actions">${button('mention-open','@ 点名')}${button('send','发送','primary')}<span class="st-mini">Enter 发送 · Shift + Enter 换行</span></div></div>`;
+  }
+  function side() {
+    return `<aside class="st-panel st-side"><div class="st-side-tabs" role="tablist" aria-label="会议侧栏"><button role="tab" aria-selected="${state.side==='chat'}" data-action="side" data-value="chat">聊天</button><button role="tab" aria-selected="${state.side==='participants'}" data-action="side" data-value="participants">参与者</button></div>${state.side==='chat'?chat():participants()}</aside>`;
+  }
+  function meetingView() {
+    return `<div class="st-layout"><main>${gallery()}<section class="st-panel st-workspace"><div class="st-section-head"><h2>工作区</h2>${button('tasks','打开任务看板','quiet')}</div>${planSummary()}</section>${state.hostReviewed?`<section class="st-panel st-workspace"><h3>Host 成果汇总</h3><p>两项完整交付已完成检查；代码、测试和说明文档都可在任务详情查看。</p><div class="st-meta">${badge('组合验证通过（示例）','good')}${badge(state.accepted?'你已验收':'等待你的最终验收',state.accepted?'good':'wait')}</div><div class="st-actions">${button('final','查看会议成果','primary')}</div></section>`:''}</main>${side()}</div>`;
+  }
+  function boardView() {
+    const columns=[['plan','待批准'],['active','进行中'],['review','待确认'],['done','已完成']];
+    const group=t=>visibleStopped(t)||visibleStopRequested(t)?'review':visibleLevel(t)<0?'plan':visibleLevel(t)<3?'active':visibleLevel(t)<4?'review':'done';
+    return `<div class="st-context"><div><h2>这场会议的全部任务</h2><p class="st-mini">会议与任务界面指向同一份记录。点击任务可查看执行设备、进度和成果。</p></div><span class="st-spacer"></span>${button('plan','查看统一计划','',!state.tasks.length)}</div><main class="st-board">${columns.map(([key,title])=>`<section class="st-column"><h3>${title} · ${state.tasks.filter(t=>group(t)===key).length}</h3>${state.tasks.filter(t=>group(t)===key).map(t=>`<button class="st-task-card" data-action="task" data-id="${t.id}"><span class="st-mini">${esc(t.id)} · codex-test</span><strong>${esc(t.title)}</strong><span>${label(t.device)} / Codex</span><span class="st-card-meta">${esc(status(t).text)}</span><span class="st-card-meta">${t.files.length} 个成果文件 · 第 ${t.attempt} 次执行</span></button>`).join('')||'<p class="st-mini">暂无任务</p>'}</section>`).join('')}</main>`;
+  }
+  function render() {
+    controls.innerHTML=`<strong>交互原型 · 示例数据</strong><label>预览视角 <select data-field="viewer" aria-label="预览电脑"><option value="A" ${state.viewer==='A'?'selected':''}>电脑 A · 主持端</option><option value="B" ${state.viewer==='B'?'selected':''}>电脑 B · 执行端</option></select></label><label>电脑 B <select data-field="onlineB" aria-label="模拟电脑 B 连接"><option value="on" ${state.onlineB?'selected':''}>在线</option><option value="off" ${!state.onlineB?'selected':''}>断线</option></select></label><span class="st-spacer"></span>${button('advance','推进演示进度','',!state.dispatched&&!['queued','running','stopping'].includes(state.native.mode))}`;
+    controls.insertAdjacentHTML('beforeend','<span>连接演示范围：A 始终在线，B 可断线。</span>');
+    app.innerHTML=`<div class="st-titlebar"><span>AhaStation</span><span>仅演示界面与交互 · 不执行真实任务</span></div><header class="st-top"><span class="st-brand">AhaStudio</span><nav class="st-tabs" role="tablist" aria-label="会议与任务视图"><button class="st-tab" role="tab" aria-selected="${state.tab==='meeting'}" data-action="meeting">会议</button><button class="st-tab" role="tab" aria-selected="${state.tab==='tasks'}" data-action="tasks">任务 ${state.tasks.length?`· ${state.tasks.length}`:''}</button></nav><span class="st-spacer"></span>${badge(state.onlineB?'两台设备在线':'电脑 B 连接待恢复',state.onlineB?'good':'wait')}${button('settings','设备与授权')}</header>
+      <div class="st-context"><span class="st-meeting-title">登录功能与项目说明</span>${badge('同账号协作')}${badge('唯一 Host：电脑 A')}<span class="st-mini">项目：your-account/codex-test（示例）</span></div>
+      ${state.notice?`<div class="st-notice" role="status">${esc(state.notice)}</div>`:''}
+      ${state.sheet?renderSheet():state.tab==='meeting'?meetingView():boardView()}
+      <footer class="st-footer"><span>${label(state.viewer)} · ${state.members.length} 台执行设备 · ${state.tasks.filter(t=>visibleLevel(t)===2&&!visibleStopped(t)).length} 项执行中</span><span>计划批准与自动分配分别控制 · 文件经用户指定的 GitHub 仓库传递</span></footer>`;
+  }
+  function sheetShell(title,content,footer='') {
+    return `<div class="st-sheet-zone"><section class="st-sheet" role="dialog" aria-modal="false" aria-label="${esc(title)}"><div class="st-sheet-header"><h2>${esc(title)}</h2>${button('close','返回会议')}</div>${content}${footer?`<div class="st-sheet-footer">${footer}</div>`:''}</section></div>`;
+  }
+  function renderInvite() {
+    return sheetShell('邀请执行设备与已有对话',`<p>从同账号已授权设备中选择执行成员。本机不自动勾选；Host 继续由电脑 A 承担。</p>
+      ${['A','B'].map(id=>`<label class="st-device-row"><input type="checkbox" data-field="draft-member" data-id="${id}" ${state.draftMembers.includes(id)?'checked':''} ${!online(id)||!receives(id)?'disabled':''} aria-label="选入电脑 ${id}"><span class="st-device-info"><strong>${label(id)}</strong><p>Codex：已安装 · 已登录 · 已允许</p><p>${id==='A'?'C:/work/codex-test':'D:/working/codex-test'} · 工作区写入 · 并发上限 1</p></span>${badge(!online(id)?'离线':!receives(id)?'接收关闭':'项目已就绪',online(id)&&receives(id)?'good':'wait')}</label>`).join('')}
+      <div class="st-divider"></div><h3>已有 Codex 对话（按需选入）</h3><label class="st-device-row"><input type="checkbox" data-field="draft-native" ${state.draftNative?'checked':''} ${!state.onlineB?'disabled':''} aria-label="选入 codex-test 原生对话"><span class="st-device-info"><strong>codex-test · 登录改造</strong><p>电脑 B · 原对话上下文与工作目录保留</p><p>只在明确点名时接续，不自动成为新任务执行目标。</p></span>${badge('目录已授权','good')}</label>
+      <p class="st-mini">选入既有对话与选入设备执行 Agent 是两种目标；可以在同一会议同时使用。</p>`,button('invite-save','保存会议成员','primary'));
+  }
+  function renderPlan() {
+    if(!state.tasks.length)return sheetShell('Host 执行计划','<p>尚无计划。在会议聊天提出完整目标后，Host 会先给出拆分方案。</p>');
+    const readonly=state.dispatched;
+    const byHost=state.mode==='auto';
+    return sheetShell('审阅 Host 执行计划',`<label class="st-field"><strong>目标与成功标准</strong><textarea class="st-input" data-field="plan-goal" ${readonly?'readonly':''}>${esc(state.goal)}</textarea></label>
+      <div class="st-callout"><strong>做法与拆分依据</strong><p>代码与回归测试组成一项完整交付；项目使用说明是另一项可独立验收的成果。不按文件数或电脑数量拆任务，同一任务内连续完成修改、测试与说明。</p></div>
+      <p><strong>步骤：</strong>确认范围 → 独立执行与测试 → Host 检查成果与组合验证 → 你最终验收。</p>
+      <p class="st-mini">风险：远端离线或权限不足时等待并说明原因；不静默改派。两项均使用用户指定仓库的独立工作区与分支。</p>
+      <p class="st-mini">未决问题：本示例无新增决策项，按已约定测试项目执行。</p>
+      ${state.tasks.map((t,index)=>{
+        const chosen=byHost||t.manualConfirmed?t.device:'';
+        return `<article class="st-plan-task"><div class="st-section-head"><h3>${index+1}. ${esc(t.title)}</h3>${badge(readonly?'已经派发':byHost?'Host 明确安排':t.manualConfirmed?'已由你指定':'等待你指定设备',readonly?'good':'active')}</div><p>${esc(t.brief)}</p><p class="st-mini">Host 建议：${label(t.suggestedDevice)} / Codex。${byHost?'保留此安排；不可用时显示等待，调整须明确提出。':'你可采用建议，也可明确选择其他已加入设备。'}</p><div class="st-two"><label class="st-field"><span>执行设备</span><select class="st-input" data-field="plan-device" data-id="${t.id}" aria-label="${esc(t.id)} 执行设备" ${readonly||byHost?'disabled':''}><option value="" ${!chosen?'selected':''}>由我选择执行设备</option>${Array.from(new Set([...state.members,t.device])).map(id=>`<option value="${id}" ${id===chosen?'selected':''}>${label(id)}${!online(id)?' · 离线，保持原安排':''}${!receives(id)?' · 接收关闭':''}</option>`).join('')}</select></label><label class="st-field"><span>执行 Agent</span><select class="st-input" aria-label="${esc(t.id)} 执行 Agent" disabled><option>Codex · 当前唯一可用 Agent</option></select></label></div><p class="st-mini">交付：${esc(t.files.join('、'))}；${esc(t.tests.replace('通过（示例）','需通过'))}。依赖：可独立交付。</p></article>`;
+      }).join('')}
+      <div class="st-two"><label class="st-field"><span>任务分配方式</span><select class="st-input" data-field="mode" ${readonly?'disabled':''}><option value="manual" ${!byHost?'selected':''}>手动：由我指定执行设备</option><option value="auto" ${byHost?'selected':''}>自动：由 Host 选择并明确安排设备</option></select></label><div><strong>计划批准</strong><label class="st-checkbox"><input type="checkbox" data-field="autoApprove" ${state.autoApprove?'checked':''} ${readonly?'disabled':''}>允许自动批准计划</label></div></div><p class="st-mini">谁选择执行设备，与谁批准计划分别控制。当前示例只提供 Codex；自动分配不会扩大授权或静默换电脑。</p>`,readonly?button('tasks','查看任务看板','primary'):button('reject-plan','暂不批准')+button('approve-plan',byHost?'批准并按 Host 安排分配':'确认设备并批准计划','primary'));
+  }
+  function renderTask() {
+    const t=currentTask();if(!t)return sheetShell('任务详情','<p>未选择任务。</p>');
+    const l=visibleLevel(t);const hasDelivery=l>=3;const s=status(t);
+    const timeline=[['已发出','任务已保存到协作服务，尚不表示设备已经接收。'],['已接收','执行设备核验本机授权并保存任务，已确认接收。'],['执行中','本机 Codex 在该任务独立工作区完成修改与测试。'],['成果已上传','准确提交、成果文件及 PR 引用已返回会议。'],['Host 检查','报告、实际测试与组合验证通过，等待最终验收。']];
+    let body='';
+    if(state.detailTab==='overview')body=`<div class="st-meta">${badge(s.text,s.kind)}${badge(t.id)}${badge('第 '+t.attempt+' 次执行')}</div><h3>完整工作要求</h3><p>${esc(t.brief)}</p><div class="st-divider"></div><div class="st-two"><section><h3>由谁执行</h3><p>${label(t.device)} / Codex</p><p class="st-mini">${t.device==='A'?'C:/work/codex-test':'D:/working/codex-test'}</p></section><section><h3>授权与工作区</h3><p>工作区写入 · 独立任务分支</p><p class="st-mini">仓库：your-account/codex-test（示例）</p></section></div><div class="st-callout"><strong>验收要求</strong><p>交付文件完整，包含实际测试记录和修改说明；Host 检查通过后，再由你最终验收。</p></div>${!online(t.device)?'<div class="st-callout st-warning">设备连接待恢复。已经接收的任务继续在原电脑执行并保存成果；未接收的任务等待，不改派到其他电脑。</div>':''}`;
+    if(state.detailTab==='activity')body=`<h3>执行记录</h3>${l<0?'<p>这是待批准的计划项，还没有执行记录。</p>':timeline.slice(0,l+1).map((item,i)=>`<div class="st-logline"><strong>${i+1}. ${item[0]}</strong><p class="st-mini">${item[1]}</p></div>`).join('')}${visibleStopRequested(t)||visibleStopped(t)?`<div class="st-logline"><strong>${visibleStopped(t)?'已确认停止':'停止请求已保存，尚未确认实际退出'}</strong><p class="st-mini">保留原任务、对话、已有文件和提交，等待明确继续。</p></div>`:''}${!online(t.device)?'<div class="st-callout st-warning">离线期间以本机记录为准。另一端保持最后已确认状态，连接恢复后补传。</div>':''}`;
+    if(state.detailTab==='delivery')body=hasDelivery?`<div class="st-meta">${badge('成果示例','good')}${badge(t.tests,'good')}</div><p>${esc(t.result)}</p><div class="st-divider"></div><h3>准确版本与获取</h3><p class="st-path">分支：${esc(t.branch)} · 提交：${esc(t.commit)}…（示例）</p><div class="st-actions">${button('pr','查看成果 PR','',t.synced<3)}${button('fetch-preview','预览准确成果副本')}</div><div class="st-divider"></div><div class="st-delivery-grid"><nav aria-label="成果文件">${t.files.map((f,i)=>`<button class="st-file" data-action="file" data-index="${i}" aria-pressed="${i===state.selectedFile}">${esc(f)}</button>`).join('')}</nav><section><p class="st-mini">${esc(t.files[state.selectedFile]??t.files[0])}</p><div class="st-file-preview">${esc(filePreview(t,state.selectedFile))}</div></section></div><div class="st-divider"></div><p class="st-mini">不需要等待 PR 合并即可取回该提交；获取到独立目录，应用到当前工作区前另行确认。</p>`:`<div class="st-empty"><p>${l>=2?'文件正在执行设备上修改，成果尚未上传。':'任务尚未产出成果。'}</p><p class="st-mini">成果到达后，这里显示摘要、实际测试、文件、提交和 PR。</p></div>`;
+    const stopAllowed=state.dispatched&&l<3&&!visibleStopped(t)&&!visibleStopRequested(t);
+    return sheetShell(t.title,`<div class="st-side-tabs" role="tablist" aria-label="任务详情视图">${[['overview','任务概览'],['activity','执行记录'],['delivery','成果与测试']].map(([id,text])=>`<button role="tab" aria-selected="${state.detailTab===id}" data-action="detail-tab" data-value="${id}">${text}</button>`).join('')}</div>${body}`,`${stopAllowed?button('request-stop','停止此任务','danger'):''}${visibleStopped(t)?button('continue-task','明确继续原任务','primary'):''}${hasDelivery?button('detail-delivery','查看成果与测试'):''}`);
+  }
+  function filePreview(t,index) {
+    if(t.id==='TASK-02')return '# 项目使用说明（示例）\n\n安装依赖 → 配置本机环境 → 启动项目 → 验证登录流程\n\n包含配置项说明与常见故障处理。';
+    return index===1?'登录回归测试（示例）\n\n✓ 正常登录\n✓ 密码错误\n✓ 无效参数\n✓ 空账号\n✓ 缺少凭证\n✓ 错误响应一致性':'登录接口改动摘要（示例）\n\n1. 校验必要输入\n2. 统一登录错误响应\n3. 保持原有成功响应\n4. 回归测试已覆盖';
+  }
+  function renderSettings() {
+    const id=state.viewer;
+    const s=state.setup;
+    const section=(key,title,summary,body)=>`<section class="st-setup"><button class="st-setup-head" data-action="settings-section" data-value="${key}" aria-expanded="${state.settingsSection===key}"><strong>${title}</strong><span class="st-spacer"></span><span class="st-mini">${summary}</span><span aria-hidden="true">${state.settingsSection===key?'−':'+'}</span></button>${state.settingsSection===key?`<div class="st-setup-body">${body}</div>`:''}</section>`;
+    return sheetShell('设置 · 协作接入',`<p>同账号电脑登录后即可互见。只做文字协作时，无需绑定 GitHub 或仓库。</p>
+      ${section('account','1. Station 账号与本机',esc(s.account)+' · '+(online(id)?'设备在线':'等待重连'),`
+        <div class="st-two"><label class="st-field"><span>Station 账号</span><input class="st-input" data-field="setup-account" value="${esc(s.account)}" aria-label="Station 账号"></label><label class="st-field"><span>本机设备名称</span><input class="st-input" data-field="setup-device" value="${esc(s['device'+id])}" aria-label="本机设备名称"></label></div>
+        <label class="st-field"><span>登录密码</span><input class="st-input" type="password" autocomplete="off" aria-label="演示登录密码" placeholder="演示用，请勿输入真实密码"></label><div class="st-actions">${button('setup-login','登录并接入本机（演示）','primary')}${button('setup-register','创建账号（演示）')}</div>
+        <div><strong>本机 Codex</strong> · 已安装 · 已登录 · 已允许<p class="st-mini">沿用原 Agent 设置；Station、Codex 与 GitHub 分别登录。</p></div>
+        <label class="st-checkbox"><input type="checkbox" data-field="receive" ${receives(id)?'checked':''}>允许本机接收新工作</label><p class="st-mini">并发上限 1。这里允许接收，会议中仍需明确选入；关闭不停止已有任务。</p>`)}
+      ${section('github','2. GitHub 登录（涉及文件时）',s['github'+id]?'本机已登录':'本机尚未登录',`
+        <p>使用这台电脑自己的 GitHub 身份访问你指定的仓库。</p><div class="st-meta">${badge(s['github'+id]?'your-account · 已登录（示例）':'需要本机 GitHub 授权',s['github'+id]?'good':'wait')}</div><div class="st-actions">${button('setup-github',s['github'+id]?'检查 GitHub 登录（演示）':'在浏览器登录 GitHub（演示）','primary')}</div><p class="st-mini">真实产品复用本机 Git／GitHub 授权；凭证不发给其他电脑或 Hub。</p>`)}
+      ${section('project','3. 仓库与本机目录（涉及文件时）',s['grant'+id]?'项目已绑定 · 本机已授权':'等待本机确认',`
+        <label class="st-field"><span>你指定的 GitHub 仓库</span><input class="st-input" data-field="setup-repo" value="${esc(s.repo)}" aria-label="GitHub 仓库 URL"></label><label class="st-field"><span>本机项目目录</span><input class="st-input" data-field="setup-path" value="${esc(s['path'+id])}" aria-label="本机项目目录"></label><p class="st-mini">代码项目绑定本机副本；普通任务目录可用所选仓库传资料。两台电脑路径可以不同。</p>
+        <label class="st-checkbox"><input type="checkbox" data-field="setup-grant" ${s['grant'+id]?'checked':''}>确认允许操作这个本机目录（工作区写入）</label><div class="st-actions">${button('setup-bind','检查并保存绑定（演示）','primary')}</div><p class="st-mini">独立任务工作区由 Station 准备；不会自动上传整个目录。目标、授权和任务范围仍逐次核验。</p>`)}
+      <details class="st-advanced"><summary>高级与兼容选项</summary><p class="st-mini">恢复码、设备撤销／重新授权、服务地址、自托管／LAN、旧 Bridge 兼容、并发数和权限上限、组合验证命令，实施时保留在这里。</p><div class="st-actions">${button('reconnect','检查连接 / 重连（演示）')}${button('setup-advanced','查看高级操作说明')}</div></details><p class="st-mini">此处只演示协作设置。原模型、语音、屏幕、记忆、技能和 IDE 等设置沿用原入口。</p>`,button('close','返回会议','primary'));
+  }
+  function renderNative() {
+    const n=state.native;
+    const mode=state.viewer==='B'?n.mode:n.synced;
+    return sheetShell('电脑 B · 已有 Codex 对话',`<div class="st-section-head"><div><h3>codex-test · 登录改造</h3><p class="st-mini">D:/working/codex-test · 原身份、上下文和工作目录保留</p></div>${badge(nativeState(),'active')}</div><div class="st-logline"><strong>来源：Codex 桌面</strong><p>已在原对话讨论登录改造，当前桌面轮次${n.desktopBusy?'正在执行':'已经结束'}。</p></div>${n.text?`<div class="st-logline"><strong>来源：Station 点名</strong><p>${esc(n.text)}</p></div>`:''}${mode==='completed'?'<div class="st-logline"><strong>来源：同一 Codex 原生对话</strong><p>已沿用原上下文完成接续要求。（示例回复）</p></div>':''}<div class="st-callout">桌面当前轮次结束或确认停止后，Station 才接续。普通点名不自动新建正式业务任务，也不会让 Host 再派同一条指令。</div>${mode==='stopped'?'<p>原对话与已有文件保留。只有你明确继续，才重新接续。</p>':''}`,`${button('target-native','在会议中点名此对话','primary')}${['queued','running'].includes(mode)?button('stop-native','停止此接续项','danger'):''}${mode==='stopped'?button('continue-native','明确继续此接续'):''}`);
+  }
+  function renderSheet() {
+    if(state.sheet==='invite')return renderInvite();
+    if(state.sheet==='plan')return renderPlan();
+    if(state.sheet==='task')return renderTask();
+    if(state.sheet==='settings')return renderSettings();
+    if(state.sheet==='native')return renderNative();
+    if(state.sheet==='stop')return sheetShell('停止当前任务执行',`<p>确认停止“${esc(currentTask()?.title)}”？</p><div class="st-callout">停止请求发出后，先核对实际退出，再释放名额。保留原任务、对话、文件与提交；不会删除任务或自动重新开始。</div>`,button('cancel-stop','返回任务')+button('confirm-stop','请求停止此任务','danger'));
+    if(state.sheet==='pr')return sheetShell('成果 PR 预览（示例）',`<h3>${esc(currentTask()?.title)}</h3><p>仓库：your-account/codex-test</p><p class="st-path">来源分支：${esc(currentTask()?.branch)} → 目标分支：main</p><p>实际使用时在 GitHub 审阅、决定合并。此原型不会访问 GitHub 或创建 PR。</p>`,button('back-delivery','返回任务成果','primary'));
+    if(state.sheet==='final')return sheetShell('会议成果与最终验收',`<h3>Host 汇总</h3><p>登录接口、回归测试和项目使用说明已形成完整交付。</p><div class="st-meta">${badge(state.hostReviewed?'组合验证通过（示例）':'尚待 Host 检查',state.hostReviewed?'good':'wait')}${badge(state.accepted?'你已验收':'待你确认',state.accepted?'good':'wait')}</div>${state.tasks.map(t=>`<div class="st-logline"><strong>${esc(t.title)}</strong><p>${label(t.device)} / Codex · ${esc(status(t).text)}</p>${button('open-result','查看这项成果','',visibleLevel(t)<3,`data-id="${t.id}"`)}</div>`).join('')}<p class="st-mini">验收任务与成果不自动合并 PR，也不覆盖本机已有修改。</p>`,button('accept-final',state.accepted?'已经验收':'验收会议成果','primary',!state.hostReviewed||state.accepted));
+    return '';
+  }
+  function advance() {
+    let changed=false;
+    const oldLevels=new Map(state.tasks.map(t=>[t.id,t.level]));
+    for(const t of state.tasks) {
+      if(t.stopped)continue;
+      if(t.stopRequested&&(online(t.device)||t.stopSource===t.device)) {
+        t.stopped=true;if(online(t.device))t.syncedStopped=true;changed=true;
+        continue;
+      }
+      if(t.level===0&&online(t.device)&&receives(t.device)&&state.members.includes(t.device)){t.level=1;changed=true;}
+      else if(t.level===1) {
+        const occupied=state.tasks.some(x=>x.id!==t.id&&x.device===t.device&&!x.stopped&&(oldLevels.get(x.id)===2||x.level===2))||(t.device==='B'&&state.native.mode==='running');
+        if(!occupied){t.level=2;changed=true;}
+      }
+      else if(t.level===2){t.level=3;changed=true;}
+      else if(t.level===3&&t.synced>=3){t.level=4;changed=true;}
+      if(online(t.device))t.synced=t.level;
+    }
+    const n=state.native;
+    if(n.stopRequested&&(state.onlineB||n.stopSource==='B')&&n.mode!=='stopped'){n.mode='stopped';changed=true;}
+    else if(n.mode==='queued'&&state.onlineB&&!state.tasks.some(t=>t.device==='B'&&t.level===2&&!t.stopped)){
+      n.desktopBusy=false;n.mode='running';changed=true;msg('codex-test · 电脑 B','桌面原轮次已结束，正在同一对话接续你的 Station 指令。','native');
+    }else if(n.mode==='running'){n.mode='completed';changed=true;}
+    if(state.onlineB)n.synced=n.mode;
+    if(state.tasks.length&&state.tasks.every(t=>t.synced>=4)&&!state.hostReviewed){state.hostReviewed=true;msg('Host · Codex','两项成果已到达并通过检查与组合验证。你可以逐项查看文件、实际测试记录和 PR，再决定是否最终验收。');}
+    if(n.mode==='completed'&&n.synced==='completed'&&!n.reported){n.reported=true;msg('codex-test · 电脑 B','已在原对话上下文完成接续要求。（示例回复）','native');}
+    state.notice=changed?'演示状态已推进。可切到另一台电脑视角，核对同一会议的状态。':'当前等待设备、执行名额或明确继续；没有改派或重复启动。';
+  }
+  function resume(t) {
+    if(!online(t.device)){t.continueRequested=true;state.notice='继续要求已保存，等待原执行设备恢复；保留同一任务和工作区。';return;}
+    t.attempt++;t.stopped=false;t.syncedStopped=false;t.stopRequested=false;t.continueRequested=false;t.level=1;t.synced=1;
+    msg('Host · Codex',`收到明确继续要求：“${t.title}”在原设备和原工作区继续，保留已有成果。`);
+    state.notice='原任务等待执行名额，未从头新建另一项任务。';
+  }
+  function syncB() {
+    if(!state.onlineB)return;
+    for(const t of state.tasks.filter(x=>x.device==='B')){t.synced=t.level;t.syncedStopped=t.stopped;if(t.continueRequested)resume(t);}
+    state.native.synced=state.native.mode;
+  }
+  root.addEventListener('click',event=>{
+    const el=event.target.closest('[data-action]');if(!el||el.disabled)return;
+    const a=el.dataset.action;
+    if(a==='meeting'||a==='tasks'){state.tab=a;state.sheet=null;}
+    else if(a==='side')state.side=el.dataset.value;
+    else if(a==='invite'){state.draftMembers=[...state.members];state.draftNative=state.nativeJoined;state.sheet='invite';}
+    else if(a==='invite-save'){
+      if(state.nativeJoined&&!state.draftNative&&(['queued','running'].includes(state.native.mode)||['queued','running'].includes(state.native.synced))){
+        state.notice='既有对话仍有接续或退出待核对。请先停止并确认结束，再移出会议；对话入口保留。';render();return;
+      }
+      state.members=[...state.draftMembers];state.nativeJoined=state.draftNative;state.sheet=null;
+      state.notice=`已选择 ${state.members.map(x=>label(x)).join('、')||'无执行设备'}${state.nativeJoined?'，并加入 codex-test 原对话':''}。本机未被自动选入。`;
+    }
+    else if(a==='close'){state.sheet=null;}
+    else if(a==='plan')state.sheet='plan';
+    else if(a==='task'){state.selectedTask=el.dataset.id;state.detailTab='overview';state.selectedFile=0;state.sheet='task';}
+    else if(a==='detail-tab')state.detailTab=el.dataset.value;
+    else if(a==='file')state.selectedFile=Number(el.dataset.index);
+    else if(a==='settings')state.sheet='settings';
+    else if(a==='settings-section')state.settingsSection=el.dataset.value;
+    else if(a==='setup-login'||a==='setup-register'){if(state.viewer==='B'){state.onlineB=true;syncB();}state.notice='演示：Station 账号已登录，本机已接入。输入框未连接服务器；不保存密码。';}
+    else if(a==='setup-github'){state.setup['github'+state.viewer]=true;state.notice='演示：已核对本机 GitHub 登录。真实产品由本机完成授权，不把凭证传给远端。';}
+    else if(a==='setup-bind'){
+      if(!state.setup['github'+state.viewer])state.notice='文件协作先完成本机 GitHub 登录。';
+      else if(!state.setup['grant'+state.viewer])state.notice='请先确认本机目录授权，再保存绑定；不会自动替你授权。';
+      else if(!/^https:\/\/github\.com\/[^/]+\/[^/\s]+/.test(state.setup.repo)||!state.setup['path'+state.viewer].trim())state.notice='请填写 GitHub 仓库与本机目录。';
+      else state.notice='演示：仓库身份和本机目录已绑定。真实实现仍须核对仓库权限、物理路径与独立工作区。';
+    }
+    else if(a==='setup-advanced')state.notice='高级功能保留：恢复／撤销仍需确认，故障显示具体原因；本原型不执行撤权、登出或修改服务地址。';
+    else if(a==='mention-open'){
+      const separator=state.composer&&!/\s$/.test(state.composer)?' ':'';state.composer+=separator+'@';state.mentionStart=state.composer.length-1;state.mentionEnd=state.composer.length;state.mentionQuery='';state.mentionIndex=0;state.mentionOpen=true;
+    }
+    else if(a==='mention-select'){selectMention(el.dataset.key);persist();return;}
+    else if(a==='native')state.sheet='native';
+    else if(a==='target-native'){
+      state.composer='@codex-test 沿用这个对话的上下文，检查并说明当前登录改造还缺少哪些验证。';state.side='chat';state.tab='meeting';state.sheet=null;
+      state.notice='下一条消息明确发送到电脑 B 的 codex-test 原对话；不会另交 Host 拆分。';
+    }
+    else if(a==='send'){
+      const text=state.composer.trim();if(!text){state.notice='先输入目标或消息。';render();return;}
+      const tokens=[...text.matchAll(/(?:^|\s)@([a-zA-Z0-9._-]+)/g)].map(m=>m[1]);
+      const target=mentionTargets().find(t=>t.token===tokens[0]);
+      if(tokens.length&&(!target||tokens.length>1)){state.notice='演示需要从 @ 候选明确选择一个参会对象；此条尚未执行，不能猜测目标或重复派发。';render();return;}
+      if(target?.key==='native-B'){
+        if(['queued','running'].includes(state.native.mode)){state.notice='当前接续尚未结束，请先查看或停止；不会再排入另一项独立任务。';render();return;}
+        state.native={mode:'queued',synced:state.onlineB?'queued':'idle',desktopBusy:true,text,stopRequested:false,reported:false};
+        msg(`你 · ${label(state.viewer)} → @codex-test`,text,'mine');
+        msg('codex-test · 电脑 B',state.onlineB?'接续要求已保存，等待 Codex 桌面当前轮次结束。':'消息已保存，等待电脑 B 恢复后接收。','native');
+        state.notice='点名接续不会自动建立正式业务任务。点击“推进演示进度”模拟桌面完成与 Station 接续。';
+      }else if(target?.key.startsWith('exec-')){
+        const id=target.key.slice(-1);const task=state.tasks.find(t=>t.device===id&&visibleLevel(t)>=0&&visibleLevel(t)<3&&!visibleStopped(t));
+        msg(`你 · ${label(state.viewer)}`,text,'mine');
+        msg(target.name,task?`补充已关联“${task.title}”，仍在同一任务中处理，不额外创建或重派。`:'我目前没有获准分配的任务。需要新工作时请由 Host 提出计划，再按批准规则分配。');
+        state.notice='群聊内按 @ 对象处理；所有参会设备仍看到同一条消息。';
+      }else{
+        msg(`你 · ${label(state.viewer)}`,text,'mine');
+        if(!state.tasks.length&&/接口|交付|实现|完善|开发/.test(text)){state.goal=text;makePlan();}
+        else if(!state.tasks.length){msg('Host · Codex','收到这条群聊消息。需要执行工作时，请说明目标和预期交付，我会先提出计划。');state.notice='文字消息留在同一会议，不自动变成任务。';}
+        else {msg('Host · Codex','收到。当前仍沿用这份会议计划与任务记录；进度和成果可在任务界面查看，不重复派发同一目标。');state.notice='同一会议、同一 Host，原任务保留。';}
+      }
+      state.composer='';state.mentionOpen=false;
+    }
+    else if(a==='approve-plan'){
+      if(state.mode==='manual'&&state.tasks.some(t=>!t.manualConfirmed)){state.notice='请逐项选择执行设备。手动分配不会自动采用 Host 的建议。';render();return;}
+      state.approved=true;state.sheet=null;
+      msg('Host · Codex',`计划已批准：${state.tasks.map(t=>t.title+' → 电脑 '+t.device+' / Codex').join('；')}。`);
+      if(state.mode==='auto')dispatch();else state.notice='计划已批准，尚未派发。点击“按计划分配任务”开始。';
+    }
+    else if(a==='reject-plan'){state.approved=false;state.sheet=null;state.notice='计划未批准，尚未执行；可继续向 Host 说明需要修改的地方。';}
+    else if(a==='dispatch')dispatch();
+    else if(a==='advance')advance();
+    else if(a==='request-stop')state.sheet='stop';
+    else if(a==='cancel-stop')state.sheet='task';
+    else if(a==='confirm-stop'){
+      const t=currentTask();t.stopRequested=true;t.stopSource=state.viewer;state.sheet='task';state.notice='停止请求已保存。演示下一阶段核对实际退出，确认前不释放名额。';
+    }
+    else if(a==='continue-task')resume(currentTask());
+    else if(a==='detail-delivery')state.detailTab='delivery';
+    else if(a==='pr')state.sheet='pr';
+    else if(a==='back-delivery'){state.sheet='task';state.detailTab='delivery';}
+    else if(a==='fetch-preview'){state.notice='演示：按准确提交取回独立成果副本，不覆盖当前项目。下方仅预览示例内容。';}
+    else if(a==='final')state.sheet='final';
+    else if(a==='open-result'){state.selectedTask=el.dataset.id;state.selectedFile=0;state.detailTab='delivery';state.sheet='task';}
+    else if(a==='accept-final'){state.accepted=true;state.notice='演示：会议成果已验收。PR 仍由你到 GitHub 审查和决定合并。';}
+    else if(a==='reconnect'){if(state.viewer==='B'){state.onlineB=true;syncB();}state.notice='演示：本机连接已就绪，原设备身份和任务记录保留。';}
+    else if(a==='stop-native'){state.native.stopRequested=true;state.native.stopSource=state.viewer;state.notice='只停止这项 Station 接续；等待项不会停止桌面当前轮次。推进演示后核对退出。';}
+    else if(a==='continue-native'){state.native.stopRequested=false;state.native.mode='queued';if(state.onlineB)state.native.synced='queued';state.native.reported=false;state.notice='已明确继续同一原生对话的接续，不新建替代对话。';}
+    render();persist();
+    if(a==='mention-open'){const input=root.querySelector('[data-field="composer"]');input?.focus();input?.setSelectionRange(state.composer.length,state.composer.length);}
+  });
+  root.addEventListener('input',event=>{
+    const field=event.target.dataset.field;
+    if(field==='composer'){
+      state.composer=event.target.value;const end=event.target.selectionStart;const match=state.composer.slice(0,end).match(/(?:^|\s)@([a-zA-Z0-9._-]*)$/);
+      state.mentionOpen=!!match;state.mentionQuery=match?.[1]??'';state.mentionEnd=end;state.mentionStart=end-state.mentionQuery.length-1;state.mentionIndex=0;updateMentionMenu();
+    }
+    if(field==='setup-account')state.setup.account=event.target.value;
+    if(field==='setup-device')state.setup['device'+state.viewer]=event.target.value;
+    if(field==='setup-repo'||field==='setup-path'){
+      state.setup[field==='setup-repo'?'repo':'path'+state.viewer]=event.target.value;
+      state.setup['grant'+state.viewer]=false;const checkbox=root.querySelector('[data-field="setup-grant"]');if(checkbox)checkbox.checked=false;
+    }
+    if(field==='plan-goal'){state.goal=event.target.value;state.approved=false;}
+  });
+  root.addEventListener('change',event=>{
+    const e=event.target;const field=e.dataset.field;
+    if(field==='viewer')state.viewer=e.value;
+    else if(field==='onlineB'){state.onlineB=e.value==='on';syncB();state.notice=state.onlineB?'电脑 B 已恢复，补传原任务状态；没有重新派发。':'演示电脑 B 断线：已接任务继续并保留结果，未接任务等待。';}
+    else if(field==='draft-member'){state.draftMembers=e.checked?[...new Set([...state.draftMembers,e.dataset.id])]:state.draftMembers.filter(x=>x!==e.dataset.id);}
+    else if(field==='draft-native')state.draftNative=e.checked;
+    else if(field==='setup-grant')state.setup['grant'+state.viewer]=e.checked;
+    else if(field==='mode'){
+      state.mode=e.value;state.approved=state.autoApprove;
+      if(state.mode==='auto')state.tasks.forEach(t=>{t.device=t.suggestedDevice;});
+      else state.tasks.forEach(t=>{t.manualConfirmed=false;});
+      if(state.mode==='auto'&&state.autoApprove&&!state.dispatched){state.sheet=null;dispatch();}
+    }
+    else if(field==='autoApprove'){
+      state.autoApprove=e.checked;
+      if(e.checked){
+        state.approved=true;
+        if(state.mode==='auto'){state.sheet=null;dispatch();}
+        else state.notice='计划已按设置自动批准，执行设备仍须由你逐项指定，不自动替你选择。';
+      }else state.notice='后续计划改为手动批准；已经获准的安排不会自动撤销。';
+    }
+    else if(field==='plan-device'){
+      const t=state.tasks.find(t=>t.id===e.dataset.id);if(t&&!state.dispatched){if(e.value)t.device=e.value;t.manualConfirmed=!!e.value;state.approved=state.autoApprove;state.notice='执行设备安排已明确修改，须按计划批准规则确认后派发。';}
+    }
+    else if(field==='receive'){state['receiving'+state.viewer]=e.checked;state.notice=e.checked?'已允许接收新工作；仍须在会议中被选入。':'已关闭本机新工作接收；已有任务继续，主持与查看不受影响。';}
+    else return;
+    render();persist();
+  });
+  root.addEventListener('keydown',event=>{
+    if(event.target.dataset.field!=='composer'||event.isComposing)return;
+    const items=mentionTargets().filter(t=>(t.token+' '+t.name+' '+t.detail).toLowerCase().includes(state.mentionQuery.toLowerCase()));
+    if(state.mentionOpen&&['ArrowDown','ArrowUp'].includes(event.key)&&items.length){event.preventDefault();state.mentionIndex=(state.mentionIndex+(event.key==='ArrowDown'?1:items.length-1))%items.length;updateMentionMenu();return;}
+    if(state.mentionOpen&&['Enter','Tab'].includes(event.key)&&items.length){event.preventDefault();selectMention(items[state.mentionIndex]?.key??items[0].key);return;}
+    if(event.key==='Escape'){state.mentionOpen=false;updateMentionMenu();return;}
+    if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();root.querySelector('[data-action="send"]')?.click();}
+  });
+  window.addEventListener('openai:set_globals',event=>{
+    const p=event.detail?.globals?.widgetState?.privateContent;if(p?.version!==1)return;
+    if(['A','B'].includes(p.viewer))state.viewer=p.viewer;
+    if(['meeting','tasks'].includes(p.tab))state.tab=p.tab;
+    render();
+  });
+  render();
+})();
+</script>

@@ -22,6 +22,12 @@ const isOpenCodeEditorView = viewParam === 'opencode-editor';
 const isCompanionView = viewParam === 'companion';
 const isAhaBarView = viewParam === 'ahabar';
 
+// macOS main windows use a hidden-inset title bar: layouts that reach the
+// top-left corner must leave room for the traffic lights.
+if (/Macintosh|Mac OS X/.test(navigator.userAgent)) {
+  document.documentElement.classList.add('platform-mac');
+}
+
 if (isCompanionView) {
   document.documentElement.classList.add('companion-view');
   document.title = '陪伴屏';

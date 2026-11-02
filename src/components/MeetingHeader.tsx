@@ -2,8 +2,6 @@ import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from '
 import { ElapsedTime } from './ElapsedTime';
 import type { AutoApproveScope } from '../types';
 
-export type MeetingView = 'meeting' | 'tasks';
-
 interface MeetingHeaderProps {
   cwd: string | null;
   /** 会议开始时间戳（ms）；计时 tick 由 ElapsedTime 自行驱动。 */
@@ -12,10 +10,6 @@ interface MeetingHeaderProps {
   onChangeAutoApproveScope: (scope: AutoApproveScope) => void;
   multiAgent: boolean;
   onToggleMultiAgent: () => void;
-  view: MeetingView;
-  onChangeView: (view: MeetingView) => void;
-  /** Tasks parked on the user across all projects. Drives the switcher badge. */
-  attentionCount: number;
   // Settings entry (gear + popover). Chat-drawer toggle and Leave button live
   // on the BottomToolbar — keeping them only there avoids duplicate controls.
   settingsSlot?: ReactNode;
@@ -34,9 +28,6 @@ export const MeetingHeader = memo(function MeetingHeader({
   onChangeAutoApproveScope,
   multiAgent,
   onToggleMultiAgent,
-  view,
-  onChangeView,
-  attentionCount,
   settingsSlot,
 }: MeetingHeaderProps) {
   // Folder name + status dot live on the TabStrip above; the header only
@@ -91,50 +82,13 @@ export const MeetingHeader = memo(function MeetingHeader({
         <div className="mtg-title-path" title={cwd ?? ''}>{cwd ?? 'No folder'}</div>
       </div>
       <div className="mtg-header-mid">
-        <div className="mtg-view-switch" role="tablist" aria-label="视图切换">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === 'meeting'}
-            className={view === 'meeting' ? 'is-active' : ''}
-            onClick={() => onChangeView('meeting')}
-          >
-            会议
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === 'tasks'}
-            className={view === 'tasks' ? 'is-active' : ''}
-            onClick={() => onChangeView('tasks')}
-          >
-            任务
-            {attentionCount > 0 && (
-              <span className="mtg-view-switch-badge" aria-label={`${attentionCount} 项待处理`}>
-                {attentionCount}
-              </span>
-            )}
-          </button>
-        </div>
         <div className="mtg-header-center">
           <span className="mtg-timer-dot" />
           <ElapsedTime startedAt={startedAt} className="mtg-timer" />
         </div>
       </div>
       <div className="mtg-header-right">
-        <button
-          type="button"
-          className={`mtg-approve-toggle mtg-multi-toggle ${multiAgent ? 'mtg-multi-toggle-on' : ''}`}
-          role="switch"
-          aria-checked={multiAgent}
-          onClick={onToggleMultiAgent}
-          title={multiAgentTitle}
-        >
-          <span className="mtg-approve-toggle-track" aria-hidden="true">
-            <span className="mtg-approve-toggle-knob" />
-          </span>
-          <span className="mtg-approve-toggle-label">多 Agent 并行</span>
-        </button>
+
         <div className="mtg-scope-wrap" ref={pickerRef}>
           <button
             type="button"

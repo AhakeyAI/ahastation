@@ -118,7 +118,7 @@ export function ActivityTabContent({
           hideHero
           task={
             selectedWorker.role === 'talker'
-              ? (selectedWorker.lastText || 'Ready')
+              ? (selectedWorker.lastText || '待命')
               : selectedWorker.title
           }
           taskStatus={

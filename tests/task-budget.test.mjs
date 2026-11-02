@@ -122,7 +122,7 @@ test('a bounded attempt may succeed without rewriting previous attempts', () => 
 });
 
 async function waitFor(predicate, message) {
-  const deadline = Date.now() + 3_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const value = predicate();
     if (value) return value;

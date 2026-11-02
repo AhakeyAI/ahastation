@@ -1,0 +1,46 @@
+name: Remote native checks (manual, no publishing)
+on: workflow_dispatch
+defaults:
+  run:
+    working-directory: services/remote
+permissions:
+  contents: read
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: disposable-ci-root-only
+          MYSQL_DATABASE: station_hub_test
+          MYSQL_USER: station_hub_test
+          MYSQL_PASSWORD: disposable-ci-app-only
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -h localhost" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: python -m pip install -r requirements-public.txt
+      - run: python -m unittest discover -s tests -p test_mysql_native.py -v
+        env:
+          HUB_TEST_MYSQL_URL: mysql+pymysql://station_hub_test:disposable-ci-app-only@127.0.0.1:3306/station_hub_test?charset=utf8mb4
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: python -m pip install -r requirements-bridge.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/build_bridge.py --output runtime/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridge-review-${{ matrix.os }}
+          path: services/remote/runtime/packages/*.zip
+    # Native ARM64/RK3588 needs its own Linux ARM64 desktop runner; this matrix is not ARM64 acceptance.

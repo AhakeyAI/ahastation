@@ -53,14 +53,14 @@ test('arm64 CI is built inside Debian 11 and signed releases depend on it', asyn
 test('board gate checks packaged runtimes; Kimi and strict versions are opt-in', async () => {
   const gate = await readFile(new URL('scripts/board/verify-rk3588.sh', root), 'utf8');
   const versions = await readFile(new URL('scripts/board/runtime-versions.env', root), 'utf8');
-  assert.match(gate, /\/opt\/AhaStation\/resources/);
+  assert.match(gate, /\/opt\/AhaStudio\/resources/);
   assert.match(gate, /claude-agent-sdk-linux-arm64/);
   assert.match(gate, /codex-linux-arm64/);
   assert.match(gate, /opencode-linux-arm64/);
   assert.match(gate, /AHASTATION_GATE_STRICT/);
   assert.match(gate, /AHASTATION_GATE_REQUIRE_KIMI/);
   assert.match(versions, /CLAUDE_VERSION=2\.1\.150/);
-  assert.match(versions, /CODEX_VERSION=0\.144\.1/);
+  assert.match(versions, /CODEX_VERSION=0\.156\.1/);
   assert.match(versions, /OPENCODE_VERSION=1\.18\.3/);
   assert.match(versions, /KIMI_VERSION=0\.24\.1/);
 });

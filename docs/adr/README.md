@@ -8,9 +8,10 @@
 - 已占用的编号：
   - main：0001；
   - `etrnal-dev`：0002–0012，原号保留；
-  - C0：0013–0016，原为 0001–0004，2026-10-26 重新编号，只改了文件名和标题号，正文不变。
-- 0017–0018 已由 `review/etrnal-dev-2026-10` 分支占用（R2 裁决）。
-- **下一个可用编号是 0019。** 先合入的分支先用；后合入的分支如果撞号，要在合入前改成下一个空号，并在本表登记。
+  - C0：0013–0016，原为 0001–0004，2026-10-26 重新编号，只改了文件名和标题号，正文不变；
+  - 评审裁决：0017–0018，2026-10-27，来自 R2 冲突表；
+  - 0019，2026-10-28，原生 CLI Worker（用户逐项确认）。
+- **下一个可用编号是 0020。** 先合入的分支先用；后合入的分支如果撞号，要在合入前改成下一个空号，并在本表登记。
 - 跨分支合并时，编号冲突由本索引登记，不允许静默覆盖同名文件。
 
 ## 索引
@@ -18,23 +19,28 @@
 | # | 标题 | 来源 | 状态 | 日期 |
 | --- | --- | --- | --- | --- |
 | [0001](0001-meeting-owned-visible-task-collaboration.md) | Meeting-Owned Visible Task Collaboration（会议拥有可见的任务协作） | main | 已接受 | 2026-07-24 |
-| 0002 | 共享会议同时承载多设备任务和已有 Codex 对话 | `etrnal-dev` | 该分支内已接受，**评审中** | 2026-10-21 |
-| 0003 | 共享会议保留唯一协调者和初始协调设备 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0004 | 以完整交付定义任务边界 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0005 | Codex 首版与可验证的多 Agent 扩展接口 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0006 | 通过 GitHub 传递跨设备输入与成果文件 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0007 | 通过已验证的会议分支放行代码依赖任务 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0008 | 停止释放执行资源并保留可继续的任务 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0009 | 共享会议运行独立于查看窗口 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0010 | 原生对话同时只关联一个共享会议 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0011 | 首版已接任务只在原执行设备恢复 | `etrnal-dev` | 同上 | 2026-10-21 |
-| 0012 | 原生工具审批跨端展示并只接受一次有效答复 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0002](0002-shared-meeting-with-existing-codex-sessions.md) | 共享会议同时承载多设备任务和已有 Codex 对话 | `etrnal-dev` | 该分支内已接受，**评审中** | 2026-10-21 |
+| [0003](0003-single-coordinator-for-shared-meeting.md) | 共享会议保留唯一协调者和初始协调设备 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0004](0004-task-boundary-is-complete-delivery.md) | 以完整交付定义任务边界 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0005](0005-codex-first-through-extensible-agent-interface.md) | Codex 首版与可验证的多 Agent 扩展接口 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0006](0006-github-for-cross-device-file-transfer.md) | 通过 GitHub 传递跨设备输入与成果文件 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0007](0007-verified-meeting-integration-before-final-merge.md) | 通过已验证的会议分支放行代码依赖任务 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0008](0008-stop-releases-execution-capacity-without-abandoning-task.md) | 停止释放执行资源并保留可继续的任务 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0009](0009-shared-meeting-lifetime-independent-of-view.md) | 共享会议运行独立于查看窗口 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0010](0010-one-meeting-per-native-conversation.md) | 原生对话同时只关联一个共享会议 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0011](0011-recover-received-tasks-on-original-device-first.md) | 首版已接任务只在原执行设备恢复 | `etrnal-dev` | 同上 | 2026-10-21 |
+| [0012](0012-shared-tool-approval-with-single-effective-response.md) | 原生工具审批跨端展示并只接受一次有效答复 | `etrnal-dev` | 同上 | 2026-10-21 |
 | [0013](0013-stable-project-identity.md) | 项目使用稳定 ID，路径只是设备挂载 | C0（原 0001） | 已接受（D8） | 2026-10-23 |
-| [0014](0014-libsodium-for-device-crypto.md) | 设备间加密使用 libsodium，不自创协议 | C0（原 0002） | 已接受 | 2026-10-23（安全评审 2026-10-25） |
+| [0014](0014-libsodium-for-device-crypto.md) | 设备间加密使用 libsodium，不自创协议 | C0（原 0002） | 已接受；内容加密推迟到公开发布前，见 0017 | 2026-10-23（安全评审 2026-10-25） |
 | [0015](0015-keep-meeting-repository-wrap-envelope.md) | 保留 MeetingRepository，外套事件信封 v2 | C0（原 0003） | 已接受 | 2026-10-23（契约评审 2026-10-25） |
-| [0016](0016-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | C0（原 0004） | 已接受（D14） | 2026-10-23 |
+| [0016](0016-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | C0（原 0004） | 已接受（D14）；执行部分已被 0019 替代 | 2026-10-23 |
+| [0017](0017-trusted-hub-with-signed-device-messages.md) | 内部验收阶段的跨设备：受信 Hub + 设备签名（公开前补内容加密） | 评审 R2（C01） | 已接受 | 2026-10-27 |
+| [0018](0018-cross-device-executor-uses-ts-adapters.md) | 跨设备执行端复用 TS adapter | 评审 R2（C03–C05） | 已接受；第 1、2 条已被 0019 替代 | 2026-10-27 |
+| [0019](0019-native-cli-workers-with-host-hooks.md) | Worker 跑原生 CLI，审批经全局 hooks 转给宿主 | 用户决定（10-28） | 已接受 | 2026-10-28 |
 
-0002–0012 的文件目前只在 `etrnal-dev` 分支上（提交 `5f76c3a`），所以表里没有链接，合入后再补。这些 ADR 在该分支内标为 accepted，但按决定 G1，跨设备方案以评审结论为准。
+0002–0012 的文件已随本地整合保留，0013–0016 从 C0 `04c5f762` 原文引入，只同步治理文档，未据此合入其实现。这些 ADR 在该分支内标为 accepted，但按决定 G1，跨设备方案以评审结论为准。
+
+交叉点的逐项原文、代码影响与建议见 [本次冲突表](../collaboration/INTEGRATION_CONFLICTS_2026-10-26.md)。本次未新增 ADR；下一个编号仍为 0017。
 
 ## 待裁决的交叉点
 

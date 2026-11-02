@@ -61,6 +61,7 @@ import {
   type TaskWorkspaceManager,
 } from './task-workspace.js';
 import { snapshotDeliveryFiles } from './delivery-snapshot.js';
+import { ApprovedCommandGuard } from './approved-command-guard.js';
 import {
   compileContextPackage,
   freezeContextPackage,
@@ -4172,7 +4173,7 @@ export class WorkerScheduler {
                 blockers: dirty
                   ? [
                       '隔离 worktree 不会包含当前未提交改动。',
-                      'AhaStation 不会自动 commit、stash 或复制这些改动。',
+                      'AhaStudio 不会自动 commit、stash 或复制这些改动。',
                       '共享锁定模式属于非受管兼容路径，不能自动集成或原子发布。',
                     ]
                   : [
@@ -4377,6 +4378,15 @@ export class WorkerScheduler {
       const sessionFactory = this.opts.resolveSessionFactory?.(handle.backendId)
         ?? this.opts.sessionFactory;
       const sessionAttempt = handle.attempt;
+      const approvedCommandGuard = handle.backendId === 'codex' && handle.authorityGrant
+        ? new ApprovedCommandGuard({
+            workspaceRoot: workerCwd,
+            writePaths: () => [
+              ...(handle.authorityGrant?.writePaths ?? []),
+              ...(handle.authorityAddendum?.writePaths ?? []),
+            ],
+          })
+        : undefined;
       handle.session = sessionFactory({
         cwd: workerCwd,
         autoApproveScope: handle.authorityGrant ? 'off' : this.autoApproveScope,
@@ -4395,6 +4405,7 @@ export class WorkerScheduler {
           // Terminal-mode adapters key their pty on the worker id so the
           // renderer stage terminal can attach; SDK adapters ignore it.
           workerId: handle.id,
+          ...(approvedCommandGuard ? { approvedCommandGuard } : {}),
           ...(handle.backendSession?.sessionId
             ? { resumeSessionId: handle.backendSession.sessionId }
             : {}),
@@ -4602,6 +4613,11 @@ export class WorkerScheduler {
     for (const [path, edit] of this.recentEdits) {
       if (edit.workerId === handle.id) this.recentEdits.delete(path);
     }
+  }
+
+  /** Re-send the current plan for a renderer that attached mid-meeting. */
+  republishPlan(): void {
+    if (this.workers.size > 0) this.emitPlanUpdate();
   }
 
   private emitPlanUpdate(): void {

@@ -30,6 +30,15 @@ const taskAuthorityRequestSchema = z.object({
 }).strict();
 
 const planMeetingTaskBaseShape = {
+  sharedTarget: z.object({
+    deviceId:z.string().min(1).max(80), agentId:z.string().min(1).max(80),
+    resource:z.enum(['text','directory','repository','native']),
+    projectId:z.string().min(1).max(80).optional(), baseCommit:z.string().regex(/^[a-f0-9]{40}$/).optional(),
+    nativeSessionId:z.string().min(1).max(80).optional(),
+    parentTaskId:z.string().min(1).max(80).optional(),
+    inputs:z.array(z.object({repository:z.string().max(500),commit:z.string().regex(/^[a-f0-9]{40}$/),paths:z.array(z.string().max(1024)).max(100)}).strict()).max(100).optional(),
+    permission:z.enum(['read-only','workspace-write','full-access']),
+  }).strict().optional().describe('Explicit device and Agent for a shared meeting. Never retarget an approved task.'),
   id: z.string().min(1).describe('Stable kebab-case identifier for the task.'),
   title: z.string().min(1).describe('Short label shown on the worker tile.'),
   prompt: z.string().min(1).describe(

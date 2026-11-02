@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { guardWindowsPtyStartup } from '../dist-electron/windows-pty-startup.js';
 
 import {
   PtyRingBuffer,
@@ -88,6 +89,23 @@ test('one id gets exactly one pty', () => {
   host.killAll();
 });
 
+test('strict terminal close preserves ownership and subscriptions after kill failure', () => {
+  const { host, spawned } = createHost();
+  host.spawn('strict-close', SPAWN_OPTS);
+  const pty = spawned[0].pty;
+  const seen = [];
+  host.onData('strict-close', data => seen.push(data));
+  pty.kill = () => { throw new Error('access denied'); };
+  assert.throws(() => host.kill('strict-close', { strict: true }), /access denied/);
+  assert.equal(host.has('strict-close'), true);
+  pty.emitData('still owned');
+  assert.deepEqual(seen, ['still owned']);
+  pty.kill = () => { pty.killed = true; };
+  host.kill('strict-close', { strict: true });
+  assert.equal(pty.killed, true);
+  assert.equal(host.has('strict-close'), false);
+});
+
 test('output is buffered for replay and mirrored to subscribers', () => {
   const { host, spawned } = createHost();
   host.spawn('w1', SPAWN_OPTS);
@@ -160,5 +178,65 @@ test('spawn passes an xterm-256color terminal with string-only env', () => {
   assert.equal(options.cols, 100);
   assert.equal(options.rows, 30);
   assert.deepEqual(options.env, { GOOD: 'yes' });
+  host.killAll();
+});
+
+test('async ConPTY identity waits past the initial pid=0 placeholder', async () => {
+  const pty = createFakePty();
+  pty.pid = 0;
+  const host = new PtyHost({ spawn: () => pty });
+  assert.equal(host.spawn('connecting', SPAWN_OPTS), 0);
+  const identity = host.readyPid('connecting');
+  setTimeout(() => { pty.pid = 4242; }, 20);
+  assert.equal(await identity, 4242);
+  host.killAll();
+});
+
+test('async identity rejects when the PTY exits during startup', async () => {
+  const pty = createFakePty();
+  pty.pid = 0;
+  const host = new PtyHost({ spawn: () => pty });
+  host.spawn('early-exit', SPAWN_OPTS);
+  const identity = host.readyPid('early-exit');
+  pty.emitExit(7);
+  await assert.rejects(identity, /exited before startup/);
+});
+
+test('silent Windows confirmed tree release bypasses the first-output queue', () => {
+  const pty = createFakePty();
+  let releases = 0;
+  pty._agent = { _completePtyConnection() {}, kill() { releases++; } };
+  const guarded = guardWindowsPtyStartup(pty);
+  guarded.releaseAfterTreeExit();
+  assert.equal(releases, 1);
+  assert.equal(pty.killed, false, 'public kill would only queue until first output');
+  guarded.kill();
+  assert.equal(pty.killed, true);
+});
+
+test('confirmed Windows tree release does not fork a redundant console-list helper', async () => {
+  const pty = createFakePty();
+  let helperCalls = 0;
+  let list;
+  const originalList = async () => { helperCalls++; return [pty.pid]; };
+  pty._agent = { _completePtyConnection() {}, _getConsoleProcessList: originalList,
+    kill() { list = this._getConsoleProcessList(); } };
+  guardWindowsPtyStartup(pty).releaseAfterTreeExit();
+  assert.deepEqual(await list, []);
+  assert.equal(helperCalls, 0);
+  assert.equal(pty._agent._getConsoleProcessList, originalList);
+});
+
+test('tree stop revokes raw keyboard writes and resize even if cleanup fails', async () => {
+  const { host, spawned } = createHost();
+  host.spawn('stopping', SPAWN_OPTS);
+  host.readyPid = async () => { throw new Error('startup ownership unavailable'); };
+  const stop = host.terminateTree('stopping');
+  assert.equal(host.write('stopping', 'approve pending tool\r'), false);
+  assert.equal(host.resize('stopping', 24, 80), false);
+  await assert.rejects(stop, /ownership unavailable/);
+  assert.equal(host.has('stopping'), true, 'failed cleanup retains its process owner');
+  assert.equal(host.write('stopping', 'late keyboard input\r'), false);
+  assert.deepEqual(spawned[0].pty.writes, []);
   host.killAll();
 });

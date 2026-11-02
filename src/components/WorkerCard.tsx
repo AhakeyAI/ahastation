@@ -18,6 +18,8 @@ interface WorkerCardProps {
   iconId?: string;
   /** Custom avatar image URL (overrides iconId). */
   customAvatar?: string | null;
+  /** Gallery badge: 助理 for the coordinator, 职能＋名字 for experts (AME-D14). */
+  roleLabel?: string;
 }
 
 const statusTone: Record<WorkerState['status'], 'idle' | 'waiting' | 'working' | 'done' | 'failed'> = {
@@ -66,6 +68,7 @@ export const WorkerCard = memo(function WorkerCard({
   onOpenTerminal,
   iconId,
   customAvatar,
+  roleLabel,
 }: WorkerCardProps) {
   const isTalker = worker.role === 'talker';
   const tone = statusTone[worker.status];
@@ -99,7 +102,7 @@ export const WorkerCard = memo(function WorkerCard({
 
   if (mode === 'gallery') {
     const label = statusLabel(worker, Boolean(speaking));
-    const roleName = isTalker ? 'Talker' : 'Worker';
+    const roleName = roleLabel ?? (isTalker ? 'Talker' : 'Worker');
 
     return (
       <div className={className} role="group" aria-label={`${worker.title}，${label}`}>
@@ -145,6 +148,9 @@ export const WorkerCard = memo(function WorkerCard({
           <div className="worker-card-perm">
             <div className="worker-card-perm-text">
               是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
+              {worker.backendId === 'codex' && worker.pendingPermission.toolName === 'Bash' && (
+                <small>该命令以完整权限运行；宿主会检测授权范围外的文件变化。</small>
+              )}
             </div>
             {worker.permissionError && (
               <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>
@@ -202,6 +208,9 @@ export const WorkerCard = memo(function WorkerCard({
         <div className="worker-card-perm">
           <div className="worker-card-perm-text">
             是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
+            {worker.backendId === 'codex' && worker.pendingPermission.toolName === 'Bash' && (
+              <small>该命令以完整权限运行；宿主会检测授权范围外的文件变化。</small>
+            )}
           </div>
           {worker.permissionError && (
             <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>

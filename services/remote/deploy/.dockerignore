@@ -1,0 +1,11 @@
+**/.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/*.env
+**/.env*
+runtime
+tests
+configs
+*.zip

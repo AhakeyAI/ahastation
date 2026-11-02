@@ -37,6 +37,12 @@ const api = {
       return () => ipcRenderer.removeListener('ide-editor:event', listener);
     },
   },
+  // Scene hand-off between window and handheld overlay: which file was open
+  // and where it was scrolled. Overlay bind/close stay main-window only.
+  ideOverlay: {
+    reportScene: (scene) => ipcRenderer.invoke('ide-editor:report-scene', { scene }),
+    getScene: (hostId) => ipcRenderer.invoke('ide-editor:get-scene', { hostId }),
+  },
 };
 
 contextBridge.exposeInMainWorld('vibeMeet', api);
