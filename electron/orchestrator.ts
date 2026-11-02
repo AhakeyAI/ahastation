@@ -1776,7 +1776,10 @@ export class Orchestrator implements OrchestratorBridge {
     await Promise.all(tasks);
   }
 
-  end(): Promise<void> {
+  /** `appQuit`: the app is shutting down rather than the user ending this
+   *  meeting; only then does the next meeting in the folder pick up the
+   *  kickoff state (experts, unfinished sub-agents, notes). */
+  end(opts?: { appQuit?: boolean }): Promise<void> {
     if (this.endPromise) return this.endPromise;
 
     // Merge transcripts from all host groups for recap.
@@ -1843,9 +1846,11 @@ export class Orchestrator implements OrchestratorBridge {
         coordinatorHostId: this.coordinatorHostId,
         hosts: this.listHosts(),
         workers: this.meetingScheduler.describeWorkers(),
-        // The next meeting in this folder picks these up (sessions:open), so
-        // quitting the app keeps the expert, its unfinished sub-agents and
-        // the workspace notes. Finished sub-agents don't come back.
+        // After an app quit the next meeting in this folder picks these up
+        // (sessions:open): the expert, its unfinished sub-agents and the
+        // workspace notes. Finished sub-agents don't come back. A meeting the
+        // user ended starts the next one fresh.
+        endedBy: opts?.appQuit ? 'app-quit' : 'user',
         ownedTasks: this.ownedTasksSnapshot(new Set(['done', 'accepted']), true),
         meetingNotes: structuredClone(this.meetingNotes),
       }).then(() => this.repository.flush()),

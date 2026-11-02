@@ -938,7 +938,7 @@ function shutdownAllSlots(): Promise<void> {
   const endPromises: Promise<void>[] = [];
   for (const slot of registry.values()) {
     try {
-      endPromises.push(slot.orchestrator.end());
+      endPromises.push(slot.orchestrator.end({ appQuit: true }));
     } catch {
       /* ignore — best-effort teardown */
     }

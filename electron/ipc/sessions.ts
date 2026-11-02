@@ -266,9 +266,10 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         }));
       }
 
-      // A fresh meeting in a project room continues the last one's kickoff:
-      // the experts come back, their unfinished sub-agents show as stopped
-      // (重新开始), and the workspace notes are kept. Crash recovery already
+      // After an app quit, a fresh meeting in a project room continues the
+      // last one's kickoff: the experts come back, their unfinished
+      // sub-agents show as stopped (重新开始), and the workspace notes are
+      // kept. A meeting the user ended starts fresh. Crash recovery already
       // carries all of this in `recovery`.
       const carry = recovery ? null : await MeetingRepository.latestEndedKickoff(resolvedCwd);
       const carriedHosts = carry

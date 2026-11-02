@@ -539,9 +539,9 @@ export class MeetingRepository {
 
   /**
    * The kickoff state (invited experts, their unfinished sub-agents, workspace
-   * notes) of the most recently ended meeting in `cwd`, or null. A meeting
-   * ends when the app quits, so the next meeting in the same project room
-   * starts from it instead of from an empty room.
+   * notes) of the most recently ended meeting in `cwd`, or null. Only a
+   * meeting ended by quitting the app carries over, so the next meeting in
+   * the same project room continues it; one the user ended starts fresh.
    */
   static async latestEndedKickoff(cwd: string): Promise<{
     meetingId: string;
@@ -571,6 +571,7 @@ export class MeetingRepository {
     }
     if (!best) return null;
     const { state } = best;
+    if (state.endedBy !== 'app-quit') return null;
     const hosts = Array.isArray(state.hosts) ? state.hosts : [];
     const ownedTasks = Array.isArray(state.ownedTasks) ? state.ownedTasks : [];
     const hasExpert = hosts.some((host) => Boolean(host && typeof host === 'object' && (host as { profile?: unknown }).profile));

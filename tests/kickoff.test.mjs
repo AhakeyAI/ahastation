@@ -78,7 +78,7 @@ test('a stopped expert sub-agent restarts as a new attempt owned by the same exp
   }
 });
 
-test('quitting keeps the kickoff: the next meeting in the folder gets the sub-agent and notes back', async () => {
+test('quitting the app keeps the kickoff for the next meeting in the folder; ending it by hand does not', async () => {
   const { app } = await import('electron');
   const { mkdtemp, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
@@ -99,13 +99,20 @@ test('quitting keeps the kickoff: the next meeting in the folder gets the sub-ag
     // A restarted attempt supersedes the original: only the latest comes back.
     assert.deepEqual(await orchestrator.restartOwnedTask(task.id), { ok: true, taskId: 'kickoff-brainstorm-xyz-r2' });
     orchestrator.updateMeetingNotes({ conclusions: [{ text: '先做 Mac 版' }], decisions: [], workItems: [], todos: [] });
-    await orchestrator.end();
+    await orchestrator.end({ appQuit: true });
 
     const carry = await MeetingRepository.latestEndedKickoff(cwd);
     assert.equal(carry?.meetingId, 'carry-meeting');
     assert.deepEqual(carry.ownedTasks.map((t) => [t.taskId, t.ownerHostId]), [['kickoff-brainstorm-xyz-r2', 'expert-1']]);
     assert.equal(carry.meetingNotes.conclusions[0].text, '先做 Mac 版');
     assert.equal(await MeetingRepository.latestEndedKickoff(join(root, 'other-room')), null);
+
+    // The user ends the next meeting in the same folder: it starts fresh next time.
+    await new Promise((r) => setTimeout(r, 20));
+    const next = new Orchestrator({ emit: () => {}, cwd, meetingId: 'carry-meeting-2', sessionFactory: fake });
+    next.updateMeetingNotes({ conclusions: [{ text: '用户手动结束' }], decisions: [], workItems: [], todos: [] });
+    await next.end();
+    assert.equal(await MeetingRepository.latestEndedKickoff(cwd), null);
   } finally {
     app.getPath = oldPath;
     await rm(root, { recursive: true, force: true });
