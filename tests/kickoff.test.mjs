@@ -25,9 +25,9 @@ test('an expert may message only the sub-agent tasks it owns (AME-D14), nothing 
   assert.equal(legacy.ok, false);
 });
 
-test('sub-agents run on the expert SDK while native admission is closed', () => {
-  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code');
-  assert.equal(terminalWorkerBackendFor('codex'), 'codex');
+test('sub-agents route claude-code and codex to admitted native CLI terminal backends', () => {
+  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code-terminal');
+  assert.equal(terminalWorkerBackendFor('codex'), 'codex-terminal');
   assert.equal(terminalWorkerBackendFor('kimi'), 'kimi');
   assert.equal(terminalWorkerBackendFor('unknown-backend'), 'unknown-backend');
   const profile = { title: '产品专家', name: '小禾' };

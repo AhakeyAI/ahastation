@@ -208,6 +208,19 @@ export class DeliveryHarness {
     return record ? cloneView(record.view) : undefined;
   }
 
+  latestCandidateId(id: string): string | null {
+    const record = this.records.get(id);
+    if (!record) return null;
+    if (record.view.candidate?.id) return record.view.candidate.id;
+    for (let i = record.events.length - 1; i >= 0; i -= 1) {
+      const detail = record.events[i]?.detail as { candidateId?: unknown } | undefined;
+      if (typeof detail?.candidateId === 'string' && detail.candidateId) {
+        return detail.candidateId;
+      }
+    }
+    return null;
+  }
+
   async propose(input: DeliveryProposal): Promise<DeliveryView> {
     if (!input.objective.trim()) throw new Error('delivery objective is required');
     if (input.acceptanceCriteria.length === 0) throw new Error('at least one acceptance criterion is required');

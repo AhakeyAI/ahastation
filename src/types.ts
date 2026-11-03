@@ -1493,7 +1493,19 @@ export interface VibeMeetApi {
   workerPty: {
     trustStatus: (workerId: string) => Promise<{ ok: boolean; generation?: string; waiting?: boolean; error?: string }>;
     confirmTrust: (workerId: string, generation: string) => Promise<{ ok: boolean; error?: string }>;
-    ready: (sessionId: string, workerId: string) => Promise<{ ok: boolean }>;
+    ready: (sessionId: string | null, workerId: string) => Promise<{ ok: boolean; error?: string }>;
+    takeoverStatus: (workerId: string) => Promise<{ ok: boolean; takenOver?: boolean; error?: string }>;
+    takeover: (sessionId: string | null, workerId: string, reason?: string) => Promise<{ ok: boolean; error?: string }>;
+    handback: (sessionId: string | null, workerId: string, note?: string) => Promise<{
+      ok: boolean;
+      workspaceSummary?: {
+        workspaceCwd: string;
+        headRevision: string | null;
+        changedFiles: Array<{ path: string; action: 'created' | 'modified' | 'deleted' }>;
+        diffStat: string;
+      };
+      error?: string;
+    }>;
     attach: (workerId: string) => Promise<{ ok: boolean; error?: string; replay?: string }>;
     input: (workerId: string, data: string) => Promise<{ ok: boolean; error?: string; dropped?: boolean }>;
     resize: (workerId: string, rows: number, cols: number) => Promise<{ ok: boolean; error?: string }>;

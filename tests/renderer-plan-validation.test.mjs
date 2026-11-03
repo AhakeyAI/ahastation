@@ -14,10 +14,14 @@ const backend = {
   isDefault: true,
 };
 
-test('native terminal preferences cannot bypass admission; SDK remains the runnable default', () => {
-  const native = { ...backend, id: 'claude-code-terminal', isDefault: true, effectiveDefaultWorkerBackendId: 'claude-code-terminal' };
+test('admitted native CLI worker backends resolve when ready while manual-only terminals fall back to SDK', () => {
+  const nativeClaude = { ...backend, id: 'claude-code-terminal', isDefault: true, effectiveDefaultWorkerBackendId: 'claude-code-terminal' };
+  const nativeCodex = { ...backend, id: 'codex-terminal', isDefault: true, effectiveDefaultWorkerBackendId: 'codex-terminal' };
+  const manualOnly = { ...backend, id: 'kimi-code-terminal', isDefault: true, effectiveDefaultWorkerBackendId: 'kimi-code-terminal' };
   const sdk = { ...backend, id: 'claude-code', isDefault: false };
-  assert.equal(resolvePlanDefaultWorkerBackendId([native, sdk]), 'claude-code');
+  assert.equal(resolvePlanDefaultWorkerBackendId([nativeClaude, sdk]), 'claude-code-terminal');
+  assert.equal(resolvePlanDefaultWorkerBackendId([nativeCodex, sdk]), 'codex-terminal');
+  assert.equal(resolvePlanDefaultWorkerBackendId([manualOnly, sdk]), 'claude-code');
 });
 
 function task(overrides = {}) {

@@ -19,6 +19,7 @@ const GIT_OUTPUT_LIMIT = 32 * 1024 * 1024;
 /** Meeting runtime dirs. They must never enter a delivery candidate or block
  * freeze when a Worker/report omits them (assets are not task deliverables). */
 const EPHEMERAL_DIR_PREFIXES = [
+  '.aha/',
   '.vibe-assets/',
   '.vibe-attachments/',
   '.vibe-materials/',
@@ -26,6 +27,8 @@ const EPHEMERAL_DIR_PREFIXES = [
 ] as const;
 
 const EPHEMERAL_GITIGNORE_ENTRIES = new Set([
+  '.aha',
+  '.aha/',
   '.vibe-assets',
   '.vibe-assets/',
   '.vibe-attachments',
@@ -275,7 +278,7 @@ async function existingCandidate(
   };
 }
 
-async function changedWorkspacePaths(workspace: string): Promise<string[]> {
+export async function changedWorkspacePaths(workspace: string): Promise<string[]> {
   const tracked = await git(workspace, [
     'diff',
     '--name-only',

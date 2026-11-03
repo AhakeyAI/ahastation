@@ -1,5 +1,7 @@
 # AhaStation 多 CLI 任务执行规划
 
+> 2026-11-02：本文是 10-17/18 的分支交付记录和资产线索，不是当前检出的完成清单。当前基线缺少本文所述 `worker-cli-bridge.ts` / `worker-cli.ts`；后续先核对并恢复可复用实现。原生 Worker 的范围与次序以[当前接线规划](2026-11-02-native-cli-worker-integration.md)为准，不重做已存在的终端/调度器，也不逐项启动旧第二、第三交付。
+
 日期：2026-10-17。更新：2026-10-18。状态：第一交付代码与离线验证完成，真实 CLI 模型验收另行安排。
 工作目录：`<USER_HOME>/Desktop/ahastation-internal1`；基线：`main` / `c134de2`。
 

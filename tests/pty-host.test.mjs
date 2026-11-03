@@ -261,3 +261,11 @@ test('guarded PTY keeps its sealed owner after unconfirmed stop; never falls thr
   confirmed = true; await host.terminateTree('guarded');
   assert.equal(host.has('guarded'), false);
 });
+
+test('root exit without a tree-stop receipt cannot confirm descendant exit', async () => {
+  const { host, spawned } = createHost();
+  host.spawn('exited-without-tree-proof', SPAWN_OPTS);
+  spawned[0].pty.emitExit(0);
+  assert.equal(host.has('exited-without-tree-proof'), false);
+  await assert.rejects(host.terminateTree('exited-without-tree-proof'), /No live PTY owner/);
+});

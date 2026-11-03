@@ -471,12 +471,21 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                       .filter((opt) =>
                         backends.some((b) => b.id === opt.id)
                         || opt.id === (currentBackend.defaultWorkerBackendId ?? 'claude-code-terminal'))
-                      .map((opt) => (
-                        <option key={opt.id} value={opt.id} disabled={opt.id.endsWith('-terminal')}>{opt.label}{opt.id.endsWith('-terminal') ? '（待准入验证）' : ''}</option>
-                      ))}
+                      .map((opt) => {
+                        const admittedNative = opt.id === 'claude-code-terminal' || opt.id === 'codex-terminal';
+                        const unsupportedTerminal = opt.id.endsWith('-terminal') && !admittedNative;
+                        const backendInfo = backends.find((b) => b.id === opt.id);
+                        const unavailable = backendInfo ? !backendInfo.available : false;
+                        return (
+                          <option key={opt.id} value={opt.id} disabled={unsupportedTerminal || unavailable}>
+                            {opt.label}
+                            {unsupportedTerminal ? '（仅手动终端）' : unavailable ? '（未安装）' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                   <div className="join-auth-hint">
-                    {'当前使用 SDK Worker。Claude / Codex 原生终端路径须完成独立守卫与 B04 验证后开放。'}
+                    {'终端 TUI（Claude Code / Codex）沿用原生 CLI 自身的权限与沙箱配置并在终端内处理确认，通过 aha-worker 提交任务报告。'}
                   </div>
                 </div>
               )}

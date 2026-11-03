@@ -77,6 +77,10 @@ export const CLAUDE_TERMINAL_PROFILE: TerminalCliProfile = {
   },
   startupMessage: '终端 Claude 已启动，任务提示词将自动注入 TUI。',
   missingBinaryMessage: '未找到 claude CLI，可执行文件不在 PATH 上，也没有可用的内置回退。',
+  loginGate: {
+    pattern: /select\s+login\s+method|please\s+run\s+\/login|not\s+logged\s+in[\s\S]{0,80}\/login|sign\s+in\s+to\s+claude\s+code|choose\s+the\s+text\s+style\s+that\s+looks\s+best/i,
+    message: '检测到 Claude CLI 登录或首次引导界面，请先在终端完成引导后再点击「发送待发任务」。',
+  },
   applyAuth: (env, auth) => {
     if (auth.apiKey) env.ANTHROPIC_API_KEY = auth.apiKey;
     if (auth.baseUrl) env.ANTHROPIC_BASE_URL = auth.baseUrl;

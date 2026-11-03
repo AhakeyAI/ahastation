@@ -31,11 +31,12 @@ import {
   watch,
   type FSWatcher,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { requireNativeHookWorkerAdmission } from '../global-hooks/protocol.js';
+import { hasControlledHints } from '../global-hooks/protocol.js';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
+import { workerCliEnvironment } from '../worker-cli-bridge.js';
 import { compileBackendTaskProfile, type BackendRuntime } from './task-profile.js';
 import {
   normalizeBackendPermissionRequest,
@@ -76,6 +77,10 @@ export const TERMINAL_TASK_COMPLETE_MARKER = '[terminal-task-complete]';
 export const TERMINAL_TASK_COMPLETE_MESSAGE =
   `${TERMINAL_TASK_COMPLETE_MARKER} 任务已完成，请查看上方输出并确认提交给 host。`;
 
+/** Prefix emitted when startup task input is held behind a native login or
+ *  setup screen until the user finishes in the terminal and clicks ready. */
+export const TERMINAL_INPUT_PENDING_MARKER = '[terminal-input-pending]';
+
 /** Instruction appended to a terminal worker's first message telling it to
  *  emit the completion marker. Must live in the user prompt (firstMessage),
  *  not the system prompt - the TUI ignores systemPrompt. */
@@ -94,6 +99,101 @@ export const TERMINAL_WORKER_BACKEND_IDS: ReadonlySet<string> = new Set([
 
 export function isTerminalWorkerBackend(backendId: string): boolean {
   return TERMINAL_WORKER_BACKEND_IDS.has(backendId);
+}
+
+/** Terminal backends admitted for automated local Native CLI Worker dispatch
+ *  under native CLI self-approval mode (no per-tool Host approval relay). */
+export const NATIVE_CLI_WORKER_BACKEND_IDS: ReadonlySet<string> = new Set([
+  'claude-code-terminal',
+  'codex-terminal',
+]);
+
+export function isNativeCliWorkerBackend(backendId: string): boolean {
+  return NATIVE_CLI_WORKER_BACKEND_IDS.has(backendId);
+}
+
+const FORBIDDEN_BYPASS_FLAGS = new Set([
+  '--dangerously-bypass-approvals-and-sandbox',
+  '--dangerously-skip-permissions',
+  'bypassPermissions',
+]);
+
+/** Enforce the Native CLI Self-Approval Worker launch contract before binary
+ *  resolution, workspace writes, or PTY spawn. Unbound worker launches,
+ *  unsupported terminal backends, Host-permit/controlled-hook mixes, or
+ *  forced bypass flags fail closed with `unsupported-contract`. */
+export function requireNativeCliWorkerAdmission(
+  profile: TerminalCliProfile,
+  config: BackendSessionConfig,
+): void {
+  if (!isNativeCliWorkerBackend(profile.id) || !profile.capabilities.executeTasks) {
+    throw new Error(
+      `unsupported-contract: terminal backend ${profile.id} is not admitted for automated worker execution`,
+    );
+  }
+  const binding = config.nativeCliWorker;
+  if (
+    !binding
+    || binding.mode !== 'native-cli-self-approval'
+    || !binding.meetingId?.trim()
+    || !binding.taskId?.trim()
+    || !binding.workerId?.trim()
+    || !Number.isInteger(binding.attempt)
+    || binding.attempt < 1
+    || !binding.workspaceCwd?.trim()
+  ) {
+    throw new Error(
+      'unsupported-contract: native CLI worker launch requires native-cli-self-approval task binding',
+    );
+  }
+  if (resolve(binding.workspaceCwd) !== resolve(config.cwd)) {
+    throw new Error(
+      'unsupported-contract: native CLI worker workspaceCwd does not match session cwd',
+    );
+  }
+  const extraWorkerId = config.extra?.workerId;
+  if (typeof extraWorkerId === 'string' && extraWorkerId.trim() && extraWorkerId.trim() !== binding.workerId) {
+    throw new Error(
+      'unsupported-contract: native CLI worker extra.workerId does not match bound workerId',
+    );
+  }
+  if (!config.taskProfile || config.taskProfile.backendId !== profile.id) {
+    throw new Error(
+      'unsupported-contract: native CLI worker launch requires a compiled taskProfile matching the backend',
+    );
+  }
+  if (config.extra?.nativeWorkerAuthority) {
+    throw new Error(
+      'unsupported-contract: native CLI self-approval worker must not attach Host tool-approval authority',
+    );
+  }
+  if (hasControlledHints(config.env ?? {})) {
+    throw new Error(
+      'unsupported-contract: native CLI self-approval worker must not set controlled deny-only hook hints',
+    );
+  }
+  if (
+    !config.env?.AHASTATION_WORKER_URL?.trim()
+    || !config.env?.AHASTATION_WORKER_TOKEN?.trim()
+    || !config.env?.AHASTATION_WORKER_ENTRY?.trim()
+  ) {
+    throw new Error(
+      'unsupported-contract: native CLI worker launch requires active AHASTATION_WORKER_* reporting credentials',
+    );
+  }
+  if (config.autoApproveScope && config.autoApproveScope !== 'off') {
+    throw new Error(
+      `unsupported-contract: native CLI self-approval worker forbids autoApproveScope=${config.autoApproveScope}`,
+    );
+  }
+  const candidateArgs = profile.buildCliArgs?.(config) ?? [];
+  for (const arg of candidateArgs) {
+    if (FORBIDDEN_BYPASS_FLAGS.has(arg)) {
+      throw new Error(
+        `unsupported-contract: native CLI self-approval worker forbids permission bypass flag ${arg}`,
+      );
+    }
+  }
 }
 
 /** Deterministic pty id for a terminal-mode HOST session (invited as a
@@ -141,7 +241,8 @@ export function toMatchableText(data: string): string {
 /** "Do you trust this folder?" style first-run dialogs (Claude Code, Codex…).
  *  Pasting the prompt there answers the dialog — Claude's default is "No,
  *  exit" — so the prompt waits until the user has answered (#125). */
-export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created/i;
+export const TRUST_PROMPT_PATTERN =
+  /trust\s*this\s*(folder|directory|workspace|hook)|do\s*you\s*trust\s*(the\s*(files|contents)|.*\bhooks?\b)|is\s*this\s*a\s*project\s*you\s*created|allow\s*codex\s*to\s*work\s*in\s*this\s*(folder|directory)/i;
 const TRUST_SETTLE_MS = 800;
 
 export function stripAnsi(data: string): string {
@@ -159,17 +260,28 @@ export function stripAnsi(data: string): string {
  *  mid-append must not break the tail loop. */
 export function parseTurnEventLines(
   chunk: string,
-): Array<{ kind: string; marker?: boolean; summary?: string }> {
-  const events: Array<{ kind: string; marker?: boolean; summary?: string }> = [];
+): Array<{ kind: string; marker?: boolean; summary?: string; sessionId?: string }> {
+  const events: Array<{ kind: string; marker?: boolean; summary?: string; sessionId?: string }> = [];
   for (const line of chunk.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const parsed = JSON.parse(trimmed) as { kind?: unknown; marker?: unknown; summary?: unknown };
+      const parsed = JSON.parse(trimmed) as {
+        kind?: unknown;
+        marker?: unknown;
+        summary?: unknown;
+        sessionId?: unknown;
+      };
       if (typeof parsed.kind === 'string') {
-        const event: { kind: string; marker?: boolean; summary?: string } = { kind: parsed.kind };
+        const event: { kind: string; marker?: boolean; summary?: string; sessionId?: string } = {
+          kind: parsed.kind,
+        };
         if (typeof parsed.marker === 'boolean') event.marker = parsed.marker;
         if (typeof parsed.summary === 'string') event.summary = parsed.summary;
+        const rawSid = parsed.sessionId ?? (parsed as { session_id?: unknown }).session_id;
+        if (typeof rawSid === 'string' && rawSid.trim()) {
+          event.sessionId = rawSid.trim();
+        }
         events.push(event);
       }
     } catch { /* torn line — wait for the next change event */ }
@@ -195,13 +307,18 @@ export function buildStopHookScript(eventsPath: string): string {
     "const fs = require('fs');",
     `const MARKER = ${JSON.stringify(TERMINAL_TASK_COMPLETE_MARKER)};`,
     "let last = '';",
+    "let sessionId = '';",
     'try {',
     '  const obj = JSON.parse(fs.readFileSync(0, "utf8") || "{}");',
     '  const m = obj.last_assistant_message ?? obj.lastMessage ?? obj.last_message ?? "";',
     '  last = typeof m === "string" ? m : (m ? JSON.stringify(m) : "");',
+    '  const sid = obj.session_id ?? obj.sessionId ?? obj.conversation_id ?? "";',
+    '  sessionId = typeof sid === "string" ? sid.trim() : "";',
     '} catch (e) { /* malformed stdin - treat as no marker */ }',
     'const hit = last.includes(MARKER);',
-    `fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({ kind: 'stop', at: Date.now(), marker: hit, summary: hit ? last.slice(0, 20000) : '' }) + '\\n');`,
+    'const record = { kind: "stop", at: Date.now(), marker: hit, summary: hit ? last.slice(0, 20000) : "" };',
+    'if (sessionId) record.sessionId = sessionId;',
+    `fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify(record) + '\\n');`,
     '',
   ].join('\n');
 }
@@ -301,6 +418,13 @@ export interface TerminalCliProfile {
     /** Failure message surfaced through the worker-failed signal. */
     message: string;
   };
+  /** Interactive login/setup gate for CLIs where the user can complete login
+   *  inside the stage terminal and then release held task input via the
+   *  confirm bar without failing the task immediately. */
+  loginGate?: {
+    pattern: RegExp;
+    message: string;
+  };
   /** Gate the first paste on this pattern appearing in (ANSI-stripped) pty
    *  output. CLIs with a slow modal boot phase (token refresh, trust dialog)
    *  draw frames long before the input box exists — the first-frame
@@ -376,6 +500,17 @@ export class TerminalCliSession implements BackendSession {
     session.scheduleReady(TRUST_SETTLE_MS);
     return { ok: true };
   }
+  static takeoverStatus(workerId: string) {
+    const session = this.trustSessions.get(workerId);
+    if (!session || session.closed) {
+      return { ok: false, takenOver: false, idle: false };
+    }
+    return {
+      ok: true,
+      takenOver: session.takenOver,
+      idle: session.isIdleForAutomaticInput(),
+    };
+  }
   private readonly profile: TerminalCliProfile;
   private readonly config: BackendSessionConfig;
   private readonly emit: (e: BackendSessionEvent) => void;
@@ -388,6 +523,7 @@ export class TerminalCliSession implements BackendSession {
   private profileCleanupPaths: string[] = [];
   private ready = false;
   private closed = false;
+  private treeStopConfirmed = false;
   private started = false;
   private authWallBuffer = '';
   private authWallDeadline = 0;
@@ -420,6 +556,17 @@ export class TerminalCliSession implements BackendSession {
   private trustGated = false;
   private trustBuffer = '';
   private lastTrustSeenAt = 0;
+  /** Interactive login/setup screen detected: hold automatic paste until confirmed. */
+  private loginGated = false;
+  private loginGateBuffer = '';
+  /** Human takeover active: fence automatic paste until handback completes. */
+  private takenOver = false;
+  /** True between prompt injection and Stop-hook turn completion. */
+  private turnActive = false;
+  /** Sealed once tree termination begins so no late input can slip through. */
+  private stopping = false;
+  /** Native CLI session id observed from real CLI Stop-hook events (never fabricated). */
+  private observedNativeSessionId: string | null = null;
   private unsubscribeData: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
 
@@ -445,11 +592,15 @@ export class TerminalCliSession implements BackendSession {
 
   async start(): Promise<void> {
     if (this.started || this.closed) return;
-    // An installed global hook is not an execution guard. Controlled native
-    // tasks stay closed until #86 proves launch binding and B04 S4-S6. Manual
-    // terminal/host sessions retain the CLI's own permission flow.
-    if (this.config.executionRole === 'worker' || this.config.taskProfile) {
-      requireNativeHookWorkerAdmission();
+    // Local Native CLI Worker launches must carry an explicit self-approval
+    // task binding and active reporting credentials; manual terminal/host
+    // sessions retain the CLI's own interactive permission flow.
+    if (
+      this.config.executionRole === 'worker'
+      || this.config.taskProfile
+      || this.config.nativeCliWorker
+    ) {
+      requireNativeCliWorkerAdmission(this.profile, this.config);
     }
     this.started = true;
     const binary = this.deps.resolveBinary();
@@ -486,12 +637,15 @@ export class TerminalCliSession implements BackendSession {
     });
     if (hookReg) this.profileCleanupPaths.push(...hookReg.cleanupPaths);
 
-    const env: NodeJS.ProcessEnv = {
+    const rawEnv: NodeJS.ProcessEnv = {
       ...this.config.env,
       ELECTRON_RUN_AS_NODE: '1',
       ...hookReg?.env,
       ...this.profile.buildEnv?.(this.config),
     };
+    const env: NodeJS.ProcessEnv = this.config.nativeCliWorker
+      ? workerCliEnvironment(rawEnv)
+      : rawEnv;
     const cliArgs = [
       ...(hookReg?.cliArgs ?? []),
       ...(this.profile.buildCliArgs?.(this.config) ?? []),
@@ -513,7 +667,8 @@ export class TerminalCliSession implements BackendSession {
     this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;
     this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
       this.scanForAuthWall(data);
-      if (this.closed || this.ready) return;
+      if (this.closed || this.stopping || this.ready || this.takenOver) return;
+      if (this.scanForLoginGate(data)) return;
       this.trustBuffer = (this.trustBuffer + toMatchableText(data)).slice(-8_000);
       if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
         if (!this.trustGated) {
@@ -525,9 +680,9 @@ export class TerminalCliSession implements BackendSession {
         this.lastTrustSeenAt = Date.now();
         return;
       }
-      if (this.trustGated) {
+      if (this.trustGated || this.loginGated) {
         // Repaints and unrelated output cannot prove that the dialog was
-        // accepted. Only the explicit generation-bound local action resumes.
+        // accepted. Only the explicit user action resumes.
         return;
       }
       if (this.profile.readyPattern) {
@@ -571,7 +726,7 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private scheduleReady(delayMs: number, fallback = false): void {
-    if (this.ready || this.closed || this.trustGated) return;
+    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver) return;
     if (this.readyTimer && !fallback) clearTimeout(this.readyTimer);
     else if (this.readyTimer && fallback) return; // first-output timer wins
     if (this.deps.timersEnabled === false) {
@@ -583,13 +738,37 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private markReady(): void {
-    if (this.ready || this.closed || this.trustGated) return;
+    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver) return;
     this.ready = true;
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
       this.readyTimer = null;
     }
     for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
+  }
+
+  private scanForLoginGate(data: string): boolean {
+    const gate = this.profile.loginGate;
+    if (!gate || this.closed || this.stopping || this.ready) return false;
+    if (Date.now() > this.authWallDeadline) return false;
+    this.loginGateBuffer = (this.loginGateBuffer + toMatchableText(data)).slice(-AUTH_WALL_BUFFER_MAX);
+    if (!gate.pattern.test(this.loginGateBuffer)) return false;
+    if (!this.loginGated) {
+      this.loginGated = true;
+      if (this.readyTimer) {
+        clearTimeout(this.readyTimer);
+        this.readyTimer = null;
+      }
+      this.emit({
+        kind: 'worker-signal',
+        signal: {
+          kind: 'progress',
+          message: `${TERMINAL_INPUT_PENDING_MARKER} ${gate.message}`,
+        },
+      });
+    }
+    this.loginGateBuffer = '';
+    return true;
   }
 
   /** Fail fast when the pty shows the CLI's login gate. Runs before the
@@ -616,12 +795,21 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private pasteIntoTui(text: string): void {
-    if (this.closed || this.authWallEmitted) return;
+    if (this.closed || this.stopping || this.authWallEmitted || this.takenOver) return;
+    this.turnActive = true;
     if (this.profile.sessionTranscript) this.transcriptPrompts.add(text);
     this.deps.host.write(this.workerId, buildPasteFrame(text));
     const submitSeq = this.profile.submitSequence ?? '\r';
     const submit = () => {
-      if (this.closed || this.trustGated || this.authWallEmitted || !this.ready) return;
+      if (
+        this.closed
+        || this.stopping
+        || this.trustGated
+        || this.loginGated
+        || this.takenOver
+        || this.authWallEmitted
+        || !this.ready
+      ) return;
       if (this.profile.beforeSubmitSequence) {
         this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence);
       }
@@ -668,6 +856,10 @@ export class TerminalCliSession implements BackendSession {
     this.eventsOffset = content.length;
     for (const event of parseTurnEventLines(chunk)) {
       if (event.kind !== 'stop') continue;
+      if (event.sessionId) {
+        this.observedNativeSessionId = event.sessionId;
+      }
+      this.turnActive = false;
       if (event.marker) {
         // Completion marker hit: the worker declared the task done. Don't
         // auto-submit - emit a completion progress so the confirm bar lights
@@ -836,8 +1028,8 @@ export class TerminalCliSession implements BackendSession {
     // Once the login gate was detected, injecting more text is pointless
     // (it lands on the auth menu) and its \r submit can even arm the
     // sign-in flow. Drop input; the scheduler disposes us via the failure.
-    if (this.closed || this.authWallEmitted || !text) return;
-    if (!this.ready) {
+    if (this.closed || this.stopping || this.authWallEmitted || !text) return;
+    if (!this.ready || this.trustGated || this.loginGated || this.takenOver) {
       this.pendingTexts.push(text);
       return;
     }
@@ -857,15 +1049,88 @@ export class TerminalCliSession implements BackendSession {
   }
 
   async interrupt(): Promise<void> {
+    if (this.closed || this.stopping) return;
+    this.turnActive = false;
     // Esc is the native "stop this turn" key for every supported TUI.
     this.deps.host.write(this.workerId, this.profile.interruptKey ?? '\x1b');
   }
 
-  end(): void {
-    if (this.closed) return;
-    this.closed = true;
+  resumePendingInput(): boolean {
+    if (this.closed || this.stopping || this.authWallEmitted || this.takenOver) return false;
+    if (!this.loginGated && (this.trustGated || this.ready || this.pendingTexts.length === 0)) {
+      return false;
+    }
+    this.loginGated = false;
+    this.loginGateBuffer = '';
+    if (this.trustGated) {
+      return true;
+    }
+    if (this.ready) {
+      for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
+    } else {
+      this.markReady();
+    }
+    return true;
+  }
+
+  async enterTakeover(): Promise<{ ok: boolean; error?: string }> {
+    if (this.closed || this.stopping) {
+      return { ok: false, error: '终端会话已关闭或正在停止' };
+    }
+    if (this.readyTimer) {
+      clearTimeout(this.readyTimer);
+      this.readyTimer = null;
+    }
+    this.takenOver = true;
+    this.turnActive = false;
+    this.deps.host.write(this.workerId, this.profile.interruptKey ?? '\x1b');
+    return { ok: true };
+  }
+
+  completeHandback(instruction?: string): { ok: boolean; error?: string } {
+    if (this.closed || this.stopping) {
+      return { ok: false, error: '终端会话已停止，不能交还继续执行' };
+    }
+    if (!this.takenOver) {
+      return { ok: false, error: '当前未处于人工接管状态' };
+    }
+    this.takenOver = false;
+    if (!this.trustGated && !this.loginGated) {
+      this.ready = true;
+      for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
+      if (instruction && instruction.trim()) {
+        this.pasteIntoTui(instruction);
+      }
+    } else if (instruction && instruction.trim()) {
+      this.pendingTexts.push(instruction);
+    }
+    return { ok: true };
+  }
+
+  isTakenOver(): boolean {
+    return !this.closed && !this.stopping && this.takenOver;
+  }
+
+  isIdleForAutomaticInput(): boolean {
+    return (
+      !this.closed
+      && !this.stopping
+      && !this.authWallEmitted
+      && this.ready
+      && !this.trustGated
+      && !this.loginGated
+      && !this.takenOver
+      && !this.turnActive
+    );
+  }
+
+  private detachSessionResources(): void {
     this.pendingTexts.length = 0;
-    if (TerminalCliSession.trustSessions.get(this.workerId) === this) TerminalCliSession.trustSessions.delete(this.workerId);
+    this.takenOver = false;
+    this.turnActive = false;
+    if (TerminalCliSession.trustSessions.get(this.workerId) === this) {
+      TerminalCliSession.trustSessions.delete(this.workerId);
+    }
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
       this.readyTimer = null;
@@ -884,15 +1149,54 @@ export class TerminalCliSession implements BackendSession {
       }
     }
     this.transcriptFiles.clear();
-    this.deps.host.kill(this.workerId);
+  }
+
+  private removeProfileCleanupPaths(): void {
     // Cleanup paths may include per-session managed config homes (dirs).
     for (const path of this.profileCleanupPaths) {
       try { rmSync(path, { force: true, recursive: true }); } catch { /* best effort */ }
     }
   }
 
+  async terminateSessionTree(): Promise<{ confirmed: boolean; pid: number | null; reason?: string }> {
+    if (this.closed) {
+      return this.treeStopConfirmed
+        ? { confirmed: true, pid: null }
+        : { confirmed: false, pid: null, reason: 'Session closed without confirmed process-tree exit evidence' };
+    }
+    this.stopping = true;
+    const pid = this.deps.host.pidOf?.(this.workerId) ?? null;
+    this.detachSessionResources();
+    try {
+      await this.deps.host.terminateTree(this.workerId);
+      this.treeStopConfirmed = true;
+      this.closed = true;
+      this.removeProfileCleanupPaths();
+      return { confirmed: true, pid };
+    } catch (err) {
+      return {
+        confirmed: false,
+        pid,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  end(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopping = true;
+    this.detachSessionResources();
+    this.deps.host.kill(this.workerId);
+    this.removeProfileCleanupPaths();
+  }
+
   snapshot(): { protocol: string; sessionId: string } | null {
-    return null;
+    if (!this.observedNativeSessionId) return null;
+    return {
+      protocol: this.profile.id,
+      sessionId: this.observedNativeSessionId,
+    };
   }
 }
 
