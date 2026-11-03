@@ -406,7 +406,9 @@ class SharedTest(unittest.IsolatedAsyncioTestCase):
         await self.desktop_start();self.assertEqual(len(self.native.starts),3)
         self.assertEqual({p['threadId'] for p in self.native.starts},{self.thread});self.assertFalse(self.native.steers)
         self.assertNotIn('model',self.native.starts[1]);self.assertNotIn('sandboxPolicy',self.native.starts[1])
-        mapping=read_json(journal.path/'shared.json');self.assertEqual(mapping['thread_id'],self.thread);self.assertEqual(mapping['cwd'],str(self.folder))
+        mapping=read_json(journal.path/'shared.json')
+        self.assertEqual(mapping['thread_id'],self.thread)
+        self.assertEqual(Path(mapping['cwd']).resolve(strict=True),self.folder.resolve(strict=True))
         await self.native.finish(self.thread)
 
     async def test_desktop_stop_waits_for_real_end_and_other_thread_proceeds(self):
