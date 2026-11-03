@@ -3,8 +3,9 @@
 //   The talker hits a fork in the road, picks the highest-recommendation option
 //   to keep moving, AND drops a markdown doc into ~/Documents/AhaStation/decisions.
 //   That doc lists every option with pros/cons + an empty "✅ 确认结论" section.
-//   Calendar.app + Reminders.app entries are spawned via osascript so the user
-//   sees a deadline on their phone/laptop. We fs.watch the file: as soon as the
+//   A calendar file (.ics) for the deadline, with an alarm, is opened in the
+//   system's default calendar app — the same on macOS, Windows and Linux. We
+//   fs.watch the doc: as soon as the
 //   user fills in the conclusion section and saves, we parse it back out and
 //   notify the orchestrator so the talker can re-evaluate.
 //
@@ -15,7 +16,7 @@ import { homedir } from 'node:os';
 import { join, resolve, isAbsolute, sep } from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { watch, type FSWatcher } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
 const CONCLUSION_MARKER = '<!-- conclusion-marker -->';
@@ -34,7 +35,7 @@ export interface CreateDecisionPayload {
   question: string;
   context?: string;
   options: DecisionOption[];
-  /** Epoch ms. Used for both the markdown header and the Calendar/Reminders deadline. */
+  /** Epoch ms. Used for both the markdown header and the calendar event. */
   deadline: number;
 }
 
@@ -45,7 +46,7 @@ export interface CreatedDecision {
   recommendedIndex: number;
   /** Echoed payload normalized + frozen. */
   payload: CreateDecisionPayload;
-  /** Whether the Calendar/Reminders side-channel succeeded. Failure is non-fatal. */
+  /** Whether the calendar file was written and opened. `reminders` mirrors it (the event alarm). Failure is non-fatal. */
   calendar: { ok: boolean; error?: string };
   reminders: { ok: boolean; error?: string };
 }
@@ -163,87 +164,94 @@ export function parseConclusion(content: string): string {
   return noComments.trim();
 }
 
-// ---------- AppleScript helpers --------------------------------------------
+// ---------- Calendar file (.ics) -------------------------------------------
+//
+// One calendar file per decision, written next to the markdown doc and
+// opened with the system's default calendar app. Calendar.app, Outlook /
+// Windows Calendar and GNOME/KDE calendars all import iCalendar, so this is
+// the same code path on every platform. The event carries a display alarm,
+// which is what the old Reminders.app entry used to do.
 
-function escAplStr(s: string): string {
-  const escaped = s
+/** RFC 5545 TEXT escaping. */
+function icsText(s: string): string {
+  return s
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
     .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\t/g, '\\t')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-  return '"' + escaped + '"';
+    .replace(/;/g, '\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n?|\n/g, '\\n');
 }
 
-/**
- * Build an AppleScript snippet that constructs a date object in `varName`
- * field-by-field. We can't use a literal `date "..."` because AppleScript date
- * parsing is locale-dependent and would break on non-en_US machines.
- */
-function dateAplProperty(varName: string, d: Date): string {
-  return [
-    `set ${varName} to current date`,
-    `set year of ${varName} to ${d.getFullYear()}`,
-    `set month of ${varName} to ${d.getMonth() + 1}`,
-    `set day of ${varName} to ${d.getDate()}`,
-    `set hours of ${varName} to ${d.getHours()}`,
-    `set minutes of ${varName} to ${d.getMinutes()}`,
-    `set seconds of ${varName} to 0`,
-  ].join('\n');
+/** UTC date-time in iCalendar basic format, e.g. 20261103T140500Z. */
+function icsDate(d: Date): string {
+  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-function calendarScript(title: string, notes: string, fileUrl: string, deadline: Date): string {
-  const startVar = 'startDate';
-  const endVar = 'endDate';
-  const start = new Date(deadline.getTime());
-  const end = new Date(deadline.getTime() + 30 * 60 * 1000);
-  return [
-    'tell application "Calendar"',
-    `  tell calendar 1`,
-    `    ${dateAplProperty(startVar, start).split('\n').join('\n    ')}`,
-    `    ${dateAplProperty(endVar, end).split('\n').join('\n    ')}`,
-    `    set newEvent to make new event with properties {summary:${escAplStr(title)}, start date:${startVar}, end date:${endVar}, description:${escAplStr(notes)}, url:${escAplStr(fileUrl)}}`,
-    '  end tell',
-    'end tell',
-  ].join('\n');
-}
-
-function reminderScript(title: string, notes: string, deadline: Date): string {
-  const dueVar = 'dueDate';
-  return [
-    'tell application "Reminders"',
-    '  tell default list',
-    `    ${dateAplProperty(dueVar, deadline).split('\n').join('\n    ')}`,
-    `    make new reminder with properties {name:${escAplStr(title)}, body:${escAplStr(notes)}, due date:${dueVar}}`,
-    '  end tell',
-    'end tell',
-  ].join('\n');
-}
-
-function runOsascript(script: string): Promise<{ ok: boolean; error?: string }> {
-  // Calendar.app and Reminders.app integration is macOS-only (JXA/osascript).
-  // On other platforms, skip gracefully — the decision markdown file is
-  // still written, just without the calendar/reminder side-channel.
-  if (process.platform !== 'darwin') {
-    return Promise.resolve({ ok: false, error: 'Calendar/Reminders integration requires macOS' });
+/** Fold a content line at 75 octets without splitting a UTF-8 character. */
+function icsFold(line: string): string {
+  const parts: string[] = [];
+  let current = '';
+  let bytes = 0;
+  for (const ch of line) {
+    const size = Buffer.byteLength(ch, 'utf8');
+    const limit = parts.length === 0 ? 75 : 74; // continuation lines start with a space
+    if (bytes + size > limit) {
+      parts.push(current);
+      current = '';
+      bytes = 0;
+    }
+    current += ch;
+    bytes += size;
   }
-  return new Promise((resolveP) => {
-    const child = spawn('osascript', ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.on('error', (err: Error) => {
-      resolveP({ ok: false, error: err.message });
-    });
-    child.on('close', (code: number | null) => {
-      if (code === 0) {
-        resolveP({ ok: true });
-      } else {
-        resolveP({ ok: false, error: stderr.trim() || `osascript exited ${code}` });
-      }
-    });
-  });
+  parts.push(current);
+  return parts.join('\r\n ');
+}
+
+export function buildDecisionIcs(opts: {
+  id: string;
+  title: string;
+  notes: string;
+  fileUrl: string;
+  deadline: Date;
+  now?: Date;
+}): string {
+  const start = opts.deadline;
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//AhaStudio//Decisions//ZH',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${opts.id}@ahastudio`,
+    `DTSTAMP:${icsDate(opts.now ?? new Date())}`,
+    `DTSTART:${icsDate(start)}`,
+    `DTEND:${icsDate(end)}`,
+    `SUMMARY:${icsText(opts.title)}`,
+    `DESCRIPTION:${icsText(opts.notes)}`,
+    `URL:${opts.fileUrl}`,
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    `DESCRIPTION:${icsText(opts.title)}`,
+    'TRIGGER:-PT15M',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return lines.map(icsFold).join('\r\n') + '\r\n';
+}
+
+/** Hand the file to the default calendar app. Loaded lazily so this module
+ * stays importable outside Electron (tests). */
+async function openWithDefaultApp(path: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { shell } = await import('electron');
+    const error = await shell.openPath(path);
+    return error ? { ok: false, error } : { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 // ---------- Public API ------------------------------------------------------
@@ -264,19 +272,26 @@ export async function createDecisionDoc(payload: CreateDecisionPayload): Promise
   const ranked = rankOptions(payload.options);
   const recommendedIndex = ranked[0]?.index ?? 0;
 
-  const fileUrl = `file://${encodeURI(path)}`;
+  const fileUrl = pathToFileURL(path).href;
   const deadline = new Date(payload.deadline);
   const summary = ranked[0]
     ? `推荐方案：${ranked[0].option.title}`
     : '请尽快确认';
-  const calendarTitle = `AhaStation 待确认：${payload.question}`.slice(0, 200);
-  const reminderTitle = calendarTitle;
+  const title = `AhaStation 待确认：${payload.question}`.slice(0, 200);
   const notes = `${summary}\n\n详情: ${path}\n${fileUrl}`;
 
   // Best-effort. Failure here just means the user won't get the OS-level
-  // nudge; the markdown doc + in-app activity entry still work.
-  const calendar = await runOsascript(calendarScript(calendarTitle, notes, fileUrl, deadline));
-  const reminders = await runOsascript(reminderScript(reminderTitle, notes, deadline));
+  // nudge; the markdown doc + in-app activity entry still work. The event's
+  // alarm is the reminder, so both report the same result.
+  const icsPath = path.replace(/\.md$/, '.ics');
+  let calendar: { ok: boolean; error?: string };
+  try {
+    await writeFile(icsPath, buildDecisionIcs({ id, title, notes, fileUrl, deadline }), 'utf8');
+    calendar = await openWithDefaultApp(icsPath);
+  } catch (err) {
+    calendar = { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  const reminders = calendar;
 
   return {
     id,

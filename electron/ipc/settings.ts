@@ -182,13 +182,17 @@ export function registerSettingsIpc(): void {
     return { ok: true };
   });
 
-  // Deep-link into System Settings → Accessibility → Spoken Content so the
-  // user can install the higher-quality Siri / Premium / Enhanced Chinese
-  // voices. Apple gives us no API to trigger the download programmatically;
-  // this is the closest we get to one click.
+  // Deep-link into the system's speech settings so the user can install
+  // higher-quality Chinese voices (macOS: Accessibility → Spoken Content;
+  // Windows: Time & language → Speech). Neither OS lets us trigger the
+  // download programmatically; this is the closest we get to one click.
+  // Linux desktops have no common settings URL.
   ipcMain.handle('system:open-voice-settings', async () => {
-    if (process.platform !== 'darwin') return { ok: false };
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.universalaccess?Speech');
+    const url = process.platform === 'darwin'
+      ? 'x-apple.systempreferences:com.apple.preference.universalaccess?Speech'
+      : process.platform === 'win32' ? 'ms-settings:speech' : null;
+    if (!url) return { ok: false };
+    await shell.openExternal(url);
     return { ok: true };
   });
 }

@@ -107,7 +107,7 @@ export function buildComputerUseMcp(bridge: ComputerUseBridge, workerId: string)
           key: z.string().describe('Key name: return, tab, escape, space, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12, or a single character'),
           modifiers: z.array(z.enum(['command', 'cmd', 'control', 'ctrl', 'option', 'alt', 'shift']))
             .default([])
-            .describe('Modifier keys to hold'),
+            .describe('Modifier keys to hold. command/cmd is Ctrl on Windows and Linux'),
         },
         async ({ key, modifiers }) => {
           const r = await keyboardPress(key, modifiers);

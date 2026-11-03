@@ -45,7 +45,7 @@ export function collectDeviceDiagnostics(): DeviceDiagnostics {
   } catch { /* unavailable */ }
 
   let microphone: DeviceDiagnostics['audio']['microphone'] = 'unknown';
-  if (process.platform === 'darwin') {
+  if (process.platform === 'darwin' || process.platform === 'win32') {
     const status = systemPreferences.getMediaAccessStatus('microphone');
     microphone = status === 'granted' ? 'granted' : status === 'denied' || status === 'restricted'
       ? 'denied'
