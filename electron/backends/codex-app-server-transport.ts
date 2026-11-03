@@ -27,7 +27,7 @@ export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.156.1';
 // Stable releases inside the interval are accepted; anything older or newer
 // is rejected until the weekly handshake and adapter contracts re-validate it.
 export const CODEX_APP_SERVER_MIN_VERSION = '0.156.1';
-export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = '0.157.0';
+export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = '0.166.1';
 
 function parseCodexVersion(version: string): [number, number, number] | null {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
