@@ -10,7 +10,8 @@
 //     "opencode"),
 //   - parse the listening banner with a FULL-TEXT regex (a warning line may
 //     precede it), then poll /global/health (with auth) for liveness,
-//   - SIGTERM for shutdown (verified clean, no child processes, on macOS).
+//   - SIGTERM for shutdown (verified clean, no child processes, on macOS);
+//     taskkill /T on Windows (killServerProcess).
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -194,6 +195,21 @@ async function waitForHealth(url: string, password: string, timeoutMs: number): 
   throw new Error(`opencode server did not become healthy: ${String(lastErr)}`);
 }
 
+/** Stop an `opencode serve` process. POSIX: SIGTERM (verified clean on
+ * macOS, no children left). Windows has no SIGTERM — Node's kill() there is
+ * TerminateProcess on the single pid — so use `taskkill /T /F` to take the
+ * whole tree down. */
+export function killServerProcess(pid: number): void {
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        .on('error', () => { /* taskkill missing — nothing else to try */ });
+    } else {
+      process.kill(pid, 'SIGTERM');
+    }
+  } catch { /* already gone */ }
+}
+
 export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<OpencodeServerHandle> {
   const binary = opts.binaryPath === undefined ? resolveOpencodeBinary() : opts.binaryPath;
   if (!binary) {
@@ -218,7 +234,7 @@ export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<Ope
     };
     const timer = setTimeout(() => {
       cleanup();
-      proc.kill('SIGTERM');
+      if (proc.pid) killServerProcess(proc.pid);
       reject(new Error(`Timed out waiting for opencode server banner. Output tail: ${output.slice(-500)}`));
     }, timeoutMs);
     const onExitEarly = () => {
@@ -241,7 +257,7 @@ export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<Ope
   try {
     await waitForHealth(url, password, timeoutMs);
   } catch (err) {
-    proc.kill('SIGTERM');
+    if (proc.pid) killServerProcess(proc.pid);
     throw err;
   }
 
@@ -250,13 +266,8 @@ export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<Ope
     password,
     pid: proc.pid ?? null,
     kill() {
-      if (proc.killed) return;
-      // TODO(windows): SIGTERM is a no-op on win32 — needs taskkill /T or the
-      // SDK's stop() helper when we support Windows. Linux follows POSIX like
-      // macOS but is unverified (spike §2 was macOS-only).
-      try {
-        proc.kill('SIGTERM');
-      } catch { /* already gone */ }
+      if (proc.killed || proc.exitCode !== null) return;
+      if (proc.pid) killServerProcess(proc.pid);
     },
     onExit(cb) {
       proc.on('exit', cb);
