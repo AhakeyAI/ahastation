@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { join } from 'node:path';
 import {
   basicAuthHeader,
+  killServerProcess,
   spawnOpencodeServer,
   type OpencodeServerHandle,
 } from '../../backends/opencode-server-process.js';
@@ -169,19 +170,13 @@ export class OpencodeServerRegistry {
           password: rec.password,
           pid: rec.pid,
           kill: () => {
-            if (rec.pid) {
-              try {
-                process.kill(rec.pid, 'SIGTERM');
-              } catch { /* already gone */ }
-            }
+            if (rec.pid) killServerProcess(rec.pid);
           },
           // Not our child process — no exit events to relay.
           onExit: () => undefined,
         };
       } else if (rec.pid) {
-        try {
-          process.kill(rec.pid, 'SIGTERM');
-        } catch { /* already gone */ }
+        killServerProcess(rec.pid);
       }
     }
     return adopted;
@@ -269,6 +264,12 @@ function saveRecords(records: PersistedServerRecord[]): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(records, null, 2), 'utf8');
   renameSync(tmp, path);
+}
+
+/** The registry if anything has used it this run, without creating one —
+ * app quit only needs to stop servers that were actually started. */
+export function peekOpencodeServerRegistry(): OpencodeServerRegistry | null {
+  return singleton;
 }
 
 export function getOpencodeServerRegistry(): OpencodeServerRegistry {

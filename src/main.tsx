@@ -8,6 +8,7 @@ import { OpenCodeEditor } from './components/OpenCodeEditor';
 import { CompanionScreen } from './components/CompanionScreen';
 import { AhaBar } from './components/AhaBar';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { installWindowActivityFlag } from './lib/window-activity';
 import { parseEditorCapabilities } from './types';
 import { meetingStore } from './lib/meeting-store';
 import './styles.css';
@@ -53,6 +54,10 @@ if (isOpenCodeEditorView) {
   const hostId = params.get('hostId') ?? 'unknown';
   document.title = `OpenCode — ${hostId}`;
 }
+
+// Only the main window: the companion screen and AhaBar are meant to keep
+// animating while another app has focus.
+if (!viewParam) installWindowActivityFlag();
 
 const root = createRoot(document.getElementById('root')!);
 root.render(

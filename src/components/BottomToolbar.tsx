@@ -20,6 +20,8 @@ import {
 import type { MicrophoneCaptureStatus } from '../lib/microphone-ui-state';
 import { getMicLevel, subscribeMicLevel } from '../lib/mic-level';
 
+const METER_FRAME_MS = 66;
+
 interface BottomToolbarProps {
   muted: boolean;
   onToggleMute: () => void;
@@ -66,7 +68,7 @@ const ICON_SIZE = 20;
 
 /**
  * Live mic amplitude meter. Subscribes to the module-level mic-level channel
- * and writes the fill width straight to the DOM on a rAF throttle — the VAD
+ * and writes the fill width straight to the DOM at ~15 fps — the VAD
  * fires per audio frame, so this must never go through React state.
  */
 export function MicMeter({ muted }: { muted: boolean }) {
@@ -75,21 +77,30 @@ export function MicMeter({ muted }: { muted: boolean }) {
   mutedRef.current = muted;
 
   useEffect(() => {
-    let raf = 0;
+    // The VAD reports ~30 levels a second; repainting the meter for each one
+    // keeps the compositor busy for a 4px bar. Cap it at ~15 fps and skip
+    // writes that would not change the rounded width.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastAt = 0;
+    let lastPct = -1;
     const write = () => {
-      raf = 0;
+      timer = null;
+      lastAt = performance.now();
       if (!fillRef.current) return;
-      const pct = mutedRef.current ? 0 : Math.max(0, Math.min(1, getMicLevel())) * 100;
+      const pct = mutedRef.current ? 0 : Math.round(Math.max(0, Math.min(1, getMicLevel())) * 100);
+      if (pct === lastPct) return;
+      lastPct = pct;
       fillRef.current.style.width = `${pct}%`;
     };
     const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(write);
+      if (timer) return;
+      timer = setTimeout(write, Math.max(0, METER_FRAME_MS - (performance.now() - lastAt)));
     };
     const unsubscribe = subscribeMicLevel(schedule);
     schedule(); // repaint on mount and whenever `muted` flips
     return () => {
       unsubscribe();
-      if (raf) cancelAnimationFrame(raf);
+      if (timer) clearTimeout(timer);
     };
   }, [muted]);
 
