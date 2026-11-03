@@ -61,7 +61,7 @@ export function TerminalTurnConfirmBar({
     <div className="terminal-turn-confirm" role="status">
       <div className="terminal-turn-confirm-title">
         <strong>{taskComplete ? '任务已完成' : '本轮已结束'}</strong>
-        <small>{taskComplete ? 'Agent 已标记任务完成，请确认提交审查。' : 'Agent 在终端中完成了一轮对话，请确认任务去向。'}</small>
+        <small>{taskComplete ? '终端输出了完成标记（未自动等同于任务成功）；若 CLI 未运行 aha-worker report，可在此手动提交审查。' : 'Agent 在终端完成了一轮对话；若未通过 aha-worker report 回报，可手动确认任务去向。'}</small>
       </div>
       <input
         type="text"

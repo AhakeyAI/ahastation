@@ -1,5 +1,7 @@
 # AhaStudio AME 产品规格草案
 
+> 2026-11-02 局部适用更新：原生 CLI Worker 不把工具请求转 Host 审批，按[当前接线规划](../plans/2026-11-02-native-cli-worker-integration.md)保留 CLI 原生审批、Host 派单及成果验收。本文其他模块、SDK 和跨端用户审批规则继续按其原范围适用。
+
 版本：0.1（2026-10-27 迁移与更正）。日期：2026-10-22。用途：产品、设计、开发和测试共同评审首发行为。产品规则来自 [决策记录 D01–D64](./09-ame-product-decisions-and-open-questions-2026-10-21.md)，不表示已经实现；实现建议见[架构草案](./11-ame-architecture-v0.1-2026-10-22.md)，开发拆分见[WBS](./12-ame-development-wbs-v0.1-2026-10-22.md)。剩余取舍集中在[六组确认单](./13-ame-remaining-decisions-v0.1-2026-10-22.md)，其中建议值尚未成为产品承诺。
 
 > **在用版本（2026-10-27）。** 本文件已从 Codex 10-22 交接包迁到 `docs/ame/`（决定 G12），以这里为准；交接包里的原件保持不变。修改处标「（10-27 更正）」，汇总见 [README](./README.md)。

@@ -50,6 +50,29 @@ export const confirmTerminalTaskSchema = z
   })
   .strict();
 
+export const workerPtyReadySchema = z
+  .object({
+    sessionId: z.string().trim().min(1).max(500).nullable().optional(),
+    workerId: z.string().regex(WORKER_ID_RE),
+  })
+  .strict();
+
+export const workerPtyTakeoverSchema = z
+  .object({
+    sessionId: z.string().trim().min(1).max(500).nullable().optional(),
+    workerId: z.string().regex(WORKER_ID_RE),
+    reason: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .strict();
+
+export const workerPtyHandbackSchema = z
+  .object({
+    sessionId: z.string().trim().min(1).max(500).nullable().optional(),
+    workerId: z.string().regex(WORKER_ID_RE),
+    note: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .strict();
+
 export interface WorkerPtyDataEvent {
   workerId: string;
   data: string; // base64
@@ -77,6 +100,42 @@ export function registerWorkerPtyIpc(ctx: IpcContext): void {
   handleSecure('worker-pty:confirm-trust', { schema: workerPtyAttachSchema.extend({ generation: z.string().uuid() }).strict(), authorize: mainOnly,
     handler: ({ workerId, generation }) => attachments.has(workerId)
       ? TerminalCliSession.confirmTrust(workerId, generation) : { ok: false, error: 'Not attached' } });
+  handleSecure('worker-pty:ready', {
+    schema: workerPtyReadySchema,
+    authorize: mainOnly,
+    authorizeError: mainOnlyError,
+    handler: (payload) => {
+      const orchestrator = ctx.getOrchestrator(payload.sessionId);
+      if (!orchestrator) return { ok: false, error: 'No active meeting session' };
+      return orchestrator.resumeTerminalInput(payload.workerId);
+    },
+  });
+  handleSecure('worker-pty:takeover-status', {
+    schema: workerPtyAttachSchema,
+    authorize: mainOnly,
+    authorizeError: mainOnlyError,
+    handler: ({ workerId }) => TerminalCliSession.takeoverStatus(workerId),
+  });
+  handleSecure('worker-pty:takeover', {
+    schema: workerPtyTakeoverSchema,
+    authorize: mainOnly,
+    authorizeError: mainOnlyError,
+    handler: async (payload) => {
+      const orchestrator = ctx.getOrchestrator(payload.sessionId);
+      if (!orchestrator) return { ok: false, error: 'No active meeting session' };
+      return orchestrator.takeoverTask(payload.workerId, payload.reason);
+    },
+  });
+  handleSecure('worker-pty:handback', {
+    schema: workerPtyHandbackSchema,
+    authorize: mainOnly,
+    authorizeError: mainOnlyError,
+    handler: async (payload) => {
+      const orchestrator = ctx.getOrchestrator(payload.sessionId);
+      if (!orchestrator) return { ok: false, error: 'No active meeting session' };
+      return orchestrator.handBackTask(payload.workerId, payload.note);
+    },
+  });
 
   const detach = (workerId: string): void => {
     const att = attachments.get(workerId);
@@ -156,28 +215,20 @@ export function registerWorkerPtyIpc(ctx: IpcContext): void {
     },
   });
 
-  // Terminal workers have no machine-readable report channel: the user
-  // decides the outcome. 「标记完成」 synthesizes a minimal WorkReport and
-  // rides the normal delivery pipeline (verify → review → acceptance);
-  // 「标记失败」 rides the normal failed-signal path.
+  // Primary reporting for Native CLI Workers uses `aha-worker report`.
+  // This manual endpoint remains an explicit user-triggered fallback when
+  // the user chooses to confirm completion or mark failure from the UI.
   handleSecure('scheduler:confirm-terminal-task', {
     schema: confirmTerminalTaskSchema,
     authorize: mainOnly,
     authorizeError: mainOnlyError,
-    handler: (payload) => {
+    handler: async (payload) => {
       const orchestrator = ctx.getOrchestrator(payload.sessionId);
       if (!orchestrator) return { ok: false, error: 'No active meeting session' };
       if (payload.outcome === 'failed') {
         return orchestrator.failWorkerFromUser(payload.workerId, payload.summary);
       }
-      orchestrator.submitWorkerReport(payload.workerId, {
-        status: 'completed',
-        summary: payload.summary,
-        files: [],
-        tests: [],
-        unresolved: [],
-      });
-      return { ok: true };
+      return orchestrator.confirmTerminalReport(payload.workerId, payload.summary);
     },
   });
 }

@@ -151,6 +151,7 @@ export interface HostGroupOpts {
   /** Shared Meeting mailbox; every Worker instruction is journaled here
    * before a Backend session receives it. */
   taskMailbox?: TaskMailbox;
+  recordCustomEvent?: (kind: string, payload: Record<string, unknown>) => Promise<void>;
   /** Worker concurrency ceiling forwarded to the scheduler (default 4). */
   maxConcurrentWorkers?: number;
 }
@@ -241,6 +242,7 @@ export class HostGroup {
       persistPermissionDecision: opts.persistPermissionDecision,
       taskAuthorityCompilerRequired: opts.taskAuthorityCompilerRequired,
       taskMailbox: opts.taskMailbox,
+      recordCustomEvent: opts.recordCustomEvent,
       maxConcurrentWorkers: opts.maxConcurrentWorkers,
       buildWorkerMcp: (workerId, attempt) => (
         buildWorkerMcp(this.bridge, workerId, this.cwd, attempt)

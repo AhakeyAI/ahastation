@@ -21,6 +21,8 @@ const EXPECTED_VERSION: Readonly<Record<string, string>> = {
   opencode: '1.18.3',
 };
 
+const NATIVE_CLI_WORKER_IDS = new Set(['claude-code-terminal', 'codex-terminal']);
+
 export interface WorkerRuntimeAssessment {
   state: WorkerRuntimeState;
   version: string | null;
@@ -272,6 +274,14 @@ export function assessWorkerRuntime(input: {
           ? `检测到 ${input.version}，当前仅验证 ${expectedVersion}。请在 Lobby → Host CLI → Claude Code CLI 来源 中选择「系统 PATH」以使用本机版本，或选择「内置版本」使用 ${expectedVersion}。`
           : `检测到 ${input.version}，当前仅验证 ${expectedVersion}。`
         : '无法读取运行时版本。',
+    };
+  }
+  if (NATIVE_CLI_WORKER_IDS.has(input.backendId) && !input.version) {
+    return {
+      state: 'diagnostic-failed',
+      version: null,
+      expectedVersion,
+      reason: '无法读取原生 CLI 运行时版本。',
     };
   }
   if (!input.authenticated) {

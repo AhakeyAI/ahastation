@@ -25,6 +25,7 @@ import type { BackendSession, BackendSessionSnapshot } from './backends/cli-back
 import { getBackendRegistry } from './backends/registry.js';
 import {
   hostTerminalWorkerId,
+  isNativeCliWorkerBackend,
   isTerminalWorkerBackend,
 } from './backends/terminal-cli-adapter.js';
 import { parsePocketVibeRemoteTarget, parsePocketVibeRemoteHosts, remoteSessionKey, remoteMentionIds, resolveRemoteTarget, REMOTE_ATTACHMENT_ERROR, type PocketVibeRemoteTarget, type PocketVibeRemoteHost, type PocketVibeRemoteDirectory } from './backends/pocket-vibe-target.js';
@@ -167,9 +168,12 @@ export const MAX_HOSTS = 3;
  *  brainstorm = read-only research; develop = code in a worktree. */
 export type KickoffMode = 'brainstorm' | 'develop';
 
-/** Historical export name. New kickoff tasks keep the expert's SDK backend
- * until the native execution guard and B04 admit its terminal counterpart. */
+/** Map an expert Host backend to its admitted Native CLI Worker counterpart
+ *  when available (`claude-code` -> `claude-code-terminal`, `codex` ->
+ *  `codex-terminal`); other backends remain on themselves. */
 export function terminalWorkerBackendFor(backendId: string): string {
+  if (backendId === 'claude-code') return 'claude-code-terminal';
+  if (backendId === 'codex') return 'codex-terminal';
   return backendId;
 }
 
@@ -564,7 +568,13 @@ export class Orchestrator implements OrchestratorBridge {
       } else if (backendId === 'codex' || backendId === 'pocket-vibe') {
         systemPrompt = `${systemPrompt ?? ''}${PORTABLE_MEETING_COMMAND_PROMPT}`;
       }
-      const authEntry = getBackendAuth(backendId);
+      const parentAuthBackendId = backendId === 'claude-code-terminal'
+        ? 'claude-code'
+        : backendId === 'codex-terminal'
+          ? 'codex'
+          : null;
+      const authEntry = getBackendAuth(backendId)
+        ?? (parentAuthBackendId ? getBackendAuth(parentAuthBackendId) : undefined);
       const auth = authEntry
         ? {
             authMode: authEntry.authMode,
@@ -584,6 +594,7 @@ export class Orchestrator implements OrchestratorBridge {
       const {
         taskProfile: _taskProfile,
         resumeSessionId,
+        nativeCliWorker,
         ...backendExtra
       } = so;
       const requestedModel = taskProfile?.model
@@ -594,13 +605,17 @@ export class Orchestrator implements OrchestratorBridge {
       // the CLI falls back to ~/.codex/config.toml's own `model`.
       const model = backendId === 'codex'
         ? auth.model
-        : taskProfile
-          ? taskProfile.model
-          : backendId === 'claude-code'
-            ? (auth.model ?? requestedModel ?? backend.capabilities.defaultModel)
-            : requestedModel?.startsWith('claude-')
-              ? (auth.model ?? backend.capabilities.defaultModel)
-              : (auth.model ?? requestedModel ?? backend.capabilities.defaultModel);
+        : isNativeCliWorkerBackend(backendId)
+          ? (taskProfile?.model && taskProfile.model !== 'auto'
+              ? taskProfile.model
+              : (auth.model ?? taskProfile?.model ?? backend.capabilities.defaultModel))
+          : taskProfile
+            ? taskProfile.model
+            : backendId === 'claude-code'
+              ? (auth.model ?? requestedModel ?? backend.capabilities.defaultModel)
+              : requestedModel?.startsWith('claude-')
+                ? (auth.model ?? backend.capabilities.defaultModel)
+                : (auth.model ?? requestedModel ?? backend.capabilities.defaultModel);
       return backend.createSession(
         {
           cwd: opts.cwd,
@@ -609,6 +624,11 @@ export class Orchestrator implements OrchestratorBridge {
           systemPrompt,
           model,
           taskProfile,
+          ...(nativeCliWorker && typeof nativeCliWorker === 'object'
+            ? {
+                nativeCliWorker: nativeCliWorker as import('./backends/cli-backend.js').BackendSessionConfig['nativeCliWorker'],
+              }
+            : {}),
           env,
           mcpServers: so.mcpServers as Record<string, unknown> | undefined,
           skills: Array.isArray(so.skills) ? so.skills : undefined,
@@ -737,6 +757,10 @@ export class Orchestrator implements OrchestratorBridge {
         : undefined,
       taskAuthorityCompilerRequired: this.sessionFactory === Orchestrator.defaultClaudeFactory,
       taskMailbox: this.taskMailbox,
+      recordCustomEvent: async (kind, payload) => {
+        await this.repository.append(kind, payload);
+        await this.repository.flush();
+      },
     });
     this.hostGroups.set(id, hg);
     if (id === DEFAULT_HOST_ID) {
@@ -1930,10 +1954,39 @@ export class Orchestrator implements OrchestratorBridge {
     return { ok: true, expertHostId, taskId };
   }
 
-  /** The user took over an expert's sub-agent and hands it back: the owner reads
-   *  the user's changes before directing it again (same rule as document
-   *  takeover in AME; CLI takeover itself changes AME-D32/D33/Q20, 2026-10-30). */
-  handBackTask(taskId: string, note?: string): { ok: true } | { ok: false; error: string } {
+  takeoverTask(taskId: string, reason?: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    return this.meetingScheduler.takeoverTask(taskId, reason);
+  }
+
+  /** The user took over a terminal worker or an expert's sub-agent and hands it
+   *  back: read actual workspace changes FIRST on Native CLI Workers, then
+   *  notify any owning expert Host before directing it again. */
+  async handBackTask(
+    taskId: string,
+    note?: string,
+  ): Promise<{ ok: true; workspaceSummary?: import('./worker-report-files.js').HandbackWorkspaceSummary } | { ok: false; error: string }> {
+    if (this.meetingScheduler.hasWorker(taskId)) {
+      const terminalHandback = await this.meetingScheduler.handBackTask(taskId, note);
+      if (terminalHandback.ok) {
+        const owner = this.taskOwners.get(taskId);
+        if (owner) {
+          void this.repository.append('task-handed-back', { taskId, owner });
+          const filesDesc = terminalHandback.workspaceSummary.changedFiles.length > 0
+            ? terminalHandback.workspaceSummary.changedFiles.map((f) => `${f.action}:${f.path}`).join(', ')
+            : '无未提交文件改动';
+          this.hostGroups.get(owner)?.getHost()?.sendUserText(
+            `(handback) 用户刚才接管了你的子 Agent ${taskId}，现在交还给你。`
+            + `已读取工作树实际改动（${filesDesc}）。${note ? `用户留言：${note}。` : ''}`
+            + '基于最新内容再用 follow_up_task 继续派活，不要覆盖用户的改动。',
+            'high',
+          );
+        }
+        return terminalHandback;
+      }
+      if (!terminalHandback.error.includes('does not support terminal handback')) {
+        return terminalHandback;
+      }
+    }
     const owner = this.taskOwners.get(taskId);
     if (!owner) return { ok: false, error: 'task has no owning expert' };
     const host = this.hostGroups.get(owner)?.getHost();
@@ -2281,7 +2334,13 @@ export class Orchestrator implements OrchestratorBridge {
       // plans must additionally pass the exact runtime/auth gate before any
       // task is installed into the global Scheduler.
       if (this.sessionFactory !== Orchestrator.defaultClaudeFactory) continue;
-      const authEntry = getBackendAuth(backendId);
+      const parentAuthBackendId = backendId === 'claude-code-terminal'
+        ? 'claude-code'
+        : backendId === 'codex-terminal'
+          ? 'codex'
+          : null;
+      const authEntry = getBackendAuth(backendId)
+        ?? (parentAuthBackendId ? getBackendAuth(parentAuthBackendId) : undefined);
       const auth = authEntry
         ? {
             authMode: authEntry.authMode,
@@ -3213,6 +3272,14 @@ export class Orchestrator implements OrchestratorBridge {
 
   submitWorkerReport(workerId: string, report: import('./worker-protocol.js').WorkReport, sourceAttempt?: number): void {
     this.meetingScheduler.submitWorkerReport(workerId, report, sourceAttempt);
+  }
+
+  confirmTerminalReport(workerId: string, summary: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    return this.meetingScheduler.confirmTerminalReport(workerId, summary);
+  }
+
+  resumeTerminalInput(workerId: string): { ok: boolean } {
+    return this.meetingScheduler.resumeTerminalInput(workerId);
   }
 
   /** Renderer confirm bar for terminal-mode workers: mark the running

@@ -1,5 +1,7 @@
 # 原生 CLI / 守卫能力矩阵
 
+> 2026-11-02：本表保留旧 Host 裁决/离线守卫路线的 S/V/O/E/B 证据，不是当前需求矩阵。原生子任务不回 Host 工具审批，按[当前规划](../plans/2026-11-02-native-cli-worker-integration.md)和[新验收清单](b04-runtime/native-cli-scenarios.md)推进；下文逐工具 permit、独立出口/凭据隔离和旧“下一责任”不再作为本机接线前置。历史 unknown 保持 unknown，不自动转为新模式失败或通过。
+
 2026-11-01。证据等级：S=固定官方源码/schema；V=隔离实际二进制启动；O=真实 OS/broker sentinel；E=真实模型工具回合；B=B04 实机。各列独立，不能用 S/V/O 冒充 E/B。下表 V/broker 证据继承固定 #148 `8bbb7e0`；本轮新增 O 只针对自有隐藏 ConPTY 映像，不重复执行 CLI。
 
 会话身份限制：离线守卫 relay 的 `fixture-*` ID 不是 CLI 原生 sessionId。工厂仅在显式新建的隔离验收 profile 工作，普通 profile 拒绝；原生会话的 IF-2 绑定仍 unknown。main 注册和 scheduler ports 是接线准备，实际 terminal adapter 启动/报告到此守卫的产品链尚未完成。

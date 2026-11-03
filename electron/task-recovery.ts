@@ -31,6 +31,20 @@ export interface TaskRecoveryAssessment {
 
 const READ_ONLY_TOOL_KINDS = new Set(['read', 'search', 'git-read']);
 const TERMINAL_TASK_STATUSES = new Set(['accepted', 'failed', 'cancelled']);
+const TERMINAL_WORKER_BACKEND_IDS = new Set([
+  'claude-code-terminal',
+  'kimi-code-terminal',
+  'codex-terminal',
+  'qoder-terminal',
+]);
+
+function isTerminalRecoveryBackend(task: Record<string, unknown>): boolean {
+  if (typeof task.executorBackendId === 'string' && TERMINAL_WORKER_BACKEND_IDS.has(task.executorBackendId)) {
+    return true;
+  }
+  const profile = record(task.executionProfile);
+  return typeof profile?.backendId === 'string' && TERMINAL_WORKER_BACKEND_IDS.has(profile.backendId);
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -73,6 +87,9 @@ export function normalizeLegacyTaskStatus(status: unknown): unknown {
  * write, command, environment, network, credential, or external authority.
  * Missing legacy facts are never interpreted as read-only permission. */
 export function isExplicitReadOnlyRecoveryTask(task: Record<string, unknown>): boolean {
+  // Interactive PTY/native CLI sessions do not survive app restarts and own
+  // their own runtime permission state; never auto-dispatch a duplicate run.
+  if (isTerminalRecoveryBackend(task)) return false;
   if (task.workspaceMode !== 'read-only') return false;
   const authority = record(task.authorityRequest);
   if (!authority) return false;
@@ -162,6 +179,8 @@ export function recoveryRecordFromPlanTask(
 ): Record<string, unknown> {
   return {
     status,
+    executorBackendId: task.executorBackendId,
+    ...(task.executionProfile ? { executionProfile: structuredClone(task.executionProfile) } : {}),
     workspaceMode: task.workspaceMode,
     authorityRequest: structuredClone(task.authorityRequest),
   };

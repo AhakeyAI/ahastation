@@ -1,5 +1,7 @@
 # 架构决策记录（ADR）
 
+> 2026-11-02 当前原生 Worker 决定：[接线规划](../plans/2026-11-02-native-cli-worker-integration.md)记录用户取消子任务回 Host 工具审批、复用原生 CLI 且不修改 Codex 引擎。0019 的审批/逐工具许可相关条款已被局部替代；SDK 和跨端用户审批不在本次取消范围。历史 ADR 正文与证据保留，当前实施不从已替代条款追加前置。
+
 每条决定一个文件：`NNNN-短名.md`。状态取值：提议 / 已接受 / 已替代（注明替代者）。已接受的 ADR 不修改正文，改主意就写新的 ADR 替代它。
 
 ## 编号规则（2026-10-26 起，决定 G7）
@@ -36,11 +38,11 @@
 | [0016](0016-runtime-base-keep-adapters.md) | 运行底座：保留现有 adapter，不引入 Paseo 作为执行层 | C0（原 0004） | 已接受（D14）；执行部分已被 0019 替代 | 2026-10-23 |
 | [0017](0017-trusted-hub-with-signed-device-messages.md) | 内部验收阶段的跨设备：受信 Hub + 设备签名（公开前补内容加密） | 评审 R2（C01） | 已接受 | 2026-10-27 |
 | [0018](0018-cross-device-executor-uses-ts-adapters.md) | 跨设备执行端复用 TS adapter | 评审 R2（C03–C05） | 已接受；第 1、2 条已被 0019 替代 | 2026-10-27 |
-| [0019](0019-native-cli-workers-with-host-hooks.md) | Worker 跑原生 CLI，审批经全局 hooks 转给宿主 | 用户决定（10-28） | 已接受 | 2026-10-28 |
+| [0019](0019-native-cli-workers-with-host-hooks.md) | Worker 跑原生 CLI，审批经全局 hooks 转给宿主 | 用户决定（10-28） | 原生运行方向保留；审批相关条款已由 [11-02 用户决定](../plans/2026-11-02-native-cli-worker-integration.md)替代 | 2026-10-28；范围更新 2026-11-02 |
 
 0002–0012 的文件已随本地整合保留，0013–0016 从 C0 `04c5f762` 原文引入，只同步治理文档，未据此合入其实现。这些 ADR 在该分支内标为 accepted，但按决定 G1，跨设备方案以评审结论为准。
 
-交叉点的逐项原文、代码影响与建议见 [本次冲突表](../collaboration/INTEGRATION_CONFLICTS_2026-10-26.md)。本次未新增 ADR；下一个编号仍为 0017。
+交叉点的逐项原文、代码影响与建议见 [本次冲突表](../collaboration/INTEGRATION_CONFLICTS_2026-10-26.md)。该冲突表属于历史评审；编号使用本文顶部的登记规则与当前索引，不能再沿用旧文中的“下一个编号 0017”。
 
 ## 待裁决的交叉点
 

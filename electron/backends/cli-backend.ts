@@ -163,6 +163,16 @@ export interface BackendSessionConfig {
   hostId?: string;
   /** Meeting tab id (server-registry key component). */
   meetingId?: string;
+  /** Explicit launch contract for local native CLI Worker sessions running in
+   *  native CLI self-approval mode (no Host per-tool approval relay). */
+  nativeCliWorker?: {
+    mode: 'native-cli-self-approval';
+    meetingId: string;
+    taskId: string;
+    workerId: string;
+    attempt: number;
+    workspaceCwd: string;
+  };
 }
 
 export interface BackendSessionSnapshot {
@@ -243,6 +253,18 @@ export interface BackendSession {
   setPermissionMode?(mode: string): Promise<void>;
   /** Durable native handle used for interrupted recovery. */
   snapshot?(): BackendSessionSnapshot | null;
+  /** Confirmed owned-process-tree stop for interactive PTY sessions. */
+  terminateSessionTree?(): Promise<{ confirmed: boolean; pid: number | null; reason?: string }>;
+  /** Explicit user confirmation to release gated startup input (login/trust). */
+  resumePendingInput?(): boolean;
+  /** Enter human keyboard takeover mode (pauses automatic input injection). */
+  enterTakeover?(): Promise<{ ok: boolean; error?: string }>;
+  /** Complete human takeover and resume automatic input with optional diff summary. */
+  completeHandback?(instruction?: string): { ok: boolean; error?: string };
+  /** Whether a human currently holds exclusive takeover of this terminal session. */
+  isTakenOver?(): boolean;
+  /** Whether the session is ready, idle between turns, and not gated or taken over. */
+  isIdleForAutomaticInput?(): boolean;
 }
 
 // ── CLI backend factory ────────────────────────────────────────────────────────

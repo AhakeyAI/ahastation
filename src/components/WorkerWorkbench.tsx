@@ -108,6 +108,23 @@ export function WorkerWorkbench({
   const trustAnswered = useRef(false);
   const watchOnly = Boolean(subagent) && !takenOver;
 
+  useEffect(() => {
+    let active = true;
+    const syncTakeover = () => {
+      void window.vibeMeet.workerPty.takeoverStatus?.(workerId).then((res) => {
+        if (active && res?.ok && typeof res.takenOver === 'boolean') {
+          setTakenOver(res.takenOver);
+        }
+      }).catch(() => {});
+    };
+    syncTakeover();
+    const timer = window.setInterval(syncTakeover, 1500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [workerId]);
+
   const handleOutput = useCallback((text: string) => {
     if (trustAnswered.current) return;
     outputTail.current = (outputTail.current + matchable(text)).slice(-6000);
@@ -132,21 +149,28 @@ export function WorkerWorkbench({
   const restart = useCallback(async () => {
     setTakeoverError(null);
     const res = await window.vibeMeet.sessions.restartOwnedTask?.(sessionId, workerId);
-    if (res && !res.ok) { setTakeoverError(res.error); return; }
+    if (res && !res.ok) { setTakeoverError(res.error ?? '交还失败'); return; }
     setTakeoverOpen(false);
   }, [sessionId, workerId]);
 
   const takeOver = useCallback(async () => {
     setTakeoverError(null);
-    const res = await window.vibeMeet.tasks.interrupt(sessionId, workerId, '用户接管子 Agent');
+    const reason = subagent ? '用户接管子 Agent' : '用户接管原生终端';
+    const ptyRes = await window.vibeMeet.workerPty.takeover?.(sessionId, workerId, reason);
+    const res = ptyRes && (ptyRes.ok || !ptyRes.error?.includes('does not support terminal takeover'))
+      ? ptyRes
+      : await window.vibeMeet.tasks.interrupt(sessionId, workerId, reason);
     if (!res.ok) { setTakeoverError(res.error ?? '打断失败'); return; }
     setTakenOver(true);
     setTakeoverOpen(false);
   }, [sessionId, workerId]);
 
   const handBack = useCallback(async () => {
-    const res = await window.vibeMeet.sessions.handBackTask?.(sessionId, workerId);
-    if (res && !res.ok) { setTakeoverError(res.error); return; }
+    setTakeoverError(null);
+    const res = window.vibeMeet.workerPty.handback
+      ? await window.vibeMeet.workerPty.handback(sessionId, workerId)
+      : await window.vibeMeet.sessions.handBackTask?.(sessionId, workerId);
+    if (res && !res.ok) { setTakeoverError(res.error ?? '交还失败'); return; }
     setTakenOver(false);
   }, [sessionId, workerId]);
 
@@ -209,6 +233,21 @@ export function WorkerWorkbench({
                 <span><strong>{subagent.ownerTitle} {subagent.ownerName}</strong> 正在让子 Agent 做：{subagent.taskTitle}</span>
                 <span className="subagent-bar-note">{stopped ? '已停止' : '只能看，不能直接输入'}</span>
                 <button type="button" className="subagent-bar-btn" onClick={() => { setTakeoverError(null); setTakeoverOpen(true); }}>{stopped ? '重新开始…' : '接管'}</button>
+              </>
+            )}
+          </div>
+        )}
+        {!subagent && !stopped && (
+          <div className={`subagent-bar${takenOver ? ' is-taken-over' : ''}`}>
+            {takenOver ? (
+              <>
+                <span><strong>你已接管终端</strong>（自动输入已暂停）</span>
+                <button type="button" className="subagent-bar-btn" onClick={() => void handBack()}>交还（读取改动后继续）</button>
+              </>
+            ) : (
+              <>
+                <span>原生 CLI 会话运行中（工具确认在终端内按 CLI 自身配置处理）</span>
+                <button type="button" className="subagent-bar-btn" onClick={() => void takeOver()}>接管终端</button>
               </>
             )}
           </div>
