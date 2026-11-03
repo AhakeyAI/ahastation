@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "O1": {
+      "result": "fail",
+      "observed": "locator.waitFor: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('讨论脑暴') to be visible\u001b[22m\n\n    at C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\validation\\pr156-opencode-quit.mjs:52:52"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-quit-2\\O1-failure.png"
+  ],
+  "before": [],
+  "error": "locator.waitFor: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('讨论脑暴') to be visible\u001b[22m\n\n    at C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\validation\\pr156-opencode-quit.mjs:52:52",
+  "failureBody": "pr156-opencode-repo-iuW4EE\n首页 / 选择目录\n会议正在启动\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-repo-iuW4EE\n启动中…\n返回首页\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-repo-iuW4EE\n01:00\n自动批准\n会议正在启动，请稍候\n任务看板\n工作区\n任务\n0 项，2 个项目\n项目\n本项目室（C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-repo-iuW4EE）\n全部项目\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-HdLRpn\n客户端\n全部客户端\ncodex\n泳道\n待执行\n已确认，还没开工\n0\n\n暂无\n\n进行中\nWorker 正在推进\n0\n\n暂无\n\n待确认\n等你批准或验收\n0\n\n暂无\n\n已完成\nMeeting 分支或终态\n0\n\n暂无\n\n参会者\n1\n对话\n文件\n会议正在启动，请稍候\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写"
+}

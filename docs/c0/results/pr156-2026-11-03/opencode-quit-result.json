@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "O1": {
+      "result": "pass",
+      "observed": "started=true; newProcessesAfterQuit=0"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-quit-3\\O1-before-quit.png"
+  ],
+  "before": [],
+  "during": [
+    {
+      "Id": 13700,
+      "StartTime": "/Date(1793724280833)/",
+      "Path": "C:\\Users\\shawn\\orca\\workspaces\\ahastation-internal\\verify-pr156\\node_modules\\opencode-windows-x64\\bin\\opencode.exe"
+    }
+  ],
+  "body": "pr156-opencode-repo-30XQ4b\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-repo-30XQ4b\n00:21\n自动批准\nYou\nYou\n麦克风空闲\n助理\nO\n执行中\n任务看板\n工作区\n任务\n0 项，2 个项目\n项目\n本项目室（C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-opencode-repo-30XQ4b）\n全部项目\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-HdLRpn\n客户端\n全部客户端\ncodex\n泳道\n待执行\n已确认，还没开工\n0\n\n暂无\n\n进行中\nWorker 正在推进\n0\n\n暂无\n\n待确认\n等你批准或验收\n0\n\n暂无\n\n已完成\nMeeting 分支或终态\n0\n\n暂无\n\n参会者\n1\n对话\n文件\nHost 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n这个项目还是空的，先做什么？\n讨论脑暴\n理清目标、用户和方案，不改代码\n开始开发\n先搭最小骨架，子 Agent 在工作树里写代码\n请「产品专家 小禾」入会，用\nCodex\n小禾派一个子 Agent，在共享区第三个标签用原生 CLI 只读调研，你可以看，需要时接管\n助理在「工作区」实时整理结论、决策和待办，你确认后再写进看板\n开始\n先不用，我自己说\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+  "after": []
+}

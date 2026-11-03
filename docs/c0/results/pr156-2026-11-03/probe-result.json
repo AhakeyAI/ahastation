@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "B1": {
+      "result": "pass",
+      "observed": "window title=AhaStudio; body chars=160; dialogs=0"
+    },
+    "B2": {
+      "result": "pass",
+      "observed": "authorized=true; rejected=false; stale=false"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-ui-probe\\B1-initial.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-ui-probe\\B2-device-ready.png"
+  ],
+  "title": "AhaStudio",
+  "bodyText": "AhaStudio\n和 AI 开会写代码：说话、共享屏幕、派活\nHost CLI — 未配置\n设备就绪\n0/4 Worker\n先看看你的 AI 都在哪些项目里工作\n\n只读扫描本机的 Claude Code、Codex、Kimi 会话，按项目排成项目室。不需要授权，也不会改动任何文件。\n\n扫描本机 AI 会话\n新建项目室",
+  "buttons": [
+    "Host CLI — 未配置",
+    "设备就绪0/4 Worker",
+    "扫描本机 AI 会话",
+    "新建项目室"
+  ],
+  "dialogErrors": [],
+  "afterDeviceText": "AhaStudio\n和 AI 开会写代码：说话、共享屏幕、派活\nHost CLI — Claude Code\n设备就绪\n4/4 Worker\n系统\nwin32 · x64\nkernel 10.0.26200 · native\nElectron / GPU\n可用\nElectron 45.1.0\n音频 / 讯飞 ASR\n讯飞需配置\n麦克风 已授权 · 扬声器 待测试\nGit / 容量\nworktree 可用\n3 Host · 4 Worker\nClaude Code\n需登录\n\n运行时可用，但尚未通过认证检查。\n\n2.1.310 / 验证版本 2.1.310\n前往登录\nCodex\n可用\n\n安装、版本、认证和 Worker 契约均已就绪。\n\n0.156.1 / 验证版本 >=0.156.1 <0.157.0\nKimi\n实验\n诊断失败\n\n无法读取运行时版本。\n\n版本未知 / 验证版本 0.24.1\n查看处理方式\nOpenCode\n实验\n版本不兼容\n\n检测到 1.18.5，当前仅验证 1.18.3。\n\n1.18.5 / 验证版本 1.18.3\n查看处理方式\n先看看你的 AI 都在哪些项目里工作\n\n只读扫描本机的 Claude Code、Codex、Kimi 会话，按项目排成项目室。不需要授权，也不会改动任何文件。\n\n扫描本机 AI 会话\n新建项目室"
+}

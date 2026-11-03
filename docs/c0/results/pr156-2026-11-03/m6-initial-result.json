@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "M6": {
+      "result": "fail",
+      "observed": "blank=false"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-m6-only\\M6.png"
+  ],
+  "body": "pr156-empty-repo-e5WxxJ\n首页 / 选择目录\n会议正在启动\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-e5WxxJ\n启动中…\n返回首页\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-e5WxxJ\n00:10\n自动批准\n会议正在启动，请稍候\n任务看板\n工作区\n会议纪要\n讨论开始后，助理会在这里整理\n确认并写入看板\n\n还没有纪要。和助理、专家聊起来后，结论、决策和待办会出现在这里。\n\n终端\n当前任务\n待命\n执行中\n最近动态\n还没有动态。\n参会者\n1\n对话\n4\n文件\nCodex\n24 分钟前\n欢迎小禾加入。我们先听项目现状，再一起收敛可做的方向；每轮形成结论后，我会更新会议纪要。\nCodex\n24 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n23 分钟前\n小禾暂时没回话，我先直接追一下调研任务的进展。拿到项目事实后，我们就能讨论具体方向。\nCodex\n23 分钟前\n我正在处理，有结果会马上告诉你。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写"
+}

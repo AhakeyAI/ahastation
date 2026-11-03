@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "V1": {
+      "result": "not-applicable",
+      "observed": "micDisabled=true; muted=false; system mic icon not inspected"
+    },
+    "V3": {
+      "result": "fail",
+      "observed": "{\"foregroundAnimations\":1,\"windowActive\":\"true\",\"visibility\":\"visible\",\"animations\":0}"
+    },
+    "V4": {
+      "result": "pass",
+      "observed": "{\"darkMedia\":true,\"bodyColor\":\"rgb(242, 242, 247)\",\"blurredElements\":0}"
+    }
+  },
+  "performance": {
+    "lobby": {
+      "seconds": 32.42,
+      "cpuPercentByRole": {
+        "main": 1.542257865515114,
+        "gpu": 0.04819555829734731,
+        "utility": 0,
+        "renderer": 0.33736890808143116
+      },
+      "systemCpuPercent": 26.534357967649,
+      "processCount": 5
+    },
+    "meeting-idle-mic-unavailable": {
+      "seconds": 31.172,
+      "cpuPercentByRole": {
+        "main": 2.8070062876940844,
+        "gpu": 21.65404850506865,
+        "utility": 0,
+        "renderer": 4.9623861157448985
+      },
+      "systemCpuPercent": 32.33719039877594,
+      "processCount": 7
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-performance-final-2\\V1-muted.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-performance-final-2\\V4-dark.png"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "C1": {
+      "result": "fail",
+      "observed": "notepad=false; computerUseLabel=true; nativeError=false"
+    },
+    "C3": {
+      "result": "not-run",
+      "observed": "C1 did not open Notepad"
+    },
+    "C4": {
+      "result": "not-run",
+      "observed": "C1 did not create a usable Computer Use Worker"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-scenarios-4\\C1-notepad.png"
+  ],
+  "repo": "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-1tbvcn",
+  "display": {
+    "accelerometerSupport": "unknown",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 576,
+      "height": 1024
+    },
+    "colorDepth": 24,
+    "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+    "depthPerComponent": 8,
+    "detected": true,
+    "displayFrequency": 53,
+    "id": 3601456074,
+    "internal": true,
+    "label": "",
+    "maximumCursorSize": {
+      "width": 0,
+      "height": 0
+    },
+    "monochrome": false,
+    "nativeOrigin": {
+      "x": 0,
+      "y": 0
+    },
+    "rotation": 180,
+    "scaleFactor": 1.25,
+    "size": {
+      "width": 576,
+      "height": 1024
+    },
+    "workArea": {
+      "x": 0,
+      "y": 24,
+      "width": 576,
+      "height": 1000
+    },
+    "workAreaSize": {
+      "width": 576,
+      "height": 1000
+    },
+    "touchSupport": "unknown"
+  },
+  "workerBackendSetting": {
+    "ok": true
+  },
+  "planApprovals": [
+    "确认并调度 1 个任务"
+  ],
+  "codexTrustApproved": true,
+  "finalBody": "pr156-host-repo-1tbvcn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-1tbvcn\n05:07\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n任务看板\n1\n工作区\nopen-notepad\n  settings can run     \n  code automatically,  \n  even without a       \n  model request.       \n  Continue only if     \n  you trust these      \n  files. Your trust    \n  decision will be     \n  saved.\n› 1. Trust and continue\n  2. Quit\n  enter continue ·     \nUnsent draft:\n## T\nError: timed out discar\nding buffered terminal \ninput\n \n协作\n›\n任务\n失败\n\n请作为 Computer Use Worker 实际操作桌面：用鼠标打开 Windows 记事本，在空白文档中输入且仅输入“你好 AhaStudio”。完成后检查窗口中显示的内容，并回报实际结果；不要只提供操作步骤。\n\nAttempt 1\nMailbox 0\n验收条件（1）\nFollow-up\n加入后续队列\nSteering\n在安全边界转向\nInterrupt Task\nMailbox\n0 条\n\n尚无 Coordinator、Worker 或用户消息。\n\n展开完整检查器\n参会者\n1\n对话\n7\n文件\nYou\n4 分钟前\n帮我用鼠标打开记事本，输入：你好 AhaStudio。请派出 Computer Use Worker 实际执行，不要只给操作步骤。\nCodex\n4 分钟前\n我这就派 Computer Use Worker 实际操作，完成后请它回报结果。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n4 分钟前\n刚才执行通道中断了，没收到操作结果。我会重新派发这项任务。\nCodex\n3 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n3 分钟前\n重试也没能接上原来的 Worker。我会新建一次执行任务，请新的 Computer Use Worker 操作。\nCodex\n3 分钟前\n我正在处理，有结果会马上告诉你。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\nPlan Mode\n审阅执行计划\n立即 1 项 · 等容量 0 项 · 上限 4\n目标\n做法与取舍\n步骤\n添加步骤\n步骤 1\n×\n风险\n未决问题\nWorker 任务（1）\n任务 1\n删除\n任务 ID\n标题完整交付要求\n执行与权限配置（可选）\n前置依赖\n无其他任务\n下游启动门槛\n进入 Meeting 分支后\n验证与审查通过后即可\n分析/只读任务默认此项：下游不必等进 Meeting 分支。\n预计执行中需要用户决策\n验收条件与允许测试\n添加条件\n人工验收\n自动命令\n×\n添加任务\n拒绝计划\n确认并调度 1 个任务\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写"
+}
