@@ -105,6 +105,28 @@ test('dirty git shared-locked mode is explicit unmanaged compatibility execution
   assert.equal(workspace.lockKeys.length, 1);
 });
 
+test('an empty repository with an unborn HEAD supports read-only and isolated worktrees', async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'ahastation-unborn-git-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  execFileSync('git', ['init'], { cwd, stdio: 'ignore' });
+  const worktreeRoot = await mkdtemp(join(tmpdir(), 'ahastation-unborn-worktrees-'));
+  t.after(() => rm(worktreeRoot, { recursive: true, force: true }));
+  const manager = new TaskWorkspaceManager('meeting', cwd, { worktreeRoot });
+
+  const baseline = manager.inspectBaseline();
+  assert.equal(baseline.kind, 'git-clean');
+  assert.match(baseline.revision, /^unborn:/);
+  assert.equal(manager.prepare('reader', { mode: 'read-only', writePaths: [] }).sourceRevision, baseline.revision);
+  const workspace = manager.prepare('writer', { mode: 'git-worktree', writePaths: ['src'] });
+  assert.equal(workspace.sourceRevision, baseline.revision);
+  assert.equal(workspace.cwd, join(worktreeRoot, 'writer'));
+  assert.equal(existsSync(workspace.cwd), true);
+  assert.throws(() => manager.prepare('other', {
+    mode: 'git-worktree', writePaths: ['src'], sourceRevision: 'a'.repeat(40),
+  }), /unborn branch/);
+  manager.release('writer', true);
+});
+
 test('source revision is honored for clean worktrees and invalid revisions fail before mutation', async (t) => {
   const cwd = await gitFixture(t);
   const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
