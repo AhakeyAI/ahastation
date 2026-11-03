@@ -37,6 +37,23 @@ test('non-macOS does not invoke macOS permission APIs', async () => {
   assert.deepEqual(calls, { ask: 0, help: 0, settings: 0 });
 });
 
+test('Windows never shows a consent sheet and only falls back to settings help when the privacy toggle is off', async () => {
+  for (const status of ['granted', 'not-determined', 'unknown']) {
+    const { calls, value } = deps(status);
+    value.platform = 'win32';
+    assert.equal(await ensureMicrophoneAccess(value, true), true, status);
+    assert.deepEqual(calls, { ask: 0, help: 0, settings: 0 });
+  }
+  const { calls, value } = deps('denied');
+  value.platform = 'win32';
+  assert.equal(await ensureMicrophoneAccess(value, true), false);
+  assert.deepEqual(calls, { ask: 0, help: 1, settings: 1 });
+  const quiet = deps('denied');
+  quiet.value.platform = 'win32';
+  assert.equal(await ensureMicrophoneAccess(quiet.value, false), false);
+  assert.deepEqual(quiet.calls, { ask: 0, help: 0, settings: 0 });
+});
+
 test('macOS package declares microphone privacy and audio-input entitlement', async () => {
   const [entitlements, builderConfig, packageJson] = await Promise.all([
     readFile(new URL('../build/entitlements.mac.plist', import.meta.url), 'utf8'),

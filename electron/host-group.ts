@@ -245,9 +245,7 @@ export class HostGroup {
       buildWorkerMcp: (workerId, attempt) => (
         buildWorkerMcp(this.bridge, workerId, this.cwd, attempt)
       ),
-      buildComputerUseMcp: process.platform === 'darwin'
-        ? (workerId) => buildComputerUseMcp(cuBridge, workerId)
-        : undefined,
+      buildComputerUseMcp: (workerId) => buildComputerUseMcp(cuBridge, workerId),
       buildBrowserMcp: this.browserTabManager
         ? (workerId) => buildBrowserMcp(this.browserTabManager!, browserBridge, workerId)
         : undefined,

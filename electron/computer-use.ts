@@ -1,12 +1,12 @@
-// computer-use.ts — low-level macOS automation primitives for the Computer Use
-// integration. Zero external dependencies: screenshots via Electron's
-// desktopCapturer, mouse/keyboard/scroll via JXA (osascript -l JavaScript).
+// computer-use.ts — desktop automation primitives for the Computer Use
+// integration, the same on macOS, Windows and Linux: screenshots via
+// Electron's desktopCapturer, mouse/keyboard/scroll via libnut.
 //
-// Every action checks accessibility permission before executing and returns a
-// typed result so the MCP layer can surface permission errors to the worker.
+// Every action checks accessibility permission (macOS) before executing and
+// returns a typed result so the MCP layer can surface errors to the worker.
 
 import { desktopCapturer, screen, systemPreferences } from 'electron';
-import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 export interface ActionOk<T = void> {
   ok: true;
@@ -28,25 +28,81 @@ export interface ScreenshotData {
 }
 
 // ---------------------------------------------------------------------------
-// Platform guard — Computer Use relies on macOS-only osascript (JXA).
-// On Windows/Linux, isAccessibilityGranted() returns false — Computer Use is
-// macOS-only — and every action returns an error before reaching osascript.
+// Native input — one implementation for macOS, Windows and Linux (X11) via
+// libnut (the nut.js native core). Each platform package ships a prebuilt
+// N-API binary, so the same code runs in Electron without a rebuild. It is
+// loaded lazily: a missing or broken binary turns into an action error
+// instead of breaking app start.
 
-function platformGuard(): ActionErr | null {
-  if (process.platform === 'darwin') return null;
-  return { ok: false, error: 'Computer Use is only available on macOS' };
+interface Libnut {
+  moveMouse(x: number, y: number): void;
+  mouseClick(button?: string, double?: boolean): void;
+  scrollMouse(x: number, y: number): void;
+  keyTap(key: string, modifier?: string | string[]): void;
+  typeString(text: string): void;
+  getMousePos(): { x: number; y: number };
+}
+
+const LIBNUT_PACKAGE: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: '@nut-tree-fork/libnut-darwin',
+  win32: '@nut-tree-fork/libnut-win32',
+  linux: '@nut-tree-fork/libnut-linux',
+};
+
+const nodeRequire = createRequire(import.meta.url);
+let libnut: Libnut | null = null;
+let libnutError: string | null = null;
+
+function loadLibnut(): Libnut | ActionErr {
+  if (libnut) return libnut;
+  if (libnutError) return { ok: false, error: libnutError };
+  const pkg = LIBNUT_PACKAGE[process.platform];
+  if (!pkg) {
+    libnutError = `Computer Use is not available on ${process.platform}`;
+    return { ok: false, error: libnutError };
+  }
+  try {
+    libnut = nodeRequire(pkg) as Libnut;
+    return libnut;
+  } catch (err) {
+    libnutError = `Computer Use input module failed to load: ${err instanceof Error ? err.message : String(err)}`;
+    return { ok: false, error: libnutError };
+  }
+}
+
+function runInput(action: (nut: Libnut) => void): ActionResult {
+  const permErr = requireAccessibility();
+  if (permErr) return permErr;
+  const nut = loadLibnut();
+  if ('ok' in nut) return nut;
+  try {
+    action(nut);
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Screenshot pixels → the coordinate space the OS input API expects.
+ * macOS posts events in points, so divide by the display scale. Windows
+ * (Electron is per-monitor DPI aware) and X11 take physical pixels, which
+ * is what the screenshot is in. */
+function toInputPoint(x: number, y: number): { x: number; y: number } {
+  const scale = process.platform === 'darwin' ? screen.getPrimaryDisplay().scaleFactor || 1 : 1;
+  return { x: Math.round(x / scale), y: Math.round(y / scale) };
 }
 
 // ---------------------------------------------------------------------------
-// Accessibility permission gate
+// Accessibility permission gate — only macOS asks the user for it. Windows
+// and X11 let a desktop app send input without a system permission.
 
 export function isAccessibilityGranted(): boolean {
-  if (process.platform !== 'darwin') return false;
+  if (process.platform !== 'darwin') return true;
   return systemPreferences.isTrustedAccessibilityClient(false);
 }
 
 export function requestAccessibility(): boolean {
-  if (process.platform !== 'darwin') return false;
+  if (process.platform !== 'darwin') return true;
   return systemPreferences.isTrustedAccessibilityClient(true);
 }
 
@@ -63,8 +119,6 @@ function requireAccessibility(): ActionErr | null {
 // Screenshot — uses Electron desktopCapturer, no accessibility needed
 
 export async function takeScreenshot(displayId?: number): Promise<ActionResult<ScreenshotData>> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
   try {
     const displays = screen.getAllDisplays();
     const target = displayId != null
@@ -114,33 +168,6 @@ export async function takeScreenshot(displayId?: number): Promise<ActionResult<S
 }
 
 // ---------------------------------------------------------------------------
-// JXA execution helper
-
-function runJxa(script: string): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('osascript', ['-l', 'JavaScript', '-e', script], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    // 30s timeout — osascript can hang on modal dialogs, JXA infinite loops,
-    // or CoreGraphics deadlocks. Without this the worker stalls forever.
-    const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch { /* already exited */ }
-      resolve({ ok: false, error: 'JXA execution timed out (30s)' });
-    }, 30_000);
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.on('error', (err: Error) => { clearTimeout(timer); resolve({ ok: false, error: err.message }); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve({ ok: true, stdout: stdout.trim() });
-      else resolve({ ok: false, error: stderr.trim() || `osascript exited ${code}` });
-    });
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Mouse actions
 
 export type MouseButton = 'left' | 'right' | 'middle';
@@ -151,145 +178,67 @@ export async function mouseClick(
   button: MouseButton = 'left',
   clickCount: number = 1,
 ): Promise<ActionResult> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
-  const permErr = requireAccessibility();
-  if (permErr) return permErr;
-
-  const scaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
-  const px = Math.round(x / scaleFactor);
-  const py = Math.round(y / scaleFactor);
-
-  const eventType = button === 'right' ? 'rightMouseDown' : 'leftMouseDown';
-  const eventTypeUp = button === 'right' ? 'rightMouseUp' : 'leftMouseUp';
-  const cgButton = button === 'right' ? 1 : 0;
-
-  const script = `
-    ObjC.import('CoreGraphics');
-    var point = $.CGPointMake(${px}, ${py});
-    ${Array.from({ length: clickCount }, (_, i) => `
-    var down${i} = $.CGEventCreateMouseEvent(null, $.k${capitalize(eventType)}, point, ${cgButton});
-    $.CGEventSetIntegerValueField(down${i}, $.kCGMouseEventClickState, ${i + 1});
-    $.CGEventPost($.kCGHIDEventTap, down${i});
-    var up${i} = $.CGEventCreateMouseEvent(null, $.k${capitalize(eventTypeUp)}, point, ${cgButton});
-    $.CGEventSetIntegerValueField(up${i}, $.kCGMouseEventClickState, ${i + 1});
-    $.CGEventPost($.kCGHIDEventTap, up${i});
-    `).join('\n')}
-    delay(0.05);
-  `;
-
-  const r = await runJxa(script);
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: undefined };
+  const point = toInputPoint(x, y);
+  return runInput((nut) => {
+    nut.moveMouse(point.x, point.y);
+    if (clickCount === 2) {
+      nut.mouseClick(button, true);
+      return;
+    }
+    for (let i = 0; i < clickCount; i++) nut.mouseClick(button, false);
+  });
 }
 
 export async function mouseMove(x: number, y: number): Promise<ActionResult> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
-  const permErr = requireAccessibility();
-  if (permErr) return permErr;
-
-  const scaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
-  const px = Math.round(x / scaleFactor);
-  const py = Math.round(y / scaleFactor);
-
-  const script = `
-    ObjC.import('CoreGraphics');
-    var point = $.CGPointMake(${px}, ${py});
-    var event = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point, 0);
-    $.CGEventPost($.kCGHIDEventTap, event);
-  `;
-
-  const r = await runJxa(script);
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: undefined };
+  const point = toInputPoint(x, y);
+  return runInput((nut) => nut.moveMouse(point.x, point.y));
 }
 
 // ---------------------------------------------------------------------------
 // Keyboard actions
 
-const KEY_MAP: Record<string, number> = {
-  return: 36, enter: 36, tab: 9, space: 49, delete: 51, backspace: 51,
-  escape: 53, esc: 53,
-  up: 126, down: 125, left: 123, right: 124,
-  home: 115, end: 119, pageup: 116, pagedown: 121,
-  f1: 122, f2: 120, f3: 99, f4: 118, f5: 96, f6: 97,
-  f7: 98, f8: 100, f9: 101, f10: 109, f11: 103, f12: 111,
+/** Tool key names → libnut key names. `delete` keeps its macOS meaning
+ * (the key left of backspace on Mac keyboards is labelled delete). */
+const KEY_MAP: Record<string, string> = {
+  return: 'enter', enter: 'enter', tab: 'tab', space: 'space',
+  delete: 'backspace', backspace: 'backspace',
+  escape: 'escape', esc: 'escape',
+  up: 'up', down: 'down', left: 'left', right: 'right',
+  home: 'home', end: 'end', pageup: 'pageup', pagedown: 'pagedown',
+  f1: 'f1', f2: 'f2', f3: 'f3', f4: 'f4', f5: 'f5', f6: 'f6',
+  f7: 'f7', f8: 'f8', f9: 'f9', f10: 'f10', f11: 'f11', f12: 'f12',
 };
 
+/** Workers write shortcuts the Mac way (cmd+c). On Windows and Linux the
+ * same shortcut is Ctrl, so `command` maps to control there. */
+function modifierFor(name: string): string | undefined {
+  switch (name.toLowerCase()) {
+    case 'command': case 'cmd': return process.platform === 'darwin' ? 'command' : 'control';
+    case 'control': case 'ctrl': return 'control';
+    case 'option': case 'alt': return 'alt';
+    case 'shift': return 'shift';
+    default: return undefined;
+  }
+}
+
 export async function keyboardType(text: string): Promise<ActionResult> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
-  const permErr = requireAccessibility();
-  if (permErr) return permErr;
-
-  const escaped = text
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\t/g, '\\t')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')
+  const clean = text
+    .replace(/\r\n?/g, '\n')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-
-  const script = `
-    var se = Application('System Events');
-    se.keystroke("${escaped}");
-  `;
-
-  const r = await runJxa(script);
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: undefined };
+  return runInput((nut) => nut.typeString(clean));
 }
 
 export async function keyboardPress(
   key: string,
   modifiers: string[] = [],
 ): Promise<ActionResult> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
-  const permErr = requireAccessibility();
-  if (permErr) return permErr;
-
   const keyLower = key.toLowerCase();
-  const keyCode = KEY_MAP[keyLower];
-
-  const modMap: Record<string, string> = {
-    command: 'command down', cmd: 'command down',
-    control: 'control down', ctrl: 'control down',
-    option: 'option down', alt: 'option down',
-    shift: 'shift down',
-  };
-  const modList = modifiers
-    .map((m) => modMap[m.toLowerCase()])
-    .filter(Boolean);
-  const usingClause = modList.length > 0
-    ? ` using {${modList.join(', ')}}`
-    : '';
-
-  let script: string;
-  if (keyCode != null) {
-    script = `
-      var se = Application('System Events');
-      se.keyCode(${keyCode}${usingClause});
-    `;
-  } else if (keyLower.length === 1) {
-    // Escape for JXA string literal — same rules as keyboardType
-    const safeKey = keyLower
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-    script = `
-      var se = Application('System Events');
-      se.keystroke("${safeKey}"${usingClause});
-    `;
-  } else {
+  const name = KEY_MAP[keyLower] ?? (keyLower.length === 1 && !/[\x00-\x1f\x7f]/.test(keyLower) ? keyLower : undefined);
+  if (!name) {
     return { ok: false, error: `Unknown key: "${key}". Use a single character or one of: ${Object.keys(KEY_MAP).join(', ')}` };
   }
-
-  const r = await runJxa(script);
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: undefined };
+  const mods = modifiers.map(modifierFor).filter((m): m is string => !!m);
+  return runInput((nut) => nut.keyTap(name, mods));
 }
 
 // ---------------------------------------------------------------------------
@@ -303,35 +252,11 @@ export async function scroll(
   direction: ScrollDirection,
   amount: number = 3,
 ): Promise<ActionResult> {
-  const pGuard = platformGuard();
-  if (pGuard) return pGuard;
-  const permErr = requireAccessibility();
-  if (permErr) return permErr;
-
-  const scaleFactor = screen.getPrimaryDisplay().scaleFactor || 1;
-  const px = Math.round(x / scaleFactor);
-  const py = Math.round(y / scaleFactor);
-
+  const point = toInputPoint(x, y);
   const dy = direction === 'up' ? amount : direction === 'down' ? -amount : 0;
-  const dx = direction === 'left' ? amount : direction === 'right' ? -amount : 0;
-
-  const script = `
-    ObjC.import('CoreGraphics');
-    var point = $.CGPointMake(${px}, ${py});
-    var move = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, point, 0);
-    $.CGEventPost($.kCGHIDEventTap, move);
-    var scroll = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitLine, 2, ${dy}, ${dx});
-    $.CGEventPost($.kCGHIDEventTap, scroll);
-  `;
-
-  const r = await runJxa(script);
-  if (!r.ok) return { ok: false, error: r.error };
-  return { ok: true, data: undefined };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  const dx = direction === 'right' ? amount : direction === 'left' ? -amount : 0;
+  return runInput((nut) => {
+    nut.moveMouse(point.x, point.y);
+    nut.scrollMouse(dx, dy);
+  });
 }
