@@ -8,6 +8,9 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { DeliveryHarness } from '../dist-electron/delivery-harness.js';
@@ -62,8 +65,8 @@ function makeTrackedSessionFactory() {
   return { sessions, resolveSessionFactory };
 }
 
-function parallelPlan() {
-  return BACKENDS.map((backendId, index) => ({
+function parallelPlan(backends = BACKENDS) {
+  return backends.map((backendId, index) => ({
     id: `parallel-${backendId}`,
     title: `${backendId} slice ${index + 1}`,
     prompt: `Execute smoke task for ${backendId}`,
@@ -90,7 +93,7 @@ function workerEventsFrom(events) {
     .map((event) => event.event);
 }
 
-function assertCanonicalWorkerEvents(workerEvents, meetingId) {
+function assertCanonicalWorkerEvents(workerEvents, meetingId, backends = BACKENDS) {
   const eventIds = new Set();
   for (const event of workerEvents) {
     assert.equal(event.schemaVersion, 2);
@@ -98,7 +101,7 @@ function assertCanonicalWorkerEvents(workerEvents, meetingId) {
     assert.match(event.eventId, /^[0-9a-f-]{36}$/i);
     assert.ok(!eventIds.has(event.eventId), `duplicate eventId ${event.eventId}`);
     eventIds.add(event.eventId);
-    assert.ok(BACKENDS.includes(event.backendId), `unexpected backend ${event.backendId}`);
+    assert.ok(backends.includes(event.backendId), `unexpected backend ${event.backendId}`);
     assert.equal(typeof event.seq, 'number');
     assert.ok(event.seq > 0);
     assert.equal(typeof event.attempt, 'number');
@@ -213,14 +216,16 @@ test('mocked four-backend smoke never promotes a Worker release tier', () => {
   }
 });
 
-test('orchestrator keeps renderer worker-eventId identical to events.jsonl', async () => {
+test('orchestrator keeps native Worker renderer eventIds identical to events.jsonl', async (t) => {
   const meetingId = randomUUID();
+  const backends = ['claude-code-terminal', 'codex-terminal'];
+  const cwd = await mkdtemp(join(tmpdir(), 'aha-native-worker-events-'));
   const rendererEvents = [];
   const workerSessions = [];
   const orch = new Orchestrator({
     meetingId,
     emit: (event) => { rendererEvents.push(event); },
-    cwd: process.cwd(),
+    cwd,
     sessionFactory: () => {
       const session = {
         started: false,
@@ -230,26 +235,37 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
         sendUserContent() {},
         resolvePermission() {},
         async interrupt() {},
+        async terminateSessionTree() { return { confirmed: true, pid: null }; },
         end() { this.ended = true; },
       };
       workerSessions.push(session);
       return session;
     },
   });
+  t.after(async () => {
+    await orch.end();
+    await rm(cwd, { recursive: true, force: true });
+  });
 
-  assert.deepEqual(await orch.installPlan(parallelPlan()), { ok: true });
+  assert.deepEqual(await orch.installPlan(parallelPlan(backends).map((task) => ({
+    ...task, workspaceMode: 'shared-locked', writePaths: [`${task.id}.txt`],
+  }))), { ok: true });
   // A factory call precedes the running session being installed. Wait for
   // readiness before injecting events, otherwise early signals are dropped.
-  await waitFor(() => workerSessions.length === 4 && workerSessions.every(session => session.started),
-    'orchestrator did not start four workers');
+  await waitFor(() => workerSessions.length === backends.length && workerSessions.every(session => session.started),
+    'orchestrator did not start both native Workers');
 
-  for (const backendId of BACKENDS) {
+  for (const backendId of backends) {
     const workerId = `parallel-${backendId}`;
+    const path = `${workerId}.txt`;
+    await writeFile(join(cwd, path), 'native worker output\n');
     orch.schedulerOnWorkerEvent(workerId, {
       kind: 'worker-signal',
       signal: { kind: 'progress', message: `${backendId} working` },
     });
-    orch.submitWorkerReport(workerId, report);
+    orch.submitWorkerReport(workerId, {
+      ...report, files: [{ path, action: 'created' }],
+    });
     orch.schedulerOnWorkerEvent(workerId, {
       kind: 'worker-signal',
       signal: { kind: 'ended', reason: 'completed' },
@@ -257,7 +273,7 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
   }
 
   await waitFor(
-    () => workerEventsFrom(rendererEvents).length >= 12,
+    () => workerEventsFrom(rendererEvents).length >= backends.length * 3,
     'renderer did not receive canonical worker events',
   );
 
@@ -269,7 +285,7 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
   }, 'journal did not persist worker events');
 
   const rendererWorkerEvents = workerEventsFrom(rendererEvents);
-  assertCanonicalWorkerEvents(rendererWorkerEvents, meetingId);
+  assertCanonicalWorkerEvents(rendererWorkerEvents, meetingId, backends);
 
   for (const rendered of rendererWorkerEvents) {
     const journalRow = journal.find((row) => {
@@ -281,6 +297,4 @@ test('orchestrator keeps renderer worker-eventId identical to events.jsonl', asy
     assert.ok(journalRow, `journal missing worker-event ${rendered.eventId}`);
     assert.deepEqual(journalRow.payload.event.event, rendered);
   }
-
-  await orch.end();
 });

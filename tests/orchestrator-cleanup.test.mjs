@@ -1,6 +1,6 @@
 // Minimal coverage of the worker-resource-release paths added to fix the
-// PTY/subprocess leak. The test stubs ClaudeSession via the Orchestrator's
-// `sessionFactory` opt so we never spawn the real Claude CLI subprocess.
+// PTY/subprocess leak. The injected session models native tree-stop evidence
+// without spawning a CLI subprocess.
 //
 // Run after `npm run build:electron`:
 //   node --test tests/orchestrator-cleanup.test.mjs
@@ -30,10 +30,14 @@ class FakeSession {
   async interrupt() { /* no-op */ }
   async setPermissionMode() { /* no-op */ }
   setAutoApprove() { /* no-op */ }
+  async terminateSessionTree() {
+    this.ended = true;
+    return { confirmed: true, pid: null };
+  }
   end() { this.ended = true; }
 }
 
-function makeOrch(cwd = '/tmp', workspaceManager, meetingId) {
+function makeOrch(cwd, workspaceManager, meetingId) {
   const events = [];
   const sessions = [];
   const orch = new Orchestrator({
@@ -51,6 +55,10 @@ function makeOrch(cwd = '/tmp', workspaceManager, meetingId) {
     },
   });
   return { orch, events, sessions };
+}
+
+function writableTask(id, deps = []) {
+  return { id, title: id, prompt: 'do work', deps, workspaceMode: 'shared-locked', writePaths: [`${id}.txt`] };
 }
 
 function createGitWorkspace(t) {
@@ -158,16 +166,16 @@ test('legacy task_done cannot release a worker; reviewed WorkReport does', async
   await orch.end();
 });
 
-test('premature session end (no task_done) cleans up + cascades', async () => {
-  const { orch, sessions, events } = makeOrch();
+test('premature session end (no task_done) cleans up + cascades', async (t) => {
+  const { orch, sessions, events } = makeOrch(createGitWorkspace(t));
   await orch.installPlan([
-    { id: 'a', title: 'A', prompt: 'do A', deps: [] },
-    { id: 'b', title: 'B', prompt: 'do B', deps: ['a'] },
+    writableTask('a'),
+    writableTask('b', ['a']),
   ]);
   await waitUntil(() => sessions.length === 1, 'first dependency worker was not created');
   assert.equal(sessions.length, 1, 'only A is spawned initially (B blocked on dep)');
 
-  // Simulate the SDK ending the worker stream before task_done was called
+  // Simulate the Worker transport ending before delivery
   // (e.g. crash, network drop, or user cancel mid-flight).
   orch.schedulerOnWorkerEvent('a', { kind: 'ended' });
   await waitUntil(
@@ -175,7 +183,7 @@ test('premature session end (no task_done) cleans up + cascades', async () => {
     'failure did not cascade',
   );
 
-  assert.equal(sessions[0].ended, true, 'A.session.end() invoked on premature end');
+  await waitUntil(() => sessions[0].ended, 'A native session was not terminated');
 
   // B should now be marked failed and never spawn.
   const failedEvents = events.filter(
@@ -184,20 +192,21 @@ test('premature session end (no task_done) cleans up + cascades', async () => {
   const failedIds = failedEvents.map((e) => e.event.workerId).sort();
   assert.deepEqual(failedIds, ['a', 'b'], 'A failed, B cascaded to failed');
   assert.equal(sessions.length, 1, 'B never spawned a session');
-  orch.end();
+  await orch.end();
 });
 
-test('end() tears down every live worker', async () => {
-  const { orch, sessions } = makeOrch();
+test('end() tears down every live worker', async (t) => {
+  const { orch, sessions } = makeOrch(createGitWorkspace(t));
   await orch.installPlan([
-    { id: 'a', title: 'A', prompt: 'do A', deps: [] },
-    { id: 'b', title: 'B', prompt: 'do B', deps: [] },
+    writableTask('a'),
+    writableTask('b'),
   ]);
   await waitUntil(() => sessions.length === 2, 'parallel workers were not created');
   assert.equal(sessions.length, 2);
   assert.ok(sessions.every((s) => s.ended === false));
 
-  orch.end();
+  await orch.end();
+  await waitUntil(() => sessions.every((s) => s.ended), 'native cleanup did not complete');
 
   assert.ok(
     sessions.every((s) => s.ended === true),
@@ -205,9 +214,9 @@ test('end() tears down every live worker', async () => {
   );
 });
 
-test('disposeWorker is idempotent (double end() does not throw)', async () => {
-  const { orch, sessions } = makeOrch();
-  await orch.installPlan([{ id: 'a', title: 'A', prompt: 'do A', deps: [] }]);
+test('disposeWorker is idempotent (double end() does not throw)', async (t) => {
+  const { orch, sessions } = makeOrch(createGitWorkspace(t));
+  await orch.installPlan([writableTask('a')]);
   await waitUntil(() => sessions.length === 1, 'worker session was not created');
   orch.schedulerOnWorkerEvent('a', {
     kind: 'worker-signal',
@@ -219,19 +228,19 @@ test('disposeWorker is idempotent (double end() does not throw)', async () => {
     },
   });
   await waitUntil(() => sessions[0].ended, 'failed worker was not disposed');
-  // Re-firing an SDK end event after terminal cleanup is a no-op.
+  // Re-firing an end event after terminal cleanup is a no-op.
   assert.doesNotThrow(() => orch.schedulerOnWorkerEvent('a', { kind: 'ended' }));
   assert.equal(sessions[0].ended, true);
-  orch.end();
+  await orch.end();
 });
 
-test('worker receives its first task only after backend readiness resolves', async () => {
+test('worker receives its first task only after backend readiness resolves', async (t) => {
   let releaseReady;
   const ready = new Promise((resolve) => { releaseReady = resolve; });
   const sessions = [];
   const orch = new Orchestrator({
     emit() {},
-    cwd: '/tmp',
+    cwd: createGitWorkspace(t),
     sessionFactory: () => {
       const session = new FakeSession();
       session.start = () => ready.then(() => { session.started = true; });
@@ -240,13 +249,13 @@ test('worker receives its first task only after backend readiness resolves', asy
     },
   });
 
-  await orch.installPlan([{ id: 'ready-gate', title: 'Ready', prompt: 'do work', deps: [] }]);
+  await orch.installPlan([writableTask('ready-gate')]);
   await waitUntil(() => sessions.length === 1, 'worker session was not created');
   assert.equal(sessions.length, 1);
   assert.deepEqual(sessions[0].inputs, [], 'task is not sent during backend handshake');
 
   releaseReady();
-  await new Promise((resolve) => setImmediate(resolve));
+  await waitUntil(() => sessions[0].inputs.length > 0, 'worker did not receive the task after readiness');
   assert.match(sessions[0].inputs[0]?.text ?? '', /^## Task\ndo work/);
   assert.match(sessions[0].inputs[0]?.text ?? '', /## Frozen visible context/);
   await orch.end();
