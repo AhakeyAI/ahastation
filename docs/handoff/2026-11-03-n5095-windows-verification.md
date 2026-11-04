@@ -158,6 +158,8 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 | windows-latest | `H02/H08 production WSS: suspended stop retains its input…` |
 | windows-latest | `Windows startup failure is session-local and persistence recovers after a failed write` |
 | windows-latest | `two production Station receivers share real Hub state, persist receipt, execute once, stop and explicitly continue` |
+| macos-latest | `F3 actual React identical refresh preserves the exact baseline edit` |
+| windows-latest | `S05 actual attachment preparation failure preserves new edits and cannot generate a message` |
 
 ## 已知限制和不在这次范围内的
 
