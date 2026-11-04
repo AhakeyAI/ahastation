@@ -1,6 +1,6 @@
 # 原生 CLI Worker 验收：CLI 自身审批模式
 
-日期：2026-11-02（Asia/Singapore）；证据更新：2026-11-03（Asia/Taipei）。依据：[当前接线规划](../../plans/2026-11-02-native-cli-worker-integration.md)。新路线已完成下述隐藏离线接线验证；**真实 Claude/Codex 引擎、账号和模型验收尚未执行**。旧 `scenarios.json`、harness 和 `results/` 是其各自 SHA/配置的历史材料，不修改或覆盖，不把旧结论迁移为当前通过。
+日期：2026-11-02（Asia/Singapore）；证据更新：2026-11-04（Asia/Taipei）。依据：[当前接线规划](../../plans/2026-11-02-native-cli-worker-integration.md)。下方分别保留 `31fde4f` 的历史离线结果及 11-04 审查修复；**真实 Claude/Codex 引擎、账号和模型验收尚未执行**。旧 `scenarios.json`、harness 和 `results/` 是其各自 SHA/配置的历史材料，不修改或覆盖，不把旧结论迁移为当前通过。
 
 本清单复用创建、追问、拒绝、停止、恢复和成果验证的目的；不要求子任务向 Host 发送工具审批，也不以 Host 没有收到请求作为失败依据。SDK、跨端用户审批等其他模式继续适用各自契约。
 
@@ -39,7 +39,7 @@ Leo 交付本机接线及证据；主对话独立复核；Shawn 的指定平台�
 | N4/N5 | 自有 Git 工作区实际 diff、领域验证命令、冻结候选、持久回执、逐块审阅/返工/接受及临时用户仓库最终交付；幂等、冲突、无凭据、错误任务和旧 attempt 拒绝 | 模型自行编辑/测试并调用报告入口；报告中的自述测试结果不自动成为独立证据 |
 | N6 | Windows 隐藏自有 Node 根进程和子进程；按绑定 PID 树停止、OS PID 退出检查、停止后 30 秒活动日志不增长；另有未确认分支和重复停止回归 | 真实 CLI 工具后代树及指定硬件；POSIX 的枚举与退出检查需以对应平台结果单列 |
 | N7 | 注入 PTY 的单一输入者暂停；真实临时 Git diff 与新增文件摘要先于交还输入 | 真实 TUI 的人工键盘接管与继续执行 |
-| N8 | 同进程内模拟应用重建/断线，恢复记录分类、无重复派工、旧凭据拒绝、显式重试保留原生后端 | 真实应用崩溃/重启及 CLI 会话恢复；未证明自动恢复 |
+| N8 | 同进程内模拟应用重建/断线，恢复记录分类、无重复派工、旧凭据拒绝、显式重试保留原生后端；11-04 活跃派工夹具改为写任务，历史只读记录仍验证不自动恢复 | 真实应用崩溃/重启及 CLI 会话恢复；未证明自动恢复；原生只读任务已明确拒绝 |
 
 重跑（PowerShell，先将 `C:\Program Files\nodejs` 加入 `$env:PATH`）：
 
@@ -48,6 +48,28 @@ npm.cmd run build:electron
 node.exe --test --test-force-exit --test-concurrency=1 --test-timeout=120000 --import "data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));" tests/native-cli-worker-n1-n8.test.mjs
 ```
 
-本地结果：N1–N8（N4/N5 合并为一个测试，共 7 个）及 9 个相关回归文件合计 **71/71 通过，无跳过**；`npm.cmd run typecheck`（Renderer/Electron）与 `npm.cmd run build` 通过。回归文件为 `claude-terminal-adapter`、`codex-terminal-adapter`、`global-hooks-admission`、`kickoff`、`pty-host`、`renderer-native-cli`、`renderer-plan-validation`、`terminal-sessions`、`worker-runtime-contract`（均为 `tests/*.test.mjs`）。
+`31fde4f` 的历史本地结果：N1–N8（N4/N5 合并为一个测试，共 7 个）及 9 个相关回归文件合计 **71/71 通过，无跳过**；`npm.cmd run typecheck`（Renderer/Electron）与 `npm.cmd run build` 通过。回归文件为 `claude-terminal-adapter`、`codex-terminal-adapter`、`global-hooks-admission`、`kickoff`、`pty-host`、`renderer-native-cli`、`renderer-plan-validation`、`terminal-sessions`、`worker-runtime-contract`（均为 `tests/*.test.mjs`）。这些测试未覆盖以下审查故障，不代表它们在该提交中已修复。
 
-跨平台全量测试与构建以 Draft PR 的最终 SHA CI 为准；绿色 CI 不替代上表的真实引擎、模型、硬件或生产验收。
+11-03 已关闭 PR #153、删除本次远端分支并取消 CI `41635491962`。当前修复只保留本地，没有本轮 CI 或跨平台通过证据。
+
+## 2026-11-04 审查修复证据
+
+修复基线为 `31fde4f34feb2677d2429c29c652ef49de918f10`，继续使用同一指定 worktree。新增 `tests/native-cli-worker-review-fixes.test.mjs` 和 `tests/worker-report-files.test.mjs`，并补强 N7、准入和 delivery harness 回归；没有修改 Codex 引擎。
+
+| 审查问题 | 接线层修复 | 离线故障覆盖 |
+| --- | --- | --- |
+| P1 旧报告进入新 attempt | 固定 session、attempt、delivery、workspace 引用；各异步点后重验；停止在写邮箱前即撤销报告资格；Harness 校验预期 attempt，新交付保留单调递增的任务 attempt | 日志被暂停时停止及停止后重试；停止自身日志尚未写完时报告；检查新旧交付记录都没有接收旧报告 |
+| P1 正常交付遗留子进程 | 回执后走 `terminateSessionTree`，确认后释放；清理期间/失败保留归属与并发名额，接受结果也不绕过整树清理 | 实际隐藏 Windows Node 根/子进程的正常回执及接受路径；模拟清理失败时无普通 `end()` 兜底，下一任务不能占用该名额 |
+| P1 原生只读任务可能写原仓库 | 对当前没有已验证只读配置的原生 `read-only` 明确拒绝；计划、启动和 adapter 契约均检查，脑暴在启动专家/子任务前拒绝 | 原生计划/脑暴无会话启动，原仓库文件保持原样；两种 adapter 拒绝只读绑定 |
+| P2 交还先发旧指令 | 将改动说明放在积压消息前并合为一轮输入，门控未就绪时也保留这一顺序 | N7 有意积压 adapter 输入和邮箱追问；检查说明在前，只有一次提交 |
+| P2 Git 失败伪装空 diff | 检查失败返回明确错误，保留人工接管及待发消息，不发送自动输入 | 不存在及非 Git 工作区读取失败；N7 交还失败后无输入，恢复有效路径后才可继续 |
+
+上述为夹具/模拟与自有 Git、回环 HTTP、Windows 进程的实际离线证据，不是第三方 CLI、模型或生产验收。真实账号与付费模型仍需用户另行授权。
+
+11-04 最终本地检查：17 个相关测试文件 **119/119 通过，无跳过**，其中包含 N1–N8、7 个新增审查故障用例及 1 个工作区读取失败用例；Renderer/Electron 类型检查、完整构建和 `git diff --check` 通过。扩展回归包括 delivery harness、任务恢复分类、邮箱、问题重发与调度协作缺陷。所有修复仍为本地未提交修改。
+
+单独重跑新增故障用例（先执行上方 `build:electron`）：
+
+```powershell
+node.exe --test --test-force-exit --test-concurrency=1 --test-timeout=120000 --import "data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));" tests/native-cli-worker-review-fixes.test.mjs tests/worker-report-files.test.mjs
+```

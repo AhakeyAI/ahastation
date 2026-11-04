@@ -1743,6 +1743,7 @@ html.popout-view #root {
   background: var(--bg-glass, rgba(255,255,255,0.05));
   color: var(--text-primary, #e4e6ea);
 }
+.stage-tab-worker { flex-shrink: 0; max-width: 300px; }
 .stage-tab-active {
   background: var(--bg-glass, rgba(255,255,255,0.08));
   color: var(--text-primary, #e4e6ea);

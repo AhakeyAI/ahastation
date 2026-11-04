@@ -122,6 +122,7 @@ export function registerAuthIpc(): void {
         env,
         stdio: 'pipe',
         detached: false,
+        windowsHide: true,
       });
       proc.stdout.on('data', (data: Buffer) => {
         stdout += data.toString('utf8');

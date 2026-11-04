@@ -171,6 +171,7 @@ export class TaskWorkspaceManager {
     }
     const revision = this.resolveCommit('HEAD');
     const status = execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+      windowsHide: true,
       cwd: this.baseCwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -322,6 +323,7 @@ export class TaskWorkspaceManager {
     if (removeWorktree && workspace.kind === 'git-worktree') {
       try {
         execFileSync('git', ['worktree', 'remove', '--force', workspace.cwd], {
+          windowsHide: true,
           cwd: this.baseCwd,
           stdio: 'ignore',
           timeout: 30_000,
@@ -340,6 +342,7 @@ export class TaskWorkspaceManager {
   private isGitRepository(): boolean {
     try {
       return execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+        windowsHide: true,
         cwd: this.baseCwd,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -358,6 +361,7 @@ export class TaskWorkspaceManager {
     }
     try {
       return execFileSync('git', ['rev-parse', '--verify', `${revision}^{commit}`], {
+        windowsHide: true,
         cwd: this.baseCwd,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],

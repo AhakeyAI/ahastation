@@ -231,6 +231,7 @@ test('stale delivery observer detaches after a follow-up attempt reset', async (
   const queues = new Map();
   let proposeCount = 0;
   const inspectCalls = [];
+  const briefings = [];
   const harness = {
     async propose() {
       proposeCount += 1;
@@ -261,6 +262,9 @@ test('stale delivery observer detaches after a follow-up attempt reset', async (
     snapshot() { return undefined; },
   };
   const { scheduler, sessions } = makeScheduler({
+    emit({ event }) {
+      if (event.kind === 'coordinator-briefing') briefings.push(event.briefing);
+    },
     deliveryHarness: harness,
     taskMailbox: inMemoryMailbox(),
   });
@@ -273,13 +277,15 @@ test('stale delivery observer detaches after a follow-up attempt reset', async (
   // Attempt 1 fails; a follow-up forks attempt 2 with a fresh delivery.
   sessions[0].opts.emit({
     kind: 'worker-signal',
-    signal: { kind: 'failed', code: 'worker-runtime-error', message: 'boom', retryable: true },
+    signal: { kind: 'ended', reason: 'crashed' },
   });
   await waitFor(
     () => scheduler.snapshot().find((task) => task.id === 'w1')?.status === 'failed',
     'attempt 1 did not fail',
   );
-  await scheduler.queueFollowUp('w1', 'try again');
+  const failure = briefings.find((briefing) => briefing.kind === 'failed');
+  assert.equal(failure?.taskId, 'w1');
+  await scheduler.queueFollowUp(failure.taskId, 'try again');
   await waitFor(() => sessions.length === 2, 'follow-up attempt was not spawned');
   await waitFor(() => scheduler.workers.get('w1').deliveryId === 'd-2', 'attempt 2 delivery missing');
 

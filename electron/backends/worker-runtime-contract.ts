@@ -1,8 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { getClaudeCodeCliSource } from '../claude-cli/resolve.js';
 import {
-  CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION,
-  CODEX_APP_SERVER_MIN_VERSION,
+  CODEX_APP_SERVER_VERSION_REQUIREMENT,
   isSupportedCodexAppServerVersion,
 } from './codex-app-server-transport.js';
 
@@ -16,7 +15,7 @@ export type WorkerRuntimeState =
 
 const EXPECTED_VERSION: Readonly<Record<string, string>> = {
   'claude-code': '2.1.150',
-  codex: `>=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}`,
+  codex: CODEX_APP_SERVER_VERSION_REQUIREMENT,
   kimi: '0.24.1',
   opencode: '1.18.3',
 };

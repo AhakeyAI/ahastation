@@ -2,6 +2,7 @@ import { dialog } from 'electron';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { normalizeSubprocessEnvKey } from './backends/backend-environment.js';
 import { getSettings } from './store.js';
 
 export interface ClaudeEnv {
@@ -111,7 +112,8 @@ export function mergedSubprocessEnv(): NodeJS.ProcessEnv {
   const claudeEnv = loadClaudeEnv();
   const out: NodeJS.ProcessEnv = {};
   // 1. Inherit only allowlisted vars from the Electron main process env.
-  for (const [k, v] of Object.entries(process.env)) {
+  for (const [name, v] of Object.entries(process.env)) {
+    const k = normalizeSubprocessEnvKey(name);
     if (typeof v === 'string' && isEnvAllowed(k)) {
       // Strip dangerous NODE_OPTIONS flags (--inspect*, --require, -r) to
       // prevent debug port exposure and arbitrary code loading via subprocess.
@@ -131,7 +133,7 @@ export function mergedSubprocessEnv(): NodeJS.ProcessEnv {
   //    file, so we trust every key in it (and let it override allowlisted
   //    process env where they collide).
   for (const [k, v] of Object.entries(claudeEnv)) {
-    if (typeof v === 'string' && v.length > 0) out[k] = v;
+    if (typeof v === 'string' && v.length > 0) out[normalizeSubprocessEnvKey(k)] = v;
   }
   // 3. App settings: explicit API key / gateway / model entered in the UI.
   //    Base URL + model are only honored alongside an apikey so a stray

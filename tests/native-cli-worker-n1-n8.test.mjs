@@ -1260,6 +1260,8 @@ test('N7: Takeover fences automatic input while human edits worktree; handback r
   assert.deepEqual(await orchestrator.takeoverTask('n7-takeover', '用户接管排障'), { ok: true });
   assert.equal(TerminalCliSession.takeoverStatus('n7-takeover').takenOver, true);
   const writesAfterTakeover = pty.writes.length;
+  const handle = orchestrator.meetingScheduler.workers.get('n7-takeover');
+  handle.session.sendUserText('积压旧指令：按接管前的上下文继续');
 
   // Automatic messages & steers must NOT write to PTY during human takeover (0 contention!)
   await orchestrator.queueTaskFollowUp('n7-takeover', '交还后再执行的追问指令');
@@ -1272,6 +1274,16 @@ test('N7: Takeover fences automatic input while human edits worktree; handback r
   assert.equal(pty.writes.length, writesAfterTakeover + 1);
   writeFileSync(join(worktreeCwd, 'src', 'manual-fix.js'), 'export const fixedByHuman = true;\n', 'utf8');
   writeFileSync(join(worktreeCwd, 'src', 'hello.js'), 'export const greeting = "human-updated";\n', 'utf8');
+
+  // Inspection failure must retain takeover and send no automatic input.
+  handle.workspace.cwd = join(root, 'missing-workspace');
+  const writesBeforeFailedHandback = pty.writes.length;
+  const failedHandback = await orchestrator.handBackTask('n7-takeover', '读取失败时不能继续');
+  assert.equal(failedHandback.ok, false);
+  assert.match(failedHandback.error, /工作区|workspace/i);
+  assert.equal(TerminalCliSession.takeoverStatus('n7-takeover').takenOver, true);
+  assert.equal(pty.writes.length, writesBeforeFailedHandback);
+  handle.workspace.cwd = worktreeCwd;
 
   // Handback: reads actual workspace diff FIRST, keeps same PTY & CLI flags, then delivers diff notice + queued follow-up
   const handbackRes = await orchestrator.handBackTask('n7-takeover', '我已手动修好 hello.js 并新增 manual-fix.js');
@@ -1286,6 +1298,9 @@ test('N7: Takeover fences automatic input while human edits worktree; handback r
   assert.deepEqual(spawned[0].args, argsAtStart);
 
   const injectedOnHandback = pty.writes.slice(writesAfterTakeover + 1).join('');
+  assert.ok(injectedOnHandback.indexOf('[handback]') < injectedOnHandback.indexOf('积压旧指令'));
+  assert.equal(pty.writes.slice(writesAfterTakeover + 1).filter((s) => s === '\r').length, 1,
+    'inspection notice and queued instructions resume in one contextualized turn');
   assert.match(injectedOnHandback, /\[handback\]/);
   assert.match(injectedOnHandback, /modified:src\/hello\.js/);
   assert.match(injectedOnHandback, /created:src\/manual-fix\.js/);
@@ -1361,7 +1376,8 @@ test('N8: App restart & disconnect never duplicate-dispatch native CLI tasks, re
     prompt: '只读分析项目结构',
     deps: [],
     executorBackendId: 'codex-terminal',
-    workspaceMode: 'read-only',
+    workspaceMode: 'git-worktree',
+    writePaths: ['src/hello.js'],
     acceptanceCriteria: [{ id: 'manual', description: 'manual', verification: { kind: 'manual' } }],
   }]), { ok: true });
 
@@ -1384,7 +1400,8 @@ test('N8: App restart & disconnect never duplicate-dispatch native CLI tasks, re
       status: 'interrupted',
       deps: [],
       executorBackendId: 'codex-terminal',
-      workspaceMode: 'read-only',
+      workspaceMode: 'git-worktree',
+      writePaths: ['src/hello.js'],
       acceptanceCriteria: [{ id: 'manual', description: 'manual', verification: { kind: 'manual' } }],
     }] } };
 

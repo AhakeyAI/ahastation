@@ -77,6 +77,23 @@ test('codex backend id and capabilities are terminal-shaped', () => {
   assert.equal(backend.resolveBinary(), '/x/codex');
 });
 
+test('a Codex TERM=dumb prompt never receives the queued task', async (t) => {
+  const { backend, spawned } = createFixture(t, { timersEnabled: true });
+  const events = [];
+  const session = backend.createSession({ cwd: await createWorkspace(t) }, event => events.push(event));
+  await session.start();
+  t.after(() => session.end());
+  session.sendUserText('fixture task');
+  const { pty } = spawned[0];
+  pty.emitData('WARNING: TERM is set ');
+  pty.emitData('to “dumb”.\r\nContinue anyway? [y/N]:');
+  const failures = events.filter(e => e.signal?.kind === 'failed');
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].signal.code, 'terminal-startup-blocked');
+  await new Promise(resolve => setTimeout(resolve, 1_750));
+  assert.deepEqual(pty.writes, [], 'task input must not answer the CLI startup prompt');
+});
+
 test('codex launches with inline-TOML Stop hook injection, no managed home', async (t) => {
   const { backend, spawned } = createFixture(t);
   const cwd = await createWorkspace(t);

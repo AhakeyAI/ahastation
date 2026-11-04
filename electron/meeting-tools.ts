@@ -3,6 +3,7 @@
 // (electron) and the renderer filters them out of the user-facing activity
 // feed (src/hooks/useClaude.ts).
 import { z } from 'zod';
+import { nativeWorkerBackendId } from './worker-backend-policy.js';
 import { acceptanceCriterionSchema, workReportSchema } from './worker-protocol.js';
 import { taskExecutionProfileSchema } from './task-collaboration.js';
 import { DEFAULT_TASK_BUDGET, taskBudgetSchema } from './task-budget.js';
@@ -209,6 +210,8 @@ export interface AppliedTaskDefaults {
 }
 
 export interface NormalizePlanMeetingOptions {
+  /** Local product dispatch uses interactive native CLI Workers only. */
+  nativeCliWorkers?: boolean;
   /** Workspace cwd for detecting test runners (package.json, go.mod, …). */
   cwd?: string;
   /** When set, inferred writers prefer shared-locked off clean git. */
@@ -332,7 +335,9 @@ export function normalizePlanMeetingTask(
   if (
     legacy.executionProfile
     && legacy.executorBackendId
-    && legacy.executionProfile.backendId !== legacy.executorBackendId
+    && (options.nativeCliWorkers
+      ? nativeWorkerBackendId(legacy.executionProfile.backendId) !== nativeWorkerBackendId(legacy.executorBackendId)
+      : legacy.executionProfile.backendId !== legacy.executorBackendId)
   ) {
     throw new Error('executorBackendId must match executionProfile.backendId');
   }
@@ -343,7 +348,8 @@ export function normalizePlanMeetingTask(
   // silently falling back. When omitted, defaultBackendId applies, which
   // production sources from resolveDefaultWorkerBackendId (the configured
   // worker backend, else the interactive TUI backend, else the host backend).
-  const backendId = (legacy.executorBackendId ?? defaultBackendId).trim();
+  const requestedBackendId = (legacy.executorBackendId ?? legacy.executionProfile?.backendId ?? defaultBackendId).trim();
+  const backendId = options.nativeCliWorkers ? nativeWorkerBackendId(requestedBackendId) : requestedBackendId;
   if (!backendId) throw new Error('plan task requires a default execution Backend');
 
   const declaredWritePaths = legacy.authorityRequest?.writePaths

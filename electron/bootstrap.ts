@@ -1,3 +1,4 @@
+import './stdio-guard.js';
 import {app,safeStorage} from 'electron';
 import {isAbsolute,join} from 'node:path';
 import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';

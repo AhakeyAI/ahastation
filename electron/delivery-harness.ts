@@ -24,6 +24,7 @@ export type DeliveryStatus =
   | 'cancelled';
 
 export interface DeliveryProposal {
+  initialAttempt?: number;
   meetingId: string;
   taskId?: string;
   objective: string;
@@ -222,6 +223,8 @@ export class DeliveryHarness {
   }
 
   async propose(input: DeliveryProposal): Promise<DeliveryView> {
+    const initialAttempt = input.initialAttempt ?? 1;
+    if (!Number.isSafeInteger(initialAttempt) || initialAttempt < 1) throw new Error('invalid initial delivery attempt');
     if (!input.objective.trim()) throw new Error('delivery objective is required');
     if (input.acceptanceCriteria.length === 0) throw new Error('at least one acceptance criterion is required');
     const id = this.id();
@@ -237,7 +240,7 @@ export class DeliveryHarness {
       },
       sourceRevision: input.sourceRevision,
       workspace: input.workspace,
-      attempt: 0,
+      attempt: initialAttempt - 1,
       attempts: [],
       updatedAt: this.now(),
     };
@@ -466,11 +469,15 @@ export class DeliveryHarness {
    * Worker. The Harness remains the sole owner of verification, review,
    * acceptance and integration without spawning a second agent runtime.
    */
-  async submitExternalReport(id: string, report: WorkReport): Promise<DeliveryView> {
+  async submitExternalReport(id: string, report: WorkReport, expectedAttempt?: number): Promise<DeliveryView> {
     if ((this.deps.executionMode ?? 'internal') !== 'external') {
       throw new Error('delivery harness is not in external execution mode');
     }
     const record = this.require(id);
+    const acceptingAttempt = record.view.attempt + (record.view.status === 'reworking' ? 1 : 0);
+    if (expectedAttempt !== undefined && expectedAttempt !== acceptingAttempt) {
+      throw new Error(`stale report attempt ${expectedAttempt}; delivery expects attempt ${acceptingAttempt}`);
+    }
     if (record.view.status === 'reworking') {
       record.view.attempt += 1;
       this.transition(record, 'executing');

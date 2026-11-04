@@ -113,6 +113,7 @@ import { authorizeMeetingCommand, type MeetingCommandResult } from './meeting-co
 import { TaskWorkspaceManager } from './task-workspace.js';
 import { DiagnosticLogger } from './diagnostic-logger.js';
 import { resolveDefaultWorkerBackendId } from './worker-backend-default.js';
+import { nativeWorkerBackendId } from './worker-backend-policy.js';
 import { PORTABLE_MEETING_COMMAND_PROMPT } from './orchestrator-prompts.js';
 import {
   assessConfiguredWorkerRuntime,
@@ -534,6 +535,9 @@ export class Orchestrator implements OrchestratorBridge {
     actorHostId = DEFAULT_HOST_ID,
     purpose: 'host' | 'worker' = 'host',
   ): SessionFactory {
+    if (purpose === 'worker' && !isNativeCliWorkerBackend(backendId)) {
+      throw new Error(`unsupported-contract: Worker '${backendId}' 必须使用本地原生 CLI`);
+    }
     const backend = getBackendRegistry().get(backendId);
     if (!backend) throw new Error(`backend '${backendId}' is not registered`);
     if (purpose === 'worker' && !backend.capabilities.executeTasks) {
@@ -1121,7 +1125,12 @@ export class Orchestrator implements OrchestratorBridge {
             : { ok: false, code: 'execution-failed', error: result.error };
         }
         case 'revise-plan': {
-          const addedTasks = command.operations.flatMap((operation) =>
+          const operations = command.operations.map((operation) =>
+            !this.sharedExecution && operation.kind === 'update-task' && operation.executionProfile
+              ? { ...operation, executionProfile: { ...operation.executionProfile,
+                backendId: nativeWorkerBackendId(operation.executionProfile.backendId) } }
+              : operation);
+          const addedTasks = operations.flatMap((operation) =>
             operation.kind === 'add-task' ? [operation.task] : [],
           );
           const backendError = await this.validateExecutionBackends(addedTasks);
@@ -1130,14 +1139,14 @@ export class Orchestrator implements OrchestratorBridge {
           }
           const result = await this.meetingScheduler.revisePlan(
             command.expectedPlanVersion,
-            command.operations,
+            operations,
           );
           if (result.ok) {
             await this.repository.append('plan-revised-by-coordinator', {
               reason: command.reason,
               expectedPlanVersion: command.expectedPlanVersion,
               planVersion: result.planVersion,
-              operations: command.operations,
+              operations,
             });
             await this.repository.flush();
             await this.snapshotActiveMeeting();
@@ -1905,6 +1914,9 @@ export class Orchestrator implements OrchestratorBridge {
     profile: HostProfile;
   }): Promise<{ ok: true; expertHostId: string; taskId: string } | { ok: false; error: string }> {
     if (this.closed) return { ok: false, error: 'orchestrator is closed' };
+    if (input.mode === 'brainstorm' && isNativeCliWorkerBackend(terminalWorkerBackendFor(input.expertBackendId))) {
+      return { ok: false, error: '当前原生 CLI Worker 未验证只读权限配置，不能运行只读脑暴任务。请明确选择支持只读任务的执行方式。' };
+    }
     const expertHostId = `expert-${randomUUID().slice(0, 8)}`;
     const added = this.addHost(input.expertBackendId, expertHostId, undefined, input.profile);
     if (!added.ok) return added;
@@ -2165,10 +2177,12 @@ export class Orchestrator implements OrchestratorBridge {
   private normalizePlanOptions(): {
     cwd: string;
     baselineKind: 'git-clean' | 'git-dirty' | 'non-git';
+    nativeCliWorkers: boolean;
   } {
     return {
       cwd: this.cwd,
       baselineKind: this.workspaceManager.inspectBaseline().kind,
+      nativeCliWorkers: !this.sharedExecution,
     };
   }
 
@@ -2286,6 +2300,12 @@ export class Orchestrator implements OrchestratorBridge {
     const checked = new Set<string>();
     for (const task of tasks) {
       const backendId = task.executorBackendId ?? defaultBackendId;
+      if (!this.sharedExecution && !isNativeCliWorkerBackend(backendId)) {
+        return `unsupported-contract: Worker '${backendId}' 必须使用本地原生 CLI`;
+      }
+      if (isNativeCliWorkerBackend(backendId) && task.workspaceMode === 'read-only') {
+        return `unsupported-contract: backend '${backendId}' 未验证原生只读权限配置，不能执行 read-only 任务`;
+      }
       const backend = getBackendRegistry().get(backendId);
       if (!backend) return `backend '${backendId}' is not registered`;
       if (!backend.capabilities.executeTasks) {
@@ -2430,7 +2450,8 @@ export class Orchestrator implements OrchestratorBridge {
     message: string,
     executorBackendId?: string,
   ): Promise<{ id: string; status: string }> {
-    const queued = await this.meetingScheduler.sendTaskMessage(taskId, message, executorBackendId);
+    const queued = await this.meetingScheduler.sendTaskMessage(taskId, message,
+      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined);
     return { id: queued.id, status: queued.status };
   }
 
@@ -2439,7 +2460,8 @@ export class Orchestrator implements OrchestratorBridge {
     message: string,
     executorBackendId?: string,
   ): Promise<{ id: string; status: string }> {
-    const queued = await this.meetingScheduler.queueFollowUp(taskId, message, executorBackendId);
+    const queued = await this.meetingScheduler.queueFollowUp(taskId, message,
+      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined);
     return { id: queued.id, status: queued.status };
   }
 
@@ -2654,6 +2676,10 @@ export class Orchestrator implements OrchestratorBridge {
     effectiveProfile: BackendEffectiveProfile;
   }> {
     const registry = getBackendRegistry();
+    nativeWorkerBackendId(requestedProfile.backendId);
+    if (!isNativeCliWorkerBackend(requestedProfile.backendId)) {
+      throw new Error('unsupported-contract: task profile must use the normalized native CLI backend');
+    }
     const backend = registry.get(requestedProfile.backendId);
     if (!backend) {
       throw new Error(`backend '${requestedProfile.backendId}' is not registered`);
@@ -3224,7 +3250,7 @@ export class Orchestrator implements OrchestratorBridge {
       if (!target.taskId) {
         throw new Error(`review ${reviewId} has no bound task; cannot override its executor backend`);
       }
-      const recorded = this.meetingScheduler.setNextAttemptBackend(target.taskId, executorBackendId);
+      const recorded = this.meetingScheduler.setNextAttemptBackend(target.taskId, nativeWorkerBackendId(executorBackendId));
       if (!recorded.ok) throw new Error(recorded.error);
     }
     const session = await this.coordinatorReviewDriver.requestRework(reviewId, findings);

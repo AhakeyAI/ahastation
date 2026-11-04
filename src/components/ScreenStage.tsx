@@ -22,7 +22,7 @@ import type {
 } from '../types';
 import { ACTIVITY_TAB_ID, BOARD_TAB_ID, type StageWindow, type StageWindowType, type StageWindowOptions } from '../lib/stage-window-store';
 import { computeWorkerCapacity } from '../lib/worker-capacity';
-import { isTerminalWorkerBackendId } from '../lib/terminal-backends';
+import { isTerminalWorkerBackendId, terminalBackendLabel } from '../lib/terminal-backends';
 import { FileViewer } from './FileViewer';
 import { BrowserStage } from './BrowserStage';
 import { StageTabBar } from './StageTabBar';
@@ -47,7 +47,7 @@ export function SharedScreenStage({model,onInvite,taskId,onTask,onCloseTask,scre
 
 
 function matchesWorker(w: WorkerState, workerId: string): boolean {
-  return w.id === workerId || w.hostId === workerId;
+  return w.id === workerId || (w.role === 'talker' && w.hostId === workerId);
 }
 
 interface ScreenStageProps {
@@ -243,20 +243,22 @@ export const ScreenStage = memo(function ScreenStage({
     for (const w of workers) {
       if (w.role !== 'worker') continue;
       if (!isTerminalWorkerBackendId(w.backendId)) continue;
-      if (autoOpenedTerminals.current.has(w.id)) continue;
+      const key = `${sessionId}:${w.id}`;
+      if (autoOpenedTerminals.current.has(key)) continue;
       const owned = ownedTasks?.get(w.id);
       // A recovered sub-agent is often already stopped. Still open its tab
       // so 重新开始 is on screen after the app comes back.
       const stoppedOwned = Boolean(owned) && ['failed', 'done', 'interrupted', 'accepted'].includes(w.status);
-      if (w.status !== 'running' && !stoppedOwned) continue;
-      autoOpenedTerminals.current.add(w.id);
+      if (w.startedAt == null && w.status !== 'running' && !stoppedOwned) continue;
+      autoOpenedTerminals.current.add(key);
+      if (stageWindows.some((win) => win.type === 'terminal' && win.workerId === w.id)) continue;
       const owner = owned ? hostGroups.get(owned.hostId)?.profile : undefined;
       // An expert's sub-agent opens as the third tab (子 Agent), selected.
       void onCreateWindow('terminal', owned
         ? { workerId: w.id, title: `子 Agent · ${owner?.name ?? '专家'}`, subagentOwner: owned.hostId }
-        : { workerId: w.id, title: w.title });
+        : { workerId: w.id, title: `${terminalBackendLabel(w.backendId!)} · ${w.title}` });
     }
-  }, [workers, onCreateWindow, ownedTasks, hostGroups]);
+  }, [workers, onCreateWindow, ownedTasks, hostGroups, sessionId, stageWindows]);
 
   // Every "open terminal" entry lands here. A terminal-mode worker already
   // runs its native CLI in a PTY, so it gets the stage workbench; any other
@@ -265,8 +267,10 @@ export const ScreenStage = memo(function ScreenStage({
   const openWorkerTerminal = useCallback((workerId: string) => {
     const matches = workers.filter((w) => matchesWorker(w, workerId));
     const ptyWorker = matches.find((w) => isTerminalWorkerBackendId(w.backendId));
-    if (ptyWorker || !onOpenNativeCli) {
-      void onCreateWindow('terminal', { workerId: ptyWorker?.id ?? workerId, ...(ptyWorker ? { title: ptyWorker.title } : {}) });
+    const exactWorker = matches.find((w) => w.id === workerId);
+    if (ptyWorker || exactWorker?.role === 'worker' || !onOpenNativeCli) {
+      const target = ptyWorker ?? exactWorker;
+      void onCreateWindow('terminal', { workerId: target?.id ?? workerId, ...(target ? { title: target.title } : {}) });
       return;
     }
     const target = matches[0];
@@ -347,7 +351,7 @@ export const ScreenStage = memo(function ScreenStage({
     if (activeWindow?.type !== 'terminal') return [] as CommandRun[];
     if (activeWindow.workerId) {
       const target = workers.find(
-        (w) => w.id === activeWindow.workerId || w.hostId === activeWindow.workerId,
+        (w) => matchesWorker(w, activeWindow.workerId!),
       );
       return target?.commandLog ?? [];
     }
@@ -370,12 +374,9 @@ export const ScreenStage = memo(function ScreenStage({
   // When the terminal worker's own delivery arrives, show it in the workbench
   // sidebar instead of letting the global DeliveryViewer cover the stage - the
   // TUI stays visible so the human can keep supervising.
-  const terminalOwnsDelivery = Boolean(
-    terminalPtyWorker && delivery?.workerId === terminalPtyWorker.id,
-  );
   const manualTerminalActive = Boolean(activeWindow?.localCliId);
-  const visibleFinalDelivery = manualTerminalActive ? null : finalMeetingDelivery;
-  const stageDeliveryCovered = Boolean(delivery) && !terminalOwnsDelivery && !manualTerminalActive;
+  const visibleFinalDelivery = manualTerminalActive || terminalPtyWorker ? null : finalMeetingDelivery;
+  const stageDeliveryCovered = Boolean(delivery) && !terminalPtyWorker && !manualTerminalActive;
 
   const stageClass = share.active
     ? 'stage-sharing'
@@ -432,6 +433,7 @@ export const ScreenStage = memo(function ScreenStage({
 
           <StageTabBar
             windows={stageWindows}
+            workers={workers}
             activeWindowId={activeWindowId}
             onSelect={onSelectWindow}
             onClose={onCloseWindow}
@@ -499,7 +501,27 @@ export const ScreenStage = memo(function ScreenStage({
               </div>
             )}
 
-            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'terminal' && (
+            {/* Keep task PTYs mounted while switching tabs: their output and
+                exit screen remain visible even after the backend releases the
+                completed process. Closing a tab only detaches its view. */}
+            {stageWindows.map((win) => {
+              if (win.type !== 'terminal' || !win.workerId || win.localCliId) return null;
+              const worker = workers.find((w) => matchesWorker(w, win.workerId!) && isTerminalWorkerBackendId(w.backendId));
+              if (!worker) return null;
+              const visible = win.id === activeWindowId && !stageDeliveryCovered && !visibleFinalDelivery;
+              return <div key={`${win.id}:${worker.startedAt ?? 0}`} className="stage-terminal-content"
+                style={visible ? undefined : { display: 'none' }} aria-hidden={!visible}>
+                <WorkerWorkbench workerId={worker.id} sessionId={sessionId!}
+                  onOpenInspector={handleOpenInspectorFromWorkbench}
+                  onAcceptDelivery={onAcceptDelivery} onReviseDelivery={onReviseDelivery}
+                  subagent={win.subagentOwner ? {
+                    ownerTitle: hostGroups.get(win.subagentOwner)?.profile?.title ?? '专家',
+                    ownerName: hostGroups.get(win.subagentOwner)?.profile?.name ?? '',
+                    taskTitle: ownedTasks?.get(worker.id)?.title ?? worker.title,
+                  } : undefined} />
+              </div>;
+            })}
+            {!stageDeliveryCovered && !visibleFinalDelivery && activeWindow?.type === 'terminal' && !terminalPtyWorker && (
               <div className="stage-terminal-content">
                 {activeWindow.localCliId ? (
                   <ShellTerminal key={activeWindow.id} terminalId={activeWindow.id}
@@ -507,20 +529,6 @@ export const ScreenStage = memo(function ScreenStage({
                     cliId={activeWindow.localCliId === 'shell' ? undefined : activeWindow.localCliId}
                     cwd={activeWindow.cwd} continueSession={activeWindow.continueSession}
                     initialPrompt={activeWindow.initialPrompt} />
-                ) : terminalPtyWorker ? (
-                  <WorkerWorkbench
-                    key={terminalPtyWorker.id}
-                    workerId={terminalPtyWorker.id}
-                    sessionId={sessionId!}
-                    onOpenInspector={handleOpenInspectorFromWorkbench}
-                    onAcceptDelivery={onAcceptDelivery}
-                    onReviseDelivery={onReviseDelivery}
-                    subagent={activeWindow.subagentOwner ? {
-                      ownerTitle: hostGroups.get(activeWindow.subagentOwner)?.profile?.title ?? '专家',
-                      ownerName: hostGroups.get(activeWindow.subagentOwner)?.profile?.name ?? '',
-                      taskTitle: ownedTasks?.get(terminalPtyWorker.id)?.title ?? terminalPtyWorker.title,
-                    } : undefined}
-                  />
                 ) : (
                   <TerminalPanel commands={terminalCommands} />
                 )}

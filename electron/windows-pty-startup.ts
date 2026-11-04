@@ -1,10 +1,16 @@
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import type { Socket } from 'node:net';
+import { dirname, join } from 'node:path';
 import type { PtyProcess, PtyExitEvent } from './pty-host.js';
+
+const require_ = createRequire(import.meta.url);
 
 // @lydell/node-pty 1.2.0-beta.12 throws from deferred connect rather than
 // reporting a per-terminal error. Keep its private compatibility surface here.
 interface WindowsPty extends PtyProcess {
   _agent: {
+    readonly innerPid: number;
     _completePtyConnection: () => void;
     kill: () => void;
     inSocket: Socket;
@@ -14,8 +20,50 @@ interface WindowsPty extends PtyProcess {
   };
 }
 
+function listConsoleProcesses(pid: number): Promise<number[]> {
+  if (!Number.isInteger(pid) || pid <= 0) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    const fallback = [pid];
+    try {
+      const fromNodePty = createRequire(require_.resolve('@lydell/node-pty'));
+      const platformEntry = fromNodePty.resolve(`@lydell/node-pty-win32-${process.arch}`);
+      // electron-builder unpacks the platform package, including this JS
+      // helper and its native addon. Reuse its console enumeration in Node mode.
+      const helper = join(dirname(platformEntry), 'conpty_console_list_agent.js')
+        .replace(/([\\/])app\.asar([\\/])/i, '$1app.asar.unpacked$2');
+      const child = spawn(process.execPath, [helper, String(pid)], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+        windowsHide: true,
+      });
+      const finish = (pids: number[]) => {
+        clearTimeout(timeout);
+        resolve(pids);
+      };
+      const timeout = setTimeout(() => {
+        child.kill();
+        finish(fallback);
+      }, 5_000);
+      child.once('message', (message: { consoleProcessList?: unknown }) => {
+        const pids = message?.consoleProcessList;
+        finish(Array.isArray(pids) && pids.every((value) => Number.isInteger(value) && value > 0)
+          ? pids.filter((value) => value !== child.pid)
+          : fallback);
+      });
+      child.once('error', () => finish(fallback));
+      child.once('close', () => finish(fallback));
+    } catch {
+      resolve(fallback);
+    }
+  });
+}
+
 export function guardWindowsPtyStartup(pty: PtyProcess): PtyProcess {
   const agent = (pty as WindowsPty)._agent;
+  if (process.platform === 'win32' && typeof agent.innerPid === 'number') {
+    // Upstream uses fork() without hiding the console during a normal close.
+    agent._getConsoleProcessList = () => listConsoleProcesses(agent.innerPid);
+  }
   const connect = agent._completePtyConnection.bind(agent);
   const exits = new Set<(event: PtyExitEvent) => void>();
   let startupError: Error | undefined;

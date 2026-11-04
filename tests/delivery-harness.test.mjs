@@ -219,7 +219,10 @@ test('external reports are accepted exactly once and rework creates a new attemp
     feedback: 'please revise',
   });
   assert.equal(reworking.status, 'reworking');
-  const second = await harness.submitExternalReport(proposal.id, report);
+  await assert.rejects(harness.submitExternalReport(proposal.id, report, 1), /stale report attempt/);
+  assert.equal(harness.snapshot(proposal.id).status, 'reworking');
+  assert.equal(harness.snapshot(proposal.id).attempt, 1, 'stale report cannot advance the delivery attempt');
+  const second = await harness.submitExternalReport(proposal.id, report, 2);
   assert.equal(second.attempt, 2);
   assert.equal(second.status, 'awaiting-delivery-acceptance');
 });

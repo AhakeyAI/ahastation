@@ -132,6 +132,15 @@ class StageWindowStore {
       });
       await browserStore.setActiveTab(tab.id);
     } else if (type === 'terminal') {
+      // A Worker tab attaches to the existing execution, never creates another
+      // CLI. Keep one tab per Worker within its project scope.
+      const existing = opts?.workerId && this.state.windows.find((win) =>
+        win.type === 'terminal' && win.workerId === opts.workerId && win.scope === opts.scope);
+      if (existing) {
+        this.update({ activeWindowId: existing.id });
+        await browserStore.setVisible(false);
+        return;
+      }
       // Terminal windows can be associated with a specific worker whose
       // activity should be rendered. Multiple terminal tabs are allowed.
       const window: StageWindow = {
@@ -147,11 +156,11 @@ class StageWindowStore {
         ...(opts?.continueSession ? { continueSession: opts.continueSession } : {}),
         ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
       };
-      await browserStore.setVisible(false);
       this.update({
         windows: [...this.state.windows, window],
         activeWindowId: id,
       });
+      await browserStore.setVisible(false);
     } else {
       const title = '文件';
       const window: StageWindow = { id, type, title };

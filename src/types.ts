@@ -1007,6 +1007,8 @@ export interface BackendInfo {
   hasAuthEntry: boolean;
   /** Result of the backend's live credential probe. */
   loggedIn: boolean;
+  /** This backend only checks its account after a user action. */
+  authCheckDeferred?: boolean;
   baseUrl: string | null;
   model: string | null;
   defaultModel: string | null;

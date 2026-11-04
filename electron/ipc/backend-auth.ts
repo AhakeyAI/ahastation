@@ -163,7 +163,6 @@ export function registerBackendAuthIpc(): void {
     const defaultBackend = getSettings().defaultBackend ?? 'claude-code';
     const claudeCodeCliSource = getClaudeCodeCliSource();
     const defaultWorkerBackendId = getSettings().defaultWorkerBackendId ?? null;
-    const effectiveDefaultWorkerBackendId = resolveDefaultWorkerBackendId(defaultBackend);
     const bundledClaudePath = resolveClaudeBundledBinary();
     const systemClaudePath = resolveClaudeCliBinary();
     // Start the Claude-source probes before the per-backend map so all of the
@@ -172,6 +171,13 @@ export function registerBackendAuthIpc(): void {
     const systemClaudeVersionP = probeVersionCached('claude-code', systemClaudePath);
 
     const result = await Promise.all(registry.listWithStatus().map(async ({ backend, available, binaryPath }) => {
+      // On Windows the Qoder SDK status probe boots its CLI and tools.
+      // Some grandchildren open consoles even when the initial probe is hidden.
+      // Listing runs on focus, so only an explicit status check may boot Qoder.
+      const deferQoderAuth = process.platform === 'win32' && backend.id === 'qoder';
+      const skipQoderVersion = process.platform === 'win32'
+        && (backend.id === 'qoder' || backend.id === 'qoder-terminal');
+      const lastQoderAuth = deferQoderAuth ? authProbeCache.get(backend.id) : undefined;
       const parentAuthBackendId = backend.id === 'claude-code-terminal'
         ? 'claude-code'
         : backend.id === 'codex-terminal'
@@ -185,9 +191,11 @@ export function registerBackendAuthIpc(): void {
         available
           ? backend.id === 'pocket-vibe'
             ? Promise.resolve(Boolean(auth?.apiKey?.trim()))
-            : checkAuthCached(backend)
+            : deferQoderAuth
+              ? Promise.resolve(lastQoderAuth?.loggedIn ?? false)
+              : checkAuthCached(backend)
           : Promise.resolve(false),
-        probeVersionCached(backend.id, binaryPath),
+        skipQoderVersion ? Promise.resolve(null) : probeVersionCached(backend.id, binaryPath),
       ]);
       const workerEnabled = backend.capabilities.executeTasks && (
         !isTerminalWorkerBackend(backend.id) || isNativeCliWorkerBackend(backend.id)
@@ -213,6 +221,7 @@ export function registerBackendAuthIpc(): void {
         hasApiKey: Boolean(auth?.apiKey),
         hasAuthEntry: Boolean(auth),
         loggedIn,
+        ...(available && deferQoderAuth && !lastQoderAuth ? { authCheckDeferred: true } : {}),
         baseUrl: auth?.baseUrl ?? null,
         model: auth?.model ?? null,
         defaultModel: backend.capabilities.defaultModel ?? null,
@@ -231,10 +240,8 @@ export function registerBackendAuthIpc(): void {
         version: runtime.version,
         expectedVersion: runtime.expectedVersion,
         claudeCodeCliSource: backend.id === 'claude-code' ? claudeCodeCliSource : null,
-        defaultWorkerBackendId: backend.id === 'claude-code' ? defaultWorkerBackendId : null,
-        effectiveDefaultWorkerBackendId: backend.id === 'claude-code'
-          ? effectiveDefaultWorkerBackendId
-          : null,
+        defaultWorkerBackendId,
+        effectiveDefaultWorkerBackendId: resolveDefaultWorkerBackendId(backend.id),
         bundledClaudeVersion: backend.id === 'claude-code' ? await bundledClaudeVersionP : null,
         systemClaudeVersion: backend.id === 'claude-code' ? await systemClaudeVersionP : null,
         bundledClaudeAvailable: backend.id === 'claude-code' ? bundledClaudePath !== null : null,
@@ -442,8 +449,8 @@ export function registerBackendAuthIpc(): void {
       return { ok: false, error: 'backendId must be a registered backend id string' };
     }
     const backend = getBackendRegistry().get(backendId);
-    if (isTerminalWorkerBackend(backendId) && !isNativeCliWorkerBackend(backendId)) {
-      return { ok: false, error: '该终端 Backend 当前仅支持手动终端会话，尚未接入自动派工 Worker 契约。' };
+    if (!isNativeCliWorkerBackend(backendId)) {
+      return { ok: false, error: 'Worker 统一使用本地原生 CLI，请选择 Codex 或 Claude Code 终端。' };
     }
     if (!backend) {
       return { ok: false, error: `backend '${backendId}' is not registered` };
@@ -537,6 +544,11 @@ export function registerBackendAuthIpc(): void {
       // Update auth mode to oauth on success
       await setBackendAuth(backendId, { authMode: 'oauth', apiKey: undefined });
       invalidateProbeCaches(backendId);
+      // The OAuth flow already verified the account. The passive Qoder list
+      // will read this result without starting another Windows SDK session.
+      if (process.platform === 'win32' && backendId === 'qoder') {
+        authProbeCache.set(backendId, { loggedIn: true, expiresAt: Date.now() + AUTH_PROBE_TTL_MS });
+      }
     }
     return result;
   });
@@ -595,6 +607,7 @@ export function registerBackendAuthIpc(): void {
     return new Promise<{ ok: boolean; error?: string }>((resolve) => {
       try {
         const child = spawn(cmd, args, {
+          windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           // Augmented PATH so npm can find node and the freshly-installed
           // binary lands in a location resolveBinaryFromPath() can discover.

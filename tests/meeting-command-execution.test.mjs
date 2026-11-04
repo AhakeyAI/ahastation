@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { MeetingRepository } from '../dist-electron/meeting-repository.js';
@@ -21,16 +23,18 @@ function fakeSessionFactory(opts) {
 
 test('Coordinator applies a versioned running-plan revision and journals it', async () => {
   const meetingId = `plan-revision-${randomUUID()}`;
+  const cwd = await mkdtemp(join(tmpdir(), 'native-plan-revision-'));
   const orchestrator = new Orchestrator({
     emit() {},
-    cwd: '/tmp',
+    cwd,
     meetingId,
     sessionFactory: fakeSessionFactory,
   });
   try {
     assert.deepEqual(await orchestrator.installPlan([
-      { id: 'active', title: 'Active', prompt: 'work', deps: [] },
-      { id: 'obsolete', title: 'Obsolete', prompt: 'wait', deps: ['active'] },
+      { id: 'active', title: 'Active', prompt: 'write a note', deps: [], workspaceMode: 'shared-locked', writePaths: ['active'] },
+      { id: 'obsolete', title: 'Obsolete', prompt: 'write a note', deps: ['active'], workspaceMode: 'shared-locked', writePaths: ['obsolete'] },
+      { id: 'replacement', title: 'Replacement', prompt: 'write a note', deps: ['obsolete'], workspaceMode: 'shared-locked', writePaths: ['replacement'] },
     ]), { ok: true });
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -41,13 +45,9 @@ test('Coordinator applies a versioned running-plan revision and journals it', as
       operations: [
         { kind: 'cancel-pending-task', taskId: 'obsolete' },
         {
-          kind: 'add-task',
-          task: {
-            id: 'replacement',
-            title: 'Replacement',
-            prompt: 'run after active',
-            deps: ['active'],
-          },
+          kind: 'update-task',
+          taskId: 'replacement',
+          deps: ['active'],
         },
       ],
     }), { ok: true, value: { planVersion: 2 } });
@@ -57,8 +57,7 @@ test('Coordinator applies a versioned running-plan revision and journals it', as
       expectedPlanVersion: 1,
       reason: 'stale retry',
       operations: [{
-        kind: 'add-task',
-        task: { id: 'must-not-land', title: 'Stale', prompt: 'do not run', deps: [] },
+        kind: 'cancel-pending-task', taskId: 'replacement',
       }],
     });
     assert.equal(stale.ok, false);
@@ -71,5 +70,6 @@ test('Coordinator applies a versioned running-plan revision and journals it', as
   } finally {
     await orchestrator.end();
     await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
   }
 });

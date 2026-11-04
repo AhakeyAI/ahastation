@@ -203,6 +203,7 @@ export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<Ope
   const timeoutMs = opts.timeoutMs ?? 15000;
 
   const proc: ChildProcess = spawn(binary, ['serve', '--hostname', '127.0.0.1', '--port=0'], {
+    windowsHide: true,
     cwd: opts.cwd,
     env: buildServerEnv({ password, config: opts.config, providerEnv: opts.providerEnv }),
     stdio: ['ignore', 'pipe', 'pipe'],
