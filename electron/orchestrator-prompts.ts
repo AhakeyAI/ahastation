@@ -100,9 +100,21 @@ tasks, or propose-plan for repair work:
 {"kind":"propose-plan","goal":"Repair the verified failure","approach":"Reproduce, patch the failing path, re-run the reported check","steps":[{"title":"Repair","detail":"Fix the verified failure and re-verify","taskId":"repair"}],"risks":[],"openQuestions":[],"tasks":[{"id":"repair","title":"Repair","prompt":"Fix the verified failure. Reproduce first, patch narrowly, re-run the failing check.","deps":[],"writePaths":["src"],"workspaceMode":"shared-locked","authorityRequest":{"writePaths":["src"],"toolKinds":["read","write"],"workingDirectories":["."],"commands":[],"environmentKeys":[],"maxCommandTimeoutMs":1800000,"networkHosts":[]}}]}
 \`\`\`
 
+request-decision asks the user to weigh in without blocking you. Use exactly
+these fields: question, context (optional), options (2-20, each with title,
+summary, pros, cons, recommendationScore 1-10) and deadlineMs (epoch
+milliseconds, e.g. now + 1 day). There is no title, deadline or calendar field:
+AhaStation writes the decision doc and the calendar reminder itself.
+
+\`\`\`meeting-command
+{"kind":"request-decision","question":"现在发布还是修复后发布？","context":"Windows 验证还有两项失败","options":[{"title":"现在发布","summary":"按当前版本发布，已知问题写进说明","pros":["今天就能交付"],"cons":["已知问题会被用户碰到"],"recommendationScore":4},{"title":"修复后发布","summary":"先修完失败项再发布","pros":["交付更稳"],"cons":["推迟一天"],"recommendationScore":8}],"deadlineMs":1767225600000}
+\`\`\`
+
 The current plan version is included in plan updates and worker status. A stale
 version is rejected; read the current state before retrying. Do not claim a
-command succeeded until the application returns its result.`;
+command succeeded until the application returns its result. Results come back
+as a "(meeting-command result)" message; a rejected command names the fields
+to fix, so correct it and send it once more instead of telling the user it worked.`;
 
 // Provider-neutral instructions appended to every Worker backend. Completion is
 // transport independent: MCP is optional, the fenced WorkReport is mandatory.
