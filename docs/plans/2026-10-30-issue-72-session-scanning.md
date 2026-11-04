@@ -64,3 +64,34 @@ macOS/Ubuntu 均成功，Windows 唯一失败均是 `station-collaboration` 的�
 没有改变 Station/Hub 的生产状态机，也未声称已修复生产启动中断线的所有边界。
 最终定向验证：Windows 7/7；WSL Ubuntu 6/6、1 项 Windows 专用用例按原规则跳过；
 两端类型检查通过。最新三平台完整测试与打包等待对应新 head 的 CI。
+
+## 2026-11-04 三端采集补齐（回应 #145 的 11-03 复核）
+
+统一入口为 `electron/observe/process/snapshot.ts` 的 `captureProcessSnapshot()` 和
+`openFilesFor(pids)`。main 只注入自身 PID；ObserveService 用同一份新快照展开整个自身
+进程树，不再有独立的 Unix ps 排除路径。生产代码和现有观察层测试均迁移到新模块。
+
+- Windows：隐藏、常驻的 PowerShell CIM helper，stdin 只接受数字请求号，不执行会话
+  参数。并发采集合并；响应带请求号、UTF-8 分帧、5 秒超时及 16 MiB 字节上限。超时、
+  进程退出、管道异常或非法响应会终止 helper，下一次采集重建；停用/撤权/退出时释放。
+  不伪造 cwd/CPU/TTY，不调用 lsof；关联使用明确原生 ID、Claude PID 文件，或绝对
+  `-C` / `--cd` 与会话记录 cwd 的唯一匹配。带空格/中文路径的原生 Windows 夹具覆盖这些来源。
+- Linux：ps 使用宽输出；cwd 和 fd 只用 `/proc/<pid>/cwd`、`/proc/<pid>/fd/*` 的 readlink，
+  不依赖 lsof。最多 512 个 PID、8 并发、每 PID 2048 个 fd、整轮 2 秒调度预算；权限不足、
+  消失的 fd、socket 和 deleted 路径不作为证据。macOS 继续批量 lsof。
+- 关联：OS cwd 优先于命令行目录，因为 Unix ps 不能保留 argv 引号。明确 resume 到
+  未扫描 ID 的进程不能改配其他历史；Codex 打开的唯一 rollout 先于目录匹配。仅目录证据
+  出现多进程或多会话时保持未知，不按最新文件或 PID 顺序猜测；旧 Kimi 解析器遵守相同
+  歧义规则，但扫描许可仍不启用 Kimi。
+
+`tests/observe-process-platform.test.mjs` 已纳入现有三平台 CI 的全量 `tests/*.test.mjs`。
+它真实启动本机 Node 承载的 Claude 夹具，分别验证 resume、目录、PID 文件与自身进程树；
+没有调用模型、个人 Claude/Codex 或扫描个人会话。另覆盖 helper 复用、并发、超时重建、
+迟到响应、Unicode、错误和上限。Linux 真实 /proc 测试以及其他本地结果随最终提交记录；
+Mac 与 N5095 真实 CLI、hooks/归属生产者联调仍待验收，不能以夹具替代。
+
+本轮本地验证：Windows 全量 1333 项，1326 通过、7 项平台/条件跳过、0 失败；
+全量启动后补充的 helper 在途释放与 ObserveService 停止竞态另行定向 2/2 通过。
+WSL Ubuntu / Node 22.22 进程与关联回归 33/33，包含真实 /proc 与三种进程关联来源。
+renderer/Electron 两端 typecheck、renderer 与 Electron 构建均通过。新 head 的完整三平台
+结果仍以推送后的 CI 为准，不沿用旧 head 的绿色结果。

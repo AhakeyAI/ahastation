@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { correlate } from '../dist-electron/observe/correlate.js';
 import { associationKey, detectCodexDesktopHostPids } from '../dist-electron/observe/mapping.js';
 import { mergeCodexDesktopSignals, ObserveService } from '../dist-electron/observe/observe-service.js';
-import { findClientPids, parsePsOutput } from '../dist-electron/observe/process/darwin.js';
+import { findClientPids, parsePsOutput } from '../dist-electron/observe/process/snapshot.js';
 import {
   listCodexDesktopThreads,
   majorityChatCwd,

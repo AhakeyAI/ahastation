@@ -12,7 +12,7 @@ import {
   maxDescendantCpu,
   parseLsofFieldOutput,
   parsePsOutput,
-} from '../dist-electron/observe/process/darwin.js';
+} from '../dist-electron/observe/process/snapshot.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'observe');
 

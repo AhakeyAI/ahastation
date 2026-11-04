@@ -9,7 +9,7 @@ import { canReadProject, ScanAccessStore } from '../dist-electron/observe/scan-a
 import { readOwnership } from '../dist-electron/observe/ownership.js';
 import { readStudioHistory } from '../dist-electron/observe/studio-history.js';
 import { clientRoots } from '../dist-electron/observe/session-identity.js';
-import { parseWindowsProcesses, findClientPids } from '../dist-electron/observe/process/darwin.js';
+import { parseWindowsProcesses, findClientPids } from '../dist-electron/observe/process/snapshot.js';
 import { isBoardableObserved } from '../dist-electron/observe/board-visibility.js';
 
 const SID = 'c1a0de00-0000-4000-8000-000000000001';
@@ -102,6 +102,16 @@ test('revoke during an in-flight scan wins, even after an identical directory is
   assert.equal(f.published.length, 2);
   assert.ok(f.published.every((snap) => snap.sessions.length === 0));
   await s.tickOnce(); assert.equal(s.sessions.length, 1);
+});
+
+test('stopping during process capture cannot publish a late snapshot', async (t) => {
+  const f = await fixture(t); await f.claude();
+  let release, entered;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = f.service({ snapshotProvider: async () => { entered(); await gate; return emptyProcesses(); } });
+  const scan = s.tickOnce(); await waiting; s.stop(); release(); await scan;
+  assert.deepEqual(f.published, []); assert.deepEqual(s.sessions, []);
 });
 
 test('consent persists separately; queued enable cannot undo a later revoke', async (t) => {
