@@ -61,7 +61,8 @@ test('plan lists only this repo, flags desktop sessions and risky worktrees', as
   assert.deepEqual(plan.sessions.map((s) => s.id).sort(), ['desktop', 'term-main', 'term-wt']);
   assert.equal(plan.sessions.find((s) => s.id === 'desktop').closable, false);
   assert.equal(plan.sessions.find((s) => s.id === 'term-wt').place, 'agent/clean');
-  assert.deepEqual(plan.worktrees.map((w) => w.path), ['/repo/wt-clean', '/repo/wt-dirty', '/repo/wt-locked'].map((path) => resolve(path)));
+  // Worktree paths come back absolute in the platform's form (D:\\repo\\… on Windows).
+  assert.deepEqual(plan.worktrees.map((w) => w.path), ['/repo/wt-clean', '/repo/wt-dirty', '/repo/wt-locked'].map((p) => resolve(p)));
   const dirty = plan.worktrees.find((w) => w.branch === 'agent/dirty');
   assert.equal(dirty.dirty, true);
   assert.equal(dirty.unmerged, 3);

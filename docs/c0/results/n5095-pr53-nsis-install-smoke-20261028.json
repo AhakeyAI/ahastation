@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-10-28T05:06:49.434Z",
+  "executable": "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr53-installed\\AhaStation.exe",
+  "packaged": true,
+  "aliveAtDeadline": true,
+  "exit": {
+    "code": 1,
+    "signal": null
+  },
+  "waitMs": 20923,
+  "processTreeStopped": true,
+  "fatalLogPatterns": [],
+  "logSha256": "7fb513977a2f818e97886828d2079824437cd5b6d964c29d81f9559e1d307b39",
+  "logPath": "C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\results\\application.log",
+  "userData": "C:\\Users\\shawn\\orca\\ahastation-internal\\docs\\c0\\results\\user-data"
+}
