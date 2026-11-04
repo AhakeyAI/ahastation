@@ -1,5 +1,6 @@
 // Regression evidence for the 31fde4f review. No provider, model or personal homes.
 import assert from 'node:assert/strict';
+import { requestWorkerBridge } from '../dist-electron/worker-cli.js';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -147,7 +148,7 @@ async function fixture(t, { tree = false, record = async () => {} } = {}) {
   };
   const postReport = (index = 0) => {
     const env = spawned[index].options.env;
-    return fetch(`${env.AHASTATION_WORKER_URL}/worker/report`, {
+    return requestWorkerBridge(`${env.AHASTATION_WORKER_URL}/worker/report`, {
       method: 'POST',
       headers: { authorization: `Bearer ${env.AHASTATION_WORKER_TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'completed', summary: 'fixture report', files: [], tests: [], unresolved: [] }),

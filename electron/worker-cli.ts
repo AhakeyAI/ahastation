@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -24,6 +25,32 @@ function positionalArgs(args: string[], flagsWithValues: readonly string[]): str
   return out;
 }
 
+/** The bridge binds to a random OS port on IPv4 loopback. Browser-style fetch
+ * refuses some of those ports even when the server is ours. */
+export async function requestWorkerBridge(
+  url: string,
+  options: { method?: 'GET' | 'POST'; headers?: Record<string, string>; body?: string } = {},
+): Promise<Response> {
+  const endpoint = new URL(url);
+  if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1'
+    || !endpoint.port || endpoint.username || endpoint.password) {
+    throw new Error('Worker bridge requires an explicit IPv4 loopback HTTP port');
+  }
+  const response = await new Promise<IncomingMessage>((resolveResponse, reject) => {
+    const request = httpRequest(endpoint, {
+      method: options.method ?? 'GET',
+      headers: options.headers,
+      agent: false,
+    }, resolveResponse);
+    request.once('error', reject);
+    request.end(options.body);
+  });
+  response.setEncoding('utf8');
+  let text = '';
+  for await (const chunk of response) text += chunk;
+  return new Response(text, { status: response.statusCode ?? 502 });
+}
+
 async function request(
   env: NodeJS.ProcessEnv,
   method: 'GET' | 'POST',
@@ -35,7 +62,7 @@ async function request(
   if (!baseUrl || !token) {
     throw new Error('AHASTATION_WORKER_URL and AHASTATION_WORKER_TOKEN are required');
   }
-  const response = await fetch(`${baseUrl}${route}`, {
+  const response = await requestWorkerBridge(`${baseUrl}${route}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
