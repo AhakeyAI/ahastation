@@ -22,8 +22,8 @@
 
 **准备**
 
-1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #158 的合并提交 `2550a17`，`npm ci` 后可以从源码启动。
-2. 或者用新安装包：`gh run download 41801670235 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/41801670235)。
+1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #158 的合并提交 `230eeca`，`npm ci` 后可以从源码启动。
+2. 或者用新安装包：`gh run download 41803899005 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/41803899005)。
 3. 讯飞 ASR 凭据同上一轮（Shawn 单独发），不要写进仓库、截图或日志。
 4. 第二轮恢复麦克风隐私设置的命令报过错。先到 设置 → 隐私和安全性 → 麦克风，确认「允许桌面应用访问麦克风」是打开的。
 
