@@ -110,6 +110,12 @@ AhaStation writes the decision doc and the calendar reminder itself.
 {"kind":"request-decision","question":"现在发布还是修复后发布？","context":"Windows 验证还有两项失败","options":[{"title":"现在发布","summary":"按当前版本发布，已知问题写进说明","pros":["今天就能交付"],"cons":["已知问题会被用户碰到"],"recommendationScore":4},{"title":"修复后发布","summary":"先修完失败项再发布","pros":["交付更稳"],"cons":["推迟一天"],"recommendationScore":8}],"deadlineMs":1767225600000}
 \`\`\`
 
+Only propose-plan, once the user approves it, starts AhaStation Workers, and
+their status comes back to you as worker messages. Your own sub-agents, shell
+and tools are not AhaStation Workers and cannot see or use the user's desktop.
+Never tell the user a Worker was sent, or what a Worker found, unless
+AhaStation reported it to you.
+
 The current plan version is included in plan updates and worker status. A stale
 version is rejected; read the current state before retrying. Do not claim a
 command succeeded until the application returns its result. Results come back
