@@ -102,6 +102,25 @@ jobs:
       - name: Build renderer and Electron distribution
         run: npm run build && node -e "require('fs').statSync('dist/index.html')"
 
+      - name: Verify macOS credentials across Electron restarts
+        id: mac-credentials
+        if: matrix.os == 'macos-latest'
+        timeout-minutes: 3
+        run: node scripts/verify-credentials-electron.mjs --output "$RUNNER_TEMP/remote-control-credentials"
+
+      - name: Upload macOS credential verification evidence
+        if: always() && matrix.os == 'macos-latest' && steps.mac-credentials.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-remote-control-credentials-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/remote-control-credentials/result.json
+            ${{ runner.temp }}/remote-control-credentials/write.json
+            ${{ runner.temp }}/remote-control-credentials/read.json
+            ${{ runner.temp }}/remote-control-credentials/write.log
+            ${{ runner.temp }}/remote-control-credentials/read.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Package (macOS dmg, unsigned in CI)
         if: matrix.os == 'macos-latest'
