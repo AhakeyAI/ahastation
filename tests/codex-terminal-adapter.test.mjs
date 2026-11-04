@@ -161,6 +161,31 @@ test('task prompt is pasted once ready; Stop hook surfaces turn-ended', async (t
   session.end();
 });
 
+test('the Codex trust dialog holds the prompt until the user answers it', async (t) => {
+  const { backend, spawned } = createFixture(t, { timersEnabled: true });
+  const cwd = await createWorkspace(t);
+  const events = [];
+  const session = backend.createSession({ cwd, extra: { workerId: 'w-codex-trust' } }, (event) => events.push(event));
+  session.sendUserText('打开记事本');
+  await session.start();
+  const pty = spawned[0].pty;
+  // Wrapped the way a narrow stage terminal drew it on N5095 (2026-11-03).
+  // Pasting here made Codex exit with "timed out discarding buffered terminal input".
+  pty.emitData('  settings can run     \r\n  code automatically,  \r\n  even without a       \r\n'
+    + '  model request.       \r\n  Continue only if     \r\n  you trust these      \r\n'
+    + '  files. Your trust    \r\n  decision will be     \r\n  saved.\r\n'
+    + '\u203a 1. Trust and continue\r\n  2. Quit\r\n');
+  await new Promise((r) => setTimeout(r, 2_000));
+  assert.deepEqual(pty.writes, [], 'nothing may be pasted while the dialog is up');
+  assert.ok(events.some((e) => e.signal?.kind === 'progress' && /信任/.test(e.signal.message)));
+
+  await new Promise((r) => setTimeout(r, 900));
+  pty.emitData('\u001b[2J\u203a Ask Codex to do anything');
+  await waitFor(() => pty.writes.length >= 2, 8_000);
+  assert.equal(pty.writes[0], `${PASTE_START}打开记事本${PASTE_END}`);
+  session.end();
+});
+
 test('end() kills the pty and removes hook files (no managed home to remove)', async (t) => {
   const { backend, host, spawned } = createFixture(t);
   const cwd = await createWorkspace(t);

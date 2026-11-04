@@ -154,6 +154,19 @@ export type MeetingCommandResult =
 
 /** The validation/authorization seam shared by native tools, SDK structured
  * output and future JSONL adapters. Models never call the Scheduler directly. */
+/** Text-protocol Hosts only learn the schema from this message, so name the
+ *  field each issue is about ("deadlineMs: Invalid input…", not just
+ *  "Invalid input…"). */
+function formatCommandIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>): string {
+  // Top-level problems (a missing deadlineMs, an unknown key) first: they are
+  // the ones a guessing Host gets wrong, and nested option issues repeat.
+  const ordered = [...issues].sort((a, b) => a.path.length - b.path.length);
+  const lines = ordered.slice(0, 6).map((issue) => (
+    issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ${issue.message}` : issue.message
+  ));
+  return lines.join('; ') || 'invalid command';
+}
+
 export function authorizeMeetingCommand(
   raw: unknown,
   actor: MeetingCommandActor,
@@ -165,7 +178,7 @@ export function authorizeMeetingCommand(
 ): { ok: true; command: MeetingCommand } | { ok: false; code: 'invalid-command' | 'forbidden'; error: string } {
   const input = meetingCommandInputSchema.safeParse(raw);
   if (!input.success) {
-    return { ok: false, code: 'invalid-command', error: input.error.issues[0]?.message ?? 'invalid command' };
+    return { ok: false, code: 'invalid-command', error: formatCommandIssues(input.error.issues) };
   }
   const defaultBackendId = options.defaultBackendId ?? 'claude-code';
   const normalizeOptions = {
@@ -201,7 +214,7 @@ export function authorizeMeetingCommand(
   }
   const parsed = meetingCommandSchema.safeParse(normalized);
   if (!parsed.success) {
-    return { ok: false, code: 'invalid-command', error: parsed.error.issues[0]?.message ?? 'invalid command' };
+    return { ok: false, code: 'invalid-command', error: formatCommandIssues(parsed.error.issues) };
   }
   const command = parsed.data;
   const coordinatorOnly = command.kind === 'propose-plan'
