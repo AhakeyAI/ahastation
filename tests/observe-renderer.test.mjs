@@ -24,9 +24,9 @@ test('renderer revocation event cannot be overwritten by a delayed initial snaps
     getSnapshot: () => new Promise((resolve) => { resolveSeed = resolve; }) } } };
   const { observedStore } = await load('../src/lib/observed-store.ts');
   observedStore.subscribe(() => {});
-  const revoked = { sessions: [], scannedAt: 100, access: { enabled: false, roots: [] } };
+  const revoked = { sessions: [], scannedAt: 100, access: { enabled: false, roots: [] }, localProjects: [] };
   event(revoked);
-  resolveSeed({ sessions: [{ title: 'Old private title' }], scannedAt: 100, access: { enabled: true, roots: ['/old'] } });
+  resolveSeed({ sessions: [{ title: 'Old private title' }], scannedAt: 100, access: { enabled: true, roots: ['/old'] }, localProjects: [{ label: 'Old private project' }] });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(observedStore.getSnapshot(), revoked);
 });
@@ -58,4 +58,29 @@ test('current board lanes retain idle in settled while excluding stale activity 
     assert.equal(subStatusForObserved({ ...base, state, lastActiveAt: now - 86_400_000 }, now), null);
     assert.equal(subStatusForObserved({ ...base, state, ownership: 'unresolved' }, now), null);
   }
+});
+
+test('local project groups render worktrees, branches, detached HEAD and unresolved ownership without granting actions', async (t) => {
+  const previous = globalThis.window; t.after(() => { globalThis.window = previous; });
+  globalThis.window = { vibeMeet: { observe: { allowDirectory: async () => ({ ok: true }) } } };
+  const { ScanControls } = await load('../src/components/ScanControls.tsx');
+  const snapshot = { sessions: [
+    { id: 's1', title: '<user session>', state: 'idle', clientKind: 'codex', origin: 'user' },
+    { id: 's2', title: 'Adopted', state: 'unknown', clientKind: 'claude-code', origin: 'user-adopted' },
+    { id: 's3', title: 'Unknown session', state: 'unknown', origin: 'unknown', ownership: 'unresolved' },
+  ], access: { enabled: true, roots: ['/projects'] }, localProjects: [
+    { key: 'p1', label: 'example/team', status: 'candidate', mounts: [
+      { key: 'm1', label: 'main', path: '/projects/main', branch: 'feature/<branch>', sessionIds: ['s1'] },
+      { key: 'm2', label: 'detached', path: '/projects/detached', branch: null, sessionIds: ['s2'] },
+    ] },
+    { key: 'p2', label: 'unknown', status: 'unresolved', reason: 'ownership-unresolved', mounts: [
+      { key: 'm3', label: 'unknown', path: '/projects/unknown', branch: null, sessionIds: ['s3'] },
+    ] },
+  ] };
+  const html = renderToStaticMarkup(createElement(ScanControls, { snapshot }));
+  assert.match(html, /本机候选项目/); assert.match(html, /工作树/); assert.match(html, /feature\/&lt;branch&gt;/);
+  assert.match(html, /分离 HEAD/); assert.match(html, /会话归属尚未确认/); assert.match(html, /已收编/);
+  assert.match(html, /&lt;user session&gt;/); assert.doesNotMatch(html, />授权执行<|>共享<|>纳入</);
+  const revoked = renderToStaticMarkup(createElement(ScanControls, { snapshot: { ...snapshot, access: { enabled: false, roots: [] } } }));
+  assert.doesNotMatch(revoked, /example\/team|\/projects\/main|user session/);
 });

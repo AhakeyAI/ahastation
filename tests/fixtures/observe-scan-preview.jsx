@@ -6,11 +6,20 @@ let update;
 window.vibeMeet = { observe: {
   allowDirectory: async () => { update({ sessions: [
     { id: 'user', clientKind: 'claude-code', projectName: 'demo', title: 'Read-only user session', state: 'idle', origin: 'user' },
-    { id: 'adopted', clientKind: 'codex', projectName: 'demo', title: 'Adopted session', state: 'unknown', origin: 'user-adopted', ownership: 'owned' }
-  ], access: { enabled: true, roots: ['C:/Projects/demo'] }, studioTasks: [
+    { id: 'adopted', clientKind: 'codex', projectName: 'demo', title: 'Adopted session', state: 'unknown', origin: 'user-adopted', ownership: 'owned' },
+    { id: 'unresolved', clientKind: 'codex', title: 'Ownership unknown', state: 'unknown', origin: 'unknown', ownership: 'unresolved' }
+  ], access: { enabled: true, roots: ['C:/Projects/demo'] }, localProjects: [
+    { key: 'candidate', label: 'example/team', status: 'candidate', mounts: [
+      { key: 'main', label: 'demo', path: 'C:/Projects/demo', branch: 'main', sessionIds: ['user'] },
+      { key: 'worktree', label: 'demo-feature', path: 'C:/Projects/demo-feature', branch: 'feature/project-discovery', sessionIds: ['adopted'] },
+    ] },
+    { key: 'unknown', label: 'needs-review', status: 'unresolved', reason: 'ownership-unresolved', mounts: [
+      { key: 'unknown-dir', label: 'needs-review', path: 'C:/Projects/demo/needs-review', branch: null, sessionIds: ['unresolved'] },
+    ] },
+  ], studioTasks: [
     { meetingId: 'm', taskId: 't', title: 'Recorded task', status: 'done' }
   ] }); return { ok: true }; },
-  disable: async () => { update({ sessions: [], access: { enabled: false, roots: [] } }); return { ok: true }; }
+  disable: async () => { update({ sessions: [], localProjects: [], access: { enabled: false, roots: [] } }); return { ok: true }; }
 } };
 function Preview() {
   const [snapshot, setSnapshot] = React.useState({ sessions: [], access: { enabled: false, roots: [] } });

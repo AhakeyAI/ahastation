@@ -480,7 +480,7 @@ const observeService = new ObserveService({
   getAccess: () => scanAccess.get(),
   publish: (snapshot) => {
     lastObservedSnapshot = snapshot;
-    const hash = observedSnapshotHash(snapshot) + JSON.stringify([snapshot.access, snapshot.studioTasks, snapshot.diagnostics]);
+    const hash = observedSnapshotHash(snapshot) + JSON.stringify([snapshot.access, snapshot.studioTasks, snapshot.diagnostics, snapshot.localProjects]);
     const force = Date.now() - lastObservedForceAt > OBSERVED_FORCE_REPUBLISH_MS;
     if (hash === lastObservedHash && !force) return;
     lastObservedHash = hash;
