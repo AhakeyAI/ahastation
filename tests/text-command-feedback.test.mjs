@@ -165,7 +165,12 @@ test('a Codex Host that claims a Worker it never sent is told to correct itself'
     reply('Worker 已确认记事本打开了。');
     assert.equal(notes().length, 1);
   } finally {
-    await orch.end();
+    // The replies above make a transcript; stop the end-of-meeting recap
+    // before the folder it writes minutes into is removed.
+    const ended = orch.end();
+    await orch.interrupt();
+    await ended;
+    await orch.recapDonePromise();
     resetBackendRegistry();
     rmSync(runtime.dir, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
