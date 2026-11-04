@@ -153,9 +153,10 @@
 
 | 平台 | 测试 |
 | --- | --- |
-| ubuntu-latest | `station-process-recovery`：Restart must prove old fixture process exit |
+| ubuntu-latest | `station-process-recovery`：Restart must prove old fixture process exit，或 receiver process crash restores original device… |
 | windows-latest | `H02/H08 production WSS: suspended stop retains its input…` |
 | windows-latest | `Windows startup failure is session-local and persistence recovers after a failed write` |
+| windows-latest | `two production Station receivers share real Hub state, persist receipt, execute once, stop and explicitly continue` |
 
 ## 已知限制和不在这次范围内的
 
