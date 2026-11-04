@@ -2581,7 +2581,7 @@ export class WorkerScheduler {
    *  each handle. Pending or running workers at end-of-session count as
    *  failed (the user pulled the plug before task_done landed); done/failed
    *  workers keep their status. Idempotent via `disposeWorker`. */
-  endAll(): void {
+  endAll(): Promise<void> {
     this.stopStallWatch();
     for (const handle of this.workers.values()) {
       const finalStatus: WorkerStatusKind =
@@ -2591,7 +2591,7 @@ export class WorkerScheduler {
       this.disposeWorker(handle, finalStatus, handle.summary);
     }
     this.workers.clear();
-    void this.cliBridge.close();
+    return this.cliBridge.close();
   }
 
   // ---------------------------------------------------------------------------

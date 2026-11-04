@@ -89,12 +89,26 @@ export class WorkerCliBridge {
   private server: Server | null = null;
   private baseUrl: string | null = null;
   private startPromise: Promise<string> | null = null;
+  private closePromise: Promise<void> | null = null;
+  private readonly pendingFilesystemOperations = new Set<Promise<unknown>>();
   private readonly entriesByToken = new Map<string, RegisteredEntry>();
   private readonly tokensByWorker = new Map<string, Set<string>>();
 
   constructor(private readonly handlers: WorkerCliBridgeHandlers) {}
 
-  async register(identity: WorkerCliTaskIdentity): Promise<WorkerCliBinding> {
+  register(identity: WorkerCliTaskIdentity): Promise<WorkerCliBinding> {
+    if (this.closePromise) return Promise.reject(new Error('Worker CLI bridge is closed'));
+    return this.trackFilesystemOperation(this.registerWorker(identity));
+  }
+
+  private trackFilesystemOperation<T>(operation: Promise<T>): Promise<T> {
+    this.pendingFilesystemOperations.add(operation);
+    const forget = () => { this.pendingFilesystemOperations.delete(operation); };
+    void operation.then(forget, forget);
+    return operation;
+  }
+
+  private async registerWorker(identity: WorkerCliTaskIdentity): Promise<WorkerCliBinding> {
     const url = await this.ensureServer();
     // Mark any prior attempt token for this worker as stale (do NOT silently
     // reuse old credentials across attempts, and return an explicit stale-attempt
@@ -180,12 +194,22 @@ export class WorkerCliBridge {
       this.entriesByToken.delete(token);
       if (entry) dirs.push(entry.runtimeDir);
     }
-    await Promise.all(dirs.map((dir) => fs.rm(dir, { recursive: true, force: true }).catch(() => undefined)));
+    await this.trackFilesystemOperation(Promise.all(dirs.map((dir) =>
+      fs.rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }).catch(() => undefined),
+    )));
   }
 
-  async close(): Promise<void> {
-    const workers = [...this.tokensByWorker.keys()];
-    await Promise.all(workers.map((workerId) => this.revokeWorker(workerId)));
+  close(): Promise<void> {
+    this.closePromise ??= this.closeRegisteredWorkers();
+    return this.closePromise;
+  }
+
+  private async closeRegisteredWorkers(): Promise<void> {
+    // A registration already in flight may finish after shutdown starts.
+    // Then drain removals even if their tokens were revoked by the scheduler.
+    await Promise.allSettled(this.pendingFilesystemOperations);
+    for (const workerId of this.tokensByWorker.keys()) void this.revokeWorker(workerId);
+    await Promise.allSettled(this.pendingFilesystemOperations);
     const server = this.server;
     this.server = null;
     this.baseUrl = null;
@@ -238,7 +262,7 @@ export class WorkerCliBridge {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const entry = this.authenticate(req);
+    const entry = this.closePromise ? null : this.authenticate(req);
     if (!entry) {
       sendJson(res, 401, { ok: false, code: 'unauthorized', error: 'invalid or revoked worker credential' });
       return;
