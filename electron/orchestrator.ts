@@ -913,7 +913,7 @@ export class Orchestrator implements OrchestratorBridge {
     if (!hg) {
       return { ok: false, error: `host group '${hostId}' not found` };
     }
-    hg.end();
+    void hg.end().catch((err) => console.error('[orchestrator] host removal cleanup failed:', err));
     this.hostGroups.delete(hostId);
     const wasRemote = this.remoteTargets.delete(hostId);
     this.crossHostBus.unsubscribeHost(hostId);
@@ -1849,24 +1849,17 @@ export class Orchestrator implements OrchestratorBridge {
     this.stopReviewStallWatchdog();
     this.clearAllHostAsks();
 
-    // End all host groups — wrap in try/finally so cleanup always runs.
-    const errors: unknown[] = [];
-    for (const hg of this.hostGroups.values()) {
-      try { hg.end(); } catch (err) { errors.push(err); }
-    }
+    const hostCleanup = Array.from(this.hostGroups.values(), (hg) =>
+      hg.end().catch((err) => console.error('[orchestrator] host cleanup failed:', err)),
+    );
 
     this.decisions.dispose();
     this.decisionMeta.clear();
     this.crossHostBus.dispose();
     Orchestrator.liveInstances.delete(this);
 
-    if (errors.length > 0) {
-      console.error('[orchestrator] errors during end():', errors);
-    }
-
-    // Currently only recap.done is async. If host group teardown grows async
-    // cleanup later, push those Promises into this array.
     const cleanupPromises: Promise<void>[] = [
+      ...hostCleanup,
       this.repository.snapshot({
         status: 'ended',
         cwd: this.cwd,

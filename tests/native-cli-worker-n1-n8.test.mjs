@@ -15,12 +15,13 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  promises as fileSystem,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
 import { appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { ClaudeTerminalBackend } from '../dist-electron/backends/claude-terminal-adapter.js';
@@ -44,6 +45,7 @@ import { assessTaskRecovery } from '../dist-electron/task-recovery.js';
 import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
 import { resolveDefaultWorkerBackendId } from '../dist-electron/worker-backend-default.js';
 import { requestWorkerBridge, runWorkerCli } from '../dist-electron/worker-cli.js';
+import { WorkerCliBridge } from '../dist-electron/worker-cli-bridge.js';
 import { WorkerScheduler } from '../dist-electron/worker-scheduler.js';
 import {
   isWorkerBackendReady,
@@ -1339,6 +1341,29 @@ test('N7: Takeover fences automatic input while human edits worktree; handback r
 // ============================================================================
 // N8: Disconnect, CLI crash, and app restart recovery
 // ============================================================================
+test('closing the Worker CLI bridge drains a registration still starting', async (t) => {
+  const bridge = new WorkerCliBridge({
+    report: async () => assert.fail('fixture must not submit a report'),
+    ask: async () => assert.fail('fixture must not ask a question'),
+    inbox: async () => [],
+  });
+  t.after(() => bridge.close());
+  const identity = {
+    meetingId: 'fixture',
+    taskId: 'closing',
+    workerId: 'closing',
+    attempt: 1,
+    workspaceCwd: tmpdir(),
+    terminalId: 'closing',
+  };
+  const registration = bridge.register(identity);
+  const closing = bridge.close();
+  const binding = await registration;
+  await closing;
+  assert.equal(existsSync(binding.runtimeDir), false);
+  await assert.rejects(bridge.register(identity), /bridge is closed/);
+});
+
 test('N8: App restart & disconnect never duplicate-dispatch native CLI tasks, reject stale tokens, and preserve native backendId', async (t) => {
   const { root, repoDir, worktreesDir, cleanup } = createTempGitRepo(t, 'aha-n8-');
   const codexStub = createVersionStub(t, root, 'codex-stub', 'codex-cli 0.156.2');
@@ -1413,7 +1438,34 @@ test('N8: App restart & disconnect never duplicate-dispatch native CLI tasks, re
   await waitFor(() => spawnedBeforeRestart.length === 1);
   const oldEnv = { ...spawnedBeforeRestart[0].options.env };
   await orchestrator1.snapshotActiveMeeting();
-  await orchestrator1.end();
+
+  // Hold the actual removal across end(), so a fast filesystem cannot hide
+  // an early completion of the meeting's shutdown promise.
+  const runtimeDir = dirname(oldEnv.AHASTATION_WORKER_BIN);
+  let removing = false;
+  const allowRemoval = Promise.withResolvers();
+  const removeFile = fileSystem.rm;
+  const removal = t.mock.method(fileSystem, 'rm', async (path, options) => {
+    if (path === runtimeDir) {
+      removing = true;
+      await allowRemoval.promise;
+    }
+    return removeFile(path, options);
+  });
+  const ending = orchestrator1.end();
+  try {
+    await waitFor(() => removing, 'Worker CLI directory removal did not start');
+    const endedBeforeRemoval = await Promise.race([
+      ending.then(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(false), 150)),
+    ]);
+    assert.equal(endedBeforeRemoval, false, 'meeting end must wait for pending Worker CLI directory cleanup');
+    assert.equal(existsSync(runtimeDir), true, 'fixture still holds the directory removal');
+  } finally {
+    allowRemoval.resolve();
+    removal.mock.restore();
+    await ending;
+  }
 
   // Old credentials & temporary shim dir from before restart are dead/rejected
   assert.equal(existsSync(oldEnv.AHASTATION_WORKER_BIN), false, 'temporary shim dir cleaned up on end');
