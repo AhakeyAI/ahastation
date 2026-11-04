@@ -171,12 +171,22 @@ export interface ObservedSession {
   evidence: string[];
 }
 
+/** Volatile local grouping, not Hub projectId/mountId or shareable IF-7 data. */
+export interface ObservedProjectGroup {
+  key: string;
+  status: 'candidate' | 'pending' | 'unresolved' | 'non-git';
+  label: string;
+  reason?: string;
+  mounts: Array<{ key: string; label: string; path: string; branch: string | null; sessionIds: string[] }>;
+}
+
 export interface ObservedSnapshot {
   sessions: ObservedSession[];
   scannedAt: number;
   access?: import('./scan-access.js').ScanAccess;
   studioTasks?: import('./studio-history.js').StudioTaskSummary[];
   diagnostics?: string[];
+  localProjects?: ObservedProjectGroup[];
 }
 
 /** Injected at service start; any match excludes a process/session. */

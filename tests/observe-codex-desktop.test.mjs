@@ -504,6 +504,7 @@ async function runDesktopService(options = {}) {
       throw new Error('no subprocess in tests');
     },
     realpathImpl: async (p) => p,
+    projectProbe: async () => ({ status: 'non-git', reason: 'not-git' }),
     ...options,
   });
   await service.tickOnce();

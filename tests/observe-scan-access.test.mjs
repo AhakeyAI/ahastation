@@ -43,7 +43,8 @@ async function fixture(t) {
   let access = { enabled: true, roots: [project] };
   const published = [];
   const service = (extra = {}) => new ObserveService({ homeDir: root, configRoots, userData,
-    getAccess: () => access, publish: (snap) => published.push(snap), snapshotProvider: async () => emptyProcesses(), ...extra });
+    getAccess: () => access, publish: (snap) => published.push(snap), snapshotProvider: async () => emptyProcesses(),
+    projectProbe: async () => ({ status: 'non-git', reason: 'not-git' }), ...extra });
   return { root, project, other, configRoots, claude, codex, userData, owned, published, service,
     setAccess: (value) => { access = value; } };
 }
@@ -182,13 +183,39 @@ test('unbound and aborted launches remain unresolved, while a valid atomic bindi
 
 test('a registry change during scanning cannot publish a newly registered internal session as user', async (t) => {
   const f = await fixture(t); await f.claude();
+  let probes = 0;
   const s = f.service({ snapshotProvider: async () => {
     await write(f.owned, registry([entry('worker')]));
     return emptyProcesses();
-  } });
+  }, projectProbe: async () => { probes++; return { status: 'non-git', reason: 'not-git' }; } });
   await s.tickOnce(); assert.deepEqual(s.sessions, []);
   assert.ok(f.published.every((snap) => snap.sessions.length === 0));
   await s.tickOnce(); assert.deepEqual(s.sessions, []);
+  assert.equal(probes, 0);
+});
+
+test('project discovery runs behind scans, preserves history IDs and clears all visible groups on revoke', async (t) => {
+  const f = await fixture(t); const native = await f.claude(); const before = await digest(native);
+  let release, entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  const s = f.service({ projectProbe: async () => { entered(); await gate; return { status: 'non-git', reason: 'not-git' }; } });
+  t.after(() => { release(); s.stop(); });
+  await s.tickOnce(); await started;
+  const originalId = s.sessions[0].projectId;
+  assert.equal(f.published.at(-1).localProjects[0].status, 'pending');
+  release(); await new Promise((resolve) => setImmediate(resolve)); await s.tickOnce();
+  assert.equal(f.published.at(-1).localProjects[0].status, 'non-git');
+  assert.equal(s.sessions[0].projectId, originalId); assert.equal(await digest(native), before);
+  f.setAccess({ enabled: false, roots: [] }); s.invalidate(); await s.tickOnce();
+  assert.deepEqual(f.published.at(-1).localProjects, []); assert.deepEqual(s.sessions, []);
+});
+
+test('an unresolved ownership registry prevents metadata probes as well as transcript content reads', async (t) => {
+  const f = await fixture(t); await f.claude(); await write(f.owned, '{bad registry'); let probes = 0;
+  const s = f.service({ projectProbe: async () => { probes++; return { status: 'non-git', reason: 'not-git' }; } });
+  await s.tickOnce(); assert.equal(probes, 0);
+  assert.equal(f.published.at(-1).localProjects[0].reason, 'ownership-unresolved');
 });
 
 test('Studio history is read without recovery or mutation and internal native sessions are excluded', async (t) => {

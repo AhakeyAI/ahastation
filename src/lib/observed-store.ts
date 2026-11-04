@@ -43,12 +43,22 @@ export interface ObservedSession {
   evidence: string[];
 }
 
+/** Local display groups only. Keys are neither Hub IDs nor authorization. */
+export interface ObservedProjectGroup {
+  key: string;
+  status: 'candidate' | 'pending' | 'unresolved' | 'non-git';
+  label: string;
+  reason?: string;
+  mounts: Array<{ key: string; label: string; path: string; branch: string | null; sessionIds: string[] }>;
+}
+
 export interface ObservedSnapshot {
   sessions: ObservedSession[];
   scannedAt: number;
   access?: { enabled: boolean; roots: string[] };
   studioTasks?: Array<{ meetingId: string; taskId: string; cwd: string; title: string; status: string }>;
   diagnostics?: string[];
+  localProjects?: ObservedProjectGroup[];
 }
 
 /** Preload surface for the observation layer. Optional on VibeMeetApi so a

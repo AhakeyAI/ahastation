@@ -7,6 +7,8 @@ import { readOwnership, ownershipKey, type OwnershipIndex } from './ownership.js
 import { clientRoots, readSessionIdentity } from './session-identity.js';
 import { readStudioHistory } from './studio-history.js';
 import { projectObservation } from './observation-projection.js';
+import { ProjectDiscoveryScheduler } from './project-scheduler.js';
+import type { ProjectDiscovery, ProjectDiscoveryOptions } from './project-discovery.js';
 import { correlate } from './correlate.js';
 import { associate, extractCwdFromCommand, extractSessionIdFromCommand, associationKey, detectMcpServerPids,
   loadClaudePidFiles, mcpHeldRolloutPaths, type Association, type ClaudePidFileEntry } from './mapping.js';
@@ -32,6 +34,7 @@ export interface ObserveServiceOptions {
   execImpl?: ExecImpl;
   snapshotProvider?: () => Promise<ProcessSnapshot>;
   realpathImpl?: (path: string) => Promise<string>;
+  projectProbe?: (cwd: string, options: ProjectDiscoveryOptions) => Promise<ProjectDiscovery>;
 }
 interface FileMarker { mtimeMs: number; sizeBytes: number; signal: ObservedFileSignal | null }
 
@@ -136,6 +139,7 @@ export class ObserveService {
   private ticking = false;
   private timer: NodeJS.Timeout | null = null;
   private lastSessions: ObservedSession[] = [];
+  private readonly projects: ProjectDiscoveryScheduler;
 
   constructor(options: ObserveServiceOptions) {
     this.options = options;
@@ -144,6 +148,8 @@ export class ObserveService {
     this.now = options.now ?? Date.now;
     this.execImpl = options.execImpl ?? defaultExec;
     this.realpathImpl = options.realpathImpl ?? ((path) => fs.realpath(path));
+    this.projects = new ProjectDiscoveryScheduler({ getAccess: this.getAccess, now: this.now,
+      realpath: this.realpathImpl, probe: options.projectProbe });
   }
 
   start(): void {
@@ -154,6 +160,7 @@ export class ObserveService {
   stop(): void {
     this.running = false;
     this.generation++;
+    this.projects.invalidate();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     stopProcessSnapshotCapture();
@@ -161,11 +168,12 @@ export class ObserveService {
   /** Invalidate in-flight reads as well as cached/visible content. */
   invalidate(): void {
     this.generation++;
+    this.projects.invalidate();
     stopProcessSnapshotCapture();
     this.markers['claude-code'].clear(); this.markers.codex.clear();
     this.pidFileMap.clear(); this.lastPidRefresh = Number.NEGATIVE_INFINITY;
     this.lastSessions = [];
-    this.options.publish({ sessions: [], scannedAt: this.now(), access: this.getAccess(), studioTasks: [] });
+    this.options.publish({ sessions: [], scannedAt: this.now(), access: this.getAccess(), studioTasks: [], localProjects: [] });
   }
   get sessions(): ObservedSession[] { return this.lastSessions; }
 
@@ -267,16 +275,22 @@ export class ObserveService {
       }
       // Directory grants and revocation are checked again after every async read.
       if (!current()) return;
-      if (this.options.userData) {
+      const ownershipCurrent = async () => {
+        if (!this.options.userData) return current();
         const latest = await readOwnership(join(this.options.userData, 'sessions', 'owned.json'));
-        if (!current()) return;
+        if (!current()) return false;
         if (latest.token !== ownership.token || latest.available !== ownership.available) {
           this.invalidate(); // A concurrent launch/binding must not briefly become a user row.
-          return;
+          return false;
         }
-      }
+        return true;
+      };
+      if (!await ownershipCurrent()) return;
+      await this.projects.refresh(next, current);
+      if (!await ownershipCurrent()) return;
       this.lastSessions = next;
       this.options.publish({ sessions: next, scannedAt: this.now(), access, studioTasks: history.tasks,
+        localProjects: this.projects.project(next),
         diagnostics: ownership.available ? [] : ['ownership-unavailable'] });
     } finally { this.ticking = false; }
   }

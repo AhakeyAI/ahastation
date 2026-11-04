@@ -1,11 +1,12 @@
 // IF-3 local evidence only. This module creates neither project IDs nor grants,
 // and does not modify the existing path-keyed project/history stores.
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { devNull } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { augmentedPath } from '../backends/subprocess-backend.js';
-import { canReadProject, type ScanAccess } from './scan-access.js';
+import { canReadProject, withinDirectory, type ScanAccess } from './scan-access.js';
 
 export interface GithubRepository { provider: 'github'; owner: string; repo: string }
 export type RepositoryCandidate = (GithubRepository | { provider: 'none' }) & {
@@ -19,6 +20,8 @@ export interface GitProjectCandidate {
   gitCommonDir: string;
   branch: string | null;
   repositoryIdentity: RepositoryCandidate;
+  /** Local cache validation only; never an identity or a wire field. */
+  fingerprint: string;
 }
 export type ProjectDiscovery = GitProjectCandidate | {
   status: 'denied' | 'unresolved' | 'non-git';
@@ -93,6 +96,68 @@ const denied = (): ProjectDiscovery => ({ status: 'denied', reason: 'not-authori
 const unresolved = (reason: Exclude<ProjectDiscovery, GitProjectCandidate>['reason']): ProjectDiscovery =>
   ({ status: 'unresolved', reason });
 
+/** Cheap cache validation without traversing history or spawning Git. Unknown layout is not cached. */
+export async function readDiscoveryFingerprint(
+  layout: Pick<GitProjectCandidate, 'cwd' | 'worktreeRoot' | 'gitCommonDir'>,
+  options: Pick<ProjectDiscoveryOptions, 'getAccess' | 'isCurrent' | 'realpath'>,
+): Promise<string | null> {
+  const realpath = options.realpath ?? ((path: string) => fs.realpath(path));
+  const access = options.getAccess(), token = JSON.stringify(access);
+  const current = () => options.isCurrent() && JSON.stringify(options.getAccess()) === token;
+  const allowed = async (path: string) => current() && await canReadProject(path, access, realpath) && current();
+  try {
+    for (const path of [layout.cwd, layout.worktreeRoot, layout.gitCommonDir]) {
+      if (!await allowed(path) || await realpath(path) !== path) return null;
+    }
+    if (!withinDirectory(layout.worktreeRoot, layout.cwd)) return null;
+    // A formerly ordinary subdirectory can become a nested repository. Do not
+    // keep attributing its sessions to the cached parent until the TTL expires.
+    for (let path = layout.cwd; path !== layout.worktreeRoot; path = dirname(path)) {
+      try { await fs.lstat(join(path, '.git')); return null; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null; }
+    }
+    const route = join(layout.worktreeRoot, '.git');
+    if (await realpath(route) !== route) return null;
+    const routeStat = await fs.lstat(route);
+    let gitDir = route, routeText = '';
+    if (routeStat.isFile() && routeStat.size <= 4096) {
+      routeText = await fs.readFile(route, 'utf8');
+      const match = /^gitdir: (.+)\r?\n?$/.exec(routeText);
+      if (!match) return null;
+      gitDir = await realpath(resolve(layout.worktreeRoot, match[1]));
+    } else if (!routeStat.isDirectory()) return null;
+    if (!await allowed(gitDir)) return null;
+    const parts: string[] = [layout.cwd, gitDir, layout.gitCommonDir, routeText];
+    const stamp = async (file: string) => {
+      try {
+        if (await realpath(file) !== file || !await allowed(file)) throw new Error('metadata-outside-grant');
+        const stat = await fs.lstat(file, { bigint: true });
+        if (!stat.isFile()) throw new Error('invalid-metadata');
+        parts.push(file, String(stat.dev), String(stat.ino), String(stat.size), String(stat.mtimeNs), String(stat.ctimeNs));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        parts.push(file, 'missing');
+      }
+    };
+    const headPath = join(gitDir, 'HEAD');
+    await stamp(headPath);
+    const headStat = await fs.lstat(headPath);
+    if (!headStat.isFile() || headStat.size > 4096) return null;
+    const head = (await fs.readFile(headPath, 'utf8')).trim();
+    parts.push(head);
+    const ref = /^ref: (refs\/[^\s\\]+)$/.exec(head)?.[1];
+    if (ref) {
+      if (ref.split('/').some((part) => !part || part === '.' || part === '..')) return null;
+      await stamp(join(gitDir, ref));
+      if (gitDir !== layout.gitCommonDir) await stamp(join(layout.gitCommonDir, ref));
+    } else if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head)) return null;
+    for (const file of ['config', 'packed-refs', 'shallow', 'info/grafts']) await stamp(join(layout.gitCommonDir, file));
+    for (const file of ['config.worktree', 'commondir']) await stamp(join(gitDir, file));
+    if (!current()) return null;
+    return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+  } catch { return null; }
+}
+
 /** On-demand, bounded read-only probe. Metadata outside a directory grant is
  * not read beyond Git's initial routing lookup. A worktree's common .git must
  * also be covered. Do not call on every fast process tick or persist as projectId. */
@@ -126,6 +191,9 @@ export async function discoverProject(cwd: string, options: ProjectDiscoveryOpti
       return current() ? unresolved('metadata-outside-grant') : denied();
     }
     if (shallow === 'true') return unresolved('shallow');
+    const cacheLayout = { cwd: resolvedCwd, worktreeRoot, gitCommonDir };
+    const fingerprint = await readDiscoveryFingerprint(cacheLayout, options);
+    if (!fingerprint) return unresolved('invalid-metadata');
     const oid = format === 'sha1' ? /^[0-9a-f]{40}$/ : /^[0-9a-f]{64}$/;
     const head = await read(headArgs);
     if (head.code !== 0) return unresolved(head.code === 128 || head.code === 1 ? 'no-commit' : 'git-unavailable');
@@ -156,8 +224,9 @@ export async function discoverProject(cwd: string, options: ProjectDiscoveryOpti
       || await realpath(cwd) !== resolvedCwd
       || await realpath(top) !== worktreeRoot || await realpath(common) !== gitCommonDir) return denied();
     if (!current()) return denied();
+    if (await readDiscoveryFingerprint(cacheLayout, options) !== fingerprint) return unresolved('changed-during-probe');
     return { status: 'candidate', cwd: resolvedCwd, worktreeRoot, gitCommonDir, branch: branchName,
-      repositoryIdentity: { ...repository, initialCommit: commits[0], objectFormat: format as 'sha1' | 'sha256' } };
+      repositoryIdentity: { ...repository, initialCommit: commits[0], objectFormat: format as 'sha1' | 'sha256' }, fingerprint };
   } catch { return current() ? unresolved('git-unavailable') : denied(); }
 }
 
