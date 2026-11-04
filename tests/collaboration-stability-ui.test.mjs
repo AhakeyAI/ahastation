@@ -20,7 +20,10 @@ before(async()=>{
   await server.listen();
   origin='http://127.0.0.1:'+server.httpServer.address().port;
   browser=await chromium.launch({executablePath:process.env.STATION_CHROME,headless:true});
-});
+  // Warm-up: the first load pays Vite's cold dependency pre-bundling, and on macOS/Windows CI runners the page that
+  // triggered it can stay broken while a fresh page renders. Retry on fresh pages so no single test inherits it.
+  for(let attempt=1;;attempt++){const warm=await browser.newPage({viewport:{width:1600,height:1100}});try{await warm.goto(origin+'/?ui-fixture=unified',{waitUntil:'domcontentloaded',timeout:90000});await warm.getByRole('button',{name:'对话',exact:true}).first().waitFor({timeout:90000});break;}catch(error){if(attempt>=3)throw error;}finally{await warm.close();}}
+},{timeout:400000});
 after(async()=>{await browser?.close();await server?.close();});
 async function page(){
   const p=await browser.newPage({viewport:{width:1600,height:1100}});

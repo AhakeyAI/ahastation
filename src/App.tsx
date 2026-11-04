@@ -205,6 +205,16 @@ export function App() {
     () => stageWindows.windows.filter((w) => !w.scope || w.scope === meetingScope),
     [stageWindows.windows, meetingScope],
   );
+  // A worker's terminal belongs to the meeting that ran it. Once that
+  // meeting's tab is gone (the user ended it), its 子 Agent / worker tabs go
+  // too instead of showing up empty in the next meeting in the same folder.
+  useEffect(() => {
+    if (ROOM_CWD) return;
+    const open = new Set(tabs.map((tab) => `meeting:${tab.cwd}`));
+    for (const w of stageWindows.windows) {
+      if (w.workerId && w.scope?.startsWith('meeting:') && !open.has(w.scope)) void stageWindows.closeWindow(w.id);
+    }
+  }, [tabs, stageWindows.windows, stageWindows.closeWindow]);
   const meetingActiveWindowId = meetingWindows.some((w) => w.id === stageWindows.activeWindowId)
     ? stageWindows.activeWindowId
     : BOARD_TAB_ID;
