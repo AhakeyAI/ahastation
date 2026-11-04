@@ -41,7 +41,7 @@ export class KimiAcpTransport {
     this.process = this.options.spawnProcess?.() ?? spawn(
       this.options.binaryPath,
       ['acp'],
-      { cwd: this.options.cwd, env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'] },
+      { cwd: this.options.cwd, env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
     const lines = createInterface({ input: this.process.stdout });
     lines.on('line', (line) => this.handleLine(line));

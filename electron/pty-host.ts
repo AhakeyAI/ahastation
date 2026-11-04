@@ -242,8 +242,13 @@ export class PtyHost {
     const spawnFn = this.spawnImpl ?? defaultPtySpawn();
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(options.env)) {
+      if (process.platform === 'win32' && k.toUpperCase() === 'TERM') continue;
       if (typeof v === 'string') env[k] = v;
     }
+    // node-pty's `name` does not set the child's TERM on Windows.
+    // Match the embedded xterm even when Electron itself came from TERM=dumb.
+    const terminalName = 'xterm-256color';
+    env.TERM = terminalName;
     let file = options.file;
     let args: string[] | string = options.args;
     if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
@@ -252,7 +257,7 @@ export class PtyHost {
       args = `/d /s /v:off /c "${command}"`;
     }
     const pty = spawnFn(file, args, {
-      name: 'xterm-256color',
+      name: terminalName,
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
       cwd: options.cwd,

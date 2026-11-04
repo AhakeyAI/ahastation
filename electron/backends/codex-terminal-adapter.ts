@@ -74,6 +74,10 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
   },
   startupMessage: '终端 Codex 已启动，任务提示词将自动注入 TUI。若提示信任目录或 hooks，请在终端中确认一次。',
   missingBinaryMessage: '未找到 codex CLI，可执行文件不在 PATH 上。可运行 npm i -g @openai/codex 安装。',
+  startupBlocker: {
+    pattern: /\bTERM\s+is\s+set\s+to\s+["'“‘]?dumb\b/i,
+    message: 'Codex 拒绝在 TERM=dumb 的终端中启动。请重新打开任务终端后重试。',
+  },
   loginGate: {
     pattern: /sign\s+in\s+with\s+chatgpt|continue\s+with\s+api\s+key|codex\s+login|log\s+in\s+to\s+openai|authenticate\s+with\s+your\s+chatgpt/i,
     message: '检测到 Codex CLI 登录界面，请先在终端完成登录再点击「发送待发任务」。',

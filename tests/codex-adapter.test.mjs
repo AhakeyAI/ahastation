@@ -800,22 +800,21 @@ test('Codex app-server crash denies pending approvals and releases Worker waiter
   session.end();
 });
 
-test('Codex app-server surfaces an acknowledgement for command-only host output', async () => {
+for (const accepted of [true, false]) test(`Codex app-server surfaces the actual result of a ${accepted ? 'successful' : 'rejected'} Host command`, async () => {
   let notification;
   const events = [];
   const commands = [];
+  const command = { kind: 'propose-plan', tasks: [{ id: 'review' }] };
+  const item = { type: 'agentMessage', id: 'command-only',
+    text: '```meeting-command\n' + JSON.stringify(command) + '\n```' };
   const transport = {
     async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
     async openThread() { return 'app-thread-command'; },
     async resumeThread(id) { return id; },
     async startTurn() {
       queueMicrotask(() => {
-        notification({ method: 'item/completed', params: {
-          item: {
-            type: 'agentMessage', id: 'command-only',
-            text: '```meeting-command\n{"kind":"broadcast-hosts","question":"status?"}\n```',
-          },
-        } });
+        notification({ method: 'item/started', params: { item } });
+        notification({ method: 'item/completed', params: { item } });
         notification({ method: 'turn/completed', params: {
           turn: { id: 'turn-command', status: 'completed', error: null },
         } });
@@ -833,14 +832,25 @@ test('Codex app-server surfaces an acknowledgement for command-only host output'
     cwd: '/workspace',
     extra: {
       codexTransport: 'app-server',
-      meetingCommandHandler: (command) => commands.push(command),
+      meetingCommandHandler: (input) => {
+        commands.push(input);
+        return accepted ? { ok: true } : { ok: false, error: 'unsupported-contract: native read-only is unavailable' };
+      },
     },
   }, (event) => events.push(event));
   await session.start();
-  session.sendUserText('ask experts');
+  session.sendUserText('review the project');
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(commands, [{ kind: 'broadcast-hosts', question: 'status?' }]);
-  assert.equal(events[0].message.message.content[0].text, '我正在处理，有结果会马上告诉你。');
+  assert.deepEqual(commands, [command], 'only the completed agent message submits a plan');
+  const message = events.find((event) => event.kind === 'message');
+  const error = events.find((event) => event.kind === 'error');
+  if (accepted) {
+    assert.equal(message?.message.message.content[0].text, '我正在处理，有结果会马上告诉你。');
+    assert.equal(error, undefined);
+  } else {
+    assert.equal(message, undefined, 'a rejected command cannot get a progress acknowledgement');
+    assert.match(error?.error, /unsupported-contract: native read-only is unavailable/);
+  }
   session.end();
 });
 
@@ -941,8 +951,12 @@ test('an unsupported-model 400 becomes an actionable message, other errors pass 
   const described = describeCodexTurnError(raw);
   assert.ok(described.startsWith(raw), 'the raw service detail is preserved');
   assert.ok(described.includes('\"glm-5.2\"'), 'the rejected model ID is named');
-  assert.ok(described.includes('gpt-5.x'), 'the message suggests a supported model family');
-  assert.ok(described.includes('API key'), 'the message suggests the API-key escape hatch');
+  assert.ok(described.includes('CLI 版本'), 'runtime mismatch is checked before changing models');
+  assert.ok(described.includes('/model'), 'the current account model picker is the source');
+  assert.equal(described.includes('gpt-5.x'), false, 'do not guess a replacement model family');
+  const firstParty = describeCodexTurnError("The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.");
+  assert.ok(firstParty.includes('gpt-6.1-sol'));
+  assert.equal(firstParty.includes('API key'), false, 'do not recommend changing authentication as the default remedy');
 
   const unrelated = 'stream disconnected before completion';
   assert.equal(describeCodexTurnError(unrelated), unrelated);

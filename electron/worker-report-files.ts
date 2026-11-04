@@ -11,7 +11,7 @@ const GIT_OUTPUT_LIMIT = 32 * 1024 * 1024;
 
 export interface HandbackWorkspaceSummary {
   workspaceCwd: string;
-  headRevision: string | null;
+  headRevision: string;
   changedFiles: Array<{ path: string; action: 'created' | 'modified' | 'deleted' }>;
   diffStat: string;
 }
@@ -143,7 +143,7 @@ export async function summarizeWorkspaceHandbackChanges(
     const headRevision = await git(cwd, ['rev-parse', 'HEAD']);
     const changedFiles = await collectWorkspaceFileChanges(cwd);
     const diffStat = changedFiles.length > 0
-      ? await git(cwd, ['diff', '--stat', 'HEAD', '--', ...changedFiles.map((f) => f.path)]).catch(() => '')
+      ? await git(cwd, ['diff', '--stat', 'HEAD', '--', ...changedFiles.map((f) => f.path)])
       : '';
     return {
       workspaceCwd: cwd,
@@ -151,12 +151,7 @@ export async function summarizeWorkspaceHandbackChanges(
       changedFiles,
       diffStat,
     };
-  } catch {
-    return {
-      workspaceCwd: cwd,
-      headRevision: null,
-      changedFiles: [],
-      diffStat: '',
-    };
+  } catch (error) {
+    throw new Error(`无法读取工作区实际改动（${cwd}），仍保持人工接管。`, { cause: error });
   }
 }

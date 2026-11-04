@@ -14,9 +14,15 @@ const SAFE_KEYS = new Set([
   'http_proxy', 'https_proxy', 'no_proxy', 'all_proxy',
 ]);
 
+/** Windows commonly exposes the executable search path as "Path". */
+export function normalizeSubprocessEnvKey(key: string): string {
+  return process.platform === 'win32' && key.toUpperCase() === 'PATH' ? 'PATH' : key;
+}
+
 function copySafe(source: NodeJS.ProcessEnv | undefined, target: NodeJS.ProcessEnv): void {
   if (!source) return;
-  for (const [key, value] of Object.entries(source)) {
+  for (const [name, value] of Object.entries(source)) {
+    const key = normalizeSubprocessEnvKey(name);
     if (SAFE_KEYS.has(key) && typeof value === 'string') target[key] = value;
   }
 }

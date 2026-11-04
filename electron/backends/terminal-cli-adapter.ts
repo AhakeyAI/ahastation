@@ -36,6 +36,7 @@ import { randomUUID } from 'node:crypto';
 import { hasControlledHints } from '../global-hooks/protocol.js';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
+import { normalizeSubprocessEnvKey } from './backend-environment.js';
 import { workerCliEnvironment } from '../worker-cli-bridge.js';
 import { compileBackendTaskProfile, type BackendRuntime } from './task-profile.js';
 import {
@@ -150,6 +151,9 @@ export function requireNativeCliWorkerAdmission(
     throw new Error(
       'unsupported-contract: native CLI worker workspaceCwd does not match session cwd',
     );
+  }
+  if (binding.workspaceMode !== 'git-worktree' && binding.workspaceMode !== 'shared-locked') {
+    throw new Error('unsupported-contract: native CLI read-only tasks have no verified permission restriction');
   }
   const extraWorkerId = config.extra?.workerId;
   if (typeof extraWorkerId === 'string' && extraWorkerId.trim() && extraWorkerId.trim() !== binding.workerId) {
@@ -425,6 +429,8 @@ export interface TerminalCliProfile {
     pattern: RegExp;
     message: string;
   };
+  /** A startup prompt that cannot accept task input. */
+  startupBlocker?: { pattern: RegExp; message: string };
   /** Gate the first paste on this pattern appearing in (ANSI-stripped) pty
    *  output. CLIs with a slow modal boot phase (token refresh, trust dialog)
    *  draw frames long before the input box exists — the first-frame
@@ -525,6 +531,7 @@ export class TerminalCliSession implements BackendSession {
   private closed = false;
   private treeStopConfirmed = false;
   private started = false;
+  private startupBlocked = false;
   private authWallBuffer = '';
   private authWallDeadline = 0;
   private authWallEmitted = false;
@@ -650,15 +657,10 @@ export class TerminalCliSession implements BackendSession {
       ...(hookReg?.cliArgs ?? []),
       ...(this.profile.buildCliArgs?.(this.config) ?? []),
     ];
-    // .cmd/.bat shims (npm global install on Windows) are not directly
-    // spawnable by ConPTY — route them through cmd.exe.
-    const isWinShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binary);
-    const file = isWinShim ? 'cmd.exe' : binary;
-    const args = isWinShim ? ['/d', '/s', '/c', binary, ...cliArgs] : cliArgs;
-
+    // PtyHost handles Windows npm shims with cmd-specific argument escaping.
     const processId = this.deps.host.spawn(this.workerId, {
-      file,
-      args,
+      file: binary,
+      args: cliArgs,
       cwd: this.config.cwd,
       env,
     });
@@ -667,9 +669,18 @@ export class TerminalCliSession implements BackendSession {
     this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;
     this.unsubscribeData = this.deps.host.onData(this.workerId, (data) => {
       this.scanForAuthWall(data);
-      if (this.closed || this.stopping || this.ready || this.takenOver) return;
+      if (this.closed || this.stopping || this.ready || this.takenOver || this.startupBlocked) return;
       if (this.scanForLoginGate(data)) return;
       this.trustBuffer = (this.trustBuffer + toMatchableText(data)).slice(-8_000);
+      const blocker = this.profile.startupBlocker;
+      if (blocker?.pattern.test(this.trustBuffer)) {
+        this.startupBlocked = true;
+        if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
+        this.emit({ kind: 'worker-signal', signal: {
+          kind: 'failed', code: 'terminal-startup-blocked', message: blocker.message, retryable: true,
+        } });
+        return;
+      }
       if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
         if (!this.trustGated) {
           this.trustGated = true;
@@ -704,8 +715,15 @@ export class TerminalCliSession implements BackendSession {
       // beat before pasting so the prompt is not swallowed mid-init.
       this.scheduleReady(READY_AFTER_FIRST_OUTPUT_MS);
     });
-    this.unsubscribeExit = this.deps.host.onExit(this.workerId, () => {
+    this.unsubscribeExit = this.deps.host.onExit(this.workerId, (exitCode) => {
       if (this.closed) return;
+      if (this.config.executionRole === 'host' && exitCode !== null && exitCode !== 0) {
+        this.emit({ kind: 'worker-signal', signal: {
+          kind: 'failed', code: 'terminal-process-exited',
+          message: `${this.profile.displayLabel} 终端会话退出（代码 ${exitCode}）。`,
+          retryable: true,
+        } });
+      }
       this.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'crashed' } });
     });
     // Fallback: paste anyway if the TUI stays quiet (e.g. output buffered).
@@ -726,7 +744,7 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private scheduleReady(delayMs: number, fallback = false): void {
-    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver) return;
+    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver || this.startupBlocked) return;
     if (this.readyTimer && !fallback) clearTimeout(this.readyTimer);
     else if (this.readyTimer && fallback) return; // first-output timer wins
     if (this.deps.timersEnabled === false) {
@@ -738,7 +756,7 @@ export class TerminalCliSession implements BackendSession {
   }
 
   private markReady(): void {
-    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver) return;
+    if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver || this.startupBlocked) return;
     this.ready = true;
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
@@ -1094,15 +1112,16 @@ export class TerminalCliSession implements BackendSession {
     if (!this.takenOver) {
       return { ok: false, error: '当前未处于人工接管状态' };
     }
+    const continuation = [instruction?.trim(), ...this.pendingTexts.splice(0)]
+      .filter(Boolean).join('\n\n');
     this.takenOver = false;
     if (!this.trustGated && !this.loginGated) {
       this.ready = true;
-      for (const text of this.pendingTexts.splice(0)) this.pasteIntoTui(text);
-      if (instruction && instruction.trim()) {
-        this.pasteIntoTui(instruction);
-      }
-    } else if (instruction && instruction.trim()) {
-      this.pendingTexts.push(instruction);
+      if (continuation) this.pasteIntoTui(continuation);
+    } else if (continuation) {
+      // Keep the inspection context ahead of old instructions even when a
+      // login/trust gate delays the actual submission.
+      this.pendingTexts.push(continuation);
     }
     return { ok: true };
   }
@@ -1271,7 +1290,7 @@ export class TerminalCliBackend implements CliBackend {
     // orchestrator already restores the real HOME for non-claude-code ids.
     const env: NodeJS.ProcessEnv = { ...mergedSubprocessEnv() };
     for (const [key, value] of Object.entries(extra ?? {})) {
-      if (typeof value === 'string') env[key] = value;
+      if (typeof value === 'string') env[normalizeSubprocessEnvKey(key)] = value;
     }
     this.profile.applyAuth?.(env, auth);
     return env;

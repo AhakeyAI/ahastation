@@ -28,6 +28,10 @@ export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.156.1';
 // is rejected until the weekly handshake and adapter contracts re-validate it.
 export const CODEX_APP_SERVER_MIN_VERSION = '0.156.1';
 export const CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION = '0.157.0';
+// Windows 0.166.0 is checked separately against its generated v2 schema and an
+// isolated no-model initialize/account-read handshake. Other versions stay closed.
+export const CODEX_APP_SERVER_ADDITIONAL_VERSIONS = ['0.166.0'] as const;
+export const CODEX_APP_SERVER_VERSION_REQUIREMENT = `>=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}${process.platform === 'win32' ? ' || =0.166.0' : ''}`;
 
 function parseCodexVersion(version: string): [number, number, number] | null {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
@@ -41,8 +45,9 @@ function compareCodexVersions(left: [number, number, number], right: [number, nu
   return 0;
 }
 
-export function isSupportedCodexAppServerVersion(version: string | null): boolean {
+export function isSupportedCodexAppServerVersion(version: string | null, platform = process.platform): boolean {
   if (!version) return false;
+  if (platform === 'win32' && (CODEX_APP_SERVER_ADDITIONAL_VERSIONS as readonly string[]).includes(version)) return true;
   const parsed = parseCodexVersion(version);
   const min = parseCodexVersion(CODEX_APP_SERVER_MIN_VERSION);
   const max = parseCodexVersion(CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION);
@@ -99,7 +104,7 @@ export class CodexAppServerTransport {
     this.process = this.options.spawnProcess?.() ?? spawn(
       this.options.binaryPath,
       ['app-server', '--stdio'],
-      { env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'] },
+      { env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
     const lines = createInterface({ input: this.process.stdout });
     lines.on('line', (line) => this.handleLine(line));
@@ -119,7 +124,7 @@ export class CodexAppServerTransport {
     if (!isSupportedCodexAppServerVersion(runtimeVersion)) {
       throw new Error(
         `Unsupported Codex app-server runtime ${runtimeVersion ?? 'unknown'}; `
-        + `AhaStation supports >=${CODEX_APP_SERVER_MIN_VERSION} <${CODEX_APP_SERVER_MAX_EXCLUSIVE_VERSION}`,
+        + `AhaStation supports ${CODEX_APP_SERVER_VERSION_REQUIREMENT}`,
       );
     }
     this.notify('initialized');

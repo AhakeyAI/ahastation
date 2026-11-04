@@ -1,8 +1,14 @@
 # 原生 CLI Worker 接线规划
 
+**11-04 补充决定与本地实现：本机 Worker 统一使用原生 CLI。** Codex Host 默认使用 `codex-terminal`，Claude Host 默认使用 `claude-code-terminal`，用户可在任一本机 Host 的首页配置区选择这两个执行器。旧 Codex/Claude SDK 偏好和任务路由名称映射到对应原生 CLI；派工、计划修订、追问和返工不能启动 SDK Worker，缺少原生能力时明确失败。Host 的对话通道与 Worker 执行通道独立。
+
+启动后的 Worker 自动打开任务终端标签，标签绑定原有 PTY，不另起空 CLI；切换标签仍接收输出，完成后的退出画面保留至关闭标签。原生工具确认继续在终端处理。现有 `read-only`/脑暴组合仍明确拒绝，不能为统一通道而放宽范围或退回 SDK；真实 CLI/模型及跨平台验收仍按下方边界执行。
+
 日期：2026-11-02（Asia/Singapore）。当前工作区 `codex-native-production/ahastation-internal1`，代码基线 `02f647f92a9f6b1a3b0ae1506718a62739cc439d`。
 
 实现状态更新：2026-11-03（Asia/Taipei）。本次已接通本机原生 CLI Worker 的派单、任务通信、候选交付及生命周期；离线夹具与真实 CLI/模型验收分开记录，详见[验收证据](../c0/b04-runtime/native-cli-scenarios.md#2026-11-03-离线接线证据)。
+
+审查修复更新：2026-11-04（Asia/Taipei）。`31fde4f` 的审查发现报告跨 attempt、交付后子进程残留、只读权限缺口及两处交还缺陷。下述本地修复补充故障验证，不能沿用此前绿色测试宣称生产闭环完成。[PR #153](https://github.com/AhakeyAI/ahastation/pull/153) 已于 11-03 撤回，其 CI 被取消；本轮不提交、不推送或重开 PR。
 
 ## 适用范围与优先级
 
@@ -34,7 +40,8 @@
 | `electron/ipc/worker-pty.ts` | 接好待发任务、接管/交还及实际文件差异的人工报告兜底 | 人工完成仍需明确操作，主报告通道为 `aha-worker report` |
 | `electron/worker-protocol.ts`、`worker-scheduler.ts`、`delivery-harness.ts` | 已有报告 schema、任务调度和成果验证流程 | 复用这些领域接口，补原生终端的报告生产端 |
 | `electron/worker-cli-bridge.ts`、`electron/worker-cli.ts`、`electron/worker-report-files.ts` | 新增回环 HTTP 薄桥和 `aha-worker report/ask/inbox`；校验令牌、任务、attempt 和实际 diff；候选及日志落盘后返回回执 | 相同报告幂等，冲突/旧 attempt/错误任务/无凭据拒绝；ask 仅为任务问答，不授予工具许可 |
-| `worker-scheduler.ts`、`pty-host.ts`、`task-recovery.ts` | 同会话追问、接管输入暂停、先读 diff 再交还、停止证据及重启显式恢复已接线 | 未证明的恢复不自动重复派工，不静默转 SDK；停止失败或只有根进程退出时不冒充整树确认 |
+| `worker-scheduler.ts`、`pty-host.ts`、`task-recovery.ts` | 报告每个异步持久化点之后重新校验 session/attempt/delivery；正常回执后等待整树清理，再释放归属和并发名额 | 清理失败保留归属并显示停止未确认；旧回调不影响新 attempt，未证明的恢复不自动派工或切 SDK |
+| 原生只读任务与交还 | 无已验证的只读 CLI 启动配置时明确拒绝原生 `read-only` 和对应脑暴子任务；交还把实际改动说明与积压指令合为一个输入，说明在前 | 不把提示词当权限限制；Git/工作区读取失败维持人工接管，不伪造“没有改动” |
 | `electron/native-worker/` 的 permit/broker、离线 AppContainer/ConPTY | 是前一方案的执行核心或离线边界候选，尚未接通真实产品任务链 | 保留历史实现与证据，不把其审批/定制隔离要求自动带入当前路线 |
 
 ## 保留与取消
@@ -81,5 +88,7 @@
 本次已改动运行逻辑：Claude/Codex 本机终端 Worker 可经任务绑定进入调度；专家子任务映射到对应原生入口，显式原生默认项也可生效。未明确选择原生默认项时，常规默认解析仍保留 SDK 路径；已选原生任务的恢复不静默切换后端。
 
 当前完成的是代码接线与隐藏离线验证。N1–N8 使用注入 PTY/CLI 夹具、自有临时 Git 仓库和真实回环通信；N3 的确认程序是 Node 夹具，不是 Claude/Codex 引擎，N6 是 Windows 自有根进程及后代的实际停止与 30 秒观察。`typecheck`、`build` 和 CI 只证明相应源码检查、测试与构建结果。
+
+`31fde4f` 的 N1–N8 未覆盖上述 5 个故障。11-04 修复和新增回归的范围、结果及当前只读限制见[审查修复证据](../c0/b04-runtime/native-cli-scenarios.md#2026-11-04-审查修复证据)；原生只读任务当前会明确拒绝，不启动任务或隐式降级。
 
 真实 Claude/Codex 登录与信任界面、原生审批策略、模型工具回合、真实 CLI 到 WorkReport 的闭环、指定 Mac/N5095 平台及生产发布验收仍待执行。真实账号和付费模型需用户另行授权。本轮不合并、不发布安装包、不关闭 Issue、不向成员发送通知；原有 B04 结论不转作新契约验收。

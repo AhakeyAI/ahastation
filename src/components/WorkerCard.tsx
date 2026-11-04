@@ -52,6 +52,9 @@ function statusLabel(worker: WorkerState, speaking: boolean): string {
   if (speaking) return '发言中';
   if (worker.pendingPermission) return '等待权限';
   if (worker.currentTool) return '执行中';
+  if (worker.role === 'talker' && worker.status === 'running') {
+    return worker.responding ? '回复中' : '空闲';
+  }
   if (worker.status === 'idle') return '空闲';
   return WORKER_STATUS_LABEL[worker.status] ?? '空闲';
 }
@@ -71,7 +74,9 @@ export const WorkerCard = memo(function WorkerCard({
   roleLabel,
 }: WorkerCardProps) {
   const isTalker = worker.role === 'talker';
-  const tone = statusTone[worker.status];
+  const idleTalker = isTalker && worker.status === 'running'
+    && !worker.responding && !worker.currentTool && !worker.pendingPermission;
+  const tone = idleTalker ? 'idle' : statusTone[worker.status];
 
   const [pulse, setPulse] = useState(false);
   const lastTs = worker.activity.length > 0 ? worker.activity[worker.activity.length - 1].ts : 0;

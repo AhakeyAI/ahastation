@@ -98,12 +98,21 @@ test('bound native-cli-self-approval workers pass admission without bypass flags
         workerId: `w-${backendId}`,
         attempt: 1,
         workspaceCwd: root,
+        workspaceMode: 'git-worktree',
         terminalId: `w-${backendId}`,
       },
     };
     const withoutCreds = backend.createSession(baseConfig, () => {});
     await assert.rejects(withoutCreds.start(), /unsupported-contract:.*AHASTATION_WORKER_/);
     withoutCreds.end();
+
+    const readOnly = backend.createSession({
+      ...baseConfig,
+      nativeCliWorker: { ...baseConfig.nativeCliWorker, workspaceMode: 'read-only' },
+    }, () => {});
+    await assert.rejects(readOnly.start(), /unsupported-contract:.*read-only/);
+    assert.equal(spawned, null, 'read-only rejection precedes PTY creation');
+    readOnly.end();
 
     const withBypass = backend.createSession({
       ...baseConfig,

@@ -172,6 +172,7 @@ export interface BackendSessionConfig {
     workerId: string;
     attempt: number;
     workspaceCwd: string;
+    workspaceMode: 'git-worktree' | 'shared-locked';
   };
 }
 

@@ -9,7 +9,7 @@ import {
   isSupportedCodexAppServerVersion,
 } from '../dist-electron/backends/codex-app-server-transport.js';
 
-function fakeAppServer() {
+function fakeAppServer(version = '0.156.1') {
   const process = new EventEmitter();
   process.stdout = new PassThrough();
   process.stderr = new PassThrough();
@@ -25,7 +25,7 @@ function fakeAppServer() {
         queueMicrotask(() => {
           if (message.method === 'initialize') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
-              userAgent: 'Codex/0.156.1', codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
+              userAgent: `Codex/${version}`, codexHome: '/tmp/codex', platformFamily: 'unix', platformOs: 'macos',
             } })}\n`);
           } else if (message.method === 'account/read') {
             process.stdout.write(`${JSON.stringify({ id: message.id, result: {
@@ -196,10 +196,33 @@ test('Codex app-server version gate accepts the verified interval only (A-14)', 
   assert.equal(isSupportedCodexAppServerVersion('0.144.1'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.155.9'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.157.0'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.166.0'), process.platform === 'win32');
+  assert.equal(isSupportedCodexAppServerVersion('0.166.0', 'win32'), true);
+  assert.equal(isSupportedCodexAppServerVersion('0.166.0', 'darwin'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.166.0', 'linux'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.166.1'), false);
+  assert.equal(isSupportedCodexAppServerVersion('0.166.0-beta.1'), false);
   assert.equal(isSupportedCodexAppServerVersion('1.0.0'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.156.1-beta.1'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.156.1junk'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.156.01'), false);
   assert.equal(isSupportedCodexAppServerVersion('0.156'), false);
   assert.equal(isSupportedCodexAppServerVersion(null), false);
+});
+
+test('the separately validated 0.166.0 runtime preserves the v2 Host session lifecycle', async () => {
+  const fake = fakeAppServer('0.166.0');
+  const transport = new CodexAppServerTransport({ binaryPath: '/fake/codex', env: {}, spawnProcess: () => fake.process });
+  try {
+    if (process.platform !== 'win32') {
+      await assert.rejects(transport.start(), /Unsupported Codex app-server runtime/);
+      return;
+    }
+    const ready = await transport.start();
+    assert.equal(ready.userAgent, 'Codex/0.166.0');
+    assert.equal(await transport.openThread({ cwd: '/workspace', sandbox: 'read-only' }), 'thread-1');
+    assert.equal(await transport.resumeThread('thread-restored'), 'thread-restored');
+    assert.equal(await transport.startTurn('thread-restored', [{ type: 'text', text: 'fixture', text_elements: [] }]), 'turn-1');
+    await transport.interruptTurn('thread-restored', 'turn-1');
+  } finally { transport.close(); }
 });
