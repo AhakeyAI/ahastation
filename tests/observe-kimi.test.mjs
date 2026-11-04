@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { correlate } from '../dist-electron/observe/correlate.js';
 import { associate, associationKey } from '../dist-electron/observe/mapping.js';
 import { ObserveService } from '../dist-electron/observe/observe-service.js';
-import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/darwin.js';
+import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/snapshot.js';
 import {
   analyzeKimiLogTail,
   listKimiSessions,
@@ -222,7 +222,7 @@ test('inferKimiState: dead drops, none is unknown, live follows cpu/in-flight', 
 // cwd-only association
 // ---------------------------------------------------------------------------
 
-test('kimi association: cwd-only, newest session in a shared workDir wins', () => {
+test('kimi association: multiple sessions in one directory remain unassociated', () => {
   const cwd = '/Users/test/work/project-alpha';
   // Signals arrive newest-first (listKimiSessions sorts by state.json mtime).
   const signals = [kimiSignal(KIMI_TITLED, cwd), kimiSignal(KIMI_ORPHAN, cwd)];
@@ -236,7 +236,7 @@ test('kimi association: cwd-only, newest session in a shared workDir wins', () =
     realpathOf: identity,
     selfExclusion: NO_SELF,
   });
-  assert.deepEqual(map.get(KIMI_TITLED), { pid: 5101, via: 'cwd' });
+  assert.equal(map.has(KIMI_TITLED), false);
   assert.equal(map.has(KIMI_ORPHAN), false);
 });
 
@@ -256,8 +256,7 @@ test('kimi association: live pids outnumbering sessions stay unassociated', () =
     realpathOf: identity,
     selfExclusion: NO_SELF,
   });
-  assert.equal(map.size, 1);
-  assert.deepEqual(map.get(KIMI_TITLED), { pid: 5101, via: 'cwd' });
+  assert.equal(map.size, 0);
 });
 
 test('kimi association: self-excluded pid never associates', () => {

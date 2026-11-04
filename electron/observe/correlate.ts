@@ -15,7 +15,7 @@ import type {
 } from './types.js';
 import type { Association } from './mapping.js';
 import { associationKey } from './mapping.js';
-import { maxDescendantCpu, type ProcessSnapshot } from './process/darwin.js';
+import { maxDescendantCpu, type ProcessSnapshot } from './process/snapshot.js';
 import {
   inferClaudeState,
   inferCodexDesktopState,

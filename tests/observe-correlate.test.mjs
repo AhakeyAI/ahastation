@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { correlate } from '../dist-electron/observe/correlate.js';
 import { associate, associationKey } from '../dist-electron/observe/mapping.js';
 import { ObserveService } from '../dist-electron/observe/observe-service.js';
-import { parsePsOutput } from '../dist-electron/observe/process/darwin.js';
+import { parsePsOutput } from '../dist-electron/observe/process/snapshot.js';
 import {
   listClaudeTranscripts,
   parseClaudeTranscript,

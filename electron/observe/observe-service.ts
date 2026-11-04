@@ -8,9 +8,9 @@ import { clientRoots, readSessionIdentity } from './session-identity.js';
 import { readStudioHistory } from './studio-history.js';
 import { projectObservation } from './observation-projection.js';
 import { correlate } from './correlate.js';
-import { associate, extractSessionIdFromCommand, associationKey, detectMcpServerPids,
+import { associate, extractCwdFromCommand, extractSessionIdFromCommand, associationKey, detectMcpServerPids,
   loadClaudePidFiles, mcpHeldRolloutPaths, type Association, type ClaudePidFileEntry } from './mapping.js';
-import { captureProcessSnapshot, findClientPids, lsofOpenFiles, type ProcessSnapshot } from './process/darwin.js';
+import { captureProcessSnapshot, findClientPids, openFilesFor, stopProcessSnapshotCapture, type ProcessSnapshot } from './process/snapshot.js';
 import { listClaudeTranscripts, parseClaudeTranscript } from './statefiles/claude-projects.js';
 import { listCodexRollouts, parseCodexRollout } from './statefiles/codex-sessions.js';
 import type { ClientKind, CodexDesktopTailSignals, CodexTailSignals, ObservedFileSignal,
@@ -153,12 +153,15 @@ export class ObserveService {
   }
   stop(): void {
     this.running = false;
+    this.generation++;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    stopProcessSnapshotCapture();
   }
   /** Invalidate in-flight reads as well as cached/visible content. */
   invalidate(): void {
     this.generation++;
+    stopProcessSnapshotCapture();
     this.markers['claude-code'].clear(); this.markers.codex.clear();
     this.pidFileMap.clear(); this.lastPidRefresh = Number.NEGATIVE_INFINITY;
     this.lastSessions = [];
@@ -227,8 +230,8 @@ export class ObserveService {
       const codexPids = findClientPids(snapshot, ['codex']);
       const mcpPids = detectMcpServerPids(snapshot);
       const lsofPids = [...new Set([...claudePids, ...codexPids, ...mcpPids])].filter((pid) => !self.pids.has(pid));
-      const lsofByPid = process.platform === 'win32' ? new Map() : await lsofOpenFiles(lsofPids, this.execImpl);
-      const realpathOf = await this.buildRealpathResolver(signals, lsofByPid);
+      const lsofByPid = await openFilesFor(lsofPids, this.execImpl);
+      const realpathOf = await this.buildRealpathResolver(signals, lsofByPid, snapshot, lsofPids);
       const associations = new Map<string, Association>();
       const clients: Array<{ kind: ClientKind; pids: number[] }> = [
         { kind: 'claude-code', pids: claudePids }, { kind: 'codex', pids: codexPids },
@@ -322,10 +325,14 @@ export class ObserveService {
     } catch { markers.clear(); return []; }
   }
 
-  private async buildRealpathResolver(signals: ObservedFileSignal[], lsofByPid: Map<number, { cwd?: string }>) {
+  private async buildRealpathResolver(signals: ObservedFileSignal[], lsofByPid: Map<number, { cwd?: string }>, snapshot: ProcessSnapshot, pids: number[]) {
     // Resolve afresh per scan: a changed mount/symlink must not reuse old access.
     const paths = new Set(signals.map((s) => s.cwd));
     for (const entry of lsofByPid.values()) if (entry.cwd) paths.add(entry.cwd);
+    for (const pid of pids) {
+      const cwd = extractCwdFromCommand(snapshot.byPid.get(pid)?.command ?? '');
+      if (cwd) paths.add(cwd);
+    }
     const resolved = new Map<string, string>();
     for (const path of paths) {
       try { resolved.set(path, await this.realpathImpl(path)); }
