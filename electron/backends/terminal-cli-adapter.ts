@@ -144,6 +144,16 @@ export function toMatchableText(data: string): string {
  *  continue"; a paste into that dialog crashes the TUI with "timed out
  *  discarding buffered terminal input" (N5095, 2026-11-03). */
 export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created|you\s*trust\s*these\s*files|trust\s*and\s*continue/i;
+/** Codex's startup update menu ("1. Update now … 3. Skip until next
+ *  version") swallows a paste the same way: both N5095 Workers crashed
+ *  there on 2026-11-04. The Codex profiles turn the startup check off; this
+ *  catches configs that still show it. Only the modal's own options match —
+ *  the one-line "Update available" banner does not block input. */
+export const UPDATE_PROMPT_PATTERN = /skip\s*until\s*next\s*version|update\s*now\s*\(runs/i;
+const STARTUP_DIALOGS: ReadonlyArray<{ pattern: RegExp; message: string }> = [
+  { pattern: TRUST_PROMPT_PATTERN, message: '等待你确认是否信任这个文件夹' },
+  { pattern: UPDATE_PROMPT_PATTERN, message: '等待你在终端里处理更新提示（选 Skip 即可）' },
+];
 const TRUST_SETTLE_MS = 800;
 
 export function stripAnsi(data: string): string {
@@ -399,7 +409,7 @@ export class TerminalCliSession implements BackendSession {
   >();
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private firstOutputSeen = false;
-  /** A trust dialog is up: never paste until it is answered. */
+  /** A trust or update dialog is up: never paste until it is answered. */
   private trustGated = false;
   private trustBuffer = '';
   private lastTrustSeenAt = 0;
@@ -491,11 +501,12 @@ export class TerminalCliSession implements BackendSession {
       this.scanForAuthWall(data);
       if (this.closed || this.ready) return;
       this.trustBuffer = (this.trustBuffer + toMatchableText(data)).slice(-8_000);
-      if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
+      const dialog = STARTUP_DIALOGS.find(({ pattern }) => pattern.test(this.trustBuffer));
+      if (dialog) {
         if (!this.trustGated) {
           this.trustGated = true;
           if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
-          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: '等待你确认是否信任这个文件夹' } });
+          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: dialog.message } });
         }
         this.trustBuffer = '';
         this.lastTrustSeenAt = Date.now();

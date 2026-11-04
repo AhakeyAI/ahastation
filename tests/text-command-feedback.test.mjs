@@ -53,9 +53,9 @@ function fakeRuntimeBinary() {
   return { dir, binary };
 }
 
-function makeBackend(binaryPath) {
+function makeBackend(binaryPath, id = 'claude-code') {
   return {
-    id: 'claude-code',
+    id,
     capabilities: { coordinate: true, executeTasks: true, defaultModel: 'claude-haiku-4-5' },
     resolveBinary: () => binaryPath,
     buildEnv: (_auth, extra) => extra,
@@ -115,6 +115,55 @@ test('a text-protocol Host hears why its command was rejected, a bounded number 
     assert.equal((await orch.executeTextMeetingCommand('default', { kind: 'speak', text: '好的' })).ok, true);
     await orch.executeTextMeetingCommand('default', CODEX_GUESS);
     assert.equal(notes().length, 4);
+  } finally {
+    await orch.end();
+    resetBackendRegistry();
+    rmSync(runtime.dir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('a Codex Host that claims a Worker it never sent is told to correct itself', async () => {
+  const runtime = fakeRuntimeBinary();
+  const sessions = [];
+  const cwd = mkdtempSync(join(tmpdir(), 'text-command-claim-'));
+  resetBackendRegistry();
+  getBackendRegistry().register(makeBackend(runtime.binary, 'codex'));
+  const orch = new Orchestrator({
+    emit() {},
+    cwd,
+    meetingId: `text-command-claim-${randomUUID()}`,
+    defaultBackendId: 'codex',
+    sessionFactory: makeSessionFactory(sessions),
+  });
+  try {
+    await orch.start();
+    const host = sessions[0];
+    assert.ok(host, 'coordinator host session was not created');
+    const reply = (text) => {
+      host.options.emit({ kind: 'message', message: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } } });
+      host.options.emit({ kind: 'turn-status', status: 'completed' });
+    };
+    const notes = () => host.inputs.filter((text) => text.startsWith('(meeting-command result)'));
+
+    // N5095 (2026-11-04): no command, no Worker, yet the user heard both.
+    reply('我已经派出 Worker 去实际操作记事本，等它回报结果。');
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /没有派工/);
+    assert.ok(notes()[0].includes('「我已经派出 Worker 去实际操作记事本，等它回报结果」'));
+
+    // Its correction repeats the claim; that turn is not flagged again.
+    reply('更正：我刚才说已经派出 Worker，这不成立。');
+    reply('好的，我们先讨论方案。');
+    assert.equal(notes().length, 1);
+
+    // A claim backed by real Worker activity is left alone.
+    orch['onHostGroupEvent']('default', {
+      source: 'talker',
+      event: { kind: 'worker-ended', workerId: 'w1', status: 'completed', summary: '记事本已打开' },
+    });
+    reply('Worker 已确认记事本打开了。');
+    assert.equal(notes().length, 1);
   } finally {
     await orch.end();
     resetBackendRegistry();
