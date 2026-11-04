@@ -13,6 +13,11 @@ mkdirSync(output, { recursive: true });
 const userData = resolve(output, 'user-data');
 const repo = mkdtempSync(join(tmpdir(), 'pr156-empty-repo-'));
 execFileSync('git', ['init', '-q'], { cwd: repo });
+if (process.env.PR156_NONEMPTY_REPO === '1') {
+  writeFileSync(join(repo, 'README.md'), '# Main comparison fixture\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: repo });
+  execFileSync('git', ['-c', 'user.name=PR156 Validation', '-c', 'user.email=validation@localhost', 'commit', '-q', '-m', 'fixture'], { cwd: repo });
+}
 const result = { schemaVersion: 1, checks: {}, repo, screenshots: [] };
 let app;
 let window;

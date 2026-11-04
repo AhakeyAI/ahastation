@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { cpus, homedir, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
@@ -72,6 +72,12 @@ async function send(text) {
     result.codexTrustApproved = true;
     await window.locator('.xterm textarea').last().focus();
     await window.keyboard.press('Enter');
+    await window.waitForTimeout(2000);
+  }
+  if ((await window.locator('body').innerText()).includes('Update available')) {
+    result.codexUpdateSkipped = true;
+    await window.locator('.xterm textarea').last().focus();
+    await window.keyboard.press('Escape');
   }
 }
 
@@ -82,6 +88,86 @@ async function waitFor(predicate, seconds = 180) {
     await window.waitForTimeout(2000);
   }
   return false;
+}
+
+function activatePid(pid) {
+  return execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    `(New-Object -ComObject WScript.Shell).AppActivate(${pid})`], { encoding: 'utf8' }).trim().endsWith('True');
+}
+async function checkV3() {
+  const foregroundAnimations = await window.evaluate(() => Array.from(document.querySelectorAll('*'))
+    .filter((element) => getComputedStyle(element).animationName !== 'none').length);
+  const terminalPid = Number(execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    "Get-Process WindowsTerminal -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"], { encoding: 'utf8' }).trim());
+  if (!terminalPid || !activatePid(terminalPid)) {
+    result.checks.V3 = { result: 'not-applicable', observed: 'No switchable Windows Terminal foreground window' };
+    return;
+  }
+  await window.waitForTimeout(1500);
+  const background = await window.evaluate(() => ({
+    active: document.documentElement.dataset.windowActive,
+    paused: Array.from(document.querySelectorAll('*')).filter((element) => getComputedStyle(element).animationPlayState === 'paused').length,
+  }));
+  const restored = activatePid(app.process().pid);
+  await window.waitForTimeout(1500);
+  const foreground = await window.evaluate(() => ({
+    active: document.documentElement.dataset.windowActive,
+    running: Array.from(document.querySelectorAll('*')).filter((element) => getComputedStyle(element).animationPlayState === 'running').length,
+  }));
+  result.checks.V3 = {
+    result: restored && background.active === 'false' && background.paused > 0
+      && foreground.active === 'true' && foreground.running > 0 ? 'pass' : 'fail',
+    observed: JSON.stringify({ foregroundAnimations, background, restored, foreground }),
+  };
+}
+
+function cpuSnapshot() {
+  const rootPid = app.process().pid;
+  const raw = execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,KernelModeTime,UserModeTime | ConvertTo-Json -Compress'], { encoding: 'utf8' });
+  const parsed = JSON.parse(raw || '[]');
+  const rows = Array.isArray(parsed) ? parsed : [parsed];
+  const descendants = new Set([rootPid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (descendants.has(row.ParentProcessId) && !descendants.has(row.ProcessId)) {
+        descendants.add(row.ProcessId);
+        changed = true;
+      }
+    }
+  }
+  return {
+    processes: rows.filter((row) => descendants.has(row.ProcessId)).map((row) => ({
+      pid: row.ProcessId,
+      role: String(row.CommandLine ?? '').includes('--type=renderer') ? 'renderer'
+        : String(row.CommandLine ?? '').includes('--type=gpu-process') ? 'gpu'
+        : String(row.CommandLine ?? '').includes('--type=utility') ? 'utility' : 'main',
+      seconds: (Number(row.KernelModeTime ?? 0) + Number(row.UserModeTime ?? 0)) / 10_000_000,
+    })),
+    cpus: cpus(),
+  };
+}
+async function sampleAgent() {
+  const started = Date.now();
+  const before = cpuSnapshot();
+  await window.waitForTimeout(30000);
+  const elapsed = (Date.now() - started) / 1000;
+  const after = cpuSnapshot();
+  const byRole = {};
+  for (const row of after.processes) {
+    const previous = before.processes.find((candidate) => candidate.pid === row.pid);
+    if (!previous) continue;
+    byRole[row.role] = (byRole[row.role] ?? 0) + Math.max(0, row.seconds - previous.seconds) / elapsed * 100;
+  }
+  let total = 0;
+  let idle = 0;
+  for (let i = 0; i < Math.min(before.cpus.length, after.cpus.length); i++) {
+    total += Object.keys(after.cpus[i].times).reduce((sum, key) => sum + after.cpus[i].times[key] - before.cpus[i].times[key], 0);
+    idle += after.cpus[i].times.idle - before.cpus[i].times.idle;
+  }
+  result.performance = { agentRunning: { seconds: elapsed, cpuPercentByRole: byRole, systemCpuPercent: total > 0 ? (1 - idle / total) * 100 : null } };
 }
 
 try {
@@ -124,6 +210,10 @@ try {
   }
 
   await send('帮我用鼠标打开记事本，输入：你好 AhaStudio。请派出 Computer Use Worker 实际执行，不要只给操作步骤。');
+  await checkV3().catch((error) => {
+    result.checks.V3 = { result: 'not-run', observed: String(error) };
+  });
+  await sampleAgent();
   const notepadOpened = await waitFor(() => processCount('notepad') > 0, 240);
   await window.waitForTimeout(15000);
   await snap('C1-notepad', true);

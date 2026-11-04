@@ -1,0 +1,5 @@
+{
+  "pathExists": true,
+  "valueExists": false,
+  "observedAfterValidation": "The original absent Value state was restored; no microphone privacy value remained set."
+}

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "V3": {
+      "result": "not-run",
+      "observed": "Error: Command failed: powershell.exe -NoProfile -Command Get-Process WindowsTerminal -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"
+    },
+    "C1": {
+      "result": "fail",
+      "observed": "notepad=false; computerUseLabel=true; nativeError=false"
+    },
+    "C3": {
+      "result": "not-run",
+      "observed": "C1 did not open Notepad"
+    },
+    "C4": {
+      "result": "not-run",
+      "observed": "C1 did not create a usable Computer Use Worker"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-round2-host-2\\C1-notepad.png"
+  ],
+  "repo": "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-kDh9lb",
+  "display": {
+    "accelerometerSupport": "unknown",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 576,
+      "height": 1024
+    },
+    "colorDepth": 24,
+    "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+    "depthPerComponent": 8,
+    "detected": true,
+    "displayFrequency": 53,
+    "id": 3601456074,
+    "internal": true,
+    "label": "",
+    "maximumCursorSize": {
+      "width": 0,
+      "height": 0
+    },
+    "monochrome": false,
+    "nativeOrigin": {
+      "x": 0,
+      "y": 0
+    },
+    "rotation": 180,
+    "scaleFactor": 1.25,
+    "size": {
+      "width": 576,
+      "height": 1024
+    },
+    "workArea": {
+      "x": 0,
+      "y": 0,
+      "width": 576,
+      "height": 1024
+    },
+    "workAreaSize": {
+      "width": 576,
+      "height": 1024
+    },
+    "touchSupport": "unknown"
+  },
+  "workerBackendSetting": {
+    "ok": true
+  },
+  "performance": {
+    "agentRunning": {
+      "seconds": 32.76,
+      "cpuPercentByRole": {
+        "main": 8.012820512820513,
+        "gpu": 26.85248778998779,
+        "utility": 0,
+        "renderer": 6.581959706959707
+      },
+      "systemCpuPercent": 89.96910225755364
+    }
+  },
+  "finalBody": "pr156-host-repo-kDh9lb\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-kDh9lb\n05:40\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n任务看板\n工作区\n任务\n0 项，2 个项目\n项目\n本项目室（C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-kDh9lb）\n全部项目\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n客户端\n全部客户端\ncodex\n泳道\n待执行\n已确认，还没开工\n0\n\n暂无\n\n进行中\nWorker 正在推进\n0\n\n暂无\n\n待确认\n等你批准或验收\n0\n\n暂无\n\n已完成\nMeeting 分支或终态\n0\n空闲和噪声 1\n参会者\n1\n对话\n4\n文件\nYou\n5 分钟前\n帮我用鼠标打开记事本，输入：你好 AhaStudio。请派出 Computer Use Worker 实际执行，不要只给操作步骤。\nCodex\n4 分钟前\n我已经派出 Worker 去实际操作记事本，等它回报结果。\nCodex\n4 分钟前\nWorker 已确认当前环境没有鼠标或桌面操作通道，所以没能打开记事本，也没有输入“你好 AhaStudio”。\nCodex\n4 分钟前\n当前没有可用的鼠标或桌面操作工具，无法实际打开记事本并输入文字；任务未执行。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写"
+}

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "V1": {
+      "result": "pending-visual-review",
+      "observed": "Microphone muted for 30 seconds; inspect CPU and desktop microphone indicator"
+    },
+    "V2": {
+      "result": "fail",
+      "observed": "transcriptVisible=false; micLabel=取消静音"
+    },
+    "P1": {
+      "result": "pending-visual-review",
+      "observed": "Privacy value Deny; microphone clicked; native dialog screenshot captured"
+    },
+    "P2": {
+      "result": "pending-visual-review",
+      "observed": "transcriptVisible=false; micLabel=麦克风"
+    }
+  },
+  "performance": {
+    "meeting-muted": {
+      "seconds": 31.924,
+      "cpuPercentByRole": {
+        "main": 3.328217015411603,
+        "gpu": 20.311912667585517,
+        "utility": 7.537432652549806,
+        "renderer": 17.228417491542412
+      },
+      "systemCpuPercent": 73.53057347602837
+    },
+    "meeting-mic-open": {
+      "seconds": 31.353,
+      "cpuPercentByRole": {
+        "main": 0.9468790865307946,
+        "gpu": 17.542180971517876,
+        "utility": 0.0498357413963576,
+        "renderer": 3.787516346123178
+      },
+      "systemCpuPercent": 46.99103004223948
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-voice-2\\V1-muted.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-voice-2\\V2-speech.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-voice-2\\P1-denied.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-voice-2\\P1-settings.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-voice-2\\P2-restored.png"
+  ],
+  "asrConfiguration": {
+    "ok": true
+  },
+  "micInitiallyDisabled": false,
+  "privacyRestoreError": "Error: Command failed: powershell.exe -NoProfile -Command $path = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\DeviceAccess\\Global\\{E5323777-F976-4f5b-9B55-B94699C46E44}'; if (Test-Path $path) { Remove-ItemProperty -Path $path -Name Value -ErrorAction SilentlyContinue }"
+}

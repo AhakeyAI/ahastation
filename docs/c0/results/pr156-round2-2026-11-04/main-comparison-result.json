@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "M1": {
+      "result": "pass",
+      "observed": "repo visible=true"
+    },
+    "M2": {
+      "result": "fail",
+      "observed": "expert=true; subagent=true; notesReady=false"
+    },
+    "M3": {
+      "result": "not-applicable",
+      "observed": "Codex-backed expert; no Claude trust prompt appeared"
+    },
+    "M4": {
+      "result": "fail",
+      "observed": "notesReady=false; stopped=true"
+    },
+    "M5": {
+      "result": "pass",
+      "observed": "subagent tabs=1"
+    },
+    "M6": {
+      "result": "fail",
+      "observed": "{\"noExpert\":true,\"noSubagent\":true,\"noNotes\":true,\"noOldConversation\":false}"
+    }
+  },
+  "repo": "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-main-comparison\\M1.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-main-comparison\\M2.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-main-comparison\\M4.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-main-comparison\\M5.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-main-comparison\\M6.png"
+  ],
+  "stages": {
+    "M1": {
+      "body": "pr156-empty-repo-xbgBEn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n00:10\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n任务看板\n工作区\n任务\n0 项，2 个项目\n项目\n本项目室（C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn）\n全部项目\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-kDh9lb\n客户端\n全部客户端\ncodex\n泳道\n待执行\n已确认，还没开工\n0\n\n暂无\n\n进行中\nWorker 正在推进\n0\n\n暂无\n\n待确认\n等你批准或验收\n0\n\n暂无\n\n已完成\nMeeting 分支或终态\n0\n\n暂无\n\n参会者\n1\n对话\n文件\nHost 已就绪。直接输入任务，或用 @ 点名已参会的 Expert。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n这个项目还是空的，先做什么？\n讨论脑暴\n理清目标、用户和方案，不改代码\n开始开发\n先搭最小骨架，子 Agent 在工作树里写代码\n请「产品专家 小禾」入会，用\nCodex\n小禾派一个子 Agent，在共享区第三个标签用原生 CLI 只读调研，你可以看，需要时接管\n助理在「工作区」实时整理结论、决策和待办，你确认后再写进看板\n开始\n先不用，我自己说\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+      "titles": [
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "在新窗口打开这个项目室，可和其他项目室并排查看",
+        "Open another folder",
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "手动批准 · 点击选择自动批准范围",
+        "设置",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "静音",
+        "邀请参会人",
+        "收起参会人",
+        "新建窗口",
+        "移除这一列",
+        "移除这一列",
+        "移除这一列",
+        "移除这一列",
+        "Host 判断是否需要任务，计划另行批准",
+        "先写详细计划再拆 worker DAG，需审批",
+        "添加附件 (.md, .docx, .pdf, 图片…)",
+        "发送 · Enter"
+      ]
+    },
+    "M2": {
+      "body": "pr156-empty-repo-xbgBEn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n04:24\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n产品专家 小禾\n执行中\n任务看板\n1\n工作区\n子 Agent · 小禾\n会议纪要\n讨论开始后，助理会在这里整理\n确认并写入看板\n\n还没有纪要。和助理、专家聊起来后，结论、决策和待办会出现在这里。\n\n终端\n当前任务\n小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。\n执行中\n结构化 Briefing\nExpert expert-4ce3a3b7 长时间未回复\n12:10\n\n你向 expert-4ce3a3b7 提出的问题已超过 120 秒未收到回复：(kickoff) 你是本场会议的「产品专家 小禾」。用户选择了讨论脑暴。你名下有一个子 Agent 任务 kickoff-brainstorm-180e40「调研项目现状与方向」，它在共享区原生 CLI 里工作，用户只能看不能直接输入。需要它做后续工作时，用 send_task_message 或 follow_up_task 给 kickoff-brainstorm-180e40 派具体、可验收的小任务；它的进展会转给你。与用户讨论时简短、专业；需要用户拍板的事交给助理统一询问。 可以继续等待，或自行推进 / 换一个专家 / 让用户决定；不要无限期阻塞。\n\n已进 Meeting 分支\n0\n失败\n1\n文件\n0\n测试\n0 / 0\nhost-ask-timeout\n建议：request-user-decision\n调研项目现状与方向 执行失败\n12:08\n\nWorker transport ended before a valid WorkReport was delivered.\n\n已进 Meeting 分支\n0\n失败\n1\n文件\n0\n测试\n0 / 0\nworker-transport-ended\n建议：rework\n最近动态\n还没有动态。\n参会者\n1\n对话\n7\n文件\nCodex\n3 分钟前\n欢迎小禾加入。我们先听项目现状和可能方向，再一起挑出值得优先讨论的机会；有了实质结论，我会随时记进会议纪要。\nCodex\n3 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n3 分钟前\n调研任务刚才因执行连接中断，没收到有效结果。我会让执行端重试，拿到材料后再和小禾讨论方向。\nCodex\n2 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n2 分钟前\n这次失败也把后续任务标成失败了。我会新建一项只读调研，先把项目事实补齐，再继续脑暴。\nCodex\n2 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n1 分钟前\n小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\nPlan Mode\n审阅执行计划\n立即 1 项 · 等容量 0 项 · 上限 4\n目标\n做法与取舍\n步骤\n添加步骤\n步骤 1\n×\n步骤 2\n×\n风险\n未决问题\nWorker 任务（1）\n任务 1\n删除\n任务 ID\n标题完整交付要求\n执行与权限配置（可选）\n前置依赖\n无其他任务\n下游启动门槛\n进入 Meeting 分支后\n验证与审查通过后即可\n写代码任务默认此项：下游等交付进入 Meeting 集成分支后再启动（通常 Coordinator 审查后自动集成，不一定要点验收）。\n预计执行中需要用户决策\n验收条件与允许测试\n添加条件\n人工验收\n自动命令\n×\n添加任务\n拒绝计划\n确认并调度 1 个任务\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+      "titles": [
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "在新窗口打开这个项目室，可和其他项目室并排查看",
+        "Open another folder",
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "手动批准 · 点击选择自动批准范围",
+        "设置",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "静音",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "设为主持人",
+        "静音",
+        "踢出",
+        "邀请参会人",
+        "收起参会人",
+        "新建窗口",
+        "查看真实 CLI 执行情况",
+        "小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。",
+        "2026-11-04T04:09:02.601Z",
+        "2026-11-04T04:09:14.551Z",
+        "2026-11-04T04:09:25.130Z",
+        "2026-11-04T04:09:27.975Z",
+        "2026-11-04T04:09:40.591Z",
+        "2026-11-04T04:09:52.585Z",
+        "2026-11-04T04:10:53.249Z",
+        "Host 判断是否需要任务，计划另行批准",
+        "先写详细计划再拆 worker DAG，需审批",
+        "添加附件 (.md, .docx, .pdf, 图片…)",
+        "发送 · Enter"
+      ]
+    },
+    "M4": {
+      "body": "pr156-empty-repo-xbgBEn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n05:59\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n产品专家 小禾\n执行中\n任务看板\n工作区\n子 Agent · 小禾\n产品专家 小禾 正在让子 Agent 做：调研项目现状与方向\n已停止\n重新开始…\n终端进程已经结束，没有可回放的画面。\n \n协作\n›\n展开完整检查器\n参会者\n1\n对话\n7\n文件\nCodex\n5 分钟前\n欢迎小禾加入。我们先听项目现状和可能方向，再一起挑出值得优先讨论的机会；有了实质结论，我会随时记进会议纪要。\nCodex\n5 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n4 分钟前\n调研任务刚才因执行连接中断，没收到有效结果。我会让执行端重试，拿到材料后再和小禾讨论方向。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n4 分钟前\n这次失败也把后续任务标成失败了。我会新建一项只读调研，先把项目事实补齐，再继续脑暴。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n3 分钟前\n小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+      "titles": [
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "在新窗口打开这个项目室，可和其他项目室并排查看",
+        "Open another folder",
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "手动批准 · 点击选择自动批准范围",
+        "设置",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "静音",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "设为主持人",
+        "静音",
+        "踢出",
+        "邀请参会人",
+        "收起参会人",
+        "新建窗口",
+        "收起侧栏",
+        "2026-11-04T04:09:02.601Z",
+        "2026-11-04T04:09:14.551Z",
+        "2026-11-04T04:09:25.130Z",
+        "2026-11-04T04:09:27.975Z",
+        "2026-11-04T04:09:40.591Z",
+        "2026-11-04T04:09:52.585Z",
+        "2026-11-04T04:10:53.249Z",
+        "Host 判断是否需要任务，计划另行批准",
+        "先写详细计划再拆 worker DAG，需审批",
+        "添加附件 (.md, .docx, .pdf, 图片…)",
+        "发送 · Enter"
+      ]
+    },
+    "M5": {
+      "body": "pr156-empty-repo-xbgBEn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n06:05\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n产品专家 小禾\n执行中\n任务看板\n工作区\n子 Agent · 小禾\n产品专家 小禾 正在让子 Agent 做：调研项目现状与方向\n只能看，不能直接输入\n接管\n                       \n  Update available ·   \n  0.156.1 → 0.166.0    \n  Release notes:       \n  https://github.com/  \n  openai/codex/releas  \n  es/latest\n› 1. Update now (runs  \n     `npm install -g   \n     @openai/codex`)   \n↓\n  enter continue ·     \n  esc skip\n                       \n协作\n›\n任务\n执行中\n\n你是「产品专家 小禾」派出的调研子 Agent。项目刚开始，还没有 Issue 和计划。只读调查当前目录：README、目录结构、已有代码和文档；整理出项目现状、可能的目标用户与要解决的问题、三个可选方向及各自取舍。不要修改任何文件。把结论写进最终工作报告，专家会继续给你派后续调研。\n\nAttempt 1\nMailbox 0\nMailbox\n0 条\n\n尚无 Coordinator、Worker 或用户消息。\n\n展开完整检查器\n参会者\n1\n对话\n7\n文件\nCodex\n5 分钟前\n欢迎小禾加入。我们先听项目现状和可能方向，再一起挑出值得优先讨论的机会；有了实质结论，我会随时记进会议纪要。\nCodex\n5 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n4 分钟前\n调研任务刚才因执行连接中断，没收到有效结果。我会让执行端重试，拿到材料后再和小禾讨论方向。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n4 分钟前\n这次失败也把后续任务标成失败了。我会新建一项只读调研，先把项目事实补齐，再继续脑暴。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n3 分钟前\n小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+      "titles": [
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "在新窗口打开这个项目室，可和其他项目室并排查看",
+        "Open another folder",
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "手动批准 · 点击选择自动批准范围",
+        "设置",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "静音",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "设为主持人",
+        "静音",
+        "踢出",
+        "邀请参会人",
+        "收起参会人",
+        "新建窗口",
+        "收起侧栏",
+        "2026-11-04T04:09:02.601Z",
+        "2026-11-04T04:09:14.551Z",
+        "2026-11-04T04:09:25.130Z",
+        "2026-11-04T04:09:27.975Z",
+        "2026-11-04T04:09:40.591Z",
+        "2026-11-04T04:09:52.585Z",
+        "2026-11-04T04:10:53.249Z",
+        "Host 判断是否需要任务，计划另行批准",
+        "先写详细计划再拆 worker DAG，需审批",
+        "添加附件 (.md, .docx, .pdf, 图片…)",
+        "发送 · Enter"
+      ]
+    },
+    "M6": {
+      "body": "pr156-empty-repo-xbgBEn\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn\n00:11\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n任务看板\n工作区\n会议纪要\n讨论开始后，助理会在这里整理\n确认并写入看板\n\n还没有纪要。和助理、专家聊起来后，结论、决策和待办会出现在这里。\n\n终端\n当前任务\n待命\n执行中\n最近动态\n还没有动态。\n参会者\n1\n对话\n7\n文件\nCodex\n5 分钟前\n欢迎小禾加入。我们先听项目现状和可能方向，再一起挑出值得优先讨论的机会；有了实质结论，我会随时记进会议纪要。\nCodex\n5 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n5 分钟前\n调研任务刚才因执行连接中断，没收到有效结果。我会让执行端重试，拿到材料后再和小禾讨论方向。\nCodex\n5 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n5 分钟前\n这次失败也把后续任务标成失败了。我会新建一项只读调研，先把项目事实补齐，再继续脑暴。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\nCodex\n3 分钟前\n小禾暂时没回复，我先继续推进。新的只读调研有结果后，我会用事实材料带大家讨论；目前还没有可写进纪要的项目结论。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写",
+      "titles": [
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "在新窗口打开这个项目室，可和其他项目室并排查看",
+        "Open another folder",
+        "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-empty-repo-xbgBEn",
+        "手动批准 · 点击选择自动批准范围",
+        "设置",
+        "打开终端",
+        "在独立窗口打开编辑器",
+        "静音",
+        "邀请参会人",
+        "收起参会人",
+        "新建窗口",
+        "查看真实 CLI 执行情况",
+        "待命",
+        "2026-11-04T04:09:02.601Z",
+        "2026-11-04T04:09:14.551Z",
+        "2026-11-04T04:09:25.130Z",
+        "2026-11-04T04:09:27.975Z",
+        "2026-11-04T04:09:40.591Z",
+        "2026-11-04T04:09:52.585Z",
+        "2026-11-04T04:10:53.249Z",
+        "Host 判断是否需要任务，计划另行批准",
+        "先写详细计划再拆 worker DAG，需审批",
+        "添加附件 (.md, .docx, .pdf, 图片…)",
+        "发送 · Enter"
+      ]
+    }
+  }
+}
