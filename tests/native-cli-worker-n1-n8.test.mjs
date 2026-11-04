@@ -6,6 +6,8 @@
 import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -41,6 +43,7 @@ import { TaskMailbox } from '../dist-electron/task-mailbox.js';
 import { assessTaskRecovery } from '../dist-electron/task-recovery.js';
 import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
 import { resolveDefaultWorkerBackendId } from '../dist-electron/worker-backend-default.js';
+import { requestWorkerBridge, runWorkerCli } from '../dist-electron/worker-cli.js';
 import { WorkerScheduler } from '../dist-electron/worker-scheduler.js';
 import {
   isWorkerBackendReady,
@@ -49,6 +52,32 @@ import {
 } from '../src/lib/plan-validation.ts';
 import { isNativeCliWorkerBackendId } from '../src/lib/terminal-backends.ts';
 import { testMeetingsPath } from './electron-stub-impl.mjs';
+
+test('aha-worker inbox accepts an OS port that fetch blocks', async (t) => {
+  const server = createServer((req, res) => {
+    if (req.url !== '/worker/inbox?after=3' || req.headers.authorization !== 'Bearer fixture-token') {
+      res.writeHead(400).end();
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
+  });
+  const listening = once(server, 'listening');
+  server.listen(10080, '127.0.0.1');
+  try {
+    await listening;
+  } catch (error) {
+    if (error.code !== 'EADDRINUSE' && error.code !== 'EACCES') throw error;
+    t.skip('loopback fixture port unavailable');
+    return;
+  }
+  t.after(() => new Promise((resolveClose) => server.close(resolveClose)));
+  const output = [];
+  await runWorkerCli(['inbox', '--after', '3'], {
+    AHASTATION_WORKER_URL: 'http://127.0.0.1:10080',
+    AHASTATION_WORKER_TOKEN: 'fixture-token',
+  }, (line) => output.push(JSON.parse(line)));
+  assert.deepEqual(output, [{ ok: true }]);
+});
 
 function git(cwd, args) {
   return execFileSync('git', args, {
@@ -528,7 +557,7 @@ test('N2: Host follow-up enters the same native session; aha-worker inbox and as
   assert.equal(events.some((e) => e.event?.kind === 'permission-request'), false);
 
   // 4. Attempting to smuggle tool-approval payload over `/worker/ask` is rejected (`400 tool-approval-unsupported`)
-  const badAskResp = await fetch(`${workerEnv.AHASTATION_WORKER_URL}/worker/ask`, {
+  const badAskResp = await requestWorkerBridge(`${workerEnv.AHASTATION_WORKER_URL}/worker/ask`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${workerEnv.AHASTATION_WORKER_TOKEN}`,
@@ -862,14 +891,14 @@ test('N4 & N5: End-to-end report freezes candidate before receipt, supports Host
   const worktreeCwd = attempt1.options.cwd;
 
   // N5 credential & task identity checks BEFORE valid report
-  const unauthResp = await fetch(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
+  const unauthResp = await requestWorkerBridge(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
     method: 'POST',
     headers: { authorization: 'Bearer wrong-token', 'content-type': 'application/json' },
     body: JSON.stringify({ report: { status: 'completed', summary: 'x', files: [], tests: [], unresolved: [] } }),
   });
   assert.equal(unauthResp.status, 401);
 
-  const wrongTaskResp = await fetch(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
+  const wrongTaskResp = await requestWorkerBridge(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
     method: 'POST',
     headers: { authorization: `Bearer ${env1.AHASTATION_WORKER_TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -901,7 +930,7 @@ test('N4 & N5: End-to-end report freezes candidate before receipt, supports Host
 
   // Track whether PTY was still alive at the exact moment HTTP receipt arrived!
   let ptyKilledBeforeReceipt = null;
-  const rawResp1 = await fetch(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
+  const rawResp1 = await requestWorkerBridge(`${env1.AHASTATION_WORKER_URL}/worker/report`, {
     method: 'POST',
     headers: { authorization: `Bearer ${env1.AHASTATION_WORKER_TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify({ taskId: 'n4-feature', attempt: 1, report: report1 }),
@@ -1454,7 +1483,7 @@ test('N8: App restart & disconnect never duplicate-dispatch native CLI tasks, re
   await waitFor(() => spawnedAfterRestart.length === 1);
   assert.notEqual(spawnedAfterRestart[0].options.env.AHASTATION_WORKER_TOKEN, oldEnv.AHASTATION_WORKER_TOKEN);
   // Old token is rejected against the new bridge too
-  const replayAgainstNewBridge = await fetch(`${spawnedAfterRestart[0].options.env.AHASTATION_WORKER_URL}/worker/inbox`, {
+  const replayAgainstNewBridge = await requestWorkerBridge(`${spawnedAfterRestart[0].options.env.AHASTATION_WORKER_URL}/worker/inbox`, {
     headers: { authorization: `Bearer ${oldEnv.AHASTATION_WORKER_TOKEN}` },
   });
   assert.equal(replayAgainstNewBridge.status, 401);
