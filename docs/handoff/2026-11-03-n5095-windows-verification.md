@@ -1,8 +1,47 @@
 # AhaStudio Windows N5095 本地验证与合并交接
 
-2026-11-03 · Shawn（Claude 整理）。在线版：https://claude.ai/artifact/SkDmy2RxjizJyitU17eqci
+2026-11-04 · Shawn（Claude 整理）。在线版：https://claude.ai/artifact/SkDmy2RxjizJyitU17eqci
 
 在 N5095（Windows x64）上用一个安装包验证 #154 和 #155，都通过后合并 #156 到 main。这周已合入 main 的会议流程顺带在 Windows 上走一遍，此前只在 Mac 真机上验证过。
+
+## 第二轮（11-04）：先测这一节
+
+第一轮（11-03）没合：6 项通过、6 项失败、9 项没测完。失败的项都不在 #156 改过的文件里。C1、D1 已在 [#157](https://github.com/AhakeyAI/ahastation/pull/157) 修好，并合进了验证分支。这一轮重测 C1–C4、D1，用 main 对照 M2/M4/M6，补测语音相关项。第一轮报告在 `docs/n5095-validation-2026-10-27` 分支的 `docs/c0/results/N5095-PR156-2026-11-03.md`。
+
+**第一轮结果**
+
+| 结果 | 编号 | 原因和这一轮怎么处理 |
+| --- | --- | --- |
+| 失败 | C1、C2 | 新版 Codex 的信任提示（「Continue only if you trust these files … 1. Trust and continue」）没被识别，任务提示词被粘贴进对话框，Codex 报 `timed out discarding buffered terminal input` 退出。#157 已修 |
+| 失败 | D1 | Codex 当 Host 时把决策命令的字段写错了（`title`、`deadline`、`calendarReminder`），命令被拒，但 Host 收不到被拒的原因。#157 已修：提示词写明字段，被拒时把原因回传给 Host |
+| 失败 | M2、M4、M6 | 专家超过 120 秒不回话，没有纪要；关闭会议再进，还有上一场的 Host 对话。这部分 #156 没改，这一轮用 main 对照 |
+| 没测完 | C3、C4 | 被 C1 挡住 |
+| 没测完 | P1、P2、V1、V2、F1 | 没配讯飞 ASR 凭据，麦克风按钮是灰的 |
+| 没测完 | V3 | 自动化切不到后台，改成手动测 |
+| 不适用 | M3 | Host 用的是 Codex，没有 Claude 的信任按钮 |
+| 通过 | B1、B2、M1、M5、V4、O1 | 不用重测。M1 靠的是验证中修的空仓库问题（91476cd），已在验证分支上 |
+
+**准备**
+
+1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #157 的合并提交 `de44a2b`，`npm ci` 后可以从源码启动。
+2. 或者用新安装包：`gh run download 41766638305 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/41766638305)。
+3. 设置 → 语音 → 讯飞 ASR，填 APPID、APIKey、APISecret（Shawn 单独发）。不要写进仓库、截图或日志。
+
+**第二轮清单**
+
+| 编号 | 操作 | 通过标准 | 结果 | 备注 |
+| --- | --- | --- | --- | --- |
+| R1（C1） | 会议里说：「帮我用鼠标打开记事本，输入：你好 AhaStudio」。Worker 标签出现 Codex 信任提示时，在那个终端里选 1 并回车 | 信任提示没确认前，任务不会被粘贴进去；确认后任务自动粘贴，记事本打开，内容正好是「你好 AhaStudio」 | 未测 | 自动化脚本也要替 Worker 的终端答这一步 |
+| R2（C2） | 系统缩放 125% 和 100% 各做一次 R1 | 两种缩放下点击位置都不偏 | 未测 |  |
+| R3（C3） | 让 Worker 在记事本里按 cmd+a、cmd+c | 实际触发 Ctrl+A、Ctrl+C | 未测 |  |
+| R4（C4） | 让 Worker 在一个长网页上向下滚动 3 格 | 方向向下，幅度正常 | 未测 |  |
+| R5（D1） | 对助理说：「这两个方案我拿不准，用决策单让我选」 | `文档\AhaStation\decisions` 下生成 `.md` 和 `.ics`，默认日历弹出导入，开始时间是截止时间，提前 15 分钟提醒 | 未测 | Host 字段写错时，对话里应能看到它收到「被拒绝」后自己改正重发 |
+| R6 | 用 main 的代码或安装包重跑 M2、M4、M6 | 记下 main 上是否同样失败 | 未测 | main 上同样失败的，就不算 #156 的合并条件，单独开 issue |
+| R7 | 配好 ASR 后按原清单做 P1、P2、V1、V2 | 同原清单 | 未测 |  |
+| R8（V3） | 手动测：开 DevTools（见「出问题时」），子 Agent 运行时点别的窗口，在控制台看 `document.documentElement.dataset.windowActive` | 切到别的窗口后为 `false`，状态点和转圈停住；切回来后为 `true`，继续动 | 未测 |  |
+| R9（F1） | 补上 F1 表里静音、开麦、子 Agent 运行三行 | 静音时 CPU 明显低于开麦时 | 未测 | 第一轮会议空闲（麦克风没启动）时 GPU 进程约 21.65%，记下这一轮的数值 |
+
+合并条件：R1–R5 通过；R6 里 main 上同样失败的项不挡合并；R7–R9 通过，或写明跳过的原因。第一轮的 21 项清单在后面，操作和通过标准都沿用。
 
 ## 验证范围
 
@@ -43,7 +82,7 @@
 
 ## 验证清单
 
-共 21 项，按顺序做：前面的步骤会为后面准备好会议。每项做完在「结果」列选通过或失败，失败的在「备注」写现象。
+第一轮清单，结果见「第二轮」一节。共 21 项，按顺序做：前面的步骤会为后面准备好会议。每项做完在「结果」列选通过或失败，失败的在「备注」写现象。
 
 | 编号 | 操作 | 通过标准 | 结果 | 备注 |
 | --- | --- | --- | --- | --- |
@@ -102,12 +141,12 @@
 
 验证通过后只合并 [#156](https://github.com/AhakeyAI/ahastation/pull/156)（验证分支本身）。它包含 #154 和 #155 的提交，用合并提交合入后，GitHub 会自动把 #154、#155 标为已合并。也可以把清单结果发给 Claude，由它按下面的步骤合并。
 
-1. 清单里的项全部「通过」或「跳过」；「失败」的先在验证分支上修，重新打包再测。
+1. 第二轮清单满足合并条件（见「第二轮」一节）；第一轮已通过的项不用重测。「失败」的先在验证分支上修，重新打包再测。
    - #154 的部分：B2、C1–C4、D1、P1–P2。
    - #155 的部分：V1–V4、O1，F1 里静音时 CPU 明显低于打开时。
 2. 确认 #156 的 CI 三个平台都是绿的。如果失败的是下面的已知偶发测试，只重跑失败项：`gh run rerun <run id> -R AhakeyAI/ahastation --failed`。如果是别的测试，不要合。
 3. 合并：`gh pr merge 156 -R AhakeyAI/ahastation --merge`（合并提交，不要 squash，否则 #154、#155 不会自动标为已合并）。
-4. 确认 #154、#155 已显示为 Merged；没有的话手动关闭，并留言「已随 #156 合入」。
+4. 确认 #154、#155、#157 已显示为 Merged；没有的话手动关闭，并留言「已随 #156 合入」。
 5. 在 main 上打新安装包：`gh workflow run build-matrix.yml -R AhakeyAI/ahastation --ref main`。只生成 30 天的构建产物，不发 Release。
 
 **已知的偶发失败测试**（和改动无关，只改文档的 PR 也会失败）
@@ -128,3 +167,5 @@
 - **安装包没有签名**：SmartScreen 会拦。
 - **Ubuntu 真机**：还没安排。Ubuntu 用 Wayland 桌面时，Computer Use 只能操作 X11 兼容层（XWayland）里的窗口。
 - **Mac 上的改变**：Computer Use 的三击现在是连续三次单击，可能不被当成三击；决策写入日历会多一次「添加到日历」确认。这两项不影响 N5095 的验证。
+- **libnut 底层脚本**：第一轮的 `pr156-computer-use-primitives.mjs` 停在脚本自己激活窗口的那一步（`Could not activate PID 10424`），libnut 没被调用。以 R1–R4 的 Worker 实测结果为准，脚本修好后可以再补跑。
+- **空仓库里的代码交付**：91476cd 让没有提交的仓库也能开会，但改代码的任务在定稿提交时会停住，等你手动退回；只读和只交报告的任务不受影响。这次不测，另开 PR 处理。
