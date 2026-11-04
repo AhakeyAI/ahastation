@@ -2,9 +2,9 @@
 //
 // One skeleton, many CLIs: Claude Code, Kimi Code, Codex, Qoder all ship an
 // interactive TUI that can run inside a PtyHost pty as a human-supervised
-// Worker. The scheduler's first sendUserText() — the compiled task prompt —
-// is "typed" into the TUI as a bracketed paste, and the user can take over
-// the keyboard at any time through the stage terminal (ipc/worker-pty.ts).
+// Worker. Text sent to a running terminal uses bracketed paste. Profiles can
+// stage the first task at launch when their CLI provides a startup prompt.
+// The user can take over through the stage terminal (ipc/worker-pty.ts).
 //
 // A TUI has no machine-readable output channel, so every terminal backend
 // deliberately emits only a thin signal stream:
@@ -440,6 +440,8 @@ export interface TerminalCliProfile {
    *  placeholder or equivalent proof that typing is accepted; remember the
    *  TUI paints word-granularity runs, so allow \s* between words. */
   readyPattern?: RegExp;
+  /** Short native startup prompt for reading the complete, private task brief. */
+  initialTaskPrompt?: string;
   /** Optional bytes written after the bracketed-paste frame and before the
    *  actual submit key. Some TUIs keep pasted input isolated until bracketed
    *  paste mode is explicitly detached; putting Enter inside that frame (or
@@ -576,6 +578,7 @@ export class TerminalCliSession implements BackendSession {
   private observedNativeSessionId: string | null = null;
   private unsubscribeData: (() => void) | null = null;
   private unsubscribeExit: (() => void) | null = null;
+  private initialTask: { path: string; binary: string } | undefined;
 
   constructor(
     profile: TerminalCliProfile,
@@ -597,6 +600,18 @@ export class TerminalCliSession implements BackendSession {
     this.eventsPath = join(this.ahaDir, `terminal-turn-events-${this.suffix}.jsonl`);
   }
 
+  stageInitialTask(text: string, runtimeDir: string): boolean {
+    if (!this.profile.initialTaskPrompt || !this.config.nativeCliWorker
+      || this.initialTask || this.started || this.closed) return false;
+    requireNativeCliWorkerAdmission(this.profile, this.config);
+    const binary = this.deps.resolveBinary();
+    if (!binary || !/\.(?:exe|cmd|bat)$/i.test(binary)) return false;
+    const path = join(runtimeDir, 'initial-task.txt');
+    writeFileSync(path, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    this.initialTask = { path, binary };
+    return true;
+  }
+
   async start(): Promise<void> {
     if (this.started || this.closed) return;
     // Local Native CLI Worker launches must carry an explicit self-approval
@@ -610,7 +625,7 @@ export class TerminalCliSession implements BackendSession {
       requireNativeCliWorkerAdmission(this.profile, this.config);
     }
     this.started = true;
-    const binary = this.deps.resolveBinary();
+    const binary = this.initialTask?.binary ?? this.deps.resolveBinary();
     if (!binary) {
       this.emit({
         kind: 'worker-signal',
@@ -649,6 +664,7 @@ export class TerminalCliSession implements BackendSession {
       ELECTRON_RUN_AS_NODE: '1',
       ...hookReg?.env,
       ...this.profile.buildEnv?.(this.config),
+      ...(this.initialTask ? { AHASTATION_WORKER_BRIEF: this.initialTask.path } : {}),
     };
     const env: NodeJS.ProcessEnv = this.config.nativeCliWorker
       ? workerCliEnvironment(rawEnv)
@@ -656,6 +672,7 @@ export class TerminalCliSession implements BackendSession {
     const cliArgs = [
       ...(hookReg?.cliArgs ?? []),
       ...(this.profile.buildCliArgs?.(this.config) ?? []),
+      ...(this.initialTask && this.profile.initialTaskPrompt ? ['--', this.profile.initialTaskPrompt] : []),
     ];
     // PtyHost handles Windows npm shims with cmd-specific argument escaping.
     const processId = this.deps.host.spawn(this.workerId, {
@@ -664,6 +681,7 @@ export class TerminalCliSession implements BackendSession {
       cwd: this.config.cwd,
       env,
     });
+    if (this.initialTask) this.turnActive = true;
     TerminalCliSession.trustSessions.set(this.workerId, this);
 
     this.authWallDeadline = Date.now() + AUTH_WALL_WINDOW_MS;

@@ -238,6 +238,8 @@ export interface BackendCapabilities {
 export interface BackendSession {
   /** Start the session. Begins streaming events via the emit callback. */
   start(): Promise<void>;
+  /** Stage the first task for a native launch instead of sending it to the TUI. */
+  stageInitialTask?(text: string, runtimeDir: string): boolean;
   /** End the session. Releases all resources. Idempotent. */
   end(): void;
   /** Send a text message from the user. */

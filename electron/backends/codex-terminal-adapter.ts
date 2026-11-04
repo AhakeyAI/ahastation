@@ -41,6 +41,11 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
   capabilities: CODEX_TERMINAL_CAPABILITIES,
   displayLabel: 'Codex',
   resolveBinary: () => resolveBinaryFromPath('codex'),
+  // Windows console input can split or transform a long multiline paste.
+  // The native initial prompt uses Codex's own startup and permission gates.
+  initialTaskPrompt: process.platform === 'win32'
+    ? 'Read the full UTF-8 task brief at the path in the AHASTATION_WORKER_BRIEF environment variable. Then carry out that task and follow its reporting instructions.'
+    : undefined,
   buildCliArgs: (config) => {
     const args: string[] = [];
     if (config.model && config.model !== 'auto') args.push('-m', config.model);
