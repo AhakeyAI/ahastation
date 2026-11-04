@@ -173,6 +173,7 @@ test('a Codex Host that claims a Worker it never sent is told to correct itself'
     await orch.recapDonePromise();
     resetBackendRegistry();
     rmSync(runtime.dir, { recursive: true, force: true });
-    rmSync(cwd, { recursive: true, force: true });
+    // Windows releases the meeting's file handles a beat after end().
+    rmSync(cwd, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   }
 });
