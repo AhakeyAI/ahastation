@@ -31,7 +31,7 @@ test('Host prefers the installed executable used by the native CLI', async (t) =
   const binary = join(root, process.platform === 'win32' ? 'codex.exe' : 'codex');
   await writeFile(binary, '#!/bin/sh\nexit 0\n');
   await chmod(binary, 0o755);
-  assert.equal(resolveCodexRuntime(root, { systemBinary: binary }), await realpath(binary));
+  assert.equal(await realpath(resolveCodexRuntime(root, { systemBinary: binary })), await realpath(binary));
 });
 
 test('Windows npm launcher resolves to its native executable instead of an unrelated bundled CLI', async (t) => {
@@ -45,5 +45,5 @@ test('Windows npm launcher resolves to its native executable instead of an unrel
   await writeFile(binary, 'fixture');
   const shim = join(root, 'codex.cmd');
   await writeFile(shim, '@echo off');
-  assert.equal(resolveCodexRuntime(undefined, { systemBinary: shim }), await realpath(binary));
+  assert.equal(await realpath(resolveCodexRuntime(undefined, { systemBinary: shim })), await realpath(binary));
 });

@@ -135,10 +135,8 @@ test('a plan cannot select a backend that cannot execute delivery tasks', async 
       prompt: 'Do the task',
       executorBackendId: 'qoder',
     }]);
-    assert.deepEqual(result, {
-      ok: false,
-      error: "backend 'qoder' cannot execute delivery tasks",
-    });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /^unsupported-contract: Worker 'qoder'/);
   } finally {
     await orchestrator.end();
   }
@@ -157,10 +155,8 @@ test('unknown executor backends fail instead of silently falling back to Claude'
       prompt: 'Do the task',
       executorBackendId: 'missing-backend',
     }]);
-    assert.deepEqual(result, {
-      ok: false,
-      error: "backend 'missing-backend' is not registered",
-    });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /^unsupported-contract: Worker 'missing-backend'/);
   } finally {
     await orchestrator.end();
   }

@@ -565,7 +565,7 @@ test('N3: Native CLI handles tool confirmation in its own terminal (allow execut
       `let mode = 'await-prompt';`,
       `let buffer = '';`,
       `function runReport(payload) {`,
-      `  const reportFile = join(process.env.TMP || process.env.TEMP || '.', 'n3-report-' + process.pid + '.json');`,
+      `  const reportFile = join(${JSON.stringify(root)}, 'n3-report-' + process.pid + '.json');`,
       `  writeFileSync(reportFile, JSON.stringify(payload), 'utf8');`,
       `  execFileSync(process.execPath, [process.env.AHASTATION_WORKER_ENTRY, 'report', '--file', reportFile], {`,
       `    env: process.env, stdio: 'inherit', windowsHide: true,`,

@@ -158,6 +158,9 @@ test('verification failures create fresh bounded attempts and user extension pre
     reviewer: { async review() { return { passed: true, findings: [] }; } },
     integrator: { async integrate() { throw new Error('must not integrate'); } },
   });
+  const pauseFlushStarted = Promise.withResolvers();
+  const finishPauseFlush = Promise.withResolvers();
+  let pausedFlushHeld = false;
   const scheduler = new WorkerScheduler({
     emit() {},
     cwd: root,
@@ -166,7 +169,14 @@ test('verification failures create fresh bounded attempts and user extension pre
     deliveryHarness: harness,
     meetingId: 'budget-meeting',
     defaultBackendId: 'codex',
-    async flushEvents() { await repository.flush(); },
+    async flushEvents() {
+      await repository.flush();
+      if (!pausedFlushHeld && scheduler.snapshot().some((task) => task.status === 'budget-paused')) {
+        pausedFlushHeld = true;
+        pauseFlushStarted.resolve();
+        await finishPauseFlush.promise;
+      }
+    },
     sessionFactory(opts) {
       const session = {
         opts,
@@ -259,7 +269,8 @@ test('verification failures create fresh bounded attempts and user extension pre
   );
   assert.equal(sessions.length, 3);
 
-  const extended = await scheduler.extendTaskBudget(
+  await pauseFlushStarted.promise;
+  const extending = scheduler.extendTaskBudget(
     'task-a',
     scheduler.getPlanVersion(),
     {
@@ -269,6 +280,14 @@ test('verification failures create fresh bounded attempts and user extension pre
     },
     'user-budget-decision',
   );
+  try {
+    // The old rework still owns this attempt while its pause flush is held.
+    // An extension must wait instead of returning that same rework promise.
+    assert.equal(scheduler.getPlanVersion(), 1);
+  } finally {
+    finishPauseFlush.resolve();
+  }
+  const extended = await extending;
   assert.equal(extended.planVersion, 2);
   await waitFor(() => sessions.length === 4, 'user budget extension did not resume a fresh attempt');
   snapshot = scheduler.snapshot().find((task) => task.id === 'task-a');

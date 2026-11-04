@@ -3745,6 +3745,12 @@ export class WorkerScheduler {
     rawBudget: TaskBudget,
     decisionId: string,
   ): Promise<{ planVersion: number; budget: TaskBudget }> {
+    // The pause is visible before its journal flush completes. Let that run
+    // retire so an extension cannot be coalesced into the old rework attempt.
+    const paused = this.workers.get(taskId);
+    if (paused?.status === 'budget-paused') {
+      await this.automaticReworkByAttempt.get(`${paused.deliveryId}:${paused.attempt}`);
+    }
     if (expectedPlanVersion !== this.planVersion) {
       throw new Error(
         `stale plan version: expected ${expectedPlanVersion}, current ${this.planVersion}`,
