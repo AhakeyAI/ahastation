@@ -5229,11 +5229,6 @@ export class WorkerScheduler {
       handle.stallNotifiedTs = undefined;
       this.startStallWatch();
       const session = handle.session;
-      await session.start();
-      handle.backendSession = session.snapshot?.() ?? handle.backendSession;
-      // The meeting may have ended, the task may have been cancelled, or an
-      // auth-required event may have disposed the session during the handshake.
-      if (handle.session !== session || handle.status !== 'running') return;
 
       // First prompt mentions peer workers so the new worker knows it may be
       // touching shared code with others.
@@ -5243,19 +5238,35 @@ export class WorkerScheduler {
       const peerLine = peers.length > 0
         ? `\n\n（同事 worker 也在跑：${peers.map((p) => `${p.id}「${p.title}」`).join('、')}。注意可能改到同一份代码。）`
         : '';
-      const initialMailboxMessage = this.queuedInitialMessage(handle);
-      const mailboxLine = initialMailboxMessage
-        ? `\n\n(follow-up attempt ${handle.attempt}) ${this.messageText(initialMailboxMessage)}`
-        : '';
       const terminalSuffix = isNativeCliWorkerBackend(handle.backendId)
         ? `${buildTerminalWorkerReportInstruction(handle.id, sessionAttempt)}${TERMINAL_WORKER_COMPLETION_INSTRUCTION}`
         : isTerminalWorkerBackend(handle.backendId)
           ? TERMINAL_WORKER_COMPLETION_INSTRUCTION
           : '';
+      const prepareInitialPrompt = () => {
+        const mailboxMessage = this.queuedInitialMessage(handle);
+        const mailboxLine = mailboxMessage
+          ? `\n\n(follow-up attempt ${handle.attempt}) ${this.messageText(mailboxMessage)}`
+          : '';
+        return {
+          mailboxMessage,
+          text: `${handle.contextPackage ? firstMessage : handle.prompt + peerLine}${mailboxLine}${terminalSuffix}`,
+        };
+      };
+      let launchPrompt: ReturnType<typeof prepareInitialPrompt> | undefined;
+      if (cliBinding && session.stageInitialTask) {
+        const prompt = prepareInitialPrompt();
+        if (session.stageInitialTask(prompt.text, cliBinding.runtimeDir)) launchPrompt = prompt;
+      }
+      await session.start();
+      handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+      // The meeting may have ended, the task may have been cancelled, or an
+      // auth-required event may have disposed the session during the handshake.
+      if (handle.session !== session || handle.status !== 'running') return;
+      const initialPrompt = launchPrompt ?? prepareInitialPrompt();
+      const initialMailboxMessage = initialPrompt.mailboxMessage;
       try {
-        session.sendUserText(
-          `${handle.contextPackage ? firstMessage : handle.prompt + peerLine}${mailboxLine}${terminalSuffix}`,
-        );
+        if (!launchPrompt) session.sendUserText(initialPrompt.text);
         if (initialMailboxMessage && this.opts.taskMailbox) {
           await this.opts.taskMailbox.markDelivered(handle.id, initialMailboxMessage.id);
           this.pendingMailboxAckByWorker.set(handle.id, initialMailboxMessage.id);
