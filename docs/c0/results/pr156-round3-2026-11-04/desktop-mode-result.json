@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "desktop": {
+      "result": "pass",
+      "observed": "{\"preference\":\"desktop\",\"navigation\":0,\"taskBoardVisible\":false,\"width\":1010}"
+    },
+    "autoRestored": {
+      "result": "pass",
+      "observed": "{\"preference\":\"auto\",\"navigation\":1,\"width\":1010}"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-desktop-mode-2\\desktop-mode.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-desktop-mode-2\\auto-mode-restored.png"
+  ],
+  "desktop": {
+    "preference": "desktop",
+    "navigation": 0,
+    "taskBoardVisible": false,
+    "width": 1010
+  },
+  "auto": {
+    "preference": "auto",
+    "navigation": 1,
+    "width": 1010
+  }
+}
