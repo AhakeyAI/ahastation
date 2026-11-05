@@ -40,6 +40,17 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: '已取消',
 };
 
+const LAUNCH_LABEL = {
+  preparing: '准备启动原生 CLI',
+  'process-created': 'CLI 进程已创建，等待终端输入条件',
+  'waiting-for-user': '等待在终端处理登录、信任或 Hook 审核',
+  'input-ready': '终端适配器可接收输入',
+  'input-written': '输入已写入终端，模型读取状态未知',
+  'execution-observed': '已观察到 CLI 执行活动',
+  failed: '启动失败',
+  uncertain: '进程或投递状态待核对',
+};
+
 interface WorkerWorkbenchProps {
   workerId: string;
   sessionId: string;
@@ -175,6 +186,7 @@ export function WorkerWorkbench({
   }, [sessionId, workerId]);
 
   const worker = useMeetingSelector((s) => s.workers.get(workerId));
+  const launchPhase = useMeetingSelector((s) => s.plan?.nodes.find((node) => node.id === workerId)?.launchPhase);
   const currentDelivery = useMeetingSelector(
     (s) =>
       s.currentDelivery && s.currentDelivery.workerId === workerId
@@ -246,7 +258,7 @@ export function WorkerWorkbench({
               </>
             ) : (
               <>
-                <span>原生 CLI 会话运行中（工具确认在终端内按 CLI 自身配置处理）</span>
+                <span>{launchPhase ? LAUNCH_LABEL[launchPhase] : STATUS_LABEL[String(status)] ?? String(status)}</span>
                 <button type="button" className="subagent-bar-btn" onClick={() => void takeOver()}>接管终端</button>
               </>
             )}
@@ -275,7 +287,7 @@ export function WorkerWorkbench({
             {assignments.map((item) => (
               <li key={item.id} className={`is-${item.state}`}>
                 <span aria-hidden="true">{item.state === 'done' ? '✓' : item.state === 'current' ? '▶' : '·'}</span>
-                <span>{item.text}{item.state === 'current' ? '（进行中）' : item.state === 'queued' ? '（排队中）' : ''}</span>
+                <span>{item.text}{item.state === 'current' ? '（已提交输入）' : item.state === 'queued' ? '（排队中）' : ''}</span>
               </li>
             ))}
           </ol>

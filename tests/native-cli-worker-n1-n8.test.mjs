@@ -518,12 +518,29 @@ test('N2: Host follow-up enters the same native session; aha-worker inbox and as
   assert.equal(inboxJson.attempt, 1);
   assert.equal(inboxJson.messages.length, 1);
   assert.match(JSON.stringify(inboxJson.messages[0].payload), /补充要求 A：保持函数签名不变/);
-  assert.equal(inboxJson.messages[0].status, 'acknowledged');
-  assert.equal(orchestrator.getTaskMailbox().get('n2-collab', inboxJson.messages[0].id).status, 'acknowledged');
+  assert.equal(inboxJson.protocolVersion, 2);
+  assert.equal(inboxJson.messages[0].status, 'queued');
 
-  // Subsequent `aha-worker inbox` sees 0 unacknowledged messages
+  // Losing the first HTTP response leaves the same message available.
   const inboxAgain = JSON.parse((await runAhaWorkerShim(workerEnv, ['inbox'])).stdout);
-  assert.equal(inboxAgain.messages.length, 0);
+  assert.deepEqual(inboxAgain.messages, inboxJson.messages);
+  const receiveUrl = `${workerEnv.AHASTATION_WORKER_URL}/worker/inbox/received`;
+  const receiptRequest = {
+    method: 'POST',
+    headers: { authorization: `Bearer ${workerEnv.AHASTATION_WORKER_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ batchId: inboxJson.batchId, messageIds: [inboxJson.messages[0].id] }),
+  };
+  assert.equal((await requestWorkerBridge(receiveUrl, receiptRequest)).status, 409, 'receipt requires saved batch evidence');
+  const failedSave = await runAhaWorkerShim({ ...workerEnv, AHASTATION_WORKER_INBOX_DIR: workerEnv.AHASTATION_WORKER_ENTRY }, ['inbox', '--receive']);
+  assert.notEqual(failedSave.status, 0);
+  assert.equal(orchestrator.getTaskMailbox().hasTransportReceipt(inboxJson.messages[0].id, 1), false);
+  const received = await runAhaWorkerShim(workerEnv, ['inbox', '--receive']);
+  assert.equal(received.status, 0, received.stderr);
+  assert.equal((await requestWorkerBridge(receiveUrl, receiptRequest)).status, 200, 'lost acknowledgement response is retryable');
+  assert.equal(orchestrator.getTaskMailbox().hasTransportReceipt(inboxJson.messages[0].id, 1), true);
+  assert.equal(orchestrator.getTaskMailbox().get('n2-collab', inboxJson.messages[0].id).status, 'queued');
+  assert.deepEqual(JSON.parse((await runAhaWorkerShim(workerEnv, ['inbox', '--saved'])).stdout).messages, inboxJson.messages);
+  assert.equal(JSON.parse((await runAhaWorkerShim(workerEnv, ['inbox'])).stdout).messages.length, 0);
 
   // 2. Idle between-turn follow-up: Stop hook marks turn ended -> `queueTaskFollowUp` auto-pastes into same PTY
   const writesBeforeIdleFollowUp = spawned[0].pty.writes.length;
@@ -1335,7 +1352,9 @@ test('N7: Takeover fences automatic input while human edits worktree; handback r
   assert.match(injectedOnHandback, /\[handback\]/);
   assert.match(injectedOnHandback, /modified:src\/hello\.js/);
   assert.match(injectedOnHandback, /created:src\/manual-fix\.js/);
-  assert.match(injectedOnHandback, /交还后再执行的追问指令/);
+  assert.doesNotMatch(injectedOnHandback, /交还后再执行的追问指令/);
+  const inbox = JSON.parse((await runAhaWorkerShim(spawned[0].options.env, ['inbox'])).stdout);
+  assert.ok(inbox.messages.some(message => message.payload.text === '交还后再执行的追问指令' && message.status === 'queued'));
 });
 
 // ============================================================================

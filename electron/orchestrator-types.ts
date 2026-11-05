@@ -73,6 +73,7 @@ export interface MeetingPlanNode {
    *  renderer's capacity banner reflect real saturation during the launch
    *  window instead of lagging one emit behind. */
   launching?: boolean;
+  launchPhase?: import('./backends/cli-backend.js').NativeLaunchPhase;
   /** Immutable accepted task replaced by this versioned rework node. */
   supersedesTaskId?: string;
   executorBackendId?: string;
@@ -159,6 +160,8 @@ export type OrchestratorOnlyEvent =
   | { kind: 'plan-updated'; plan: MeetingPlan }
   | {
     kind: 'plan-proposed';
+    proposalId: string;
+    proposalVersion: number;
     tasks: PlanMeetingTask[];
     brief?: {
       goal: string;
@@ -168,6 +171,8 @@ export type OrchestratorOnlyEvent =
       openQuestions: string[];
     };
   }
+  | { kind: 'plan-proposal-resolved'; proposalId: string }
+  | { kind: 'plan-install-uncertain'; proposalId: string }
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string }
@@ -185,8 +190,10 @@ export type OrchestratorOnlyEvent =
    *  Purely a renderer hint: it names the optimistic "thinking" bubble after
    *  the routed host. hostId travels on the OrchestratorEvent envelope. */
   | { kind: 'user-mentioned-host'; backendId: string; chars: number }
+  | ({ kind: 'host-input-state'; text?: string; receivedAt?: number } & import('./host/inbox.js').HostInputReceipt)
   | { kind: 'session-start-failed'; error: string; remoteTarget?: import('./backends/pocket-vibe-target.js').PocketVibeRemoteTarget }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string }
+  | { kind: 'coordinator-restored'; hostId: string }
   | {
       kind: 'coordinator-review-stalled';
       reviewId: string;
@@ -233,6 +240,7 @@ export interface WorkerTaskHistoryEntry {
 }
 
 export interface WorkerHandle {
+  launchPhase?: import('./backends/cli-backend.js').NativeLaunchPhase;
   id: string;
   title: string;
   prompt: string;

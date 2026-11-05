@@ -3,6 +3,7 @@
 // spills the file to `<cwd>/.vibe-attachments/` and tells Talker the path.
 
 import { ipcMain } from 'electron';
+import { createHash } from 'node:crypto';
 import { formatError } from '../format-error.js';
 import type { IpcContext } from './context.js';
 import {
@@ -37,6 +38,7 @@ interface RawPayload {
   sessionId?: unknown;
   items?: unknown;
   caption?: unknown;
+  inputId?: unknown;
 }
 
 function pickSessionId(payload: unknown): string | undefined {
@@ -50,10 +52,15 @@ type ContentBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: 'image/png' | 'image/jpeg' | 'image/webp'; data: string } };
 
 export function registerAttachmentsIpc(ctx: IpcContext): void {
+  const inFlight = new Map<string, { hash: string; operation: Promise<unknown> }>();
   ipcMain.handle('session:user-attachments', async (_e, payload: RawPayload) => {
     const slot = ctx.registry.resolve(pickSessionId(payload));
     if (!slot) return { ok: false, error: 'No active session' };
     const o = slot.orchestrator;
+    const inputId = payload?.inputId;
+    if (inputId !== undefined && (typeof inputId !== 'string' || !/^[\w.-]{1,128}$/.test(inputId))) {
+      return { ok: false, error: 'Invalid inputId' };
+    }
 
     const items = Array.isArray(payload?.items) ? (payload.items as unknown[]) : [];
     if (items.length === 0) return { ok: false, error: 'No attachments provided' };
@@ -97,112 +104,143 @@ export function registerAttachmentsIpc(ctx: IpcContext): void {
       raw.push({ name, mime, sizeBytes, dataBase64 });
     }
 
-    // Parse all attachments. Word/PDF extraction is async — run in parallel.
-    let parsed: ParsedAttachment[];
+    const hash = createHash('sha256');
+    hash.update(JSON.stringify(caption));
+    for (const item of raw) {
+      hash.update(JSON.stringify([item.name, item.mime, item.sizeBytes, item.dataBase64.length]));
+      hash.update(item.dataBase64);
+    }
+    const requestHash = hash.digest('hex');
+    const key = typeof inputId === 'string' ? `${slot.id}\0${inputId}` : undefined;
+    const previous = key ? inFlight.get(key) : undefined;
+    if (previous) {
+      return previous.hash === requestHash ? previous.operation : { ok: false, error: 'inputId content conflict' };
+    }
+    const operation = processAttachments();
+    if (key) inFlight.set(key, { hash: requestHash, operation });
     try {
-      parsed = await Promise.all(raw.map(parseAttachment));
-    } catch (err: unknown) {
-      return { ok: false, error: `Parse failed: ${formatError(err)}` };
+      return await operation;
+    } finally {
+      if (key) inFlight.delete(key);
     }
 
-    const blocks: ContentBlock[] = [];
-    const meta: Array<{ name: string; kind: AttachmentKind; sizeBytes: number; route: 'inline' | 'workspace' }> = [];
-    let inlinedCount = 0;
-    let workspaceCount = 0;
-    let inlineTextUsed = 0; // running total of inline text chars across all attachments
-    inlineTextUsed += caption.trim().length; // caption shares the same budget
-    const cwd = slot.cwd;
-
-    // Save all attachments to materials directory for persistent reference.
-    // Use await to ensure completion; surface errors via console.warn.
-    if (cwd) {
-      for (const p of parsed) {
-        try {
-          await saveFileToMaterials({ cwd, name: p.name, buffer: p.buffer });
-        } catch (err: unknown) {
-          console.warn('[attachments] saveFileToMaterials failed for', p.name, ':', formatError(err));
+    async function processAttachments() {
+      if (typeof inputId === 'string') {
+        const existing = await o.readHostInput(inputId);
+        if (existing) {
+          if (existing.source !== 'attachment' || existing.requestHash !== requestHash) {
+            return { ok: false, error: 'inputId content conflict' };
+          }
+          return { ok: true, receipt: { inputId, hostId: existing.hostId, state: existing.state } };
         }
       }
-    }
-
-    for (const p of parsed) {
-      const route = decideRoute(p, inlineTextUsed);
-      if (route === 'inline') {
-        if (p.kind === 'image') {
-          blocks.push({
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: p.imageMediaType ?? 'image/jpeg',
-              data: p.buffer.toString('base64'),
-            },
-          });
-          meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
-          inlinedCount++;
-        } else {
-          const textBlock = formatInlineTextBlock(p);
-          blocks.push({ type: 'text', text: textBlock });
-          inlineTextUsed += textBlock.length;
-          meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
-          inlinedCount++;
-        }
-        continue;
-      }
-
-      // Workspace route. Falls back to inline if workspace write fails AND the
-      // file is small enough to inline safely.
-      if (!cwd) {
-        // No active cwd yet — can't write. Try inline as a last resort.
-        const inlineBlock = tryInlineFallback(p, inlineTextUsed);
-        if (inlineBlock) {
-          blocks.push(inlineBlock);
-          if (inlineBlock.type === 'text') inlineTextUsed += inlineBlock.text.length;
-          meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
-          inlinedCount++;
-          continue;
-        }
-        return { ok: false, error: `${p.name}: too large to inline and no active workspace to spill into` };
-      }
-      const dir = await ensureAttachmentsDir(cwd);
-      if (!dir) {
-        const inlineBlock = tryInlineFallback(p, inlineTextUsed);
-        if (inlineBlock) {
-          blocks.push(inlineBlock);
-          if (inlineBlock.type === 'text') inlineTextUsed += inlineBlock.text.length;
-          meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
-          inlinedCount++;
-          continue;
-        }
-        return { ok: false, error: `${p.name}: failed to create .vibe-attachments dir and file too large to inline` };
-      }
+      // Parse all attachments. Word/PDF extraction is async — run in parallel.
+      let parsed: ParsedAttachment[];
       try {
-        const written = await writeAttachmentSafely(dir, p.name, p.buffer);
-        await maybeAppendGitignore(cwd);
-        blocks.push({
-          type: 'text',
-          text: formatWorkspaceNotice(p, written.absPath, written.finalName),
-        });
-        meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'workspace' });
-        workspaceCount++;
+        parsed = await Promise.all(raw.map(parseAttachment));
       } catch (err: unknown) {
-        return { ok: false, error: `${p.name}: workspace write failed (${formatError(err)})` };
+        return { ok: false, error: `Parse failed: ${formatError(err)}` };
+      }
+
+      const blocks: ContentBlock[] = [];
+      const meta: Array<{ name: string; kind: AttachmentKind; sizeBytes: number; route: 'inline' | 'workspace' }> = [];
+      let inlinedCount = 0;
+      let workspaceCount = 0;
+      let inlineTextUsed = 0; // running total of inline text chars across all attachments
+      inlineTextUsed += caption.trim().length; // caption shares the same budget
+      const cwd = slot?.cwd;
+
+      // Save all attachments to materials directory for persistent reference.
+      // Use await to ensure completion; surface errors via console.warn.
+      if (cwd) {
+        for (const p of parsed) {
+          try {
+            await saveFileToMaterials({ cwd, name: p.name, buffer: p.buffer });
+          } catch (err: unknown) {
+            console.warn('[attachments] saveFileToMaterials failed for', p.name, ':', formatError(err));
+          }
+        }
+      }
+
+      for (const p of parsed) {
+        const route = decideRoute(p, inlineTextUsed);
+        if (route === 'inline') {
+          if (p.kind === 'image') {
+            blocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: p.imageMediaType ?? 'image/jpeg',
+                data: p.buffer.toString('base64'),
+              },
+            });
+            meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
+            inlinedCount++;
+          } else {
+            const textBlock = formatInlineTextBlock(p);
+            blocks.push({ type: 'text', text: textBlock });
+            inlineTextUsed += textBlock.length;
+            meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
+            inlinedCount++;
+          }
+          continue;
+        }
+
+        // Workspace route. Falls back to inline if workspace write fails AND the
+        // file is small enough to inline safely.
+        if (!cwd) {
+          // No active cwd yet — can't write. Try inline as a last resort.
+          const inlineBlock = tryInlineFallback(p, inlineTextUsed);
+          if (inlineBlock) {
+            blocks.push(inlineBlock);
+            if (inlineBlock.type === 'text') inlineTextUsed += inlineBlock.text.length;
+            meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
+            inlinedCount++;
+            continue;
+          }
+          return { ok: false, error: `${p.name}: too large to inline and no active workspace to spill into` };
+        }
+        const dir = await ensureAttachmentsDir(cwd);
+        if (!dir) {
+          const inlineBlock = tryInlineFallback(p, inlineTextUsed);
+          if (inlineBlock) {
+            blocks.push(inlineBlock);
+            if (inlineBlock.type === 'text') inlineTextUsed += inlineBlock.text.length;
+            meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'inline' });
+            inlinedCount++;
+            continue;
+          }
+          return { ok: false, error: `${p.name}: failed to create .vibe-attachments dir and file too large to inline` };
+        }
+        try {
+          const written = await writeAttachmentSafely(dir, p.name, p.buffer);
+          await maybeAppendGitignore(cwd);
+          blocks.push({
+            type: 'text',
+            text: formatWorkspaceNotice(p, written.absPath, written.finalName),
+          });
+          meta.push({ name: p.name, kind: p.kind, sizeBytes: p.sizeBytes, route: 'workspace' });
+          workspaceCount++;
+        } catch (err: unknown) {
+          return { ok: false, error: `${p.name}: workspace write failed (${formatError(err)})` };
+        }
+      }
+
+      // Caption / default footer text always lands last so the model sees:
+      // [attachment-1, attachment-2, ..., user-question]
+      const tail = caption.trim().length > 0
+        ? caption.trim()
+        : defaultCaption(parsed);
+      blocks.push({ type: 'text', text: tail });
+
+      try {
+        const receipt = await o.sendUserImage(blocks, typeof inputId === 'string' ? inputId : undefined, requestHash);
+        if (slot) ctx.registry.touch(slot.id);
+        return { ok: true, inlinedCount, workspaceCount, meta, receipt };
+      } catch (err: unknown) {
+        return { ok: false, error: `Send failed: ${formatError(err)}` };
       }
     }
-
-    // Caption / default footer text always lands last so the model sees:
-    // [attachment-1, attachment-2, ..., user-question]
-    const tail = caption.trim().length > 0
-      ? caption.trim()
-      : defaultCaption(parsed);
-    blocks.push({ type: 'text', text: tail });
-
-    try {
-      o.sendUserImage(blocks);
-      ctx.registry.touch(slot.id);
-    } catch (err: unknown) {
-      return { ok: false, error: `Send failed: ${formatError(err)}` };
-    }
-    return { ok: true, inlinedCount, workspaceCount, meta };
   });
 }
 

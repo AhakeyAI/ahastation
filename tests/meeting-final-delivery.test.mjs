@@ -397,6 +397,8 @@ test('final rework creates versioned replacements and never mutates accepted evi
     finalMeetingDelivery: delivery,
     finalMeetingDecision: null,
     requireCurrentMeetingDelivery: async () => delivery,
+    hostRuntime: { mutatePlan: (action) => action() },
+    applyMeetingDeliveryRework: Orchestrator.prototype.applyMeetingDeliveryRework,
     repository: {
       async append(type, payload) { events.push({ type, payload }); },
       async flush() {},

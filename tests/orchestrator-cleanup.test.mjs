@@ -108,7 +108,7 @@ test('legacy task_done cannot release a worker; reviewed WorkReport does', async
     { id: 'a', title: 'A', prompt: 'do A', deps: [], writePaths: ['result.txt'] },
   ]);
   assert.equal(result.ok, true);
-  await waitUntil(() => sessions.length === 2, 'worker session was not created');
+  await waitUntil(() => sessions[1]?.started, 'worker session was not started');
   const worker = sessions[1];
   assert.equal(worker.started, true);
   assert.equal(worker.ended, false, 'session live during task');

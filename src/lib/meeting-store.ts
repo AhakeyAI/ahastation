@@ -64,7 +64,7 @@ const MAX_ACTIVITY = 500;
  *  reaping can stall; Leave must reach local teardown regardless. If the
  *  session outlives the timeout main-side, the next open adopts it via
  *  adoptLiveSession(). */
-const CLOSE_IPC_TIMEOUT_MS = 10_000;
+const CLOSE_IPC_TIMEOUT_MS = 17_000;
 
 // Proactive announcements (progress / blocker) are spoken via short system
 // lines so the user is never left waiting in silence when a worker stalls,
@@ -209,6 +209,7 @@ export interface MeetingState {
   plan: MeetingPlan | null;
   pendingPlan: PlanMeetingTaskInput[] | null;
   pendingPlanBrief: MeetingPlanBrief | null;
+  pendingProposal: { proposalId: string; proposalVersion: number } | null;
   running: boolean;
   lastError: string | null;
   /** Most recent delivery awaiting user acceptance. Null when nothing is
@@ -288,8 +289,7 @@ export interface TabMeta {
    *  Clicking the tab calls resumePlaceholder() which kicks off sessions:open. */
   placeholder: boolean;
   /** 'starting' = sessions:open returned but session-ready hasn't arrived yet
-   *  (SDK subprocess still spawning). User input is buffered in pendingInput
-   *  during this state and replayed on ready.
+   *  (SDK subprocess still spawning). Main owns pending input during startup.
    *  'failed' = session-start-failed landed; user can retry from the tab UI. */
   status: 'idle' | 'running' | 'error' | 'starting' | 'failed';
   phase: 'restored' | 'starting' | 'ready' | 'failed' | 'ended';
@@ -297,14 +297,6 @@ export interface TabMeta {
   isActive: boolean;
   openedAt: number;
 }
-
-/** Buffered user input held while a slot is in 'starting' status. Replayed
- *  in order once 'session-ready' arrives. Dropped silently if the slot fails
- *  before becoming ready (the renderer will show the failed-tab UI instead). */
-type PendingInputItem =
-  | { kind: 'text'; text: string }
-  | { kind: 'image'; dataUrl: string; caption: string }
-  | { kind: 'attachments'; staged: StagedAttachment[]; text: string };
 
 /** Returned by getLobbyData() so the Lobby can render Active + Recent without
  *  reaching into store internals. */
@@ -371,9 +363,6 @@ interface SlotInternal {
    *  Placeholder slots leave this at 'starting' since they have no live
    *  Orchestrator until resumePlaceholder runs. */
   status: 'starting' | 'ready' | 'failed';
-  /** User input that arrived while status !== 'ready'. Replayed in order
-   *  when session-ready lands. Dropped on failure. */
-  pendingInput: PendingInputItem[];
   // Per-slot scratch
   lastSpoken: string;
   endedSources: Set<AgentSource>;
@@ -460,6 +449,7 @@ function emptyState(defaultBackendId: string = 'claude-code'): MeetingState {
     plan: null,
     pendingPlan: null,
     pendingPlanBrief: null,
+    pendingProposal: null,
     running: false,
     lastError: null,
     currentDelivery: null,
@@ -482,7 +472,6 @@ function emptySlot(id: string, cwd: string, defaultBackendId: string = 'claude-c
     state: emptyState(defaultBackendId),
     unreadCount: 0,
     status: 'starting',
-    pendingInput: [],
     lastSpoken: '',
     endedSources: new Set(),
     intendedExit: false,
@@ -513,6 +502,7 @@ function optimisticMentionedHostId(state: MeetingState, text: string): string | 
 }
 
 class MeetingStore {
+  private readonly planDecisions = new Map<string, string>();
   private slots = new Map<string, SlotInternal>();
   private activeId: string | null = null;
   private recentCwds: RecentCwdMeta[] = [];
@@ -1539,36 +1529,33 @@ class MeetingStore {
     const slot = this.slots.get(id);
     if (!slot) return;
     this.restoreRevision++;
-    this.retiredIds.add(id);
-    this.slots.delete(id);
-    if (this.activeId === id) {
-      this.activeId = [...this.slots.values()].sort((a, b) => b.openedAt - a.openedAt)[0]?.id ?? null;
-    }
-    this.notifyTabsOnly();
     if (!slot.placeholder) {
-      // Bound the wait: if main-side teardown stalls, an unbounded await here
-      // wedges the meeting view (the user can only escape by reloading the
-      // window, which then strands the live session). Proceed with local
-      // teardown on timeout — the session is adoptable on the next open.
       let timer: ReturnType<typeof setTimeout> | null = null;
       try {
-        await Promise.race([
+        const result = await Promise.race([
           window.vibeMeet.sessions.close(id),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error('sessions.close timed out')), CLOSE_IPC_TIMEOUT_MS);
+            timer = setTimeout(() => reject(new Error('未收到会议清理结果，请稍后重试关闭')), CLOSE_IPC_TIMEOUT_MS);
           }),
         ]);
-      } catch (err) {
-        console.warn('[meeting-store] sessions.close (closeTab) failed', { id, err });
+        if (!result.ok && this.slots.get(id) === slot) throw new Error(result.error ?? '会议清理失败');
       } finally {
         if (timer) clearTimeout(timer);
       }
     } else {
       const result = await window.vibeMeet.sessions.forgetRestored(slot.cwd);
       if (!result.ok) {
-        if (result.sessionId) { this.retiredIds.add(result.sessionId); await window.vibeMeet.sessions.close(result.sessionId); }
-        else throw new Error(result.error ?? '无法移除恢复记录');
+        if (!result.sessionId) throw new Error(result.error ?? '无法移除恢复记录');
+        const closed = await window.vibeMeet.sessions.close(result.sessionId);
+        if (!closed.ok) throw new Error(closed.error ?? '会议清理失败');
+        this.retiredIds.add(result.sessionId);
       }
+    }
+    if (this.slots.get(id) !== slot) return;
+    this.retiredIds.add(id);
+    this.slots.delete(id);
+    if (this.activeId === id) {
+      this.activeId = [...this.slots.values()].sort((a, b) => b.openedAt - a.openedAt)[0]?.id ?? null;
     }
     // Reflect closure into recents so the Lobby shows the just-closed cwd
     // near the top. Main writes the canonical copy via sessions:close.
@@ -1617,6 +1604,22 @@ class MeetingStore {
 
   private handleEventForSlot(slot: SlotInternal, e: RendererEvent) {
     const source: AgentSource = e.source ?? 'talker';
+    if (e.kind === 'host-input-state') {
+      const status = { inputState: e.state, inputTargetChoices: e.targetChoices };
+      this.updateWorker(slot, 'talker', (w) => {
+        if (w.transcript.some((entry) => entry.id === e.inputId)) {
+          return {
+            ...w, responding: e.state === 'awaiting-target' ? false : w.responding,
+            transcript: w.transcript.map((entry) => entry.id === e.inputId ? { ...entry, ...status } : entry),
+          };
+        }
+        if (e.text === undefined) return w;
+        return { ...w, transcript: appendCapped(w.transcript, [{
+          id: e.inputId, role: 'user', text: e.text, ts: e.receivedAt ?? Date.now(), ...status,
+        }], MAX_TRANSCRIPT) };
+      });
+      return;
+    }
     if (e.kind === 'turn-status') {
       const responding = e.status === 'started';
       this.updateWorker(slot, source, (w) => (w.responding === responding ? w : { ...w, responding }), e.hostId);
@@ -1758,39 +1761,6 @@ class MeetingStore {
           return { ...s, workers, running: true, lastError: null };
         });
       }
-      if (hostId !== 'default') return;
-      const pending = slot.pendingInput;
-      slot.pendingInput = [];
-      if (pending.length > 0) {
-        // Send directly to this slot's session via explicit ID — NOT through
-        // activeLiveSlot() which would route to whichever tab is active now.
-        const targetId = slot.id;
-        void (async () => {
-          try {
-            for (const item of pending) {
-              try {
-                if (item.kind === 'text') {
-                  await window.vibeMeet.sendUserText(targetId, item.text);
-                } else if (item.kind === 'image') {
-                  await window.vibeMeet.sendUserImage(targetId, item.dataUrl, item.caption);
-                } else if (item.kind === 'attachments') {
-                  const wire = item.staged.map((a) => ({
-                    name: a.name,
-                    mime: a.mime,
-                    sizeBytes: a.sizeBytes,
-                    dataBase64: a.dataBase64,
-                  }));
-                  await window.vibeMeet.sendUserAttachments(targetId, wire, item.text);
-                }
-              } catch (err) {
-                console.warn('[meeting-store] pendingInput replay threw', err);
-              }
-            }
-          } catch (err) {
-            console.error('[meeting-store] pendingInput IIFE failed', err);
-          }
-        })();
-      }
       return;
     }
     if (e.kind === 'session-start-failed') {
@@ -1806,7 +1776,6 @@ class MeetingStore {
         return;
       }
       slot.status = 'failed';
-      slot.pendingInput = [];
       this.mutateSlot(slot.id, (s) => ({ ...s, running: false, lastError: e.error }));
       return;
     }
@@ -2071,9 +2040,21 @@ class MeetingStore {
       this.mutateSlot(slot.id, (s) => ({ ...s, plan: e.plan }));
       return;
     }
+    if (e.kind === 'plan-proposal-resolved') {
+      this.mutateSlot(slot.id, (s) => s.pendingProposal?.proposalId === e.proposalId
+        ? { ...s, pendingPlan: null, pendingPlanBrief: null, pendingProposal: null }
+        : s);
+      return;
+    }
+    if (e.kind === 'plan-install-uncertain') {
+      this.mutateSlot(slot.id, (s) => ({ ...s, lastError: `计划 ${e.proposalId} 的安装结果待核对` }));
+      return;
+    }
     if (e.kind === 'plan-proposed') {
       this.mutateSlot(slot.id, (s) => ({
         ...s,
+        pendingProposal: e.proposalId && e.proposalVersion
+          ? { proposalId: e.proposalId, proposalVersion: e.proposalVersion } : null,
         pendingPlan: e.tasks.map((task) => ({
           ...task,
           deps: [...task.deps],
@@ -2110,7 +2091,6 @@ class MeetingStore {
     if (e.kind === 'auth-required') {
       if (source === 'talker' && (!e.hostId || e.hostId === 'default')) {
         slot.status = 'failed';
-        slot.pendingInput = [];
       }
       this.updateWorker(slot, source, (w) => ({
         ...w,
@@ -2144,7 +2124,6 @@ class MeetingStore {
     if (e.kind === 'ended') {
       if (source === 'talker' && (!e.hostId || e.hostId === 'default')) {
         if (slot.status !== 'failed') slot.status = 'ready';
-        slot.pendingInput = [];
         this.mutateSlot(slot.id, (s) => ({ ...s, running: false }));
       }
       slot.endedSources.add(source);
@@ -2159,6 +2138,10 @@ class MeetingStore {
           MAX_ACTIVITY,
         ),
       }), e.hostId);
+      return;
+    }
+    if (e.kind === 'coordinator-restored') {
+      this.mutateSlot(slot.id, (s) => ({ ...s, coordinatorHostId: e.hostId }));
       return;
     }
     if (e.kind === 'coordinator-failed') {
@@ -2860,7 +2843,7 @@ class MeetingStore {
   }
 
   /** Returns the active live (non-placeholder) slot regardless of ready
-   *  state, so sendText/sendImage/sendAttachments can buffer to pendingInput
+   *  state, so sendText/sendImage/sendAttachments can submit durable input
    *  while the SDK is still spawning. */
   private activeLiveSlot(): SlotInternal | null {
     if (!this.activeId) return null;
@@ -2892,21 +2875,25 @@ class MeetingStore {
     return error;
   }
 
-  async sendText(text: string, options?: { displayText?: string }) {
+  async sendText(text: string, options?: { displayText?: string; inputId?: string; source?: 'user-text' | 'voice-transcript' }) {
     if (!text.trim()) return;
     const slot = this.activeLiveSlot();
     if (!slot) return;
-    if (slot.status === 'failed') return;
-    if (this.remoteInputError(slot, text)) return;
-    const entryId = uid();
+    const remoteError = this.remoteInputError(slot, text);
+    if (remoteError) {
+      if (options?.inputId) throw new Error(remoteError);
+      return;
+    }
+    const entryId = options?.inputId ?? globalThis.crypto.randomUUID();
     // displayText keeps mode directives (e.g. multi-agent) out of the chat bubble
     // while still shipping the full prompt to the model.
     const visible = (options?.displayText ?? text).trim() || text;
     const entry: TranscriptEntry = { id: entryId, role: 'user', text: visible, ts: Date.now() };
+    const alreadyVisible = slot.state.workers.get('talker')?.transcript.some((entry) => entry.id === entryId);
     const optimisticHostId = optimisticMentionedHostId(slot.state, text);
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
-      transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
+      transcript: alreadyVisible ? w.transcript : appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
       // Keep the user's message in the canonical talker transcript, but put
       // the optimistic waiting state on the host named by @mention.
       responding: optimisticHostId === null,
@@ -2914,7 +2901,7 @@ class MeetingStore {
     if (optimisticHostId) {
       this.updateWorker(slot, 'talker', (w) => ({ ...w, responding: true }), optimisticHostId);
     }
-    this.persistTalkerEntry(slot, entry);
+    if (!alreadyVisible) this.persistTalkerEntry(slot, entry);
     // Main sends the authoritative route after checking host readiness. Seed
     // the local mention immediately so the first rendered frame is attributed
     // to Qoder rather than briefly showing the coordinator/cloud host.
@@ -2923,12 +2910,8 @@ class MeetingStore {
         ? s
         : { ...s, lastMentionedHostId: optimisticHostId }
     ));
-    if (slot.status !== 'ready') {
-      slot.pendingInput.push({ kind: 'text', text });
-      return;
-    }
     try {
-      const res = await window.vibeMeet.sendUserText(slot.id, text);
+      const res = await window.vibeMeet.sendUserText(slot.id, text, entryId, options?.source);
       if (!res.ok) throw new Error(res.error ?? 'Send rejected by main process');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -2943,15 +2926,15 @@ class MeetingStore {
           MAX_ACTIVITY,
         ),
       }));
+      if (options?.inputId) throw err;
     }
   }
 
   async sendImage(dataUrl: string, caption: string) {
     const slot = this.activeLiveSlot();
     if (!slot) return;
-    if (slot.status === 'failed') return;
     if (this.remoteInputError(slot, caption, true)) return;
-    const entryId = uid();
+    const entryId = globalThis.crypto.randomUUID();
     const entry: TranscriptEntry = {
       id: entryId,
       role: 'user',
@@ -2968,12 +2951,8 @@ class MeetingStore {
     this.mutateSlot(slot.id, (s) => (
       s.lastMentionedHostId ? { ...s, lastMentionedHostId: null } : s
     ));
-    if (slot.status !== 'ready') {
-      slot.pendingInput.push({ kind: 'image', dataUrl, caption });
-      return;
-    }
     try {
-      const res = await window.vibeMeet.sendUserImage(slot.id, dataUrl, caption);
+      const res = await window.vibeMeet.sendUserImage(slot.id, dataUrl, caption, entryId);
       if (!res.ok) throw new Error(res.error ?? 'Send rejected by main process');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -2994,12 +2973,11 @@ class MeetingStore {
   async sendAttachments(
     staged: StagedAttachment[],
     text: string,
-    options?: { displayText?: string },
+    options?: { displayText?: string; inputId?: string },
   ): Promise<{ ok: boolean; error?: string }> {
     if (staged.length === 0 && !text.trim()) return { ok: false, error: 'Nothing to send' };
     const slot = this.activeLiveSlot();
     if (!slot) return { ok: false, error: 'No active session' };
-    if (slot.status === 'failed') return { ok: false, error: 'Session failed to start' };
     const remoteError = this.remoteInputError(slot, text, staged.length > 0);
     if (remoteError) return { ok: false, error: remoteError };
     const meta: AttachmentMeta[] = staged.map((a) => ({ name: a.name, kind: a.kind, sizeBytes: a.sizeBytes }));
@@ -3007,7 +2985,7 @@ class MeetingStore {
     const transcriptText = visibleRaw.trim().length > 0
       ? visibleRaw.trim()
       : `Sent ${staged.length} file${staged.length === 1 ? '' : 's'}`;
-    const entryId = uid();
+    const entryId = options?.inputId ?? globalThis.crypto.randomUUID();
     const entry: TranscriptEntry = {
       id: entryId,
       role: 'user',
@@ -3015,19 +2993,16 @@ class MeetingStore {
       attachments: meta.length > 0 ? meta : undefined,
       ts: Date.now(),
     };
+    const alreadyVisible = slot.state.workers.get('talker')?.transcript.some((entry) => entry.id === entryId);
     this.updateWorker(slot, 'talker', (w) => ({
       ...w,
-      transcript: appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
+      transcript: alreadyVisible ? w.transcript : appendCapped(w.transcript, [entry], MAX_TRANSCRIPT),
       responding: true,
     }));
-    this.persistTalkerEntry(slot, entry);
+    if (!alreadyVisible) this.persistTalkerEntry(slot, entry);
     this.mutateSlot(slot.id, (s) => (
       s.lastMentionedHostId ? { ...s, lastMentionedHostId: null } : s
     ));
-    if (slot.status !== 'ready') {
-      slot.pendingInput.push({ kind: 'attachments', staged, text });
-      return { ok: true };
-    }
     const wire = staged.map((a) => ({
       name: a.name,
       mime: a.mime,
@@ -3035,7 +3010,7 @@ class MeetingStore {
       dataBase64: a.dataBase64,
     }));
     try {
-      const res = await window.vibeMeet.sendUserAttachments(slot.id, wire, text);
+      const res = await window.vibeMeet.sendUserAttachments(slot.id, wire, text, entryId);
       if (!res.ok) {
         this.updateWorker(slot, 'talker', (w) => ({
           ...w,
@@ -3148,9 +3123,11 @@ class MeetingStore {
     const slot = this.slots.get(id);
     if (!slot) return;
     try {
-      await window.vibeMeet.interrupt(id);
+      const result = await window.vibeMeet.interrupt(id, slot.state.lastMentionedHostId ?? slot.state.coordinatorHostId);
+      if (!result.ok) throw new Error(result.error ?? 'Host 中断请求失败');
     } catch (err) {
       console.warn('[meeting-store] interrupt IPC failed:', err);
+      this.mutateSlot(slot.id, (s) => ({ ...s, lastError: err instanceof Error ? err.message : String(err) }));
       return;
     }
     this.updateWorker(slot, 'talker', (w) => ({
@@ -3171,9 +3148,12 @@ class MeetingStore {
     if (!slot || slot.placeholder) return;
     slot.intendedExit = true;
     try {
-      await window.vibeMeet.endSession(id);
+      const result = await window.vibeMeet.endSession(id);
+      if (!result.ok) throw new Error(result.error ?? '会议清理待核对');
     } catch (err) {
       console.error('[meeting-store] endSession IPC failed:', err);
+      this.mutateSlot(slot.id, (s) => ({ ...s, running: false, lastError: err instanceof Error ? err.message : String(err) }));
+      return;
     }
     this.mutateSlot(slot.id, (s) => ({ ...s, running: false, lastError: null }));
   }
@@ -3290,17 +3270,27 @@ class MeetingStore {
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
     brief?:MeetingPlanBrief,
+    basis?: MeetingState['pendingProposal'],
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.effectiveSessionId();
     if (!id) return { ok: false, error: 'No active session' };
     const slot = this.slots.get(id);
     if (!slot?.state.pendingPlan) return { ok: false, error: 'No pending plan' };
-    const result = await window.vibeMeet.approvePlan(id, approved, tasks,brief);
+    if (!basis || slot.state.pendingProposal?.proposalId !== basis.proposalId) {
+      return { ok: false, error: '计划版本已更新，请重新核对' };
+    }
+    const payload = JSON.stringify([basis, approved, tasks, brief]);
+    if (!this.planDecisions.has(payload)) this.planDecisions.set(payload, globalThis.crypto.randomUUID());
+    const result = await window.vibeMeet.approvePlan(id, approved, tasks, brief, {
+      ...basis, approvalCommandId: this.planDecisions.get(payload)!,
+    });
+    this.planDecisions.delete(payload);
     if (result.ok) {
-      this.mutateSlot(id, (state) => ({
+      this.mutateSlot(id, (state) => state.pendingProposal?.proposalId !== basis.proposalId ? state : ({
         ...state,
         pendingPlan: null,
         pendingPlanBrief: null,
+        pendingProposal: null,
       }));
     } else {
       this.mutateSlot(id, (state) => ({

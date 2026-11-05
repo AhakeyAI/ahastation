@@ -35,13 +35,44 @@ test('production snapshot/close IPC preserves other lazy projects and native ref
     assert.equal((await handlers.get('sessions:forget-restored')({}, {cwd:b})).ok,true);
     flushOpenTabsNow(ctx);await flushSettingsWrites();
     assert.deepEqual(getSettings().openTabs.map(row=>row.cwd),[a]);
-    registry.open('real-a2',a,{listHosts:()=>refs,end:async()=>{}});
+    registry.open('real-a2',a,{listHosts:()=>refs,end:async()=>{},waitForExecutionCleanup:async()=>{}});
     assert.equal((await handlers.get('sessions:forget-restored')({}, {cwd:a})).ok,false);
     await handlers.get('sessions:close')({}, {id:'real-a2'});await flushSettingsWrites();
     assert.deepEqual(getSettings().openTabs,[]);
     const restored=await handlers.get('sessions:list-restore')();assert.deepEqual(restored.openTabs,[]);
     assert.equal((await handlers.get('sessions:forget-restored')({}, {cwd:'placeholder:any'})).ok,false);
   } finally {ipcMain.handle=original;await flushSettingsWrites();}
+});
+
+test('close keeps the meeting owner until execution cleanup succeeds, even with a recap still running', async () => {
+  const original = ipcMain.handle;
+  const handlers = new Map();
+  ipcMain.handle = (name, fn) => handlers.set(name, fn);
+  const registry = new SessionRegistry();
+  const cwd = join(testRoot, 'owned-close');
+  let proveExit;
+  let cleanup = Promise.reject(new Error('Worker tree exit unverified'));
+  void cleanup.catch(() => {});
+  try {
+    registerSessionsIpc({ registry });
+    registry.open('owned-close', cwd, {
+      end: () => new Promise(() => {}),
+      waitForExecutionCleanup: () => cleanup,
+    });
+    const close = () => handlers.get('sessions:close')({}, { id: 'owned-close' });
+    assert.deepEqual(await close(), { ok: false, error: 'Worker tree exit unverified' });
+    assert.equal(registry.get('owned-close').cwd, cwd);
+
+    cleanup = new Promise((resolve) => { proveExit = resolve; });
+    const closing = close();
+    assert.equal(registry.get('owned-close').cwd, cwd);
+    proveExit();
+    assert.equal((await closing).ok, true);
+    assert.equal(registry.get('owned-close'), null);
+  } finally {
+    ipcMain.handle = original;
+    await flushSettingsWrites();
+  }
 });
 
 test('legitimate settings window configuration broadcasts no credentials and main window can refresh without focus',async()=>{

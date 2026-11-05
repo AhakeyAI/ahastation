@@ -490,7 +490,9 @@ export function App() {
   }, [pendingPermission, workers.workerList, cwd]);
 
   const speakingRef = useRef(false);
-  const sendWithModeRef = useRef<(text: string) => void>(sendText);
+  const sendWithModeRef = useRef<(text: string, mentions?: unknown, inputId?: string, source?: 'voice-transcript') => Promise<void>>(
+    (text, _mentions, inputId, source) => sendText(text, { inputId, source }),
+  );
 
   const voiceLock = useVoiceLock({ muted, setMuted, setAiSpeaking, speakingRef });
   const voicePrefs = useVoicePreferences();
@@ -611,7 +613,7 @@ export function App() {
     await handleVoiceFinal(text, {
       polish: voicePrefs.voicePolishEnabled ? (value) => window.vibeMeet.polishAsrText(value) : undefined,
       skills, backends, activeBackendIds, hosts: workers.hostGroups.values(),
-      send: (value) => sendWithModeRef.current(value),
+      send: (value) => sendWithModeRef.current(value, undefined, undefined, 'voice-transcript'),
       notify: (message) => { toast.error(message); },
     });
   }, [voicePrefs.voicePolishEnabled, skills, backends, activeBackendIds, workers.hostGroups,sharedModel]);
@@ -883,41 +885,42 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uiMode]);
 
-  const sendWithMode = useCallback(async (raw: string) => {
+  const sendWithMode = useCallback(async (raw: string, _mentions?: unknown, inputId?: string, source?: 'voice-transcript') => {
     const trimmed = raw.trim();
     if (!trimmed) return;
     const remoteMention = remoteMentionIds(trimmed, [...workers.hostGroups.values()]).length > 0;
     if (remoteMention) {
-      await sendText(trimmed);
+      await sendText(trimmed, { inputId, source });
       return;
     }
     if (!multiAgent) {
-      await sendText(trimmed);
+      await sendText(trimmed, { inputId, source });
       return;
     }
     const directive = dispatchMode === 'plan'
       ? buildPlanDirective(trimmed)
       : trimmed;
     // Chat shows only the user's words; the model still gets the full directive.
-    await sendText(directive, { displayText: trimmed });
+    await sendText(directive, { displayText: trimmed, inputId, source });
   }, [dispatchMode, multiAgent, sendText, workers.hostGroups]);
 
   sendWithModeRef.current = sendWithMode;
 
   const sendAttachmentsWithMode = useCallback(
-    async (staged: Parameters<typeof sendAttachments>[0], raw: string) => {
+    async (staged: Parameters<typeof sendAttachments>[0], raw: string, _mentions?: unknown, inputId?: string) => {
       const trimmed = raw.trim();
       if (staged.length && remoteMentionIds(trimmed, [...workers.hostGroups.values()], true).length) {
         return { ok: false, error: REMOTE_ATTACHMENT_ERROR };
       }
       if (!multiAgent) {
-        return sendAttachments(staged, trimmed);
+        return sendAttachments(staged, trimmed, { inputId });
       }
       const directive = dispatchMode === 'plan'
         ? buildPlanAttachmentDirective(trimmed)
         : trimmed;
       return sendAttachments(staged, directive, {
         displayText: trimmed.length > 0 ? trimmed : undefined,
+        inputId,
       });
     },
     [dispatchMode, multiAgent, sendAttachments, workers.hostGroups],
@@ -1189,8 +1192,9 @@ export function App() {
           multiAgent={multiAgent}
           dispatchMode={dispatchMode}
           onChangeDispatchMode={setDispatchMode}
-          disabled={!meetingGate.ready}
+          disabled={!meetingGate.acceptsInput}
           disabledReason={meetingGate.reason}
+          composerHint={meetingGate.acceptsInput && !meetingGate.ready ? 'Host 暂未就绪，发送的内容会保存并等待处理。' : undefined}
           sessionId={meetingGate.sessionId}
           onViewFile={handleViewFile}
           viewingFilePath={viewingFile?.relativePath ?? null}
@@ -1289,12 +1293,13 @@ export function App() {
       <ToastViewport />
 
       <PlanMeetingModal
+        key={workers.pendingProposal?.proposalId ?? 'local-plan'}
         open={Boolean(workers.pendingPlan)}
         brief={workers.pendingPlanBrief}
         tasks={workers.pendingPlan ?? []}
         backends={backends}
-        onReject={() => workers.decidePendingPlan(false)}
-        onSubmit={(tasks,brief) => workers.decidePendingPlan(true, tasks,brief)}
+        onReject={() => workers.decidePendingPlan(false, undefined, undefined, workers.pendingProposal)}
+        onSubmit={(tasks,brief) => workers.decidePendingPlan(true, tasks, brief, workers.pendingProposal)}
       />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}

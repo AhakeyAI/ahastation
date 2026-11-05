@@ -19,7 +19,7 @@
 // this file owns the coordination layer and delegates all per-host mechanics
 // to HostGroup.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ClaudeSession, type SessionEvent } from './claude-session.js';
 import type { BackendSession, BackendSessionSnapshot } from './backends/cli-backend.js';
 import { getBackendRegistry } from './backends/registry.js';
@@ -60,16 +60,20 @@ import {
   titleFromDescription,
 } from './orchestrator-helpers.js';
 import {
-  type ActiveReviewGate,
   type DecisionCreationResult,
   type MeetingNotes,
   type OrchestratorBridge,
   type SaveMemoryResult,
   type SteerResult,
 } from './meeting-mcp.js';
+import { buildTalkerMcp, buildWorkerMcp } from './meeting-mcp.js';
 import { BrowserTabManager } from './browser-tab-manager.js';
 import { startRecap, type RecapHandle } from './recap.js';
-import { type SessionFactory, type WorkerScheduler } from './worker-scheduler.js';
+import type { WorkerScheduler, WorkerSchedulerOpts, SessionFactory } from './worker-scheduler.js';
+import { HostRuntime, type PlanApprovalIdentity } from './host/runtime.js';
+import { buildComputerUseMcp } from './computer-use-mcp.js';
+import { buildBrowserMcp } from './browser-mcp.js';
+import { HostInbox, type UserHostInputSource } from './host/inbox.js';
 import { ensureDir, maybeAppendGitignore } from './attachments/workspace.js';
 import { listAuthorizedAssetReferences } from './attachments/assets.js';
 import { promises as fsp } from 'node:fs';
@@ -109,12 +113,12 @@ import {
   type CoordinatorReviewFinding,
   type CoordinatorReviewSession,
 } from './coordinator-review.js';
-import { authorizeMeetingCommand, type MeetingCommandResult } from './meeting-command.js';
+import { authorizeMeetingCommand, reviewCommandSchema, type MeetingCommandResult } from './meeting-command.js';
 import { TaskWorkspaceManager } from './task-workspace.js';
 import { DiagnosticLogger } from './diagnostic-logger.js';
 import { resolveDefaultWorkerBackendId } from './worker-backend-default.js';
 import { nativeWorkerBackendId } from './worker-backend-policy.js';
-import { PORTABLE_MEETING_COMMAND_PROMPT } from './orchestrator-prompts.js';
+import { PORTABLE_MEETING_COMMAND_PROMPT, REVIEWER_PROMPT } from './orchestrator-prompts.js';
 import {
   assessConfiguredWorkerRuntime,
   probeWorkerRuntimeVersion,
@@ -129,6 +133,7 @@ import type {
   OrchestratorEvent,
   OrchestratorSource,
   WorkerSpecialtyKind,
+  CoordinatorBriefing,
   WorkerStatusKind,
 } from './orchestrator-types.js';
 import type { SDKMessage, SDKUserMessage } from './claude-cli/types.js';
@@ -159,6 +164,7 @@ import { taskBudgetSchema, type TaskBudget } from './task-budget.js';
 import {
   assertRecoveryActionAllowed,
   assessTaskRecovery,
+  unresolvedNativeLaunches,
   type TaskRecoveryAction,
 } from './task-recovery.js';
 import type { HostProfile } from './orchestrator-types.js';
@@ -197,6 +203,25 @@ export type {
 
 /** Default host group id. Always present in every meeting. */
 const DEFAULT_HOST_ID = 'default';
+type ExpertAsk = {
+  requestId: string;
+  fromHostId: string;
+  targetHostId: string;
+  question: string;
+  expiresAt: number;
+  timer?: ReturnType<typeof setTimeout>;
+  answering?: boolean;
+  timedOut?: boolean;
+};
+type Reviewer = {
+  reviewId: string;
+  session?: BackendSession;
+  busy: boolean;
+  finishing?: boolean;
+  commands: Promise<void>;
+  results: Array<{ commandId: string; result: MeetingCommandResult }>;
+  completedTurns: Set<string>;
+};
 const DEFAULT_BACKEND_ID = 'claude-code';
 
 interface OrchestratorOpts {
@@ -238,6 +263,7 @@ interface OrchestratorOpts {
   remoteHosts?: PocketVibeRemoteHost[];
   recoveredTasks?: Array<Record<string, unknown>>;
   recoveredPlanVersion?: number;
+  recoveredCoordinatorHostId?: string;
   recoveredReviewSessions?: CoordinatorReviewSession[];
   /** Host groups invited before the previous shutdown (from the recovered
    *  snapshot's `hosts` list). `start()` re-adds every non-default entry so
@@ -271,7 +297,6 @@ interface OrchestratorOpts {
 
 export class Orchestrator implements OrchestratorBridge {
   private sharedExecution?:OrchestratorOpts['sharedExecution'];
-  private autoApprovePlans=false;
   /** All host groups in this meeting. Always has at least 'default'. */
   private hostGroups = new Map<string, HostGroup>();
   /**
@@ -286,11 +311,10 @@ export class Orchestrator implements OrchestratorBridge {
   /** Plan input of each expert-owned task, so a stopped sub-agent can restart. */
   private ownedTaskInputs = new Map<string, PlanMeetingTaskInput>();
   private meetingNotes: MeetingNotes = { conclusions: [], decisions: [], workItems: [], todos: [] };
-  /**
-   * Single authoritative task graph and worker pool for the whole Meeting.
-   * Always bound to the default HostGroup — setCoordinator does not migrate it.
-   */
-  private meetingScheduler!: WorkerScheduler;
+  /** The meeting owns the task graph and Worker lifetimes across Host sessions. */
+  private readonly hostRuntime: HostRuntime;
+  private get meetingScheduler(): WorkerScheduler { return this.hostRuntime.scheduler; }
+  private readonly hostInbox: HostInbox;
   private emit: (e: OrchestratorEvent) => void;
   private cwd: string;
   private autoApproveScope: AutoApproveScope;
@@ -299,6 +323,7 @@ export class Orchestrator implements OrchestratorBridge {
   private confirmDestructive: ((toolName: string, input: Record<string, unknown>) => Promise<boolean>) | undefined;
   private browserTabManager: BrowserTabManager | undefined;
   private closed = false;
+  private unsupportedRecovery = false;
   private projectId: string;
   private meetingId: string;
   private readonly ptyScopeId: string;
@@ -321,26 +346,20 @@ export class Orchestrator implements OrchestratorBridge {
   private resumeBackendSessions: Record<string, BackendSessionSnapshot>;
   private remoteTargets = new Map<string, PocketVibeRemoteTarget>();
   private recoveredTasks: Array<Record<string, unknown>>;
+  private recoveringCoordinatorHostId?: string;
   private recoveredHosts: Array<{ id: string; backendId: string; profile?: HostProfile }>;
   private recoveredOwnedTasks: Array<{ taskId: string; ownerHostId: string; input: PlanMeetingTaskInput }>;
   private recoveredMeetingNotes: MeetingNotes | null;
   private recoveredPlanVersion: number;
   private saveMemoryCallsThisSession = 0;
-  private autoOrchestration = false;
-  private pendingPlan: PlanMeetingTask[] | null = null;
-  private pendingPlanBrief: MeetingPlanBrief | null = null;
-  /** True while the Coordinator host is mid-turn. A briefing queued during a live
-   *  turn is only read by the *next* turn, so the turn already in flight must not
-   *  be charged against the review stall budget. */
-  private coordinatorTurnActive = false;
-  /** Reviews whose briefing landed mid-turn; they skip exactly one turn boundary. */
-  private reviewsAwaitingFirstTurn = new Set<string>();
+  private reviewer?: Reviewer;
+  private readonly queuedReviews = new Map<string, CoordinatorReviewBriefing>();
   private reviewStallTimer: ReturnType<typeof setInterval> | null = null;
   private readonly reviewStallTimeoutMs: number;
   /** Coordinator -> expert asks still awaiting any talker reply. Keyed by the
    *  target host id (one outstanding ask per expert; a new ask replaces it and
    *  re-arms the timer). Cleared when the expert emits any talker message. */
-  private pendingHostAsks = new Map<string, { question: string; timer: ReturnType<typeof setTimeout> }>();
+  private readonly pendingHostAsks = new Map<string, ExpertAsk>();
   private readonly hostAskTimeoutMs: number;
   /** Cross-host messages that arrived before the target Host talker was ready. */
   private pendingCrossHostMessages = new Map<string, Array<{ from: string; text: string }>>();
@@ -367,6 +386,8 @@ export class Orchestrator implements OrchestratorBridge {
   // teardown. Distinct from `this.closed` so we can both gate the work AND
   // surface the async cleanup tail (recap) to a waiting before-quit handler.
   private endPromise: Promise<void> | null = null;
+  private executionCleanup: Promise<void> | null = null;
+  private unresolvedWorkerStops: string[] = [];
 
   // Process-level fallback: if main.ts forgets (or crashes) before its own
   // before-quit / window-all-closed hooks fire, `process.exit` still gives us
@@ -405,6 +426,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.ptyScopeId = opts.ptyScopeId ?? this.meetingId;
     this.resumeBackendSessions = opts.resumeBackendSessions ?? {};
     this.recoveredTasks = opts.recoveredTasks ?? [];
+    this.recoveringCoordinatorHostId = opts.recoveredCoordinatorHostId;
     this.recoveredHosts = opts.recoveredHosts ?? [];
     this.recoveredOwnedTasks = opts.recoveredOwnedTasks ?? [];
     this.recoveredMeetingNotes = opts.recoveredMeetingNotes ?? null;
@@ -472,12 +494,17 @@ export class Orchestrator implements OrchestratorBridge {
       flush: () => this.repository.flush(),
       notifyCoordinator: (briefing) => this.notifyCoordinatorReview(briefing),
       onCompleted: async (session) => {
-        await this.deliveryHarness.completeCoordinatorReview(session.deliveryId, session);
+        try { await this.deliveryHarness.completeCoordinatorReview(session.deliveryId, session); }
+        finally { this.releaseReviewer(session.id); }
       },
       onReworkRequested: async (session) => {
-        await this.meetingScheduler.requestCoordinatorRework(session.deliveryId, session);
+        try { await this.meetingScheduler.requestCoordinatorRework(session.deliveryId, session); }
+        finally { this.releaseReviewer(session.id); }
       },
-      onPaused: (session) => this.escalateStalledReview(session),
+      onPaused: (session) => {
+        this.releaseReviewer(session.id);
+        this.escalateStalledReview(session);
+      },
     });
     for (const session of opts.recoveredReviewSessions ?? []) {
       try {
@@ -501,8 +528,39 @@ export class Orchestrator implements OrchestratorBridge {
     });
     this.diagnostics = new DiagnosticLogger(this.meetingId);
     this.repositoryReady = this.repository
-      .append(opts.meetingId ? 'meeting-recovered' : 'meeting-created', { cwd: this.cwd })
+      .append(opts.meetingId ? 'meeting-recovered' : 'meeting-created', {
+        cwd: this.cwd, runtimeVersion: 1, eventSchemaVersion: 1, transportProtocolVersion: 2,
+        promptRevision: 'host-2026-11-04-v1',
+      })
       .then(() => undefined, () => undefined);
+    this.hostInbox = new HostInbox(
+      this.repository,
+      (id) => {
+        const host = this.hostGroups.get(id);
+        const session = host?.isReady() ? host.getHost() : null;
+        if (this.closed || !host || !session) return undefined;
+        return (input, sourceCursor, content) => {
+          if (this.closed || this.hostGroups.get(id)?.getHost() !== session) return false;
+          const context = host.backendId === 'pocket-vibe' ? '' : this.hostTurnContext(id, sourceCursor);
+          if (content) {
+            session.sendUserContent(context ? [...content, { type: 'text', text: context }] : content, 'high');
+            return true;
+          }
+          const text = input.direct
+            ? `[direct user mention from meeting chat]\n${input.deliveryText || input.text}\n\n直接用普通 assistant 文本回答用户；不要主持、派任务或输出 meeting-command。`
+            : input.text;
+          session.sendUserText(text + context, 'high');
+          return true;
+        };
+      },
+      (receipt, source) => {
+        this.safeEmit({ source: 'system', hostId: receipt.hostId, event: { kind: 'host-input-state', ...receipt } });
+        if (source !== 'worker-question' || receipt.state !== 'submitted') return;
+        const messageId = receipt.inputId.slice('worker-question-'.length);
+        void this.markHostQuestionSubmitted(messageId);
+      },
+      (error) => this.diagnostics.log('host-inbox-failed', { error: String(error) }),
+    );
     this.sessionFactory = opts.sessionFactory ?? Orchestrator.defaultClaudeFactory;
 
     // Create the default HostGroup. Use the user's preferred backend if specified.
@@ -512,6 +570,7 @@ export class Orchestrator implements OrchestratorBridge {
     if (!defaultBackendAdapter.capabilities.coordinate) {
       throw new Error(`backend '${defaultBackend}' cannot coordinate`);
     }
+    this.hostRuntime = new HostRuntime(this.meetingSchedulerOptions(defaultBackend), this.repository, (event) => this.safeEmit(event), () => this.closed);
     this.createHostGroup(DEFAULT_HOST_ID, defaultBackend);
     for (const host of parsePocketVibeRemoteHosts(opts.remoteHosts)) {
       if (this.hostGroups.size >= MAX_HOSTS) break;
@@ -533,7 +592,7 @@ export class Orchestrator implements OrchestratorBridge {
   private buildSessionFactory(
     backendId: string,
     actorHostId = DEFAULT_HOST_ID,
-    purpose: 'host' | 'worker' = 'host',
+    purpose: 'host' | 'worker' | 'reviewer' = 'host',
   ): SessionFactory {
     if (purpose === 'worker' && !isNativeCliWorkerBackend(backendId)) {
       throw new Error(`unsupported-contract: Worker '${backendId}' 必须使用本地原生 CLI`);
@@ -551,6 +610,9 @@ export class Orchestrator implements OrchestratorBridge {
     // translating the fields that differ between the two interfaces.
     return (opts) => {
       const so = (opts.sessionOptions ?? {}) as Record<string, unknown>;
+      const isCurrent = typeof so.isCurrentHostSession === 'function'
+        ? so.isCurrentHostSession as () => boolean
+        : () => false;
       let systemPrompt: string | undefined;
       if (typeof so.systemPrompt === 'string') {
         systemPrompt = so.systemPrompt;
@@ -569,7 +631,7 @@ export class Orchestrator implements OrchestratorBridge {
           + `在电脑端已有 ${remoteTarget.provider} 原生会话 ${remoteTarget.session_id} 中连续处理发给你的指令。\n`
           + `所有项目读取、修改和验证必须在电脑端项目目录 ${remoteTarget.cwd} 中执行。\n`
           + '直接在该远端会话执行任务，以普通 assistant 文本反馈结果、修改和失败原因。不要向 Station 派发本机 Worker、创建新会话或输出 meeting-command。';
-      } else if (backendId === 'codex' || backendId === 'pocket-vibe') {
+      } else if (purpose === 'host' && (backendId === 'codex' || backendId === 'pocket-vibe')) {
         systemPrompt = `${systemPrompt ?? ''}${PORTABLE_MEETING_COMMAND_PROMPT}`;
       }
       const parentAuthBackendId = backendId === 'claude-code-terminal'
@@ -645,10 +707,11 @@ export class Orchestrator implements OrchestratorBridge {
             : typeof resumeSessionId === 'string'
               ? resumeSessionId
               : undefined,
-          executionRole: purpose,
+          executionRole: purpose === 'reviewer' ? 'host' : purpose,
           extra: {
             ...backendExtra,
             ...(remoteTarget ? { onRemoteTargetResolved: (target: PocketVibeRemoteTarget) => {
+              if (!isCurrent()) throw new Error('Host session was replaced');
               if ([...this.remoteTargets.entries()].some(([id, existing]) => id !== actorHostId && remoteSessionKey(existing) === remoteSessionKey(target))) {
                 throw new Error('同一电脑的原生会话已加入会议，请移除重复成员。');
               }
@@ -656,6 +719,7 @@ export class Orchestrator implements OrchestratorBridge {
               void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
             } } : {}),
             ...(backendId === 'codex' ? { codexTransport: 'app-server' } : {}),
+            ...(purpose === 'reviewer' && backendId === 'codex' ? { restrictCodexReviewerTools: true } : {}),
             // Kimi: ACP mode only understands device-code OAuth — it ignores
             // API keys entirely. When an apiKey is configured, fall back to
             // the one-shot CLI mode (buildEnv injects MOONSHOT_API_KEY).
@@ -666,7 +730,10 @@ export class Orchestrator implements OrchestratorBridge {
             ...(purpose === 'host' && isTerminalWorkerBackend(backendId)
               ? { workerId: hostTerminalWorkerId(this.ptyScopeId, actorHostId) }
               : {}),
-            meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw),
+            ...(purpose === 'host' ? {
+              meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw, isCurrent),
+              meetingCommandFeedback: !this.sharedExecution && !remoteTarget,
+            } : {}),
           },
         },
         // BackendSessionEvent is structurally compatible with SessionEvent
@@ -684,32 +751,43 @@ export class Orchestrator implements OrchestratorBridge {
     return resolveDefaultWorkerBackendId(this.defaultHost().backendId);
   }
 
-  private createHostGroup(id: string, backendId: string): HostGroup {
-    const factory = this.buildSessionFactory(backendId, id);
-    const workerDefaultBackendId = resolveDefaultWorkerBackendId(backendId);
-    const hg = new HostGroup({
-      id,
-      backendId,
-      defaultWorkerBackendId: workerDefaultBackendId,
-      emit: (e) => this.onHostGroupEvent(id, e),
+  private meetingSchedulerOptions(backendId: string): WorkerSchedulerOpts {
+    const browserTabManager = this.browserTabManager;
+    const screenshotBridge = {
+      injectScreenshot: (workerId: string, data: Parameters<WorkerScheduler['injectScreenshotToWorker']>[1]) => {
+        this.meetingScheduler.injectScreenshotToWorker(workerId, data);
+      },
+    };
+    return {
+      emit: (event) => this.safeEmit(event),
       cwd: this.cwd,
-      projectId: this.projectId,
       autoApproveScope: this.autoApproveScope,
       workerEnv: this.workerEnv,
-      talkerModel: this.talkerModel,
       confirmDestructive: this.confirmDestructive,
-      sessionFactory: factory,
-      resolveWorkerSessionFactory: (backendId) => this.buildSessionFactory(
-        backendId ?? this.defaultWorkerBackendId(),
-        id,
+      sessionFactory: this.sessionFactory,
+      resolveSessionFactory: (id) => this.buildSessionFactory(
+        id ?? this.defaultWorkerBackendId(),
+        DEFAULT_HOST_ID,
         'worker',
       ),
-      browserTabManager: this.browserTabManager,
-      bridge: this,
-      isClosed: () => this.closed,
+      defaultBackendId: resolveDefaultWorkerBackendId(backendId),
+      buildWorkerMcp: (id, attempt) => buildWorkerMcp(this, id, this.cwd, attempt),
+      buildComputerUseMcp: process.platform === 'darwin'
+        ? (id) => buildComputerUseMcp(screenshotBridge, id)
+        : undefined,
+      buildBrowserMcp: browserTabManager
+        ? (id) => buildBrowserMcp(browserTabManager, screenshotBridge, id)
+        : undefined,
+      getTalker: () => {
+        const host = this.coordinatorTalkerHost();
+        return host.isReady() ? host.getHost() : null;
+      },
+      publishWorkerQuestion: (message) => this.publishWorkerQuestion(message),
+      publishCoordinatorBriefing: (briefing, attempt) => this.publishCoordinatorBriefing(briefing, attempt),
       getSpeechFilterMode: () => (getSettings().speechFilterMode === 'off' ? 'off' : 'strict'),
-      isCoordinator: () => this.coordinatorHostId === id,
-      workspaceManager: id === DEFAULT_HOST_ID && (
+      isClosed: () => this.closed,
+      contextCompilerRequired: true,
+      workspaceManager: (
         this.sessionFactory === Orchestrator.defaultClaudeFactory
         || this.customWorkspaceManager
       )
@@ -720,7 +798,7 @@ export class Orchestrator implements OrchestratorBridge {
       deliveryArtifactRoot: this.repository.deliveryArtifactRoot(),
       flushEvents: () => this.repository.flush(),
       getIntegrationHead: () => this.integrationQueue.currentHead(),
-      initialPlanVersion: id === DEFAULT_HOST_ID ? this.recoveredPlanVersion : 0,
+      initialPlanVersion: this.recoveredPlanVersion,
       getAuthorizedTaskContextSource: (taskId, selection) =>
         this.getAuthorizedTaskContextSource(taskId, selection),
       persistContextPackage: (contextPackage) =>
@@ -765,12 +843,27 @@ export class Orchestrator implements OrchestratorBridge {
         await this.repository.append(kind, payload);
         await this.repository.flush();
       },
+    };
+  }
+
+  private createHostGroup(id: string, backendId: string): HostGroup {
+    const hg = new HostGroup({
+      id,
+      backendId,
+      emit: (e) => this.onHostGroupEvent(id, e),
+      cwd: this.cwd,
+      projectId: this.projectId,
+      autoApproveScope: this.autoApproveScope,
+      workerEnv: this.workerEnv,
+      talkerModel: this.talkerModel,
+      confirmDestructive: this.confirmDestructive,
+      sessionFactory: this.buildSessionFactory(backendId, id),
+      bridge: this,
+      isClosed: () => this.closed,
+      isCoordinator: () => this.coordinatorHostId === id,
+      coordinatorPrompt: () => (this.recoveringCoordinatorHostId ?? this.coordinatorHostId) === id,
     });
     this.hostGroups.set(id, hg);
-    if (id === DEFAULT_HOST_ID) {
-      this.meetingScheduler = hg.getScheduler();
-      this.meetingScheduler.setTalkerProvider(() => this.defaultHost().getHost());
-    }
 
     // Subscribe to cross-host messages targeting this group. Queue while the
     // talker handshake is still in flight so early broadcasts are not dropped.
@@ -783,7 +876,7 @@ export class Orchestrator implements OrchestratorBridge {
 
   private deliverCrossHostMessage(hostId: string, from: string, text: string): void {
     const hg = this.hostGroups.get(hostId);
-    const host = hg?.getHost();
+    const host = hg?.isReady() ? hg.getHost() : null;
     if (host) {
       host.sendUserText(`[cross-host from ${from}] ${text}`, 'normal');
       return;
@@ -796,6 +889,7 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   private flushPendingCrossHostMessages(hostId: string): void {
+    this.hostInbox.wake(hostId);
     const pending = this.pendingCrossHostMessages.get(hostId);
     if (!pending || pending.length === 0) return;
     this.pendingCrossHostMessages.delete(hostId);
@@ -810,6 +904,7 @@ export class Orchestrator implements OrchestratorBridge {
    *  The host's talker session is started asynchronously — the renderer shows
    *  a "Connecting…" placeholder until the session-ready event arrives. */
   addHost(backendId: string, hostId?: string, remoteTarget?: PocketVibeRemoteTarget, profile?: HostProfile): { ok: true; hostId: string } | { ok: false; error: string } {
+    if (this.unsupportedRecovery) return { ok: false, error: 'Meeting journal version requires a newer runtime' };
     if (this.closed) return { ok: false, error: 'orchestrator is closed' };
     const target = remoteTarget === undefined ? undefined : parsePocketVibeRemoteTarget(remoteTarget);
     if (remoteTarget !== undefined && (backendId !== 'pocket-vibe' || !target)) {
@@ -859,10 +954,11 @@ export class Orchestrator implements OrchestratorBridge {
     void (async () => {
       try {
         await hg.start();
-        if (this.closed || (target && this.hostGroups.get(id) !== hg)) return;
+        if (this.closed || this.hostGroups.get(id) !== hg) return;
+        this.restoreCoordinatorIfReady(id);
         this.flushPendingCrossHostMessages(id);
         await this.snapshotActiveMeeting();
-        if (!this.closed) {
+        if (!this.closed && this.hostGroups.get(id) === hg && hg.isReady()) {
           this.safeEmit({
             source: 'system',
             hostId: id,
@@ -870,7 +966,7 @@ export class Orchestrator implements OrchestratorBridge {
           });
         }
       } catch (err: unknown) {
-        if (target && (this.closed || this.hostGroups.get(id) !== hg)) return;
+        if (this.closed || this.hostGroups.get(id) !== hg) return;
         this.diagnostics.log('host-start-failed', {
           hostId: id,
           backendId,
@@ -918,7 +1014,6 @@ export class Orchestrator implements OrchestratorBridge {
     const wasRemote = this.remoteTargets.delete(hostId);
     this.crossHostBus.unsubscribeHost(hostId);
     this.pendingCrossHostMessages.delete(hostId);
-    this.clearHostAsk(hostId);
     if (wasRemote) void this.snapshotActiveMeeting().catch((err) => console.error('[remote-session] snapshot failed:', err));
     return { ok: true };
   }
@@ -928,11 +1023,19 @@ export class Orchestrator implements OrchestratorBridge {
   republishState(): void {
     if (this.meetingScheduler) this.meetingScheduler.republishPlan();
     else if (this.recoveredTasks.length > 0) this.emitRecoveredPlan();
-    if (this.pendingPlan) {
-      this.safeEmit({
-        source: 'system',
-        event: { kind: 'plan-proposed', tasks: this.pendingPlan, brief: this.pendingPlanBrief ?? undefined },
-      });
+    this.hostRuntime.publishPlanState();
+    void this.publishRecoveredHostInputs();
+  }
+
+  private async publishRecoveredHostInputs(): Promise<void> {
+    try {
+      const recent = await this.hostInbox.recent();
+      if (this.closed) return;
+      for (const input of recent) {
+        this.emit({ source: 'system', hostId: input.hostId, event: { kind: 'host-input-state', ...input } });
+      }
+    } catch (error) {
+      this.diagnostics.log('host-input-recovery-failed', { error: String(error) });
     }
   }
 
@@ -961,15 +1064,24 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   /**
-   * Talker-role handoff only. WorkerScheduler, workspaces, and Integration Queue
-   * stay on the default HostGroup — this is not an execution failover.
+   * Transfer coordination while the meeting keeps its Worker pool and workspaces.
    */
-  setCoordinator(hostId: string): {
+  async setCoordinator(hostId: string): Promise<{
     ok: true;
     coordinatorHostId: string;
     executionHostId: typeof DEFAULT_HOST_ID;
     handoff: 'talker-role-only';
-  } | { ok: false; error: string } {
+  } | { ok: false; error: string }> {
+    return this.hostRuntime.mutatePlan(() => this.applyCoordinatorChange(hostId));
+  }
+
+  private async applyCoordinatorChange(hostId: string): Promise<{
+    ok: true;
+    coordinatorHostId: string;
+    executionHostId: typeof DEFAULT_HOST_ID;
+    handoff: 'talker-role-only';
+  } | { ok: false; error: string }> {
+    if (this.closed) return { ok: false, error: 'Meeting is closed' };
     const hg = this.hostGroups.get(hostId);
     if (!hg) return { ok: false, error: `host group '${hostId}' not found` };
     if (!hg.isReady()) return { ok: false, error: `host group '${hostId}' is not ready` };
@@ -979,29 +1091,32 @@ export class Orchestrator implements OrchestratorBridge {
       return { ok: false, error: `backend '${hg.backendId}' cannot coordinate yet` };
     }
     const previous = this.coordinatorHostId;
-    this.coordinatorHostId = hostId;
-    void this.repository.append('coordinator-changed', {
-      previous,
-      current: hostId,
-      executionHostId: DEFAULT_HOST_ID,
-      handoff: 'talker-role-only',
+    const session = hg.getHost();
+    await this.repository.append('coordinator-changed', {
+      schemaVersion: 1, previous, current: hostId, executionHostId: DEFAULT_HOST_ID, handoff: 'talker-role-only',
     });
-    // Talker provider follows the new coordinator; scheduler identity does not move.
-    this.meetingScheduler.setTalkerProvider(() => this.coordinatorTalkerHost().getHost());
+    if (this.closed || this.hostGroups.get(hostId) !== hg || hg.getHost() !== session || !hg.isReady()) {
+      await this.repository.append('coordinator-changed', {
+        schemaVersion: 1, previous: hostId, current: previous, executionHostId: DEFAULT_HOST_ID, handoff: 'cancelled',
+      });
+      return { ok: false, error: 'Host session changed during coordination transfer' };
+    }
+    this.recoveringCoordinatorHostId = undefined;
+    this.coordinatorHostId = hostId;
+    if (previous === hostId) {
+      return { ok: true, coordinatorHostId: hostId, executionHostId: DEFAULT_HOST_ID, handoff: 'talker-role-only' };
+    }
     hg.getHost()?.sendUserText(
       `[coordinator handoff] You are now the meeting talker/coordinator. Previous: ${previous}. `
-      + `Worker execution remains on host '${DEFAULT_HOST_ID}' — this handoff does not migrate the Scheduler. `
+      + 'The meeting keeps its running Workers. '
       + `Current worker state:\n${this.describeWorkers()}`,
       'high',
     );
     this.hostGroups.get(previous)?.getHost()?.sendUserText(
       `[coordinator handoff] You are now an Expert Talker. ${hostId} is the sole Coordinator talker. `
-      + `Worker scheduling still runs on '${DEFAULT_HOST_ID}'. `
       + 'Do not schedule or speak for the meeting; answer only direct mentions or coordinator requests.',
       'high',
     );
-    // The incoming Coordinator inherits any review the previous one abandoned.
-    this.coordinatorTurnActive = false;
     this.resumeDisconnectedReviews();
     void this.meetingScheduler.redeliverPendingWorkerQuestions();
     return {
@@ -1014,6 +1129,15 @@ export class Orchestrator implements OrchestratorBridge {
 
   getCoordinatorHostId(): string {
     return this.coordinatorHostId;
+  }
+
+  private restoreCoordinatorIfReady(hostId: string) {
+    if (this.closed || this.recoveringCoordinatorHostId !== hostId) return;
+    const host = this.hostGroups.get(hostId);
+    if (!host?.isReady() || !getBackendRegistry().get(host.backendId)?.capabilities.coordinate) return;
+    this.coordinatorHostId = hostId;
+    this.recoveringCoordinatorHostId = undefined;
+    this.safeEmit({ source: 'system', hostId, event: { kind: 'coordinator-restored', hostId } });
   }
 
   sendHostMessage(fromHostId: string, toHostId: string, text: string): { ok: boolean; error?: string; truncated?: boolean } {
@@ -1039,37 +1163,98 @@ export class Orchestrator implements OrchestratorBridge {
       chars: payload.length,
       truncated,
     });
-    // A Coordinator -> expert ask has no reply correlation; arm a watchdog so a
-    // silent expert doesn't leave the Coordinator blocking blind. Any talker
-    // message from the target clears it (see onHostGroupEvent).
-    if (fromHostId === this.coordinatorHostId && toHostId !== this.coordinatorHostId) {
-      this.trackHostAsk(toHostId, payload);
-    }
     return { ok: true, truncated };
   }
 
-  /** Arm (or re-arm) the host-ask watchdog for one expert target. Only the
-   *  latest ask per target is tracked; a new ask replaces the previous timer. */
-  private trackHostAsk(targetHostId: string, payload: string): void {
-    if (this.hostAskTimeoutMs <= 0) return;
-    const existing = this.pendingHostAsks.get(targetHostId);
-    if (existing) clearTimeout(existing.timer);
-    const question = payload.length > 400 ? `${payload.slice(0, 398)}…` : payload;
-    const timer = setTimeout(() => {
-      this.pendingHostAsks.delete(targetHostId);
-      if (this.closed) return;
-      this.notifyHostAskStalled(targetHostId, question);
-    }, this.hostAskTimeoutMs);
-    timer.unref?.();
-    this.pendingHostAsks.set(targetHostId, { question, timer });
+  async askExpert(fromHostId: string, targetHostId: string, question: string, isCurrent = () => !this.closed): Promise<string> {
+    if (this.closed || !isCurrent() || fromHostId !== this.coordinatorHostId || fromHostId === targetHostId
+      || !this.hostGroups.has(targetHostId)) throw new Error('Expert target or Coordinator is unavailable');
+    const ask: ExpertAsk = {
+      requestId: randomUUID(), fromHostId, targetHostId, question: question.trim(),
+      expiresAt: this.hostAskTimeoutMs > 0 ? Date.now() + this.hostAskTimeoutMs : 0,
+    };
+    if (!ask.question || ask.question.length > 100_000) throw new Error('Invalid expert question');
+    await this.repository.append('host-expert-requested', { schemaVersion: 1, ...ask });
+    if (this.closed) return ask.requestId;
+    this.pendingHostAsks.set(ask.requestId, ask);
+    this.trackHostAsk(ask);
+    if (!isCurrent() || fromHostId !== this.coordinatorHostId) return ask.requestId;
+    await this.deliverExpertAsk(ask);
+    return ask.requestId;
   }
 
-  /** Any talker message from the expert counts as a reply - disarm its timer. */
-  private clearHostAsk(targetHostId: string): void {
-    const entry = this.pendingHostAsks.get(targetHostId);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    this.pendingHostAsks.delete(targetHostId);
+  async replyExpertAsk(hostId: string, requestId: string, text: string, isCurrent = () => !this.closed): Promise<void> {
+    const ask = this.pendingHostAsks.get(requestId);
+    if (!ask || ask.targetHostId !== hostId || ask.answering || !isCurrent() || this.closed) {
+      throw new Error('Expert reply has no matching open request');
+    }
+    const answer = text.trim();
+    if (!answer || answer.length > 100_000) throw new Error('Invalid expert reply');
+    ask.answering = true;
+    try {
+      const targetHostId = this.coordinatorHostId;
+      await this.repository.append('host-expert-replied', { schemaVersion: 1, requestId, hostId, targetHostId, text: answer });
+      clearTimeout(ask.timer);
+      this.pendingHostAsks.delete(requestId);
+      if (!this.closed) {
+        await this.deliverExpertReply(requestId, targetHostId, answer);
+      }
+    } finally {
+      ask.answering = false;
+    }
+  }
+
+  private async deliverExpertAsk(ask: ExpertAsk): Promise<void> {
+    const text = `[expert request ${ask.requestId}]\n`
+      + `答复时使用 reply_to_coordinator 并传入 requestId，或在正文开头写 [expert reply ${ask.requestId}]。\n${ask.question}`;
+    await this.hostInbox.receive(`expert-request-${ask.requestId}`, text.slice(0, 100_000),
+      () => ({ hostId: ask.targetHostId, direct: false }), undefined, 'expert-request');
+  }
+
+  private async deliverExpertReply(requestId: string, targetHostId: string, answer: string): Promise<void> {
+    const text = `[expert reply ${requestId}] ${answer}`;
+    await this.hostInbox.receive(`expert-reply-${requestId}`, text.slice(0, 100_000),
+      () => ({ hostId: targetHostId, direct: false }), undefined, 'expert-reply');
+  }
+
+  private trackHostAsk(ask: ExpertAsk): void {
+    if (!ask.expiresAt || ask.timedOut) return;
+    ask.timer = setTimeout(() => {
+      if (this.closed || ask.answering || !this.pendingHostAsks.has(ask.requestId)) return;
+      ask.timedOut = true;
+      void this.repository.append('host-expert-timed-out', { schemaVersion: 1, requestId: ask.requestId }).then(() => {
+        if (!this.closed) this.notifyHostAskStalled(ask.targetHostId, `[${ask.requestId}] ${ask.question.slice(0, 400)}`);
+      }).catch((error) => this.diagnostics.log('expert-timeout-write-failed', { error: String(error) }));
+    }, Math.max(0, ask.expiresAt - Date.now()));
+    ask.timer.unref?.();
+  }
+
+  private restoreExpertAsks(journal: PersistedMeetingEvent[]) {
+    for (const event of journal) {
+      const ask = event.payload as ExpertAsk | null;
+      if (!ask || typeof ask.requestId !== 'string') continue;
+      if (event.type === 'host-expert-requested' && typeof ask.targetHostId === 'string'
+        && typeof ask.question === 'string' && Number.isFinite(ask.expiresAt)) {
+        this.pendingHostAsks.set(ask.requestId, { ...ask });
+      } else if (event.type === 'host-expert-replied') {
+        this.pendingHostAsks.delete(ask.requestId);
+        const reply = objectRecord(event.payload);
+        if (typeof reply.targetHostId === 'string' && typeof reply.text === 'string') {
+          void this.deliverExpertReply(ask.requestId, reply.targetHostId, reply.text).catch((error) => {
+            this.diagnostics.log('expert-reply-recovery-failed', { requestId: ask.requestId, error: String(error) });
+          });
+        }
+      } else if (event.type === 'host-expert-timed-out') {
+        const existing = this.pendingHostAsks.get(ask.requestId);
+        if (existing) existing.timedOut = true;
+      }
+    }
+    for (const ask of this.pendingHostAsks.values()) {
+      this.trackHostAsk(ask);
+      if (!ask.timedOut) void this.deliverExpertAsk(ask).catch((error) => {
+        this.diagnostics.log('expert-request-recovery-failed', { requestId: ask.requestId, error: String(error) });
+      });
+    }
   }
 
   private clearAllHostAsks(): void {
@@ -1089,10 +1274,16 @@ export class Orchestrator implements OrchestratorBridge {
     });
   }
 
-  async executeMeetingCommand(hostId: string, raw: unknown): Promise<MeetingCommandResult> {
+  async executeMeetingCommand(hostId: string, raw: unknown, isCurrent = () => !this.closed): Promise<MeetingCommandResult> {
     const actor = this.hostGroups.get(hostId);
     if (!actor) return { ok: false, code: 'forbidden', error: `host '${hostId}' not found` };
-    const authorized = authorizeMeetingCommand(raw, {
+    const expired = { ok: false, code: 'forbidden', error: 'Host session was replaced' } as const;
+    if (!isCurrent()) return expired;
+    const { commandId, ...commandInput } = objectRecord(raw);
+    if (commandId !== undefined && (typeof commandId !== 'string' || !/^[\w.-]{1,128}$/.test(commandId))) {
+      return { ok: false, code: 'invalid-command', error: 'Invalid commandId' };
+    }
+    const authorized = authorizeMeetingCommand(commandInput, {
       hostId,
       role: hostId === this.coordinatorHostId ? 'coordinator' : 'expert',
       ownsTask: (taskId) => this.isTaskOwnedBy(taskId, hostId),
@@ -1119,9 +1310,9 @@ export class Orchestrator implements OrchestratorBridge {
             steps: command.steps,
             risks: command.risks,
             openQuestions: command.openQuestions,
-          });
+          }, () => isCurrent() && hostId === this.coordinatorHostId);
           return result.ok
-            ? { ok: true, value: { tasks: command.tasks.length } }
+            ? { ok: true, value: { tasks: command.tasks.length, status: result.status ?? 'proposed', proposalId: result.proposalId } }
             : { ok: false, code: 'execution-failed', error: result.error };
         }
         case 'revise-plan': {
@@ -1134,13 +1325,16 @@ export class Orchestrator implements OrchestratorBridge {
             operation.kind === 'add-task' ? [operation.task] : [],
           );
           const backendError = await this.validateExecutionBackends(addedTasks);
+          if (!isCurrent() || hostId !== this.coordinatorHostId) return expired;
           if (backendError) {
             return { ok: false, code: 'execution-failed', error: backendError };
           }
-          const result = await this.meetingScheduler.revisePlan(
-            command.expectedPlanVersion,
-            operations,
-          );
+          const result = await this.hostRuntime.mutatePlan(async () => {
+            if (!isCurrent() || hostId !== this.coordinatorHostId) return { ok: false as const, error: expired.error };
+            return this.meetingScheduler.revisePlan(
+              command.expectedPlanVersion, operations, () => isCurrent() && hostId === this.coordinatorHostId,
+            );
+          });
           if (result.ok) {
             await this.repository.append('plan-revised-by-coordinator', {
               reason: command.reason,
@@ -1156,8 +1350,18 @@ export class Orchestrator implements OrchestratorBridge {
             : { ok: false, code: 'execution-failed', error: result.error };
         }
         case 'ask-host': {
-          const result = this.sendHostMessage(hostId, command.hostId, command.question);
-          return result.ok ? { ok: true } : { ok: false, code: 'execution-failed', error: result.error ?? 'send failed' };
+          return { ok: true, value: { requestId: await this.askExpert(hostId, command.hostId, command.question, isCurrent) } };
+        }
+        case 'reply-host-ask': {
+          await this.replyExpertAsk(hostId, command.requestId, command.text, isCurrent);
+          return { ok: true };
+        }
+        case 'inspect-tasks': {
+          if (hostId !== this.coordinatorHostId && (!command.taskId || !this.isTaskOwnedBy(command.taskId, hostId))) return expired;
+          return { ok: true, value: this.describeWorkers(command.taskId) };
+        }
+        case 'read-meeting-context': {
+          return { ok: true, value: this.readMeetingContext(hostId, command) };
         }
         case 'broadcast-hosts': {
           for (const target of this.hostGroups.keys()) {
@@ -1170,15 +1374,18 @@ export class Orchestrator implements OrchestratorBridge {
           return result.ok ? { ok: true, value: result } : { ok: false, code: 'execution-failed', error: result.reason };
         }
         case 'send-task-message': {
-          const message = await this.meetingScheduler.sendTaskMessage(command.taskId, command.message);
+          const valid = () => isCurrent() && (hostId === this.coordinatorHostId || this.isTaskOwnedBy(command.taskId, hostId));
+          const message = await this.meetingScheduler.sendTaskMessage(command.taskId, command.message, undefined, valid);
           return { ok: true, value: { messageId: message.id, status: message.status } };
         }
         case 'follow-up-task': {
-          const message = await this.meetingScheduler.queueFollowUp(command.taskId, command.message);
+          const valid = () => isCurrent() && (hostId === this.coordinatorHostId || this.isTaskOwnedBy(command.taskId, hostId));
+          const message = await this.meetingScheduler.queueFollowUp(command.taskId, command.message, undefined, undefined, valid);
           return { ok: true, value: { messageId: message.id, status: message.status } };
         }
         case 'steer-task': {
-          const result = await this.meetingScheduler.steerTask(command.taskId, command.message);
+          const result = await this.meetingScheduler.steerTask(command.taskId, command.message,
+            () => isCurrent() && (hostId === this.coordinatorHostId || this.isTaskOwnedBy(command.taskId, hostId)));
           return result.ok
             ? { ok: true, value: result }
             : { ok: false, code: 'execution-failed', error: result.reason };
@@ -1236,58 +1443,27 @@ export class Orchestrator implements OrchestratorBridge {
 
   /**
    * Historical name: returns the current Coordinator talker host, not necessarily
-   * the default execution HostGroup. Prefer executionHost() / coordinatorTalkerHost().
+   * the initial Host. Prefer coordinatorTalkerHost().
    */
   private defaultHost(): HostGroup {
     return this.coordinatorTalkerHost();
   }
 
-  /** HostGroup that owns WorkerScheduler / workspaces (always default). */
-  private executionHost(): HostGroup {
-    const hg = this.hostGroups.get(DEFAULT_HOST_ID);
-    if (!hg) throw new Error('default execution host group missing — this is a bug');
-    return hg;
-  }
-
   /** Handle events from a HostGroup, tagging with hostId before re-emitting. */
   private onHostGroupEvent(hostId: string, e: OrchestratorEvent) {
     this.safeEmit({ ...e, hostId });
-    if (e.source === 'system' && e.event.kind === 'coordinator-briefing') {
-      this.forwardBriefingToOwner(e.event.briefing);
-    }
     if (
       hostId !== this.coordinatorHostId
       && e.source === 'talker'
       && e.event.kind === 'message'
-      && (!this.remoteTargets.has(hostId) || (e.event.message as { type?: string }).type === 'assistant')
+      && e.event.message.type === 'assistant'
     ) {
-      // Any talker message from an expert counts as a reply to an outstanding
-      // ask_host; disarm the watchdog so the Coordinator isn't falsely told it
-      // timed out.
-      const wasAsked = this.pendingHostAsks.has(hostId);
-      this.clearHostAsk(hostId);
       const text = extractText(e.event.message);
-      // Direct replies from selected native sessions belong to their member's
-      // chat. Only an explicit Coordinator ask should trigger another host turn.
-      if (text && (!this.remoteTargets.has(hostId) || wasAsked)) {
-        this.sendHostMessage(
-          hostId,
-          this.coordinatorHostId,
-          `[expert response from ${hostId}] ${text}`,
-        );
-      }
-    }
-    if (
-      hostId === this.coordinatorHostId
-      && e.source === 'talker'
-      && e.event.kind === 'message'
-    ) {
-      const messageType = (e.event.message as { type?: unknown } | undefined)?.type;
-      if (messageType === 'result') {
-        this.coordinatorTurnActive = false;
-        void this.driveCoordinatorReviews();
-      } else if (messageType === 'assistant' || messageType === 'user') {
-        this.coordinatorTurnActive = true;
+      const reply = /^\[expert reply ([0-9a-f-]{36})\]\s*([\s\S]+)$/iu.exec(text ?? '');
+      if (reply) {
+        void this.replyExpertAsk(hostId, reply[1], reply[2]).catch((error) => {
+          this.diagnostics.log('unassociated-expert-reply', { hostId, requestId: reply[1], error: String(error) });
+        });
       }
     }
     if (
@@ -1310,11 +1486,16 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   async restartHost(hostId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.unsupportedRecovery) return { ok: false, error: 'Meeting journal version requires a newer runtime' };
     const hg = this.hostGroups.get(hostId);
     if (!hg) return { ok: false, error: `host '${hostId}' not found` };
-    if (hg.getHost()) return { ok: false, error: `host '${hostId}' is already running` };
+    if (hg.isReady()) return { ok: false, error: `host '${hostId}' is already running` };
     try {
       await hg.start();
+      if (this.closed || this.hostGroups.get(hostId) !== hg || !hg.isReady()) {
+        return { ok: false, error: 'Host startup was cancelled' };
+      }
+      this.restoreCoordinatorIfReady(hostId);
       this.flushPendingCrossHostMessages(hostId);
       this.safeEmit({ source: 'system', hostId, event: { kind: 'session-ready' } });
       if (hostId === this.coordinatorHostId) {
@@ -1337,6 +1518,7 @@ export class Orchestrator implements OrchestratorBridge {
 
   setAutoApproveScope(scope: AutoApproveScope) {
     this.autoApproveScope = scope;
+    this.meetingScheduler.setAutoApproveScope(scope);
     for (const hg of this.hostGroups.values()) {
       hg.setAutoApproveScope(scope);
     }
@@ -1392,7 +1574,22 @@ export class Orchestrator implements OrchestratorBridge {
   async start(greeting?: string) {
     await this.repositoryReady;
     this.repository.assertWritable();
-    const journal = await MeetingRepository.replay(this.meetingId);
+    const journal = await MeetingRepository.replay(this.meetingId, undefined, (message) => {
+      this.diagnostics.log('meeting-replay-diagnostic', { message });
+    });
+    this.unsupportedRecovery = journal.some((event) => {
+      if (event.type !== 'meeting-created' && event.type !== 'meeting-recovered') return false;
+      const meta = objectRecord(event.payload);
+      return Object.entries({ runtimeVersion: 1, eventSchemaVersion: 1, transportProtocolVersion: 2 })
+        .some(([key, max]) => meta[key] !== undefined && (
+          typeof meta[key] !== 'number' || !Number.isSafeInteger(meta[key]) || Number(meta[key]) < 1 || Number(meta[key]) > max
+        ));
+    });
+    if (this.unsupportedRecovery) throw new Error('会议日志版本需要更新的运行时。执行恢复已阻止。');
+    const latestCoordinator = [...journal].reverse().find((event) => event.type === 'coordinator-changed');
+    const recoveredCoordinator = objectRecord(latestCoordinator?.payload).current;
+    if (typeof recoveredCoordinator === 'string') this.recoveringCoordinatorHostId = recoveredCoordinator;
+    if (this.recoveringCoordinatorHostId === DEFAULT_HOST_ID) this.recoveringCoordinatorHostId = undefined;
     this.integrationQueue.restore(journal);
     const interruptedIntegration = await this.integrationQueue.detectInterruptedOperation();
     if (interruptedIntegration) {
@@ -1407,25 +1604,38 @@ export class Orchestrator implements OrchestratorBridge {
     this.restoreFinalMeetingDelivery(journal);
     await this.reconcileInterruptedFinalAcceptance(journal);
     this.taskMailbox.restore(journal);
+    this.hostRuntime.restore(journal, this.recoveredTasks);
+    const unresolvedLaunches = unresolvedNativeLaunches(journal);
+    for (const task of this.recoveredTasks) {
+      if (typeof task.id !== 'string' || !unresolvedLaunches.get(task.id)?.size) continue;
+      task.launchPhase = 'uncertain';
+      task.recovery = assessTaskRecovery(task);
+      this.meetingScheduler.markRecoveredNativeExitUncertain(task.id);
+    }
+    if (!this.closed) this.restoreExpertAsks(journal);
     this.taskProjection = projectMeetingTasks(journal);
+    await this.publishRecoveredHostInputs();
     await this.defaultHost().start(greeting);
+    if (this.hostRuntime.hasPendingState) this.republishState();
     // Restoring references reconnects transports only; it sends no model turn.
     for (const [id] of this.remoteTargets) {
       try {
         await this.hostGroups.get(id)!.start();
+        this.restoreCoordinatorIfReady(id);
+        this.flushPendingCrossHostMessages(id);
         this.safeEmit({ source: 'system', hostId: id, event: { kind: 'session-ready', remoteTarget: this.remoteTargets.get(id) } });
       } catch (err) {
         this.safeEmit({ source: 'system', hostId: id, event: { kind: 'session-start-failed', error: String(err), remoteTarget: this.remoteTargets.get(id) } });
       }
     }
-    this.flushPendingCrossHostMessages(this.coordinatorHostId);
+    this.flushPendingCrossHostMessages(DEFAULT_HOST_ID);
     // Re-add the host groups that were invited before the previous shutdown.
     // The default host is already up; the rest reconnect asynchronously and
     // each announces itself via host-added/session-ready exactly like a live
     // invite. A backend that disappeared in the meantime is skipped — the
     // meeting must still recover when one invited runtime is gone.
     for (const host of this.recoveredHosts) {
-      if (host.id === DEFAULT_HOST_ID) continue;
+      if (this.hostGroups.has(host.id)) continue;
       const result = this.addHost(host.backendId, host.id, undefined, host.profile);
       if (!result.ok) {
         this.diagnostics.log('host-recovery-skipped', {
@@ -1447,6 +1657,10 @@ export class Orchestrator implements OrchestratorBridge {
       await this.autoResumeRecoveredReadOnlyTasks();
     }
     this.announceStoppedOwnedWorkers();
+    for (const session of this.coordinatorReviewDriver.activeSessions()) {
+      await this.coordinatorReviewDriver.resume(session.id);
+    }
+    this.resumeDisconnectedReviews();
     if (this.finalMeetingDelivery || this.finalMeetingDecision) {
       this.safeEmit({
         source: 'system',
@@ -1507,6 +1721,7 @@ export class Orchestrator implements OrchestratorBridge {
       && current.status !== 'running'
       && current.status !== 'budget-paused'
       && current.status !== 'integration-conflict'
+      && !(current.launchPhase === 'uncertain' && action === 'abandon-task')
     ) {
       return { ok: false, error: `task is already ${String(current.status)}` };
     }
@@ -1661,7 +1876,7 @@ export class Orchestrator implements OrchestratorBridge {
       reviewSessions: this.coordinatorReviewDriver.snapshot(),
       integrationQueue: this.integrationQueue.snapshot(),
       planVersion: this.meetingScheduler.getPlanVersion(),
-      autoOrchestration: this.autoOrchestration,
+      ...this.hostRuntime.planPreferences,
       finalMeetingDelivery: this.finalMeetingDelivery
         ? structuredClone(this.finalMeetingDelivery)
         : null,
@@ -1671,61 +1886,76 @@ export class Orchestrator implements OrchestratorBridge {
     });
   }
 
-  sendUserText(text: string) {
-    const error = this.remoteInputError(text);
-    if (error) throw new Error(error);
-    const mention = this.resolveHostMention(text);
-    if (!mention) {
-      const fallback = this.defaultHost();
-      fallback.sendUserText(text);
-      // The renderer names its optimistic "thinking" bubble after the routed
-      // host; default-route sends must tag that too, or a stale @mention from
-      // an earlier turn keeps naming the wrong host. safeEmit (not a bare
-      // repository.append) is required so the tag actually reaches the
-      // renderer — append alone only journals it.
-      this.safeEmit({
-        source: 'system',
-        hostId: DEFAULT_HOST_ID,
-        event: { kind: 'user-mentioned-host', backendId: fallback.backendId, chars: text.length },
-      });
-      return;
+  async sendUserText(text: string, inputId: string = randomUUID(), source: Exclude<UserHostInputSource, 'attachment'> = 'user-text') {
+    // Shared inputs already have a durable Hub checkpoint and a single owner.
+    if (this.sharedExecution) {
+      const host = this.defaultHost();
+      const session = host.isReady() ? host.getHost() : null;
+      if (this.closed || !session) throw new Error('Shared Host is unavailable');
+      session.sendUserText(text, 'high');
+      return { inputId, hostId: host.id, state: 'submitted' as const };
     }
-    const addressedText = mention.text || '用户刚刚直接点名了你，请简短回应。';
-    mention.host.sendUserText(
-      `[direct user mention from meeting chat]\n${addressedText}\n\n`
-      + '直接用普通 assistant 文本回答用户；不要主持、派任务或输出 meeting-command。',
-    );
-    this.safeEmit({
+    const receipt = await this.hostInbox.receive(inputId, text, () => {
+      if (this.closed) throw new Error('Meeting is closed');
+      const error = this.remoteInputError(text);
+      if (error) throw new Error(error);
+      const mentions = this.resolveHostMentions(text);
+      const mention = mentions.length === 1 ? mentions[0] : undefined;
+      return {
+        hostId: mention?.hostId ?? this.recoveringCoordinatorHostId ?? this.coordinatorHostId,
+        direct: Boolean(mention), ...(mention ? { deliveryText: mention.text || '用户点名了你，请简短回应。' } : {}),
+        ...(mentions.length > 1 ? { targetChoices: mentions.map(({ hostId }) => hostId) } : {}),
+      };
+    }, undefined, source);
+    if (receipt.state !== 'awaiting-target') this.safeEmit({
       source: 'system',
-      hostId: mention.hostId,
-      event: { kind: 'user-mentioned-host', backendId: mention.host.backendId, chars: addressedText.length },
+      hostId: receipt.hostId,
+      event: { kind: 'user-mentioned-host', backendId: this.hostGroups.get(receipt.hostId)?.backendId ?? '', chars: text.length },
     });
+    return receipt;
   }
 
-  private resolveHostMention(text: string): { hostId: string; host: HostGroup; text: string } | null {
+  readHostInput(inputId: string) {
+    return this.hostInbox.read(inputId);
+  }
+
+  assignHostInput(inputId: string, hostId: string) {
+    return this.hostInbox.assignTarget(inputId, hostId, () => !this.closed && this.hostGroups.has(hostId));
+  }
+
+  cancelHostInput(inputId: string) {
+    return this.hostInbox.cancel(inputId);
+  }
+
+  private resolveHostMentions(text: string): Array<{ hostId: string; text: string }> {
     const remoteId = remoteMentionIds(text, this.listHosts())[0];
+    const mentions = new Map<string, string>();
     for (const match of text.matchAll(/@([a-zA-Z0-9._-]+)/g)) {
       if (match.index && /[a-zA-Z0-9_.+-]/.test(text[match.index - 1])) continue;
       const token = match[1].toLowerCase();
-      const found = remoteId ? [remoteId, this.hostGroups.get(remoteId)!] as const : Array.from(this.hostGroups.entries()).find(([id, host]) => (
-        id.toLowerCase() === token || host.backendId.toLowerCase() === token
-      ));
-      if (remoteId && token !== remoteId.toLowerCase() && token !== 'pocket-vibe') continue;
-      if (!found || (this.listHosts().find((host) => host.id === found[0])?.remoteTarget && !remoteId) || !found[1].isReady()) continue;
+      const hosts = [...this.hostGroups.entries()];
+      const exact = hosts.filter(([id]) => id.toLowerCase() === token);
+      const matches = exact.length ? exact : hosts.filter(([, host]) => host.backendId.toLowerCase() === token);
       const start = match.index ?? 0;
       const withoutMention = `${text.slice(0, start)}${text.slice(start + match[0].length)}`
         .replace(/[ \t]{2,}/g, ' ')
         .trim();
-      return { hostId: found[0], host: found[1], text: withoutMention };
+      for (const [id] of matches) {
+        if (this.remoteTargets.has(id) && id !== remoteId) continue;
+        if (!mentions.has(id)) mentions.set(id, withoutMention);
+      }
     }
-    return null;
+    return [...mentions].map(([hostId, text]) => ({ hostId, text }));
   }
 
-  sendUserImage(content: SDKUserMessage['message']['content']) {
+  async sendUserImage(content: SDKUserMessage['message']['content'], inputId: string = randomUUID(), requestHash?: string) {
     const text = typeof content === 'string' ? content : content.filter((block) => block.type === 'text').map((block) => (block as { text: string }).text).join('\n');
-    const error = this.remoteInputError(text, true);
-    if (error) throw new Error(error);
-    this.defaultHost().sendUserImage(content);
+    return this.hostInbox.receive(inputId, text.slice(0, 100_000) || 'Shared attachment', () => {
+      if (this.closed) throw new Error('Meeting is closed');
+      const error = this.remoteInputError(text, true);
+      if (error) throw new Error(error);
+      return { hostId: this.recoveringCoordinatorHostId ?? this.coordinatorHostId, direct: false };
+    }, typeof content === 'string' ? undefined : content as import('./backends/cli-backend.js').UserContentBlock[], 'attachment', requestHash);
   }
 
   remoteInputError(text: string, hasAttachments = false): string | null {
@@ -1750,8 +1980,9 @@ export class Orchestrator implements OrchestratorBridge {
     // Try every active host group; only the one that issued the permission
     // request actually has a matching pending entry.
     for (const hg of this.hostGroups.values()) {
-      hg.resolvePermission(id, decision, message, scope);
+      hg.resolvePermission(id, decision, message);
     }
+    this.meetingScheduler.resolvePermissionInAny(id, decision, message, scope);
   }
 
   /** Live backend session of a meeting host (for IPC accessors that need
@@ -1770,15 +2001,26 @@ export class Orchestrator implements OrchestratorBridge {
     return this.repository.deliveryArtifactRoot();
   }
 
-  async interrupt() {
-    const tasks: Promise<void>[] = [];
-    for (const hg of this.hostGroups.values()) {
-      tasks.push(hg.interrupt());
-    }
+  async interrupt(hostId = this.coordinatorHostId) {
     // B4: abort end-of-meeting recap if it's mid-flight. Recap runs after
     // `end()` so an interrupt arriving here may be the only signal to stop.
-    if (this.recapHandle) tasks.push(this.recapHandle.abort());
-    await Promise.allSettled(tasks);
+    if (this.closed && this.recapHandle) {
+      await this.recapHandle.abort();
+      return;
+    }
+    const host = this.hostGroups.get(hostId);
+    if (!host) throw new Error('Host not found');
+    const controlId = randomUUID();
+    const request = this.repository.append('host-interrupt-requested', { schemaVersion: 1, controlId, hostId });
+    const [recorded, stopped] = await Promise.allSettled([request, host.interrupt()]);
+    if (recorded.status === 'rejected') {
+      this.diagnostics.log('host-interrupt-journal-failed', { controlId, hostId, error: String(recorded.reason) });
+    } else {
+      await this.repository.append('host-interrupt-result', {
+        schemaVersion: 1, controlId, hostId, outcome: stopped.status === 'fulfilled' ? 'requested' : 'failed',
+      }).catch((error) => this.diagnostics.log('host-interrupt-journal-failed', { controlId, hostId, error: String(error) }));
+    }
+    if (stopped.status === 'rejected') throw stopped.reason;
   }
 
   /** Returns true if the post-meeting recap is still in flight. Main process
@@ -1796,11 +2038,11 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   async setPermissionMode(mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan') {
-    const tasks: Promise<void>[] = [];
+    const tasks = this.meetingScheduler.setPermissionModeAll(mode);
     for (const hg of this.hostGroups.values()) {
       tasks.push(hg.setPermissionMode(mode));
     }
-    await Promise.all(tasks);
+    await Promise.allSettled(tasks);
   }
 
   /** `appQuit`: the app is shutting down rather than the user ending this
@@ -1846,9 +2088,12 @@ export class Orchestrator implements OrchestratorBridge {
     }
 
     this.closed = true;
+    this.queuedReviews.clear();
+    if (this.reviewer) this.releaseReviewer(this.reviewer.reviewId);
     this.stopReviewStallWatchdog();
     this.clearAllHostAsks();
 
+    const workerCleanup = this.meetingScheduler.endAll();
     const hostCleanup = Array.from(this.hostGroups.values(), (hg) =>
       hg.end().catch((err) => console.error('[orchestrator] host cleanup failed:', err)),
     );
@@ -1858,27 +2103,42 @@ export class Orchestrator implements OrchestratorBridge {
     this.crossHostBus.dispose();
     Orchestrator.liveInstances.delete(this);
 
-    const cleanupPromises: Promise<void>[] = [
-      ...hostCleanup,
-      this.repository.snapshot({
-        status: 'ended',
-        cwd: this.cwd,
-        coordinatorHostId: this.coordinatorHostId,
-        hosts: this.listHosts(),
-        workers: this.meetingScheduler.describeWorkers(),
-        // After an app quit the next meeting in this folder picks these up
-        // (sessions:open): the expert, its unfinished sub-agents and the
-        // workspace notes. Finished sub-agents don't come back. A meeting the
-        // user ended starts the next one fresh.
-        endedBy: opts?.appQuit ? 'app-quit' : 'user',
-        ownedTasks: this.ownedTasksSnapshot(new Set(['done', 'accepted']), true),
-        meetingNotes: structuredClone(this.meetingNotes),
-      }).then(() => this.repository.flush()),
-    ];
+    const cleanup = Promise.allSettled([
+      workerCleanup.then((unresolved) => { this.unresolvedWorkerStops = unresolved; }),
+      ...hostCleanup, this.hostInbox.flush(), this.hostRuntime.flushPlanMutations(),
+    ]).then(async (results) => {
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (this.unresolvedWorkerStops.length || failures.length) {
+        // Keep a recoverable record while the process owner is uncertain.
+        await this.snapshotActiveMeeting();
+      } else {
+        await this.repository.snapshot({
+          status: 'ended',
+          cwd: this.cwd,
+          coordinatorHostId: this.coordinatorHostId,
+          hosts: this.listHosts(),
+          workers: this.meetingScheduler.describeWorkers(),
+          endedBy: opts?.appQuit ? 'app-quit' : 'user',
+          ownedTasks: this.ownedTasksSnapshot(new Set(['done', 'accepted']), true),
+          meetingNotes: structuredClone(this.meetingNotes),
+        });
+      }
+      await this.repository.flush();
+      if (failures.length) throw new AggregateError(failures.map((failure) => failure.reason), 'Meeting cleanup failed');
+    });
+    this.executionCleanup = cleanup;
+    const cleanupPromises = [cleanup];
     if (this.recapHandle) cleanupPromises.push(this.recapHandle.done);
 
     this.endPromise = Promise.all(cleanupPromises).then(() => undefined);
     return this.endPromise;
+  }
+
+  async waitForExecutionCleanup(): Promise<void> {
+    await this.executionCleanup;
+    if (this.unresolvedWorkerStops.length) {
+      throw new Error(`以下任务的原生进程树退出待核对：${this.unresolvedWorkerStops.join(', ')}`);
+    }
   }
 
   /** Manual entry point: renderer-side "Plan meeting" button. */
@@ -2113,15 +2373,49 @@ export class Orchestrator implements OrchestratorBridge {
     }
   }
 
-  private forwardBriefingToOwner(briefing: { taskId?: string; workerId?: string; title: string; summary: string; kind: string }): void {
+  private async publishWorkerQuestion(message: TaskMessage) {
+    const text = objectRecord(message.payload).text;
+    if (typeof text !== 'string') return;
+    const inputId = `worker-question-${message.id}`;
+    const prompt = `(task question from ${message.taskId}, message ${message.id}) ${text}`;
+    const receipt = await this.hostInbox.receive(inputId, prompt.slice(0, 100_000),
+      () => ({ hostId: this.recoveringCoordinatorHostId ?? this.coordinatorHostId, direct: false }), undefined, 'worker-question');
+    if (receipt.state === 'submitted') await this.taskMailbox.markDelivered(message.taskId, message.id);
+  }
+
+  private async markHostQuestionSubmitted(messageId: string) {
+    try {
+      const question = this.taskMailbox.findMessage(messageId);
+      if (question?.sender === 'worker' && question.kind === 'question') {
+        await this.taskMailbox.markDelivered(question.taskId, messageId);
+      }
+    } catch (error) {
+      this.diagnostics.log('worker-question-receipt-failed', { messageId, error: String(error) });
+    }
+  }
+
+  private publishCoordinatorBriefing(briefing: CoordinatorBriefing, attempt?: number): void {
+    if (this.closed || briefing.kind === 'capacity') return;
     const taskId = briefing.taskId ?? briefing.workerId;
+    const coordinator = this.recoveringCoordinatorHostId ?? this.coordinatorHostId;
     const owner = taskId ? this.taskOwners.get(taskId) : undefined;
-    if (!owner || owner === this.coordinatorHostId) return;
-    this.hostGroups.get(owner)?.getHost()?.sendUserText(
-      `(your sub-agent ${taskId}) ${briefing.kind}: ${briefing.title}\n${briefing.summary}\n`
-      + '这是你名下子 Agent 的进展。需要它继续就用 send_task_message / follow_up_task；有结论就简短告诉大家。',
-      'normal',
-    );
+    const recipients = new Set([coordinator, ...(owner && this.hostGroups.has(owner) ? [owner] : [])]);
+    for (const hostId of recipients) {
+      const identity = createHash('sha256').update(JSON.stringify([
+        taskId, attempt, briefing.kind, briefing.title, briefing.summary, briefing.blockers,
+        briefing.files, briefing.testsPassed, briefing.testsFailed, hostId,
+      ])).digest('hex');
+      const text = (hostId === coordinator ? '[structured coordinator briefing]' : `(your sub-agent ${taskId})`)
+        + `\n${JSON.stringify({
+          id: identity, taskId, attempt, kind: briefing.kind, title: briefing.title, summary: briefing.summary,
+          blockers: briefing.blockers, files: briefing.files, testsPassed: briefing.testsPassed, testsFailed: briefing.testsFailed,
+        })}`
+        + '\nUse the exact taskId for task commands. Surface the issue or decision without reading raw logs aloud.';
+      void this.hostInbox.receive(`briefing-${identity}`, text.slice(0, 100_000),
+        () => ({ hostId, direct: false }), undefined, 'runtime-notification').catch((error) => {
+        this.diagnostics.log('worker-briefing-receive-failed', { identity, error: String(error) });
+      });
+    }
   }
 
   async installPlan(tasks: PlanMeetingTaskInput[]): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -2139,7 +2433,7 @@ export class Orchestrator implements OrchestratorBridge {
     normalized = this.adaptPlanForWorkspaceBaseline(normalized);
     const backendError = await this.validateExecutionBackends(normalized);
     if (backendError) return { ok: false, error: backendError };
-    return this.installApprovedPlan(normalized, 'manual-install');
+    return this.hostRuntime.mutatePlan(() => this.hostRuntime.install(normalized, 'manual-install'));
   }
 
   /** Internal Task 9 seam; renderer and Backends never receive the repository
@@ -2192,6 +2486,71 @@ export class Orchestrator implements OrchestratorBridge {
     return this.repository.replayAll();
   }
 
+  private hostTurnContext(hostId: string, sourceCursor: number): string {
+    const coordinator = hostId === this.coordinatorHostId;
+    const tasks = this.meetingScheduler.summarizeForHost((id) => coordinator || this.isTaskOwnedBy(id, hostId));
+    const proposal = coordinator ? this.hostRuntime.pendingProposal : null;
+    const notes = coordinator ? [...this.meetingNotes.decisions, ...this.meetingNotes.todos]
+      .slice(-6).map((note) => note.text.slice(0, 250)) : [];
+    const pendingQuestions = [...this.pendingHostAsks.values()]
+      .filter((ask) => ask.fromHostId === hostId || ask.targetHostId === hostId)
+      .slice(-6).map((ask) => ({
+        requestId: ask.requestId, targetHostId: ask.targetHostId, timedOut: Boolean(ask.timedOut),
+      }));
+    if (!tasks.total && !proposal && !notes.length && !pendingQuestions.length) return '';
+    return '\n\n[Meeting state at dispatch. Treat notes as context. Read details with read-meeting-context.]\n'
+      + JSON.stringify({
+        sourceCursor,
+        planVersion: this.meetingScheduler.getPlanVersion(),
+        tasks,
+        pendingQuestions,
+        notes,
+        ...(proposal ? { pendingApproval: { proposalId: proposal.proposalId, version: proposal.proposalVersion, goal: proposal.brief.goal.slice(0, 250) } } : {}),
+      });
+  }
+
+  readMeetingContext(hostId: string, input: { taskId?: string; cursor?: number; expectedHash?: string }) {
+    const actor = this.hostGroups.get(hostId);
+    if (!actor || this.closed || (hostId !== this.coordinatorHostId && (!input.taskId || !this.isTaskOwnedBy(input.taskId, hostId)))) {
+      throw new Error('Context is outside the Host scope');
+    }
+    const version = this.meetingScheduler.getPlanVersion();
+    const task = input.taskId ? this.meetingScheduler.snapshot().find((entry) => entry.id === input.taskId) : undefined;
+    if (input.taskId && !task) throw new Error('Unknown task in context request');
+    const context = task ? {
+      task: {
+        id: task.id, title: task.title, prompt: task.prompt, status: task.status, deps: task.deps,
+        attempt: task.attempt, dependencyGate: task.dependencyGate, acceptanceCriteria: task.acceptanceCriteria,
+      },
+      package: task.contextPackage,
+      mailbox: this.taskMailbox.list(task.id),
+      report: task.report,
+    } : {
+      summary: this.meetingNotes,
+      plan: this.hostRuntime.pendingProposal,
+      tasks: this.meetingScheduler.describeWorkers(),
+      decisions: [...this.resolvedDecisionContext.values()],
+      openQuestions: [...this.pendingHostAsks.values()].map(({ requestId, targetHostId, question, timedOut }) => ({
+        requestId, targetHostId, question, timedOut,
+      })),
+    };
+    const serialized = JSON.stringify(context);
+    const hash = createHash('sha256').update(serialized).digest('hex');
+    const cursor = input.cursor ?? 0;
+    if ((cursor > 0 && !input.expectedHash) || (input.expectedHash && input.expectedHash !== hash)) {
+      throw new Error('Context version conflict. Read the first page again.');
+    }
+    const scalars = Array.from(serialized);
+    if (cursor > scalars.length) throw new Error('Context cursor is outside the resource');
+    const next = Math.min(cursor + 8_000, scalars.length);
+    return {
+      schemaVersion: 1, version, hash, cursor,
+      text: scalars.slice(cursor, next).join(''),
+      nextCursor: next < scalars.length ? next : null,
+      complete: next === scalars.length,
+    };
+  }
+
   subscribeMeetingJournal(
     listener: (event: PersistedMeetingEvent) => void,
   ): () => void {
@@ -2213,7 +2572,9 @@ export class Orchestrator implements OrchestratorBridge {
   async proposePlan(
     tasks: PlanMeetingTaskInput[],
     briefInput?: MeetingPlanBriefInput,
-  ): Promise<{ ok: true; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    isCurrent = () => !this.closed,
+  ): Promise<{ ok: true; status?: 'proposed' | 'installed'; proposalId?: string; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    if (!isCurrent() || this.closed) return { ok: false, error: 'Host session was replaced or meeting closed' };
     if(this.sharedExecution) {
       try {await this.sharedExecution.propose(tasks,normalizeMeetingPlanBrief(briefInput,tasks));return {ok:true};}
       catch(error){return {ok:false,error:(typeof (error as {code?:unknown})?.code==='string'?String((error as {code:string}).code)+': ':'')+(error instanceof Error?error.message:String(error))};}
@@ -2236,18 +2597,15 @@ export class Orchestrator implements OrchestratorBridge {
     if (backendError) return { ok: false, error: backendError };
     const brief = normalizeMeetingPlanBrief(briefInput, normalized);
     const applied = appliedDefaults.length > 0 ? { appliedDefaults } : {};
-    if (!this.autoApprovePlans) {
-      this.pendingPlan = normalized.map((task) => ({ ...task, deps: [...(task.deps ?? [])] }));
-      this.pendingPlanBrief = brief;
-      this.safeEmit({
-        source: 'system',
-        event: { kind: 'plan-proposed', tasks: this.pendingPlan, brief },
-      });
-      void this.repository.append('plan-proposed', { tasks: this.pendingPlan, brief });
-      return { ok: true, ...applied };
-    }
-    const installed = await this.installApprovedPlan(normalized, 'auto-orchestration');
-    return installed.ok ? { ok: true, ...applied } : installed;
+    return this.hostRuntime.mutatePlan(async () => {
+      if (!isCurrent() || this.closed) return { ok: false, error: 'Host session was replaced or meeting closed' };
+      if (this.hostRuntime.planPreferences.autoApprovePlans) {
+        const installed = await this.hostRuntime.install(normalized, 'auto-orchestration', undefined, isCurrent);
+        return installed.ok ? { ok: true, status: 'installed', ...applied } : installed;
+      }
+      const proposal = await this.hostRuntime.recordProposal(normalized, brief);
+      return { ok: true, status: 'proposed', proposalId: proposal.proposalId, ...applied };
+    });
   }
 
   private adaptPlanForWorkspaceBaseline(tasks: PlanMeetingTask[]): PlanMeetingTask[] {
@@ -2259,12 +2617,13 @@ export class Orchestrator implements OrchestratorBridge {
     });
   }
 
-  setAutoOrchestration(enabled: boolean): void {
-    this.autoOrchestration = enabled;
-    void this.repository.append('orchestration-mode-changed', { enabled });
+  setAutoOrchestration(enabled: boolean): Promise<void> {
+    return this.hostRuntime.setPlanPreferences({ autoOrchestration: enabled });
   }
 
-  setAutoApprovePlans(enabled:boolean):void {this.autoApprovePlans=enabled;}
+  setAutoApprovePlans(enabled: boolean): Promise<void> {
+    return this.hostRuntime.setPlanPreferences({ autoApprovePlans: enabled });
+  }
 
   /** Only the coordinator talker; accepted Workers remain owned by their task. */
   async interruptHostReply():Promise<void> {await this.defaultHost().getHost()?.interrupt();}
@@ -2274,49 +2633,23 @@ export class Orchestrator implements OrchestratorBridge {
   async approvePendingPlan(
     approved: boolean,
     revisedTasks?: PlanMeetingTaskInput[],
-    revisedBrief?:MeetingPlanBriefInput,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    let tasks: PlanMeetingTask[] | null = this.pendingPlan;
-    if (revisedTasks) {
-      try {
-        tasks = normalizePlanMeetingTasks(
-          revisedTasks,
-          this.defaultWorkerBackendId(),
-          this.normalizePlanOptions(),
-        ).tasks;
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-      tasks = this.adaptPlanForWorkspaceBaseline(tasks);
-      const backendError = await this.validateExecutionBackends(tasks);
-      if (backendError) return { ok: false, error: backendError };
-    }
-    if(approved&&tasks)await this.repository.append('plan-document-approved',{brief:normalizeMeetingPlanBrief(revisedBrief??this.pendingPlanBrief??undefined,tasks)});
-    this.pendingPlan = null;
-    this.pendingPlanBrief = null;
-    if (!tasks) return { ok: false, error: 'no pending plan' };
-    if (!approved) return { ok: true };
-    return this.installApprovedPlan(tasks, 'plan-meeting-confirmation');
-  }
-
-  private async installApprovedPlan(
-    tasks: PlanMeetingTask[],
-    source: 'manual-install' | 'auto-orchestration' | 'plan-meeting-confirmation',
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    const decisionId = randomUUID();
-    const approvedAt = Date.now();
-    await this.repository.append('plan-authority-approved', {
-      decisionId,
-      approvedAt,
-      source,
-      planVersion: this.meetingScheduler.getPlanVersion() + 1,
-      tasks: tasks.map((task) => ({
-        taskId: task.id,
-        authorityRequestHash: hashTaskAuthorityRequest(task.authorityRequest),
-      })),
+    revisedBrief?: MeetingPlanBriefInput,
+    identity?: PlanApprovalIdentity,
+  ) {
+    return this.hostRuntime.approve(approved, identity, {
+      fingerprint: { revisedTasks, revisedBrief },
+      brief: revisedBrief,
+      prepareTasks: revisedTasks ? async () => {
+        try {
+          const normalized = normalizePlanMeetingTasks(revisedTasks, this.defaultWorkerBackendId(), this.normalizePlanOptions()).tasks;
+          const tasks = this.adaptPlanForWorkspaceBaseline(normalized);
+          const error = await this.validateExecutionBackends(tasks);
+          return error ? { error } : { tasks };
+        } catch (error) {
+          return { error: error instanceof Error ? error.message : String(error) };
+        }
+      } : undefined,
     });
-    await this.repository.flush();
-    return this.meetingScheduler.installPlan(tasks, { decisionId, approvedAt });
   }
 
   private async validateExecutionBackends(tasks: PlanMeetingTask[]): Promise<string | null> {
@@ -2324,7 +2657,7 @@ export class Orchestrator implements OrchestratorBridge {
     const checked = new Set<string>();
     for (const task of tasks) {
       const backendId = task.executorBackendId ?? defaultBackendId;
-      if (!this.sharedExecution && !isNativeCliWorkerBackend(backendId)) {
+      if (!isNativeCliWorkerBackend(backendId)) {
         return `unsupported-contract: Worker '${backendId}' 必须使用本地原生 CLI`;
       }
       if (isNativeCliWorkerBackend(backendId) && task.workspaceMode === 'read-only') {
@@ -2390,7 +2723,7 @@ export class Orchestrator implements OrchestratorBridge {
     commands?: string[][];
     networkHosts?: string[];
     toolKinds?: string[];
-  }): Promise<
+  }, isCurrent = () => !this.closed): Promise<
     | {
         ok: true;
         workerId: string;
@@ -2401,6 +2734,7 @@ export class Orchestrator implements OrchestratorBridge {
       }
     | { ok: false; error: string }
   > {
+    if (!isCurrent()) return { ok: false, error: 'Host session was replaced' };
     if(this.sharedExecution)return {ok:false,error:'共享派活必须提交明确设备与 Agent 的完整计划；请使用 plan_meeting / propose-plan'};
     const request = typeof input === 'string' ? { description: input } : input;
     const description = request.description.trim();
@@ -2447,7 +2781,7 @@ export class Orchestrator implements OrchestratorBridge {
             }
           : {}),
       };
-      const proposed = await this.proposePlan([task]);
+      const proposed = await this.proposePlan([task], undefined, isCurrent);
       if (!proposed.ok) return proposed;
       const notes = proposed.appliedDefaults?.find((entry) => entry.taskId === workerId)?.notes;
       return {
@@ -2455,12 +2789,16 @@ export class Orchestrator implements OrchestratorBridge {
         workerId,
         specialty,
         reused: false,
-        status: this.autoApprovePlans ? 'installed' : 'proposed',
+        status: proposed.status ?? 'proposed',
         ...(notes?.length ? { appliedDefaults: notes } : {}),
       };
     }
 
-    const delegated = this.meetingScheduler.delegateSingleTask(description);
+    const delegated = await this.hostRuntime.mutatePlan(async () => {
+      if (!isCurrent()) return null;
+      return this.meetingScheduler.delegateSingleTask(description);
+    });
+    if (!delegated) return { ok: false, error: 'Host session was replaced' };
     return { ok: true, ...delegated, status: 'spawned' };
   }
 
@@ -2473,9 +2811,10 @@ export class Orchestrator implements OrchestratorBridge {
     taskId: string,
     message: string,
     executorBackendId?: string,
+    isCurrent?: () => boolean,
   ): Promise<{ id: string; status: string }> {
     const queued = await this.meetingScheduler.sendTaskMessage(taskId, message,
-      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined);
+      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined, isCurrent);
     return { id: queued.id, status: queued.status };
   }
 
@@ -2483,13 +2822,19 @@ export class Orchestrator implements OrchestratorBridge {
     taskId: string,
     message: string,
     executorBackendId?: string,
+    identity?: { inputId: string; replyTo?: string },
+    isCurrent?: () => boolean,
   ): Promise<{ id: string; status: string }> {
     const queued = await this.meetingScheduler.queueFollowUp(taskId, message,
-      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined);
+      executorBackendId ? nativeWorkerBackendId(executorBackendId) : undefined, identity, isCurrent);
     return { id: queued.id, status: queued.status };
   }
 
-  async extendTaskBudget(
+  extendTaskBudget(taskId: string, expectedPlanVersion: number, rawBudget: TaskBudget): Promise<{ planVersion: number; budget: TaskBudget }> {
+    return this.hostRuntime.mutatePlan(() => this.applyTaskBudgetExtension(taskId, expectedPlanVersion, rawBudget));
+  }
+
+  private async applyTaskBudgetExtension(
     taskId: string,
     expectedPlanVersion: number,
     rawBudget: TaskBudget,
@@ -2946,7 +3291,11 @@ export class Orchestrator implements OrchestratorBridge {
     return structuredClone(published);
   }
 
-  async requestMeetingDeliveryRework(
+  requestMeetingDeliveryRework(deliveryId: string, contentHash: string, reason: string): Promise<{ planVersion: number; taskIds: string[] }> {
+    return this.hostRuntime.mutatePlan(() => this.applyMeetingDeliveryRework(deliveryId, contentHash, reason));
+  }
+
+  private async applyMeetingDeliveryRework(
     deliveryId: string,
     contentHash: string,
     reason: string,
@@ -3320,40 +3669,164 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   private notifyCoordinatorReview(briefing: CoordinatorReviewBriefing): void {
-    const host = this.hostGroups.get(this.coordinatorHostId)?.getHost();
-    if (!host) {
-      void this.coordinatorReviewDriver.pauseForDisconnect(briefing.reviewId);
-      return;
-    }
-    if (this.coordinatorTurnActive) this.reviewsAwaitingFirstTurn.add(briefing.reviewId);
-    else this.reviewsAwaitingFirstTurn.delete(briefing.reviewId);
-    this.ensureReviewStallWatchdog();
-    host.sendUserText(
-      `(coordinator review)\n${JSON.stringify(briefing)}`,
-      'high',
-    );
-    this.coordinatorTurnActive = true;
+    if (this.closed) return;
+    this.queuedReviews.set(briefing.reviewId, briefing);
+    this.pumpReviewer();
   }
 
-  /**
-   * A frozen candidate only leaves `coordinator-reviewing` when the Coordinator
-   * itself covers every chunk. Without this the briefing was a single
-   * fire-and-forget message: a Coordinator that reviewed two chunks and moved on
-   * left the delivery — and every task depending on it — stalled forever.
-   */
-  private async driveCoordinatorReviews(): Promise<void> {
+  private pumpReviewer() {
     if (this.closed) return;
-    for (const session of this.coordinatorReviewDriver.activeSessions()) {
-      if (this.reviewsAwaitingFirstTurn.delete(session.id)) continue;
+    if (this.reviewer) {
+      const reviewer = this.reviewer;
+      const briefing = this.queuedReviews.get(reviewer.reviewId);
+      if (!briefing || reviewer.busy || !reviewer.session) return;
+      this.queuedReviews.delete(briefing.reviewId);
+      reviewer.busy = true;
+      const results = reviewer.results.splice(0);
       try {
-        await this.coordinatorReviewDriver.onCoordinatorTurnEnded(session.id);
-      } catch (err) {
-        this.diagnostics.log('coordinator-review-turn-failed', {
-          reviewId: session.id,
-          error: err instanceof Error ? err.message : String(err),
+        reviewer.session.sendUserText(
+          `(coordinator review)\n${JSON.stringify(briefing)}`
+          + (results.length ? `\n<meeting-command-results>\n${JSON.stringify(results)}\n</meeting-command-results>` : ''),
+          'high',
+        );
+      } catch (error) {
+        this.failReviewer(reviewer, error);
+      }
+      return;
+    }
+    const [briefing] = this.queuedReviews.values();
+    if (!briefing) return;
+    const reviewer: Reviewer = {
+      reviewId: briefing.reviewId, busy: true, commands: Promise.resolve(), results: [], completedTurns: new Set(),
+    };
+    this.reviewer = reviewer;
+    this.ensureReviewStallWatchdog();
+    void this.startReviewer(reviewer, briefing).catch((error) => this.failReviewer(reviewer, error));
+  }
+
+  private async startReviewer(reviewer: Reviewer, briefing: CoordinatorReviewBriefing) {
+    const backendId = this.coordinatorTalkerHost().backendId;
+    if (backendId !== 'claude-code' && backendId !== 'codex') {
+      throw new Error(`Reviewer tools are unavailable for backend '${backendId}'`);
+    }
+    const isCurrent = () => {
+      if (this.closed || this.reviewer !== reviewer) return false;
+      const review = this.coordinatorReviewDriver.inspect(reviewer.reviewId);
+      return review.status === 'active' && review.taskId === briefing.taskId && review.attempt === briefing.attempt
+        && review.candidate.diffHash === briefing.diffHash;
+    };
+    const cwd = path.join(this.repository.deliveryArtifactRoot(), 'review-runtime');
+    await fsp.mkdir(cwd, { recursive: true, mode: 0o700 });
+    if (!isCurrent()) return;
+    const runCommand = (raw: unknown, portable: boolean) => {
+      const result = reviewer.commands.then(async () => {
+        const input = objectRecord(raw);
+        const { commandId, ...command } = input;
+        let result: MeetingCommandResult;
+        try {
+          const parsed = reviewCommandSchema.safeParse(command);
+          if (!parsed.success) throw new Error('Invalid review command');
+          if (!isCurrent() || parsed.data.reviewId !== briefing.reviewId) throw new Error('Reviewer session or candidate scope expired');
+          const review = parsed.data;
+          const value = await (() => {
+            switch (review.kind) {
+              case 'inspect_delivery_review': return this.inspectDeliveryReview(review.reviewId);
+              case 'get_delivery_review_chunk': return this.getDeliveryReviewChunk(review.reviewId, review.chunkId);
+              case 'submit_delivery_chunk_review': return this.submitDeliveryChunkReview(review.reviewId, review);
+              case 'complete_delivery_review': return this.completeDeliveryReview(review.reviewId);
+              case 'request_delivery_rework': return this.requestDeliveryRework(review.reviewId, review.findings, review.executorBackendId);
+            }
+          })();
+          result = { ok: true, value };
+        } catch (error) {
+          result = { ok: false, code: 'execution-failed', error: error instanceof Error ? error.message : String(error) };
+        }
+        if (portable) reviewer.results.push({
+          commandId: typeof commandId === 'string' && /^[\w.-]{1,128}$/.test(commandId) ? commandId : randomUUID(), result,
         });
+        return result;
+      });
+      reviewer.commands = result.then(() => undefined, () => undefined);
+      return result;
+    };
+    const factory = this.buildSessionFactory(backendId, 'reviewer', 'reviewer');
+    const session = factory({
+      cwd,
+      autoApproveScope: 'off',
+      envOverride: this.workerEnv,
+      emit: (event) => {
+        if (!isCurrent()) return;
+        if (event.kind === 'ended' || event.kind === 'auth-required' || event.kind === 'error') {
+          this.failReviewer(reviewer, event.kind === 'ended' ? 'Reviewer session ended' : event.error);
+          return;
+        }
+        if ((event.kind === 'turn-status' && event.status === 'completed')
+          || (event.kind === 'message' && event.message.type === 'result')) {
+          const rawTurnId = event.kind === 'turn-status' ? event.turnId : event.message.uuid;
+          const turnId = typeof rawTurnId === 'string' ? rawTurnId : undefined;
+          if (turnId && reviewer.completedTurns.has(turnId)) return;
+          if (!reviewer.busy || reviewer.finishing) return;
+          if (turnId) reviewer.completedTurns.add(turnId);
+          // Keep the generation busy until command results and the next
+          // briefing are ready. Multiple provider completion events coalesce.
+          reviewer.finishing = true;
+          setImmediate(() => {
+            if (!isCurrent()) return;
+            void this.finishReviewerTurn(reviewer).catch((error) => this.failReviewer(reviewer, error));
+          });
+        }
+      },
+      sessionOptions: {
+        systemPrompt: REVIEWER_PROMPT
+          + (backendId === 'codex' ? '\n使用单个 ```meeting-command JSON 围栏提交命令。字段为 kind、commandId、reviewId，取证时可加 chunkId。结论使用 submit_delivery_chunk_review，字段为 chunkId、chunkHash、verdict（passed 或 blocking）、findings 数组。其他 kind 为 inspect_delivery_review、get_delivery_review_chunk、complete_delivery_review、request_delivery_rework。下一轮读取对应 commandId 的结果。' : ''),
+        tools: [],
+        mcpServers: { meeting: buildTalkerMcp(this, isCurrent, 'reviewer', isCurrent, briefing.reviewId, (raw) => runCommand(raw, false)) },
+        skills: [],
+        settingSources: [],
+        // Portable protocol errors travel as structured results instead of
+        // being mistaken for an app-server turn failure.
+        meetingCommandHandler: (raw: unknown) => runCommand(raw, true).then(() => ({ ok: true })),
+      },
+    });
+    reviewer.session = session;
+    await session.start();
+    if (!isCurrent()) return;
+    reviewer.busy = false;
+    this.pumpReviewer();
+  }
+
+  private async finishReviewerTurn(reviewer: Reviewer) {
+    await reviewer.commands;
+    if (this.closed || this.reviewer !== reviewer) return;
+    await this.coordinatorReviewDriver.onCoordinatorTurnEnded(reviewer.reviewId);
+    if (this.reviewer === reviewer) {
+      reviewer.finishing = false;
+      reviewer.busy = false;
+      this.pumpReviewer();
+    }
+  }
+
+  private failReviewer(reviewer: Reviewer, error: unknown) {
+    if (this.closed || this.reviewer !== reviewer) return;
+    this.diagnostics.log('reviewer-failed', { reviewId: reviewer.reviewId, error: String(error) });
+    void this.coordinatorReviewDriver.pauseForDisconnect(reviewer.reviewId, 'user-required').catch((failure) => {
+      this.releaseReviewer(reviewer.reviewId);
+      this.diagnostics.log('reviewer-pause-failed', { error: String(failure) });
+    });
+  }
+
+  private releaseReviewer(reviewId: string) {
+    this.queuedReviews.delete(reviewId);
+    if (this.reviewer?.reviewId === reviewId) {
+      const session = this.reviewer.session;
+      this.reviewer = undefined;
+      try {
+        session?.end();
+      } catch (error) {
+        this.diagnostics.log('reviewer-cleanup-failed', { reviewId, error: String(error) });
       }
     }
+    this.pumpReviewer();
   }
 
   /** A silent Coordinator never emits a turn boundary, so time also charges the budget. */
@@ -3374,7 +3847,8 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   private async sweepStalledReviews(): Promise<void> {
-    const active = this.closed ? [] : this.coordinatorReviewDriver.activeSessions();
+    const active = this.closed || !this.reviewer
+      ? [] : this.coordinatorReviewDriver.activeSessions().filter((session) => session.id === this.reviewer?.reviewId);
     if (active.length === 0) {
       this.stopReviewStallWatchdog();
       return;
@@ -3382,9 +3856,8 @@ export class Orchestrator implements OrchestratorBridge {
     const deadline = Date.now() - this.reviewStallTimeoutMs;
     for (const session of active) {
       if (session.updatedAt > deadline) continue;
-      this.reviewsAwaitingFirstTurn.delete(session.id);
       try {
-        await this.coordinatorReviewDriver.onCoordinatorTurnEnded(session.id);
+        await this.coordinatorReviewDriver.pauseForDisconnect(session.id, 'user-required');
       } catch (err) {
         this.diagnostics.log('coordinator-review-stall-sweep-failed', {
           reviewId: session.id,
@@ -3439,17 +3912,6 @@ export class Orchestrator implements OrchestratorBridge {
         });
       });
     }
-  }
-
-  activeReviewGate(): ActiveReviewGate | null {
-    const [session] = this.coordinatorReviewDriver.activeSessions();
-    if (!session) return null;
-    return {
-      reviewId: session.id,
-      deliveryId: session.deliveryId,
-      uncoveredChunkIds: listUncoveredCoordinatorReviewChunkIds(session),
-      remainingChunks: session.coverage.totalChunks - session.coverage.reviewedChunks,
-    };
   }
 
   // ===========================================================================

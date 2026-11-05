@@ -217,7 +217,7 @@ export class CoordinatorReviewDriver {
 
   async onCoordinatorTurnEnded(reviewId: string): Promise<CoordinatorReviewSession> {
     const current = this.require(reviewId);
-    if (current.status !== 'active' || current.coverage.complete) {
+    if (current.status !== 'active') {
       return structuredClone(current);
     }
     const turnCount = current.turnCount + 1;
@@ -265,12 +265,12 @@ export class CoordinatorReviewDriver {
     return structuredClone(resumed);
   }
 
-  async pauseForDisconnect(reviewId: string): Promise<CoordinatorReviewSession> {
+  async pauseForDisconnect(reviewId: string, reason: 'coordinator-disconnected' | 'user-required' = 'coordinator-disconnected'): Promise<CoordinatorReviewSession> {
     const current = this.require(reviewId);
     if (current.status !== 'active') return structuredClone(current);
     const paused = updateCoordinatorReviewLifecycle(current, {
       status: 'paused',
-      pauseReason: 'coordinator-disconnected',
+      pauseReason: reason,
       updatedAt: this.now(),
     });
     this.sessions.set(reviewId, paused);

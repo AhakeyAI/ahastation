@@ -50,7 +50,7 @@ test('requested and effective profiles and delivery states remain visible', () =
   const mailbox = read('src/components/TaskMailboxPanel.tsx');
   assert.match(profile, /Requested profile/);
   assert.match(profile, /Effective profile/);
-  for (const state of ['排队中', '已送达', '已确认', '待重试']) {
+  for (const state of ['排队中', '已提交输入', '旧协议已确认', 'CLI 已持久接收，处理状态未知', '待重试']) {
     assert.match(mailbox, new RegExp(state));
   }
 });

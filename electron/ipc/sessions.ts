@@ -51,10 +51,7 @@ interface OpenPayload {
 // the burst into a single fs write. `before-quit` calls `flushOpenTabsNow`
 // to make sure the final state always lands on disk.
 const SNAPSHOT_DEBOUNCE_MS = 100;
-/** Upper bound for graceful orchestrator teardown on sessions:close. Recap
- *  (a model call) or a stuck worker can stall end() indefinitely; the
- *  registry slot must still be freed — otherwise the cwd stays mapped to a
- *  zombie session and every later open degrades to 'duplicate'. */
+/** Bound the IPC wait while retaining the meeting owner during cleanup. */
 const END_TIMEOUT_MS = 15_000;
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let snapshotPendingCtx: IpcContext | null = null;
@@ -318,6 +315,8 @@ export function registerSessionsIpc(ctx: IpcContext): void {
         recoveredPlanVersion: recovery && typeof recovery.state.planVersion === 'number'
           ? recovery.state.planVersion
           : undefined,
+        recoveredCoordinatorHostId: typeof recovery?.state.coordinatorHostId === 'string'
+          ? recovery.state.coordinatorHostId : undefined,
         recoveredReviewSessions: recovery && Array.isArray(recovery.state.reviewSessions)
           ? recovery.state.reviewSessions.filter(
               (session): session is import('../coordinator-review.js').CoordinatorReviewSession => (
@@ -416,24 +415,22 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     const id = typeof payload?.id === 'string' ? payload.id : '';
     const slot = ctx.registry.get(id);
     if (!slot) return { ok: false, error: 'not-found' };
-    retainedRestoreTabs.delete(slot.cwd);
-    let endTimedOut = false;
+    void slot.orchestrator.end().catch((error) => console.error('[sessions] teardown failed:', error));
     let endTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       await Promise.race([
-        slot.orchestrator.end(),
-        new Promise<void>((resolve) => {
-          endTimer = setTimeout(() => { endTimedOut = true; resolve(); }, END_TIMEOUT_MS);
+        slot.orchestrator.waitForExecutionCleanup(),
+        new Promise<never>((_, reject) => {
+          endTimer = setTimeout(() => reject(new Error('会议仍在清理执行进程，请稍后重试关闭')), END_TIMEOUT_MS);
         }),
       ]);
-    } catch { /* ignore */ } finally {
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
       if (endTimer) clearTimeout(endTimer);
     }
-    if (endTimedOut) {
-      // Teardown is still in flight (its cached endPromise will finish
-      // whenever it finishes); the registry must not wait on it.
-      console.warn(`[sessions] orchestrator.end() exceeded ${END_TIMEOUT_MS}ms for ${id}; freeing the registry slot anyway`);
-    }
+    if (ctx.registry.get(id) !== slot) return { ok: true, activeId: ctx.registry.getActiveId() };
+    retainedRestoreTabs.delete(slot.cwd);
     clearApprovedExternalDirs(id);
     ctx.registry.close(id);
     // Close is the one path where "tab still on disk after close" would be a
@@ -621,7 +618,11 @@ export function registerSessionsIpc(ctx: IpcContext): void {
     if (typeof hostId !== 'string' || hostId.length === 0) return { ok: false, error: 'hostId is required' };
     const orch = ctx.getOrchestrator(typeof sessionId === 'string' ? sessionId : null);
     if (!orch) return { ok: false, error: 'session not found' };
-    return orch.setCoordinator(hostId);
+    try {
+      return await orch.setCoordinator(hostId);
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle('sessions:restart-host', async (_e, payload: unknown) => {

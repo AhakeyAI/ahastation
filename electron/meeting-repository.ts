@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import {
   assessTaskRecovery,
   normalizeRecoveredTaskStatus,
+  unresolvedNativeLaunches,
 } from './task-recovery.js';
 
 export interface PersistedMeetingEvent {
@@ -147,7 +148,9 @@ function normalizeEvent(
   parsed: Partial<PersistedMeetingEvent>,
 ): PersistedMeetingEvent | null {
   if (
-    typeof parsed.seq !== 'number'
+    !parsed || typeof parsed !== 'object'
+    || (typeof parsed.meetingId === 'string' && parsed.meetingId !== meetingId)
+    || typeof parsed.seq !== 'number'
     || !Number.isSafeInteger(parsed.seq)
     || parsed.seq <= 0
     || typeof parsed.ts !== 'number'
@@ -175,6 +178,7 @@ export class MeetingRepository {
   private tail: Promise<void> = Promise.resolve();
   private writeFault: Error | null = null;
   private pendingFault: Error | null = null;
+  private journalOpened = false;
   private subscribers = new Set<(event: PersistedMeetingEvent) => void>();
 
   constructor(
@@ -261,10 +265,20 @@ export class MeetingRepository {
       if (this.writeFault) throw this.writeFault;
       const path = this.eventPath();
       await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      const handle = await fs.open(path, 'a', 0o600);
+      const handle = await fs.open(path, this.journalOpened ? 'a' : 'a+', 0o600);
       try {
+        if (!this.journalOpened) {
+          const { size } = await handle.stat();
+          if (size > 0) {
+            const last = Buffer.alloc(1);
+            await handle.read(last, 0, 1, size - 1);
+            // Preserve a torn record and fence the next valid JSONL line.
+            if (last[0] !== 0x0a) await handle.writeFile('\n');
+          }
+        }
         await handle.writeFile(line, { encoding: 'utf8' });
         await handle.sync();
+        this.journalOpened = true;
       } finally {
         await handle.close();
       }
@@ -357,6 +371,7 @@ export class MeetingRepository {
   static async replay(
     meetingId: string,
     rootDir?: string,
+    diagnose?: (message: string) => void,
   ): Promise<PersistedMeetingEvent[]> {
     const path = join(
       rootDir ?? join(app.getPath('userData'), 'meetings', meetingId),
@@ -365,7 +380,9 @@ export class MeetingRepository {
     try {
       const raw = await fs.readFile(path, 'utf8');
       const events: PersistedMeetingEvent[] = [];
+      let row = 0;
       for (const line of raw.split('\n')) {
+        row += 1;
         if (!line) continue;
         try {
           const event = normalizeEvent(
@@ -373,12 +390,14 @@ export class MeetingRepository {
             JSON.parse(line) as Partial<PersistedMeetingEvent>,
           );
           if (event) events.push(event);
+          else diagnose?.(`Invalid meeting journal identity or shape at line ${row}`);
         } catch {
-          // A crash can leave one partial final JSONL line.
+          diagnose?.(`Unreadable meeting journal line ${row}`);
         }
       }
       return events;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') diagnose?.('Meeting journal could not be read');
       return [];
     }
   }
@@ -448,6 +467,7 @@ export class MeetingRepository {
           const dir = join(root, entry.name);
           const journal = await MeetingRepository.replay(entry.name, dir);
           const journalTailSeq = journal.at(-1)?.seq ?? 0;
+          const unresolvedLaunches = unresolvedNativeLaunches(journal);
           const latestTaskStatuses = new Map<string, unknown>();
           const latestTaskNodes = new Map<string, Record<string, unknown>>();
           let journalCwd: string | null = null;
@@ -511,6 +531,8 @@ export class MeetingRepository {
               const normalized = {
                 ...task,
                 status: normalizeRecoveredTaskStatus(latestStatus ?? task.status),
+                ...(typeof task.id === 'string' && unresolvedLaunches.get(task.id)?.size
+                  ? { launchPhase: 'uncertain' } : {}),
               };
               return {
                 ...normalized,

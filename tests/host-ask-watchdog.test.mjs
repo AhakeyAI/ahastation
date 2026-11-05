@@ -87,7 +87,7 @@ test('an unanswered ask_host times out and nudges the Coordinator', async () => 
     cwd,
     meetingId,
     sessionFactory: makeSessionFactory(sessions),
-    hostAskTimeoutMs: 40,
+    hostAskTimeoutMs: 500,
   });
   try {
     await orch.start();
@@ -109,8 +109,8 @@ test('an unanswered ask_host times out and nudges the Coordinator', async () => 
       () => findStalledBriefing(events),
       'Coordinator was not nudged about the unanswered ask_host',
     );
-    assert.ok(
-      coordinator.inputs.some((text) => text.includes('长时间未回复')),
+    await waitFor(
+      () => coordinator.inputs.some((text) => text.includes('长时间未回复')),
       'the Coordinator talker received the stall nudge',
     );
   } finally {
@@ -121,7 +121,7 @@ test('an unanswered ask_host times out and nudges the Coordinator', async () => 
   }
 });
 
-test('an expert reply before the timeout clears the ask_host watchdog', async () => {
+test('an explicit reply clears only its own request, including concurrent asks to the same expert', async () => {
   const runtime = fakeRuntimeBinary();
   const sessions = [];
   const events = [];
@@ -134,7 +134,7 @@ test('an expert reply before the timeout clears the ask_host watchdog', async ()
     cwd,
     meetingId,
     sessionFactory: makeSessionFactory(sessions),
-    hostAskTimeoutMs: 40,
+    hostAskTimeoutMs: 500,
   });
   try {
     await orch.start();
@@ -146,31 +146,39 @@ test('an expert reply before the timeout clears the ask_host watchdog', async ()
     const expert = sessions[1];
     assert.ok(expert, 'expert host session was not created');
 
-    assert.equal((await orch.executeMeetingCommand('default', {
+    const first = await orch.executeMeetingCommand('default', {
       kind: 'ask-host',
       hostId: 'expert',
-      question: 'should we ship?',
-    })).ok, true);
+      question: 'first question',
+    });
+    assert.equal(first.ok, true);
+    const second = await orch.executeMeetingCommand('default', {
+      kind: 'ask-host', hostId: 'expert', question: 'second question',
+    });
+    assert.equal(second.ok, true);
 
     // Expert replies before the 40ms timer fires.
     expert.emit({
       kind: 'message',
       message: {
-        type: 'assistant',
-        message: { role: 'assistant', content: [{ type: 'text', text: 'yes, ship it' }] },
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: 'unrelated user turn' }] },
         parent_tool_use_id: null,
         session_id: 'expert-1',
       },
     });
+    assert.equal((await orch.executeMeetingCommand('expert', {
+      kind: 'reply-host-ask', requestId: first.value.requestId, text: 'yes, ship it',
+    })).ok, true);
 
-    // Wait past the timeout window.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitFor(() => findStalledBriefing(events), 'the unanswered request did not time out');
 
-    assert.equal(
-      findStalledBriefing(events),
-      undefined,
-      'a replied ask must not raise a host-ask-timeout briefing',
-    );
+    const stalled = events.filter(e => e.event?.briefing?.blockers.includes('host-ask-timeout'));
+    assert.equal(stalled.length, 1);
+    assert.match(stalled[0].event.briefing.summary, new RegExp(second.value.requestId));
+    assert.equal((await orch.executeMeetingCommand('expert', {
+      kind: 'reply-host-ask', requestId: second.value.requestId, text: 'late answer',
+    })).ok, true);
   } finally {
     await orch.end();
     resetBackendRegistry();

@@ -2,15 +2,29 @@ import { z } from 'zod';
 import {
   decisionOptionSchema,
   meetingPlanBriefInputSchema,
-  meetingPlanStepSchema,
   normalizePlanMeetingTask,
   planMeetingTaskInputSchema,
   planMeetingTaskSchema,
+  planMeetingTaskInputsSchema,
+  planMeetingTasksSchema,
+  inspectDeliveryReviewArgsSchema,
+  getDeliveryReviewChunkArgsSchema,
+  submitDeliveryChunkReviewArgsSchema,
+  completeDeliveryReviewArgsSchema,
+  requestDeliveryReworkArgsSchema,
 } from './meeting-tools.js';
 
 const boundedText = z.string().trim().min(1).max(100_000);
 const actorId = z.string().min(1).max(64).regex(/^[a-zA-Z0-9._-]+$/);
 const messageId = z.string().trim().min(1).max(500);
+
+export const reviewCommandSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('inspect_delivery_review'), ...inspectDeliveryReviewArgsSchema }).strict(),
+  z.object({ kind: z.literal('get_delivery_review_chunk'), ...getDeliveryReviewChunkArgsSchema }).strict(),
+  z.object({ kind: z.literal('submit_delivery_chunk_review'), ...submitDeliveryChunkReviewArgsSchema }).strict(),
+  z.object({ kind: z.literal('complete_delivery_review'), ...completeDeliveryReviewArgsSchema }).strict(),
+  z.object({ kind: z.literal('request_delivery_rework'), ...requestDeliveryReworkArgsSchema }).strict(),
+]);
 
 export const planRevisionOperationSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -63,10 +77,10 @@ export const meetingCommandSchema = z.discriminatedUnion('kind', [
     kind: z.literal('propose-plan'),
     goal: meetingPlanBriefInputSchema.shape.goal,
     approach: meetingPlanBriefInputSchema.shape.approach,
-    steps: z.array(meetingPlanStepSchema).max(50).optional(),
+    steps: meetingPlanBriefInputSchema.shape.steps,
     risks: meetingPlanBriefInputSchema.shape.risks,
     openQuestions: meetingPlanBriefInputSchema.shape.openQuestions,
-    tasks: z.array(planMeetingTaskSchema).min(1).max(100),
+    tasks: planMeetingTasksSchema,
   }).strict(),
   z.object({
     kind: z.literal('revise-plan'),
@@ -75,6 +89,14 @@ export const meetingCommandSchema = z.discriminatedUnion('kind', [
     reason: z.string().trim().min(1).max(20_000),
   }).strict(),
   z.object({ kind: z.literal('ask-host'), hostId: actorId, question: boundedText }).strict(),
+  z.object({ kind: z.literal('reply-host-ask'), requestId: z.string().uuid(), text: boundedText }).strict(),
+  z.object({ kind: z.literal('inspect-tasks'), taskId: actorId.optional() }).strict(),
+  z.object({
+    kind: z.literal('read-meeting-context'),
+    taskId: actorId.optional(),
+    cursor: z.number().int().nonnegative().optional(),
+    expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  }).strict(),
   z.object({ kind: z.literal('broadcast-hosts'), question: boundedText }).strict(),
   z.object({ kind: z.literal('steer-worker'), workerId: actorId, addendum: boundedText }).strict(),
   z.object({ kind: z.literal('send-task-message'), taskId: actorId, message: boundedText }).strict(),
@@ -120,10 +142,10 @@ const meetingCommandInputSchema = z.discriminatedUnion('kind', [
     kind: z.literal('propose-plan'),
     goal: meetingPlanBriefInputSchema.shape.goal,
     approach: meetingPlanBriefInputSchema.shape.approach,
-    steps: z.array(meetingPlanStepSchema).max(50).optional(),
+    steps: meetingPlanBriefInputSchema.shape.steps,
     risks: meetingPlanBriefInputSchema.shape.risks,
     openQuestions: meetingPlanBriefInputSchema.shape.openQuestions,
-    tasks: z.array(planMeetingTaskInputSchema).min(1).max(100),
+    tasks: planMeetingTaskInputsSchema,
   }).strict(),
   z.object({
     kind: z.literal('revise-plan'),
@@ -208,6 +230,8 @@ export function authorizeMeetingCommand(
   const command = parsed.data;
   const coordinatorOnly = command.kind === 'propose-plan'
     || command.kind === 'revise-plan'
+    || command.kind === 'ask-host'
+    || command.kind === 'broadcast-hosts'
     || command.kind === 'steer-worker'
     || command.kind === 'send-task-message'
     || command.kind === 'follow-up-task'
@@ -218,7 +242,7 @@ export function authorizeMeetingCommand(
     || command.kind === 'save-memory'
     || command.kind === 'speak';
   const ownedTaskCommand = EXPERT_OWNED_TASK_COMMANDS.has(command.kind)
-    && 'taskId' in command
+    && 'taskId' in command && typeof command.taskId === 'string'
     && actor.ownsTask?.(command.taskId) === true;
   if (coordinatorOnly && actor.role !== 'coordinator' && !ownedTaskCommand) {
     return { ok: false, code: 'forbidden', error: `${command.kind} requires the coordinator role` };

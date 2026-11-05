@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
@@ -34,6 +34,7 @@ export interface WorkerCliBridgeHandlers {
   report(identity: WorkerCliTaskIdentity, body: unknown): Promise<WorkerCliReportOutcome>;
   ask(identity: WorkerCliTaskIdentity, question: string): Promise<{ messageId: string; status: string }>;
   inbox(identity: WorkerCliTaskIdentity, afterSeq: number): Promise<TaskMessage[]>;
+  receiveInbox?(identity: WorkerCliTaskIdentity, messageIds: string[]): Promise<void>;
 }
 
 export interface WorkerCliBinding extends WorkerCliTaskIdentity {
@@ -43,12 +44,14 @@ export interface WorkerCliBinding extends WorkerCliTaskIdentity {
   binDir: string;
   entryPath: string;
   reportPath: string;
+  inboxDir: string;
 }
 
 interface RegisteredEntry {
   tokenBuffer: Buffer;
   identity: WorkerCliTaskIdentity;
   runtimeDir: string;
+  inboxDir: string;
   state: 'active' | 'reported' | 'stale';
   supersededByAttempt?: number;
 }
@@ -93,8 +96,9 @@ export class WorkerCliBridge {
   private readonly pendingFilesystemOperations = new Set<Promise<unknown>>();
   private readonly entriesByToken = new Map<string, RegisteredEntry>();
   private readonly tokensByWorker = new Map<string, Set<string>>();
+  private readonly inboxKey = randomBytes(32);
 
-  constructor(private readonly handlers: WorkerCliBridgeHandlers) {}
+  constructor(private readonly handlers: WorkerCliBridgeHandlers, private readonly inboxStorageRoot?: string) {}
 
   register(identity: WorkerCliTaskIdentity): Promise<WorkerCliBinding> {
     if (this.closePromise) return Promise.reject(new Error('Worker CLI bridge is closed'));
@@ -141,10 +145,14 @@ export class WorkerCliBridge {
       workspaceCwd: resolve(identity.workspaceCwd),
       terminalId: identity.terminalId,
     };
+    const inboxDir = this.inboxStorageRoot
+      ? join(this.inboxStorageRoot, createHash('sha256').update(JSON.stringify([identity.meetingId, identity.taskId])).digest('hex'))
+      : join(runtimeDir, 'inbox-received');
     this.entriesByToken.set(token, {
       tokenBuffer: Buffer.from(token, 'utf8'),
       identity: normalizedIdentity,
       runtimeDir,
+      inboxDir,
       state: 'active',
     });
     existingTokens.add(token);
@@ -158,6 +166,7 @@ export class WorkerCliBridge {
       binDir,
       entryPath,
       reportPath: join(runtimeDir, 'work-report.json'),
+      inboxDir,
     };
   }
 
@@ -350,13 +359,50 @@ export class WorkerCliBridge {
         if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
           throw new WorkerCliHttpError(400, 'invalid-cursor', 'after must be a non-negative integer');
         }
-        const messages = await this.handlers.inbox(entry.identity, afterSeq);
-        sendJson(res, 200, {
+        const available = await this.handlers.inbox(entry.identity, afterSeq);
+        const messages: TaskMessage[] = [];
+        let bytes = 0;
+        for (const message of available) {
+          bytes += Buffer.byteLength(JSON.stringify(message), 'utf8');
+          if (bytes > MAX_BODY_BYTES) break;
+          messages.push(message);
+        }
+        const batch = {
           ok: true,
+          protocolVersion: 2,
           taskId: entry.identity.taskId,
           attempt: entry.identity.attempt,
           messages,
-        });
+        };
+        sendJson(res, 200, { ...batch, batchId: this.inboxBatchId(entry, batch) });
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/worker/inbox/received' && this.handlers.receiveInbox) {
+        const body = await readJsonBody(req) as { batchId?: unknown; messageIds?: unknown } | null;
+        const ids = body?.messageIds;
+        const batchId = body?.batchId;
+        if (typeof batchId !== 'string' || !/^[a-f0-9]{64}$/.test(batchId)
+          || !Array.isArray(ids) || !ids.length || ids.length > 100
+          || ids.some((id) => typeof id !== 'string' || !/^[\w.-]{1,128}$/.test(id))) {
+          throw new WorkerCliHttpError(400, 'invalid-inbox-receipt', 'A saved batchId and 1–100 message IDs are required');
+        }
+        try {
+          const path = join(entry.inboxDir, `${batchId}.json`);
+          const stat = await fs.lstat(path);
+          if (!stat.isFile() || stat.size > MAX_BODY_BYTES + 4096) throw new Error('invalid saved batch');
+          const { batchId: savedId, ...saved } = JSON.parse(await fs.readFile(path, 'utf8')) as {
+            batchId: string; messages: Array<{ id: string }>;
+          };
+          if (savedId !== batchId || this.inboxBatchId(entry, saved) !== batchId
+            || JSON.stringify(saved.messages.map((message) => message.id)) !== JSON.stringify(ids)) {
+            throw new Error('batch mismatch');
+          }
+        } catch {
+          throw new WorkerCliHttpError(409, 'inbox-batch-not-durable', 'The received batch must be saved before acknowledgement');
+        }
+        await this.handlers.receiveInbox(entry.identity, [...new Set<string>(ids)]);
+        sendJson(res, 200, { ok: true, protocolVersion: 2, messageIds: [...new Set<string>(ids)], handled: 'unknown' });
         return;
       }
 
@@ -389,6 +435,10 @@ export class WorkerCliBridge {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private inboxBatchId(entry: RegisteredEntry, batch: unknown): string {
+    return createHmac('sha256', this.inboxKey).update(entry.tokenBuffer).update(JSON.stringify(batch)).digest('hex');
   }
 }
 
@@ -428,6 +478,8 @@ export function buildWorkerCliEnv(
     AHASTATION_WORKER_NODE: process.execPath,
     AHASTATION_WORKER_ENTRY: binding.entryPath,
     AHASTATION_WORKER_REPORT: binding.reportPath,
+    AHASTATION_WORKER_RUNTIME_DIR: binding.runtimeDir,
+    AHASTATION_WORKER_INBOX_DIR: binding.inboxDir,
     AHASTATION_WORKER_BIN: binding.binDir,
     AHASTATION_WORKER_MEETING_ID: binding.meetingId,
     AHASTATION_WORKER_TASK_ID: binding.taskId,
@@ -469,7 +521,7 @@ export function buildTerminalWorkerReportInstruction(
     '',
     `[AhaStation 原生任务通道 · task=${taskId} · attempt=${attempt}]`,
     '- 工具执行沿用当前 CLI 自身的权限与沙箱配置；无需向 Host 请求逐工具审批。',
-    '- 有任务需求疑问或阻塞时，运行：`aha-worker ask "<问题或阻塞说明>"`（或 `--file <txt>`）；查看 Host 补充消息运行：`aha-worker inbox`。',
+    '- 有任务疑问时运行 `aha-worker ask "<问题或阻塞说明>"`。用 `aha-worker inbox --receive` 将补充消息写入运行目录并确认收到。恢复上下文时用 `aha-worker inbox --saved` 重读已保存的消息。',
     '- 完成代码修改与测试后，保持工作树改动未提交（不要 git commit），将符合 WorkReport 结构的 JSON 写入 `$AHASTATION_WORKER_REPORT`（Windows 可用 `%AHASTATION_WORKER_REPORT%` 或 `--file <json路径>`），然后运行：`aha-worker report --file <json路径>`。',
     '- WorkReport JSON 结构：`{"status":"completed"|"partial"|"blocked","summary":"...","files":[{"path":"相对路径","action":"created"|"modified"|"deleted"}],"tests":[{"command":"...","status":"passed"|"failed"|"not-run","summary":"..."}],"unresolved":[{"code":"...","message":"...","blocking":false}]}`。',
     '- 只有 `aha-worker report` 返回 `received` 回执后，报告才算持久化提交；单纯进程退出或打印文本不会生成成功交付。',

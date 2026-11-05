@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -134,12 +135,55 @@ export async function runWorkerCli(
 
   if (command === 'inbox') {
     const after = readFlag(rest, '--after') ?? '0';
+    if (rest.includes('--saved')) {
+      const directory = inboxDirectory(env);
+      const batches = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      });
+      const messages = new Map<string, { id: string; seq: number }>();
+      for (const file of batches.filter((name) => /^[\w-]+\.json$/.test(name))) {
+        const batch = JSON.parse(await readFile(resolve(directory, file), 'utf8')) as { messages: Array<{ id: string; seq: number }> };
+        for (const message of batch.messages) if (message.seq > Number(after)) messages.set(message.id, message);
+      }
+      writeOut(JSON.stringify({ protocolVersion: 2, handled: 'unknown', messages: [...messages.values()].sort((a, b) => a.seq - b.seq) }));
+      return;
+    }
     const inbox = await request(env, 'GET', `/worker/inbox?after=${encodeURIComponent(after)}`);
+    if (rest.includes('--receive')) {
+      const batch = inbox as { protocolVersion?: number; batchId?: string; messages?: Array<{ id: string }> };
+      if (batch?.protocolVersion !== 2 || !Array.isArray(batch.messages)
+        || typeof batch.batchId !== 'string' || !/^[a-f0-9]{64}$/.test(batch.batchId)) {
+        throw new Error('Worker inbox protocol 2 is required');
+      }
+      if (batch.messages.length) {
+        const directory = inboxDirectory(env);
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        const path = resolve(directory, randomUUID());
+        const file = await open(`${path}.tmp`, 'wx', 0o600);
+        try {
+          await file.writeFile(JSON.stringify(batch), 'utf8');
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+        await rename(`${path}.tmp`, resolve(directory, `${batch.batchId}.json`));
+        await request(env, 'POST', '/worker/inbox/received', {
+          batchId: batch.batchId, messageIds: batch.messages.map((message) => message.id),
+        });
+      }
+    }
     writeOut(JSON.stringify(inbox));
     return;
   }
 
-  throw new Error('usage: aha-worker <report [--file path] | ask [--file path | question] | inbox [--after seq]>');
+  throw new Error('usage: aha-worker <report [--file path] | ask [--file path | question] | inbox [--after seq] [--receive | --saved]>');
+}
+
+function inboxDirectory(env: NodeJS.ProcessEnv): string {
+  if (env.AHASTATION_WORKER_INBOX_DIR) return resolve(env.AHASTATION_WORKER_INBOX_DIR);
+  if (!env.AHASTATION_WORKER_RUNTIME_DIR) throw new Error('Worker inbox requires a bound runtime directory');
+  return resolve(env.AHASTATION_WORKER_RUNTIME_DIR, 'inbox-received');
 }
 
 const isDirectEntry = Boolean(

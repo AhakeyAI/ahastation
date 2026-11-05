@@ -37,7 +37,7 @@ async function fixture(cwds = ['/saved'], overrides = {}) {
   return {store,calls,availability,event:e=>listener(e),cleanup:()=>{store.dispose();delete globalThis.window;}};
 }
 
-test('single restored project exposes continue; no startup/input/placeholder IPC until explicit continuation and real readiness', async()=>{
+test('restored project submits durable input after explicit continuation while Host is starting', async()=>{
   const f = await fixture();
   try {
     const ph = f.store.getTabs()[0];
@@ -54,11 +54,15 @@ test('single restored project exposes continue; no startup/input/placeholder IPC
     assert.deepEqual(f.calls.open[0],['/saved','',undefined,undefined,[remote]]);
     assert.equal(f.store.getTabs()[0].phase,'starting');
     assert.equal(f.availability.meetingAvailability(f.store.getTabs()[0],true).ready,false);
+    await f.store.sendText('queued while starting');
+    assert.deepEqual(f.calls.text[0].slice(0,2),['real-1','queued while starting']);
+    assert.match(f.calls.text[0][2], /^[\w.-]+$/);
     f.event({sessionId:'real-1',source:'system',kind:'session-ready',hostId:'default'});
     const gate=f.availability.meetingAvailability(f.store.getTabs()[0],f.store.getSnapshot().running);
     assert.equal(gate.ready,true); assert.equal(f.availability.remotePickerReason(true,gate.reason,gate.sessionId),'');
     await f.store.sendText('ordinary chat'); await f.store.addHostGroup('pocket-vibe',remote.remoteTarget);
-    assert.deepEqual(f.calls.text,[['real-1','ordinary chat']]); assert.equal(f.calls.add[0][0],'real-1');
+    assert.equal(f.calls.text.length,2);
+    assert.deepEqual(f.calls.text[1].slice(0,2),['real-1','ordinary chat']); assert.equal(f.calls.add[0][0],'real-1');
   } finally {f.cleanup();}
 });
 
@@ -232,7 +236,7 @@ test('late duplicate open or host listing restores the selected real meeting in 
       await f.store.setActive('real-b');waiting.resolve();await pending;
       assert.equal(f.store.getActiveId(),'real-b');
       assert.equal(mainActive,'real-b');
-      await f.store.sendText('B only');assert.deepEqual(f.calls.text.at(-1),['real-b','B only']);
+      await f.store.sendText('B only');assert.deepEqual(f.calls.text.at(-1).slice(0,2),['real-b','B only']);
       assert.equal(f.store.getTabs().find(tab=>tab.id==='existing-a').phase,'ready');
     } finally {f.cleanup();}
   }
@@ -275,7 +279,7 @@ test('two restored projects start concurrently without stealing focus or cross-r
     f.event({sessionId:'a',source:'system',kind:'session-ready'});f.event({sessionId:'b',source:'system',kind:'session-ready'});
     f.event({sessionId:'a',source:'talker',hostId:remote.id,kind:'message',message:{type:'assistant',message:{content:[{type:'text',text:'A response'}]}}});
     assert.equal(f.store.getSnapshot().hostGroups.has(remote.id),false);assert.equal(f.store.getSnapshot().hostGroups.get(remoteB.id).remoteTarget.session_id,'native-b');
-    await f.store.sendText('B command');assert.deepEqual(f.calls.text.at(-1),['b','B command']);
+    await f.store.sendText('B command');assert.deepEqual(f.calls.text.at(-1).slice(0,2),['b','B command']);
     await f.store.setActive('a');assert.equal(f.store.getSnapshot().workers.get('talker:'+remote.id).lastText,'A response');
     f.store.syncDefaultBackend('claude-code');assert.equal(f.store.getSnapshot().hostGroups.get('default').backendId,'codex');
     await f.store.closeTab('a');assert.equal(f.store.getActiveId(),'b');assert.equal(f.store.getTabs().length,1);
