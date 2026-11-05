@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {execFile,spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {mkdtemp,readFile,rm,mkdir,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -10,8 +10,8 @@ import {StationService} from '../dist-electron/collaboration/station-service.js'
 import {updateRemoteControlFields,flushSettingsWrites} from '../dist-electron/store.js';
 import {parseSharedCommand} from '../dist-electron/collaboration/production-validation.js';
 import {DurableState} from '../dist-electron/collaboration/durable-state.js';
-import {execFileSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {promisify} from 'node:util';
 import {validateSharedWire} from '../dist-electron/collaboration/production-validation.js';
 import {normalizeHostPlan} from '../dist-electron/collaboration/coordinator.js';
 import {nativeHelper} from '../dist-electron/collaboration/native-helper.js';
@@ -24,12 +24,17 @@ test('Host preserves inline source text without treating it as an unverified Git
   assert.throws(()=>normalizeHostPlan('meeting',[{...task,permission:'full-access'}]));assert.throws(()=>normalizeHostPlan('other',[task]));
 });
 
-test('v2 shared command fixtures have identical TypeScript and Python acceptance and reject incompatible output', {skip:!process.env.COLLABORATION_PYTHON},()=>{
-  const cases=JSON.parse(readFileSync(new URL('../contracts/collaboration/v2-validation-cases.json',import.meta.url),'utf8'));
+test('v2 shared command fixtures have identical TypeScript and Python acceptance and reject incompatible output', {skip:!process.env.COLLABORATION_PYTHON},async()=>{
+  const fixtures=new URL('../contracts/collaboration/v2-validation-cases.json',import.meta.url);
+  const cases=JSON.parse(await readFile(fixtures,'utf8'));
   const results=cases.map(c=>{try{parseSharedCommand(c.value);return true;}catch{return false;}});
   assert.deepEqual(results,cases.map(c=>c.valid));
-  const python=JSON.parse(execFileSync(process.env.COLLABORATION_PYTHON,['services/remote/collaboration_contracts/check_v2.py'],{input:JSON.stringify(cases),encoding:'utf8',timeout:60000}));
-  assert.deepEqual(results,python);
+  // Both runtimes read the same file. The checker does not depend on a
+  // synchronous subprocess pipe delivering stdin and EOF.
+  const checker=new URL('../services/remote/collaboration_contracts/check_v2.py',import.meta.url);
+  const {stdout}=await promisify(execFile)(process.env.COLLABORATION_PYTHON,
+    [fileURLToPath(checker),fileURLToPath(fixtures)],{encoding:'utf8',timeout:60000,windowsHide:true});
+  assert.deepEqual(results,JSON.parse(stdout));
   assert.throws(()=>validateSharedWire('event',{protocol:999,seq:1,kind:'task',id:'x',revision:1,value:{}}));
   assert.throws(()=>validateSharedWire('snapshot',{protocol:2,cursor:0,entities:{}}));
 });

@@ -431,7 +431,7 @@ class KimiSession implements BackendSession {
       env.PATH = [dirname(this.binary), env.PATH].filter(Boolean).join(delimiter);
       const proc = spawn(this.binary, buildKimiCommandArgs({
         prompt, model: this.config.model, sessionId: this.sessionId,
-      }), { cwd: this.config.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      }), { cwd: this.config.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       this.process = proc;
       let stdout = '';
       let stderr = '';

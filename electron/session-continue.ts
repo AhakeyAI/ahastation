@@ -35,7 +35,7 @@ export function parseKimiForkOutput(stdout: string): string | null {
 
 export function makeKimiForkRunner(file: string, env: NodeJS.ProcessEnv): KimiForkRunner {
   return (cwd, sessionId) => new Promise((resolve, reject) => {
-    execFile(file, ['fork', '-y', sessionId], { cwd, env, timeout: 30_000 }, (err, stdout, stderr) => {
+    execFile(file, ['fork', '-y', sessionId], { cwd, env, timeout: 30_000, windowsHide: true }, (err, stdout, stderr) => {
       const id = parseKimiForkOutput(`${stdout}\n${stderr}`);
       if (id) resolve(id);
       else reject(new Error(err?.message || stderr.trim() || 'kimi fork 没有返回新会话'));

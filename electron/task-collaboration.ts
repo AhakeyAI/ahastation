@@ -170,6 +170,7 @@ export const taskMessageSchema = z.object({
     'status-request',
     'progress',
     'question',
+    'report',
     'approval-request',
     'approval-response',
   ]),

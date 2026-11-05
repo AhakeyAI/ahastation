@@ -84,16 +84,39 @@ import {
 } from './task-collaboration.js';
 import type { TaskMailbox } from './task-mailbox.js';
 import {
+  compileBackendTaskProfile,
   backendRuntimeSchema,
   type BackendRuntime,
 } from './backends/task-profile.js';
 import type { DeliveryHarness, DeliveryView } from './delivery-harness.js';
 import { reopenFrozenDeliveryCandidateForRework } from './delivery-candidate.js';
 import { TERMINAL_WORKER_COMPLETION_INSTRUCTION } from './backends/claude-terminal-adapter.js';
-import { isTerminalWorkerBackend } from './backends/terminal-cli-adapter.js';
+import {
+  isNativeCliWorkerBackend,
+  isTerminalWorkerBackend,
+  TERMINAL_TASK_COMPLETE_MARKER,
+  TERMINAL_TURN_ENDED_MARKER,
+} from './backends/terminal-cli-adapter.js';
+import {
+  WorkerCliBridge,
+  WorkerCliHttpError,
+  buildTerminalWorkerReportInstruction,
+  buildWorkerCliEnv,
+  type WorkerCliBinding,
+  type WorkerCliReportOutcome,
+  type WorkerCliReportReceipt,
+  type WorkerCliTaskIdentity,
+} from './worker-cli-bridge.js';
+import {
+  summarizeWorkspaceHandbackChanges,
+  terminalReportFiles,
+  validateTerminalReportFiles,
+  type HandbackWorkspaceSummary,
+} from './worker-report-files.js';
 import {
   parseWorkerAdapterSignal,
   reworkRequestSchema,
+  workReportSchema,
   type AcceptanceCriterion,
   type ReworkRequest,
   type WorkReport,
@@ -264,6 +287,8 @@ export interface WorkerSchedulerOpts {
   /** Shared durable task mailbox. Production collaboration routing refuses to
    * bypass this seam; narrow legacy tests may omit it when no message is sent. */
   taskMailbox?: TaskMailbox;
+  /** Optional durable custom event logger for lifecycle evidence (stop/takeover/handback). */
+  recordCustomEvent?: (kind: string, payload: Record<string, unknown>) => Promise<void>;
   /** Concurrency ceiling for live worker sessions. Defaults to
    *  MAX_CONCURRENT_WORKERS (4); clamped to 1–8. */
   maxConcurrentWorkers?: number;
@@ -575,6 +600,12 @@ export class WorkerScheduler {
   private readonly askOwnersByRequestId = new Map<string, Set<string>>();
   private readonly automaticReworkByAttempt = new Map<string, Promise<void>>();
   private readonly maxConcurrentWorkers: number;
+  private readonly cliBridge: WorkerCliBridge;
+  private readonly terminalReportReceipts = new Map<string, { reportHash: string; receipt: WorkerCliReportReceipt }>();
+  private readonly terminalReportInFlight = new Map<string, Promise<WorkerCliReportOutcome>>();
+  private readonly deferSessionReleaseWorkers = new Map<string, BackendSession>();
+  private readonly stoppingTerminalSessions = new WeakSet<BackendSession>();
+  private readonly nativeSessionCleanup = new WeakMap<BackendSession, Promise<boolean>>();
 
   constructor(opts: WorkerSchedulerOpts) {
     this.opts = opts;
@@ -587,6 +618,32 @@ export class WorkerScheduler {
       && (opts.initialPlanVersion ?? 0) >= 0
       ? opts.initialPlanVersion!
       : 0;
+    this.cliBridge = new WorkerCliBridge({
+      report: (identity, body) => this.receiveTerminalReport(identity, body),
+      ask: async (identity, question) => {
+        const handle = this.workers.get(identity.workerId);
+        if (!handle) {
+          throw new WorkerCliHttpError(404, 'unknown-worker', `unknown worker '${identity.workerId}'`);
+        }
+        if (identity.taskId !== handle.id) {
+          throw new WorkerCliHttpError(
+            400,
+            'wrong-task',
+            `ask taskId '${identity.taskId}' does not match bound task '${handle.id}'`,
+          );
+        }
+        if (identity.attempt !== handle.attempt) {
+          throw new WorkerCliHttpError(
+            409,
+            'stale-attempt',
+            `stale worker attempt ${identity.attempt}; current attempt is ${handle.attempt}`,
+          );
+        }
+        const msg = await this.recordWorkerQuestion(identity.workerId, question, identity.attempt);
+        return { messageId: msg.id, status: msg.status };
+      },
+      inbox: (identity, afterSeq) => this.readTerminalInbox(identity, afterSeq),
+    });
   }
 
   /** Rebind progress/result delivery when coordination moves to another Host. */
@@ -1052,6 +1109,7 @@ export class WorkerScheduler {
       // Older snapshots did not persist DeliveryView. Start a fresh delivery
       // while retaining the task identity and explicit recovery semantics.
       handle.deliveryId = null;
+      handle.attempt += 1;
     }
     handle.report = null;
     if (action === 'retry-attempt') handle.backendSession = undefined;
@@ -1207,7 +1265,6 @@ export class WorkerScheduler {
       blockers: ['authority-addendum-saturated'],
       recommendedAction: 'request-user-decision',
       workerId: handle.id,
-      taskId: handle.currentTaskId,
     });
   }
 
@@ -1228,13 +1285,15 @@ export class WorkerScheduler {
   async interruptTask(
     taskId: string,
     reason = 'Interrupted by the user.',
-  ): Promise<{ ok: true; message: TaskMessage } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; confirmed?: boolean; message: TaskMessage } | { ok: false; confirmed?: boolean; error: string }> {
     const handle = this.workers.get(taskId);
     if (!handle) return { ok: false, error: 'worker not found' };
     if (!handle.session || handle.status !== 'running') {
       return { ok: false, error: `worker cannot be interrupted in ${handle.status}` };
     }
     const normalizedReason = boundedTaskText(reason, 'interrupt reason', 20_000);
+    const session = handle.session;
+    if (session.terminateSessionTree) this.stoppingTerminalSessions.add(session);
     const mailbox = this.requireTaskMailbox();
     const message = await mailbox.enqueue({
       taskId: handle.id,
@@ -1243,9 +1302,56 @@ export class WorkerScheduler {
       kind: 'interrupt',
       payload: { reason: normalizedReason },
     });
-    const session = handle.session;
+    this.steeringMessageByWorker.delete(handle.id);
     try {
       handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+      if (session.terminateSessionTree) {
+        await this.cliBridge.revokeWorker(handle.id);
+        const evidence = await session.terminateSessionTree();
+        handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+        if (!evidence.confirmed) {
+          const unconfirmedSummary = `停止未确认：${evidence.reason ?? '未获得进程树退出证据'}`;
+          handle.summary = unconfirmedSummary;
+          handle.live.busy = false;
+          await mailbox.markFailed(handle.id, message.id).catch(() => undefined);
+          await this.opts.recordCustomEvent?.('worker-stop-unconfirmed', {
+            workerId: handle.id,
+            taskId: handle.currentTaskId,
+            attempt: handle.attempt,
+            pid: evidence.pid,
+            error: evidence.reason ?? 'process tree exit unconfirmed',
+          });
+          const event = this.createWorkerEvent(handle, {
+            kind: 'progress',
+            message: `[stop-unconfirmed] ${unconfirmedSummary}`,
+          });
+          this.opts.emit({ source: handle.id, event: { kind: 'worker-event', event } });
+          this.emitCoordinatorBriefing({
+            kind: 'stalled',
+            title: `${handle.title} 停止未确认`,
+            summary: unconfirmedSummary,
+            blockers: ['stop-unconfirmed'],
+            recommendedAction: 'request-user-decision',
+            workerId: handle.id,
+          });
+          this.emitPlanUpdate();
+          return { ok: false, confirmed: false, error: unconfirmedSummary };
+        }
+        await mailbox.markDelivered(handle.id, message.id);
+        await mailbox.acknowledge(handle.id, message.id);
+        await this.opts.recordCustomEvent?.('worker-stop-confirmed', {
+          workerId: handle.id,
+          taskId: handle.currentTaskId,
+          attempt: handle.attempt,
+          pid: evidence.pid,
+        });
+        if (handle.session === session && handle.status === 'running') {
+          handle.status = 'interrupted';
+          this.disposeWorker(handle, 'interrupted', reason);
+          this.emitPlanUpdate();
+        }
+        return { ok: true, confirmed: true, message: mailbox.get(handle.id, message.id)! };
+      }
       await session.interrupt('user');
       await mailbox.markDelivered(handle.id, message.id);
       await mailbox.acknowledge(handle.id, message.id);
@@ -1255,7 +1361,7 @@ export class WorkerScheduler {
         this.disposeWorker(handle, 'interrupted', reason);
         this.emitPlanUpdate();
       }
-      return { ok: true, message: mailbox.get(handle.id, message.id)! };
+      return { ok: true, confirmed: true, message: mailbox.get(handle.id, message.id)! };
     } catch (error) {
       await mailbox.markFailed(handle.id, message.id).catch(() => undefined);
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -1339,6 +1445,12 @@ export class WorkerScheduler {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
     tasks = this.adaptTasksForWorkspaceBaseline(tasks);
+    for (const task of tasks) {
+      if (isNativeCliWorkerBackend(task.executorBackendId ?? this.opts.defaultBackendId ?? 'claude-code')
+        && task.workspaceMode === 'read-only') {
+        return { ok: false, error: 'unsupported-contract: native CLI read-only tasks have no verified permission restriction' };
+      }
+    }
     const idAllocation = this.allocateInstallTaskIds(tasks);
     if (!idAllocation.ok) return idAllocation;
     tasks = idAllocation.tasks;
@@ -1623,8 +1735,17 @@ export class WorkerScheduler {
     });
     if (freshAttempt) this.beginFollowUpAttempt(handle, executorBackendId);
     // A follow-up never interrupts a turn. Pending/running messages are
-    // delivered one-at-a-time from a provider result boundary.
+    // delivered one-at-a-time from a provider result boundary, or immediately
+    // when an interactive Native CLI Worker is sitting idle between turns.
     if (handle.status === 'pending') this.spawnReadyWorkers();
+    else if (
+      !freshAttempt
+      && handle.status === 'running'
+      && isNativeCliWorkerBackend(handle.backendId)
+      && handle.session?.isIdleForAutomaticInput?.()
+    ) {
+      await this.deliverNextFollowUp(handle);
+    }
     return message;
   }
 
@@ -1650,6 +1771,14 @@ export class WorkerScheduler {
     });
     if (freshAttempt) this.beginFollowUpAttempt(handle, executorBackendId);
     if (handle.status === 'pending') this.spawnReadyWorkers();
+    else if (
+      !freshAttempt
+      && handle.status === 'running'
+      && isNativeCliWorkerBackend(handle.backendId)
+      && handle.session?.isIdleForAutomaticInput?.()
+    ) {
+      await this.deliverNextFollowUp(handle);
+    }
     return message;
   }
 
@@ -1705,7 +1834,9 @@ export class WorkerScheduler {
       kind: 'steer',
       payload: { text: normalized },
     });
-    if (handle.pendingDelegateAck) return { ok: true, queued: true };
+    if (handle.pendingDelegateAck || handle.session.isTakenOver?.()) {
+      return { ok: true, queued: true };
+    }
     const session = handle.session;
     this.steeringMessageByWorker.set(handle.id, message.id);
     try {
@@ -1925,6 +2056,505 @@ export class WorkerScheduler {
     return { ok: true };
   }
 
+  /** Manual user confirmation fallback (`scheduler:confirm-terminal-task`):
+   *  explicitly marked as user-submitted rather than pretending the CLI
+   *  submitted an automated WorkReport, while still capturing actual uncommitted
+   *  workspace file diffs for DeliveryHarness verification/freezing. */
+  async confirmTerminalReport(
+    workerId: string,
+    summary: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const handle = this.workers.get(workerId);
+    if (!handle) return { ok: false, error: `未找到 Worker ${workerId}` };
+    if (handle.status !== 'running') {
+      return { ok: false, error: `Worker 当前状态为 ${handle.status}，无法提交人工确认` };
+    }
+    let files: WorkReport['files'] = [];
+    try {
+      files = await terminalReportFiles(handle.workspace);
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    const report: WorkReport = {
+      status: 'completed',
+      summary,
+      files,
+      tests: [],
+      unresolved: [{
+        code: 'manual-terminal-confirmation',
+        message: '由用户在终端面板手动确认完成（非 CLI aha-worker 自动报告）。',
+        blocking: false,
+      }],
+    };
+    await this.handleWorkerSignal(handle, { kind: 'delivery', report });
+    return { ok: true };
+  }
+
+  resumeTerminalInput(workerId: string): { ok: boolean } {
+    const handle = this.workers.get(workerId);
+    if (!handle?.session?.resumePendingInput) return { ok: false };
+    return { ok: handle.session.resumePendingInput() };
+  }
+
+  async takeoverTask(
+    workerId: string,
+    reason = '用户接管原生终端',
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const handle = this.workers.get(workerId);
+    if (!handle) return { ok: false, error: 'worker not found' };
+    if (!handle.session || handle.status !== 'running') {
+      return { ok: false, error: `worker cannot be taken over in ${handle.status}` };
+    }
+    if (!handle.session.enterTakeover) {
+      return {
+        ok: false,
+        error: `backend '${handle.backendId}' does not support interactive terminal takeover`,
+      };
+    }
+    this.steeringMessageByWorker.delete(handle.id);
+    const entered = await handle.session.enterTakeover();
+    if (!entered.ok) {
+      return { ok: false, error: entered.error ?? 'takeover failed' };
+    }
+    handle.live.busy = false;
+    handle.summary = '用户已接管终端（自动输入已暂停）';
+    await this.opts.recordCustomEvent?.('worker-takeover-entered', {
+      workerId: handle.id,
+      taskId: handle.currentTaskId,
+      attempt: handle.attempt,
+      reason,
+    });
+    const event = this.createWorkerEvent(handle, {
+      kind: 'progress',
+      message: `[takeover] ${handle.summary}`,
+    });
+    this.opts.emit({ source: handle.id, event: { kind: 'worker-event', event } });
+    this.emitPlanUpdate();
+    return { ok: true };
+  }
+
+  async handBackTask(
+    workerId: string,
+    note?: string,
+  ): Promise<{ ok: true; workspaceSummary: HandbackWorkspaceSummary } | { ok: false; error: string }> {
+    const handle = this.workers.get(workerId);
+    if (!handle) return { ok: false, error: 'worker not found' };
+    if (!handle.session || handle.status !== 'running') {
+      return { ok: false, error: `worker cannot be handed back in ${handle.status}` };
+    }
+    if (!handle.session.completeHandback) {
+      return {
+        ok: false,
+        error: `backend '${handle.backendId}' does not support terminal handback`,
+      };
+    }
+    if (handle.session.isTakenOver && !handle.session.isTakenOver()) {
+      return { ok: false, error: 'worker is not currently in user takeover mode' };
+    }
+    const session = handle.session;
+    const attempt = handle.attempt;
+    const completeHandback = handle.session.completeHandback.bind(session);
+    const stillCurrent = (): boolean => this.workers.get(workerId) === handle
+      && handle.session === session && handle.attempt === attempt
+      && handle.status === 'running' && !this.opts.isClosed()
+      && !this.stoppingTerminalSessions.has(session);
+    // Read actual workspace changes FIRST before unlocking automatic input.
+    const workerCwd = handle.workspace?.cwd ?? this.opts.cwd;
+    let workspaceSummary: HandbackWorkspaceSummary;
+    try {
+      workspaceSummary = await summarizeWorkspaceHandbackChanges(workerCwd);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    if (!stillCurrent()) {
+      return {
+        ok: false,
+        error: 'handback aborted because worker stopped during workspace inspection',
+      };
+    }
+    const filesDesc = workspaceSummary.changedFiles.length > 0
+      ? workspaceSummary.changedFiles.map((file) => `${file.action}:${file.path}`).join(', ')
+      : '无未提交文件改动';
+    const handbackNotice = [
+      '[handback] 用户已完成终端接管并交还控制权。',
+      `工作区实际改动检查结果（共 ${workspaceSummary.changedFiles.length} 个文件）：${filesDesc}。`,
+      ...(workspaceSummary.diffStat ? [`diff 统计：\n${workspaceSummary.diffStat}`] : []),
+      ...(note?.trim() ? [`用户交还说明：${note.trim()}`] : []),
+      '请先阅读上述工作区实际状态再继续任务，不要覆盖用户的改动，也不要修改 CLI 权限配置。',
+    ].join('\n');
+    await this.opts.recordCustomEvent?.('worker-handback-completed', {
+      workerId: handle.id,
+      taskId: handle.currentTaskId,
+      attempt: handle.attempt,
+      changedFiles: workspaceSummary.changedFiles,
+      headRevision: workspaceSummary.headRevision,
+      note: note?.trim() ?? null,
+    });
+    if (!stillCurrent()) {
+      return {
+        ok: false,
+        error: 'handback aborted because worker stopped before resuming automatic mode',
+      };
+    }
+    const pendingMailboxEntries = this.opts.taskMailbox
+      ? this.opts.taskMailbox.list(handle.id).filter((entry) => (
+          entry.status === 'queued'
+          && entry.sender === 'coordinator'
+          && entry.attempt === handle.attempt
+          && (entry.kind === 'follow-up' || entry.kind === 'instruction' || entry.kind === 'steer')
+        ))
+      : [];
+    const pendingSteerLines = handle.queuedAddenda.slice();
+    const queuedInstructionLines = [
+      ...pendingSteerLines.map((item) => `[接管期间暂存补充] ${item}`),
+      ...pendingMailboxEntries.map((entry) => `[接管期间待处理追问] ${this.messageText(entry)}`),
+    ];
+    const fullHandbackInstruction = queuedInstructionLines.length > 0
+      ? `${handbackNotice}\n\n${queuedInstructionLines.join('\n\n')}`
+      : handbackNotice;
+    const completed = completeHandback(fullHandbackInstruction);
+    if (!completed.ok) {
+      return { ok: false, error: completed.error ?? 'handback failed' };
+    }
+    handle.queuedAddenda.splice(0, pendingSteerLines.length);
+    handle.summary = '';
+    if (this.opts.taskMailbox && pendingMailboxEntries.length > 0) {
+      for (const entry of pendingMailboxEntries) {
+        await this.opts.taskMailbox.markDelivered(handle.id, entry.id);
+        await this.opts.taskMailbox.acknowledge(handle.id, entry.id);
+      }
+      this.steeringMessageByWorker.delete(handle.id);
+    }
+    const event = this.createWorkerEvent(handle, {
+      kind: 'progress',
+      message: `[handback] 已读取工作区实际改动（${workspaceSummary.changedFiles.length} 个文件）并恢复自动协作。`,
+    });
+    this.opts.emit({ source: handle.id, event: { kind: 'worker-event', event } });
+    this.emitPlanUpdate();
+    if (handle.session.isIdleForAutomaticInput?.()) {
+      await this.deliverQueuedSteer(handle);
+      await this.deliverNextFollowUp(handle);
+    }
+    return { ok: true, workspaceSummary };
+  }
+
+  private async readTerminalInbox(
+    identity: WorkerCliTaskIdentity,
+    afterSeq: number,
+  ): Promise<TaskMessage[]> {
+    const handle = this.workers.get(identity.workerId);
+    if (!handle) {
+      throw new WorkerCliHttpError(404, 'unknown-worker', `unknown worker '${identity.workerId}'`);
+    }
+    if (identity.taskId !== handle.id) {
+      throw new WorkerCliHttpError(
+        400,
+        'wrong-task',
+        `inbox taskId '${identity.taskId}' does not match bound task '${handle.id}'`,
+      );
+    }
+    if (identity.attempt !== handle.attempt) {
+      throw new WorkerCliHttpError(
+        409,
+        'stale-attempt',
+        `stale worker attempt ${identity.attempt}; current attempt is ${handle.attempt}`,
+      );
+    }
+    const mailbox = this.opts.taskMailbox;
+    if (!mailbox) return [];
+    const entries = mailbox.list(handle.id).filter((entry) => (
+      entry.sender === 'coordinator'
+      && entry.attempt <= handle.attempt
+      && entry.seq > afterSeq
+      && (entry.status === 'queued' || entry.status === 'delivered')
+      && (entry.kind === 'follow-up' || entry.kind === 'instruction' || entry.kind === 'steer')
+    ));
+    const deliveredOut: TaskMessage[] = [];
+    for (const entry of entries) {
+      if (entry.status === 'queued') {
+        await mailbox.markDelivered(handle.id, entry.id);
+        await mailbox.acknowledge(handle.id, entry.id);
+      } else if (entry.status === 'delivered') {
+        await mailbox.acknowledge(handle.id, entry.id);
+      }
+      deliveredOut.push(mailbox.get(handle.id, entry.id) ?? entry);
+    }
+    return deliveredOut;
+  }
+
+  private async receiveTerminalReport(
+    identity: WorkerCliTaskIdentity,
+    body: unknown,
+  ): Promise<WorkerCliReportOutcome> {
+    const currentHandle = this.workers.get(identity.workerId);
+    const deliveryId = currentHandle?.deliveryId;
+    const assertIdentity = (): void => {
+      if (!currentHandle || this.workers.get(identity.workerId) !== currentHandle
+        || currentHandle.attempt !== identity.attempt || currentHandle.deliveryId !== deliveryId) {
+        throw new WorkerCliHttpError(409, 'stale-attempt', 'worker report no longer belongs to the current attempt');
+      }
+      if (currentHandle.id !== identity.taskId) throw new WorkerCliHttpError(400, 'wrong-task', 'report task does not match its worker');
+    };
+    assertIdentity();
+    const parsed = workReportSchema.safeParse(body);
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join('.') || 'report'}: ${issue.message}`)
+        .join('; ');
+      throw new WorkerCliHttpError(400, 'invalid-work-report', detail);
+    }
+    const report = parsed.data;
+    const reportHash = hashVisibleContextValue(report);
+    const attemptKey = `${identity.workerId}:${identity.attempt}`;
+
+    const existingReceipt = this.terminalReportReceipts.get(attemptKey);
+    if (existingReceipt) {
+      if (existingReceipt.reportHash === reportHash) {
+        return { receipt: { ...existingReceipt.receipt, duplicate: true } };
+      }
+      throw new WorkerCliHttpError(
+        409,
+        'report-conflict',
+        'conflicting WorkReport replay for the same task attempt',
+      );
+    }
+
+    const inFlight = this.terminalReportInFlight.get(attemptKey);
+    if (inFlight) {
+      await inFlight.catch(() => undefined);
+      assertIdentity();
+      const settledReceipt = this.terminalReportReceipts.get(attemptKey);
+      if (settledReceipt) {
+        if (settledReceipt.reportHash === reportHash) {
+          return { receipt: { ...settledReceipt.receipt, duplicate: true } };
+        }
+        throw new WorkerCliHttpError(
+          409,
+          'report-conflict',
+          'conflicting WorkReport replay for the same task attempt',
+        );
+      }
+    }
+
+    const run = this.executeTerminalReportSubmission(identity, report, reportHash, attemptKey)
+      .finally(() => {
+        if (this.terminalReportInFlight.get(attemptKey) === run) {
+          this.terminalReportInFlight.delete(attemptKey);
+        }
+      });
+    this.terminalReportInFlight.set(attemptKey, run);
+    return run;
+  }
+
+  private async executeTerminalReportSubmission(
+    identity: WorkerCliTaskIdentity,
+    report: WorkReport,
+    reportHash: string,
+    attemptKey: string,
+  ): Promise<WorkerCliReportOutcome> {
+    const handle = this.workers.get(identity.workerId);
+    if (!handle) {
+      throw new WorkerCliHttpError(404, 'unknown-worker', `unknown worker '${identity.workerId}'`);
+    }
+    if (identity.taskId !== handle.id) {
+      throw new WorkerCliHttpError(
+        400,
+        'wrong-task',
+        `report taskId '${identity.taskId}' does not match bound task '${handle.id}'`,
+      );
+    }
+    if (identity.attempt !== handle.attempt) {
+      throw new WorkerCliHttpError(
+        409,
+        'stale-attempt',
+        `stale worker attempt ${identity.attempt}; current attempt is ${handle.attempt}`,
+      );
+    }
+    if (handle.status !== 'running') {
+      if (handle.report && hashVisibleContextValue(handle.report) === reportHash) {
+        return {
+          receipt: {
+            reportId: `report-${handle.id}-attempt-${identity.attempt}`,
+            candidateId: null,
+            deliveryStatus: handle.status,
+            taskId: identity.taskId,
+            attempt: identity.attempt,
+            status: 'received',
+            duplicate: true,
+          },
+        };
+      }
+      throw new WorkerCliHttpError(
+        409,
+        'report-conflict',
+        `worker '${handle.id}' is '${handle.status}' and cannot accept a conflicting report`,
+      );
+    }
+    if (!handle.deliveryId || !this.opts.deliveryHarness) {
+      throw new WorkerCliHttpError(
+        503,
+        'delivery-unavailable',
+        'DeliveryHarness is unavailable for this worker',
+      );
+    }
+
+    if (!handle.session) throw new WorkerCliHttpError(409, 'stale-attempt', 'worker session has already ended');
+    const session = handle.session;
+    const settlingDeliveryId = handle.deliveryId;
+    const workspace = handle.workspace;
+    const assertCurrent = (requireRunning = false): void => {
+      if (this.opts.isClosed()
+        || this.workers.get(handle.id) !== handle
+        || handle.attempt !== identity.attempt
+        || handle.deliveryId !== settlingDeliveryId
+        || handle.session !== session
+        || this.stoppingTerminalSessions.has(session)
+        || SETTLE_STALE_STATUSES.has(handle.status)
+        || (requireRunning && handle.status !== 'running')) {
+        throw new WorkerCliHttpError(409, 'stale-attempt', 'worker report was stopped or superseded during submission');
+      }
+    };
+    assertCurrent(true);
+
+    try {
+      await validateTerminalReportFiles(workspace, report);
+    } catch (error) {
+      throw new WorkerCliHttpError(
+        400,
+        'workspace-diff-mismatch',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    assertCurrent(true);
+
+    handle.backendSession = session?.snapshot?.() ?? handle.backendSession;
+    let reportId = `report-${handle.id}-attempt-${identity.attempt}`;
+    if (this.opts.taskMailbox) {
+      const mailboxEntry = await this.opts.taskMailbox.enqueue({
+        taskId: handle.id,
+        attempt: identity.attempt,
+        sender: 'worker',
+        kind: 'report',
+        payload: {
+          report,
+          reportHash,
+          observedNativeSessionId: handle.backendSession?.sessionId ?? null,
+          terminalId: identity.terminalId,
+          workspaceCwd: identity.workspaceCwd,
+        },
+      });
+      assertCurrent(true);
+      await this.opts.taskMailbox.markDelivered(handle.id, mailboxEntry.id);
+      assertCurrent(true);
+      await this.opts.taskMailbox.acknowledge(handle.id, mailboxEntry.id);
+      assertCurrent(true);
+      reportId = mailboxEntry.id;
+    }
+
+    await this.opts.recordCustomEvent?.('native-worker-report-received', {
+      workerId: handle.id,
+      taskId: handle.id,
+      attempt: identity.attempt,
+      reportId,
+      reportHash,
+      terminalId: identity.terminalId,
+      workspaceCwd: identity.workspaceCwd,
+      observedNativeSessionId: handle.backendSession?.sessionId ?? null,
+    });
+    assertCurrent(true);
+
+    // Defer killing the PTY until AFTER the HTTP 200 receipt has flushed to
+    // `aha-worker report`, while freezing & persisting the candidate FIRST.
+    this.deferSessionReleaseWorkers.set(handle.id, session);
+    handle.report = report;
+    handle.summary = report.summary;
+    const deliveryEvent = this.createWorkerEvent(handle, { kind: 'delivery', report });
+    this.opts.emit({ source: handle.id, event: { kind: 'worker-event', event: deliveryEvent } });
+    handle.status = 'verifying';
+    this.emitPlanUpdate();
+
+    let view: DeliveryView;
+    try {
+      view = await this.opts.deliveryHarness.submitExternalReport(settlingDeliveryId, report, identity.attempt);
+    } catch (error) {
+      assertCurrent();
+      if (this.deferSessionReleaseWorkers.get(handle.id) === session) this.deferSessionReleaseWorkers.delete(handle.id);
+      await this.failDeliverySubmission(handle, error);
+      throw new WorkerCliHttpError(
+        500,
+        'delivery-submission-failed',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    assertCurrent();
+
+    if (handle.deliveryId === settlingDeliveryId && !SETTLE_STALE_STATUSES.has(handle.status)) {
+      handle.attempt = view.attempt;
+      this.applyDeliveryView(handle, view);
+      if (view.status === 'awaiting-delivery-acceptance') {
+        this.recordSuccessfulBudgetAttempt(handle, view.attempt);
+        await this.emitDeliveryCandidate(handle, view);
+        assertCurrent();
+        const candidateReport = view.candidate?.report;
+        const reportOnly = view.candidate?.reportOnly === true;
+        this.emitCoordinatorBriefing({
+          kind: 'delivery-ready',
+          title: reportOnly ? `${handle.title} 等待确认` : `${handle.title} 等待评审`,
+          summary: candidateReport?.summary ?? handle.summary,
+          files: candidateReport?.files.length ?? 0,
+          testsPassed: candidateReport?.tests.filter((test) => test.status === 'passed').length ?? 0,
+          testsFailed: candidateReport?.tests.filter((test) => test.status === 'failed').length ?? 0,
+          blockers: candidateReport?.unresolved.filter((item) => item.blocking).map((item) => item.message) ?? [],
+          recommendedAction: reportOnly ? 'request-user-decision' : 'review',
+          workerId: handle.id,
+        });
+      }
+    }
+
+    await this.opts.flushEvents?.();
+    assertCurrent();
+
+    const receipt: WorkerCliReportReceipt = {
+      reportId,
+      candidateId: view.candidate?.id ?? this.opts.deliveryHarness.latestCandidateId(settlingDeliveryId) ?? null,
+      deliveryStatus: view.status,
+      taskId: identity.taskId,
+      attempt: identity.attempt,
+      status: 'received',
+      duplicate: false,
+    };
+    this.terminalReportReceipts.set(attemptKey, { reportHash, receipt });
+
+    return {
+      receipt,
+      afterResponse: async () => {
+        if (this.workers.get(handle.id) !== handle || handle.deliveryId !== settlingDeliveryId
+          || handle.attempt !== identity.attempt || handle.session !== session) {
+          return;
+        }
+        if (this.deferSessionReleaseWorkers.get(handle.id) === session) this.deferSessionReleaseWorkers.delete(handle.id);
+        if (!await this.releaseNativeWorkerSession(handle, session)) return;
+        if (this.workers.get(handle.id) !== handle || handle.deliveryId !== settlingDeliveryId
+          || handle.attempt !== identity.attempt) return;
+        if (view.status === 'reworking') {
+          await this.scheduleAutomaticRework(handle, view);
+          return;
+        }
+        if (view.status === 'failed' || view.status === 'cancelled') {
+          await this.failDeliverySubmission(handle, new Error(`delivery ended in ${view.status} state`), view);
+          return;
+        }
+        if (PARKED_SLOT_STATUSES.has(handle.status)) {
+          this.emitPlanUpdate();
+          this.spawnReadyWorkers();
+        }
+      },
+    };
+  }
+
   submitWorkerDelivery(workerId: string, files: string[], sourceAttempt?: number): void {
     const handle = this.workers.get(workerId);
     if (!handle) {
@@ -1951,7 +2581,7 @@ export class WorkerScheduler {
    *  each handle. Pending or running workers at end-of-session count as
    *  failed (the user pulled the plug before task_done landed); done/failed
    *  workers keep their status. Idempotent via `disposeWorker`. */
-  endAll(): void {
+  endAll(): Promise<void> {
     this.stopStallWatch();
     for (const handle of this.workers.values()) {
       const finalStatus: WorkerStatusKind =
@@ -1961,6 +2591,7 @@ export class WorkerScheduler {
       this.disposeWorker(handle, finalStatus, handle.summary);
     }
     this.workers.clear();
+    return this.cliBridge.close();
   }
 
   // ---------------------------------------------------------------------------
@@ -2052,7 +2683,6 @@ export class WorkerScheduler {
           blockers: [handle.live.currentTool ?? 'no-progress'],
           recommendedAction: 'request-user-decision',
           workerId: handle.id,
-          taskId: handle.currentTaskId,
         });
       } else if (PARKED_SLOT_STATUSES.has(handle.status)) {
         // Parked workers (verifying / awaiting-acceptance / integrating / ...)
@@ -2092,7 +2722,6 @@ export class WorkerScheduler {
         blockers: [handle.status],
         recommendedAction: 'rework',
         workerId: handle.id,
-        taskId: handle.currentTaskId,
       });
       this.harvestUnresolvedAddenda(handle);
       this.disposeWorker(handle, 'failed', summary);
@@ -2114,7 +2743,6 @@ export class WorkerScheduler {
       blockers: [handle.status],
       recommendedAction: action,
       workerId: handle.id,
-      taskId: handle.currentTaskId,
     });
   }
 
@@ -2171,7 +2799,6 @@ export class WorkerScheduler {
       blockers: ['no-progress'],
       recommendedAction: 'continue',
       workerId: handle.id,
-      taskId: handle.currentTaskId,
     });
     this.releaseWorkerSession(handle);
     handle.status = 'pending';
@@ -2513,7 +3140,6 @@ export class WorkerScheduler {
           blockers: ['permission-timeout'],
           recommendedAction: 'request-user-decision',
           workerId: target.id,
-          taskId: target.currentTaskId,
         });
       }, DEFAULT_PERMISSION_TIMEOUT_MS),
     };
@@ -2668,8 +3294,18 @@ export class WorkerScheduler {
     handle.stallNotifiedTs = undefined;
     if (signal.kind === 'progress') {
       handle.live.lastAssistantText = signal.message;
-      handle.live.busy = true;
+      const turnBoundary = signal.message.startsWith(TERMINAL_TURN_ENDED_MARKER)
+        || signal.message.startsWith(TERMINAL_TASK_COMPLETE_MARKER);
+      handle.live.busy = !turnBoundary;
+      handle.backendSession = handle.session?.snapshot?.() ?? handle.backendSession;
       this.queueWorkerUpdate(handle, `[${handle.id}] ${condense(signal.message, ASSISTANT_CONDENSE_CHARS)}`);
+      if (
+        turnBoundary
+        && isNativeCliWorkerBackend(handle.backendId)
+        && handle.session?.isIdleForAutomaticInput?.()
+      ) {
+        await this.deliverNextFollowUp(handle);
+      }
       return;
     }
     if (signal.kind === 'tool') {
@@ -2709,7 +3345,6 @@ export class WorkerScheduler {
           blockers: [signal.code],
           recommendedAction: signal.retryable ? 'rework' : 'revise-plan',
           workerId: handle.id,
-          taskId: handle.currentTaskId,
         });
         this.harvestUnresolvedAddenda(handle);
         this.disposeWorker(handle, 'failed', signal.message);
@@ -2871,7 +3506,6 @@ export class WorkerScheduler {
         // user, who Accepts/Returns in the delivery panel.
         recommendedAction: reportOnly ? 'request-user-decision' : 'review',
         workerId: handle.id,
-        taskId: handle.currentTaskId,
       });
     }
   }
@@ -2900,7 +3534,6 @@ export class WorkerScheduler {
       blockers: [detail],
       recommendedAction: 'rework',
       workerId: handle.id,
-      taskId: handle.currentTaskId,
     });
     this.harvestUnresolvedAddenda(handle);
     this.disposeWorker(handle, 'failed', summary);
@@ -2927,7 +3560,7 @@ export class WorkerScheduler {
     };
     const next = mapped[view.status];
     const prevStatus = handle.status;
-    if (next && !(handle.status === 'budget-paused' && view.status === 'reworking')) {
+    if (next && !(handle.status === 'budget-paused' && view.status === 'reworking') && !(this.launching.has(handle.id) && handle.session === null && next === 'running')) {
       handle.status = next;
     }
     // Track when the handle entered its current parked (slot-holding) status so
@@ -3079,7 +3712,6 @@ export class WorkerScheduler {
       ),
       recommendedAction: 'continue',
       workerId: handle.id,
-      taskId: handle.currentTaskId,
     });
     this.spawnReadyWorkers();
   }
@@ -3113,6 +3745,12 @@ export class WorkerScheduler {
     rawBudget: TaskBudget,
     decisionId: string,
   ): Promise<{ planVersion: number; budget: TaskBudget }> {
+    // The pause is visible before its journal flush completes. Let that run
+    // retire so an extension cannot be coalesced into the old rework attempt.
+    const paused = this.workers.get(taskId);
+    if (paused?.status === 'budget-paused') {
+      await this.automaticReworkByAttempt.get(`${paused.deliveryId}:${paused.attempt}`);
+    }
     if (expectedPlanVersion !== this.planVersion) {
       throw new Error(
         `stale plan version: expected ${expectedPlanVersion}, current ${this.planVersion}`,
@@ -3210,6 +3848,14 @@ export class WorkerScheduler {
       affectedChunks?: ReworkRequest['affectedChunks'];
     },
   ): Promise<void> {
+    const isCurrent = (): boolean => !this.opts.isClosed() && this.workers.get(handle.id) === handle
+      && handle.deliveryId === view.id && handle.attempt === view.attempt;
+    if (!isCurrent()) return;
+    if (isNativeCliWorkerBackend(handle.backendId) && handle.session) {
+      if (this.deferSessionReleaseWorkers.has(handle.id)) return;
+      if (!await this.releaseNativeWorkerSession(handle, handle.session)) return;
+      if (!isCurrent()) return;
+    }
     const deliveryAttempt = view.attempts.find((attempt) => attempt.attempt === view.attempt);
     if (!deliveryAttempt) throw new Error(`delivery attempt ${view.attempt} is missing`);
     const failedChecks = [
@@ -3274,7 +3920,6 @@ export class WorkerScheduler {
         blockers: [evaluation],
         recommendedAction: 'request-user-decision',
         workerId: handle.id,
-        taskId: handle.currentTaskId,
       });
       await this.opts.flushEvents?.();
       return;
@@ -3317,6 +3962,7 @@ export class WorkerScheduler {
     if (backendOverride) this.applyBackendOverride(handle, backendOverride);
     const previousSession = handle.session;
     handle.session = null;
+    this.cliBridge.markStale(handle.id, nextAttempt);
     handle.attempt = nextAttempt;
     handle.status = 'pending';
     previousSession?.end();
@@ -3382,6 +4028,9 @@ export class WorkerScheduler {
   }
 
   private beginFollowUpAttempt(handle: WorkerHandle, executorBackendId?: string): void {
+    if (isNativeCliWorkerBackend(handle.backendId) && handle.session) {
+      throw new Error('原生会话进程树尚未确认退出，不能开始新的 attempt');
+    }
     handle.backendSession = handle.session?.snapshot?.() ?? handle.backendSession;
     if (handle.session) {
       const session = handle.session;
@@ -3398,6 +4047,7 @@ export class WorkerScheduler {
     handle.pendingAskFingerprints = undefined;
     handle.addendumCapNotified = false;
     handle.attempt += 1;
+    this.cliBridge.markStale(handle.id, handle.attempt);
     // An explicit override wins over a recorded one-shot; either way the
     // pending override is consumed at this attempt boundary.
     const backendOverride = executorBackendId ?? handle.nextAttemptBackendId;
@@ -3495,6 +4145,7 @@ export class WorkerScheduler {
     message: TaskMessage,
   ): Promise<void> {
     if (!this.opts.taskMailbox || !handle.session || handle.status !== 'running') return;
+    if (handle.session.isTakenOver?.()) return;
     const session = handle.session;
     this.steeringMessageByWorker.set(handle.id, message.id);
     try {
@@ -3532,6 +4183,12 @@ export class WorkerScheduler {
       || !handle.session
       || handle.status !== 'running'
       || this.steeringMessageByWorker.has(handle.id)
+    ) return;
+    if (handle.session.isTakenOver?.()) return;
+    if (
+      isTerminalWorkerBackend(handle.backendId)
+      && handle.session.isIdleForAutomaticInput
+      && !handle.session.isIdleForAutomaticInput()
     ) return;
     const message = this.opts.taskMailbox.list(handle.id)
       .find((entry) => this.isDeliverableFollowUp(handle, entry));
@@ -3901,6 +4558,12 @@ export class WorkerScheduler {
     const active = new Set(this.launching);
     for (const handle of this.workers.values()) {
       if (!handle.session) continue;
+      // A native CLI can still execute while its report is parked. Capacity
+      // is freed only after its owned process tree has actually exited.
+      if (isNativeCliWorkerBackend(handle.backendId)) {
+        active.add(handle.id);
+        continue;
+      }
       // Parked delivery statuses must not consume concurrency even if a
       // session pointer leaked; releaseWorkerSession is the primary free path.
       if (PARKED_SLOT_STATUSES.has(handle.status)) continue;
@@ -3921,7 +4584,64 @@ export class WorkerScheduler {
    *  true when a live session was released (slot may now be free). */
   private releaseWorkerSession(handle: WorkerHandle): boolean {
     if (!handle.session) return false;
+    if (this.deferSessionReleaseWorkers.has(handle.id)) return false;
     const session = handle.session;
+    if (isNativeCliWorkerBackend(handle.backendId)) {
+      void this.releaseNativeWorkerSession(handle, session).then((released) => {
+        if (released) {
+          this.emitPlanUpdate();
+          this.spawnReadyWorkers();
+        }
+      });
+      return false;
+    }
+    return this.detachReleasedWorkerSession(handle, session);
+  }
+
+  /** Keep native ownership and its concurrency slot until tree exit is proven.
+   * The same session shares one cleanup result; a later delivery projection
+   * must not replace failed cleanup with an ordinary root-only end(). */
+  private releaseNativeWorkerSession(handle: WorkerHandle, session: BackendSession): Promise<boolean> {
+    const existing = this.nativeSessionCleanup.get(session);
+    if (existing) return existing;
+    if (this.deferSessionReleaseWorkers.get(handle.id) === session) return Promise.resolve(false);
+    const attempt = handle.attempt;
+    const run = (async (): Promise<boolean> => {
+      this.stoppingTerminalSessions.add(session);
+      let evidence: { confirmed: boolean; pid: number | null; reason?: string };
+      try {
+        evidence = session.terminateSessionTree
+          ? await session.terminateSessionTree()
+          : { confirmed: false, pid: null, reason: 'Backend has no owned process-tree cleanup method' };
+      } catch (error) {
+        evidence = { confirmed: false, pid: null, reason: error instanceof Error ? error.message : String(error) };
+      }
+      if (this.workers.get(handle.id) !== handle || handle.attempt !== attempt || handle.session !== session) return false;
+      if (!evidence.confirmed) {
+        const summary = `停止未确认：交付后的会话清理失败，${evidence.reason ?? '缺少整树退出证据'}`;
+        handle.summary = summary;
+        try {
+          await this.opts.recordCustomEvent?.('worker-stop-unconfirmed', {
+            workerId: handle.id, taskId: handle.currentTaskId, attempt,
+            pid: evidence.pid, error: summary, reason: 'post-report-cleanup',
+          });
+        } catch (error) {
+          console.warn('[scheduler] could not persist native cleanup failure', error);
+        }
+        if (this.workers.get(handle.id) !== handle || handle.attempt !== attempt || handle.session !== session) return false;
+        const event = this.createWorkerEvent(handle, { kind: 'progress', message: `[stop-unconfirmed] ${summary}` });
+        this.opts.emit({ source: handle.id, event: { kind: 'worker-event', event } });
+        this.emitPlanUpdate();
+        return false;
+      }
+      return this.detachReleasedWorkerSession(handle, session);
+    })();
+    this.nativeSessionCleanup.set(session, run);
+    return run;
+  }
+
+  private detachReleasedWorkerSession(handle: WorkerHandle, session: BackendSession): boolean {
+    if (handle.session !== session) return false;
     handle.backendSession = session.snapshot?.() ?? handle.backendSession;
     handle.session = null;
     handle.pendingDelegateAck = false;
@@ -4022,7 +4742,7 @@ export class WorkerScheduler {
       || handle.approvalRecordedAt === undefined
       || handle.approvedPlanVersion === undefined
     ) {
-      if (this.opts.taskAuthorityCompilerRequired) {
+      if (this.opts.taskAuthorityCompilerRequired && !isNativeCliWorkerBackend(handle.backendId)) {
         throw new Error('approved task authority compiler is unavailable');
       }
       return;
@@ -4177,7 +4897,6 @@ export class WorkerScheduler {
                 summary: block.message,
                 recommendedAction: 'revise-plan',
                 workerId: handle.id,
-                taskId: handle.id,
                 blockers: dirty
                   ? [
                       '隔离 worktree 不会包含当前未提交改动。',
@@ -4250,6 +4969,9 @@ export class WorkerScheduler {
     // flips to 'running'). Without this the banner lags one emit behind.
     this.emitPlanUpdate();
     try {
+      if (isNativeCliWorkerBackend(handle.backendId) && this.workspaceInputFor(handle).mode === 'read-only') {
+        throw new Error('unsupported-contract: native CLI read-only tasks have no verified permission restriction');
+      }
       let firstMessage = handle.prompt;
       if (handle.contextSelection && !handle.contextPackage) {
         const getSource = this.opts.getAuthorizedTaskContextSource;
@@ -4290,6 +5012,20 @@ export class WorkerScheduler {
         if (!compile || !persist) {
           if (this.opts.taskProfileCompilerRequired) {
             throw new TaskProfileCompilationError('Backend task profile compiler is unavailable');
+          }
+          if (isNativeCliWorkerBackend(handle.backendId)) {
+            const runtime = backendRuntimeSchema.parse({
+              schemaVersion: 1,
+              backendId: handle.backendId,
+              runtimeVersion: '0.0.0-local',
+            });
+            handle.backendRuntime = structuredClone(runtime);
+            handle.effectiveProfile = structuredClone(
+              compileBackendTaskProfile(handle.executionProfile, runtime, {
+                backendId: handle.backendId,
+                defaultModel: 'auto',
+              }),
+            );
           }
         } else {
           try {
@@ -4365,6 +5101,7 @@ export class WorkerScheduler {
         const proposed = await this.opts.deliveryHarness.propose({
           meetingId: this.opts.meetingId ?? 'meeting',
           taskId: handle.currentTaskId,
+          initialAttempt: handle.attempt,
           objective: handle.prompt,
           workspace: workerCwd,
           sourceRevision: handle.workspace?.sourceRevision ?? 'non-git',
@@ -4395,11 +5132,51 @@ export class WorkerScheduler {
             ],
           })
         : undefined;
+      let cliBinding: WorkerCliBinding | null = null;
+      if (isNativeCliWorkerBackend(handle.backendId)) {
+        if (!handle.effectiveProfile) {
+          const runtime = backendRuntimeSchema.parse({
+            schemaVersion: 1,
+            backendId: handle.backendId,
+            runtimeVersion: '0.0.0-local',
+          });
+          const fallbackProfile: TaskExecutionProfile = handle.executionProfile ?? {
+            schemaVersion: 1,
+            backendId: handle.backendId as TaskExecutionProfile['backendId'],
+            workMode: 'balanced',
+            contextMode: 'meeting-summary',
+            timeoutMs: 1_800_000,
+            maxTokenBudget: 200_000,
+          };
+          handle.backendRuntime = structuredClone(runtime);
+          handle.effectiveProfile = structuredClone(
+            compileBackendTaskProfile(fallbackProfile, runtime, {
+              backendId: handle.backendId,
+              defaultModel: 'auto',
+            }),
+          );
+        }
+        cliBinding = await this.cliBridge.register({
+          meetingId: this.opts.meetingId ?? 'meeting',
+          taskId: handle.id,
+          workerId: handle.id,
+          attempt: sessionAttempt,
+          workspaceCwd: workerCwd,
+          terminalId: handle.id,
+        });
+        if (this.spawnAborted(handle)) {
+          await this.cliBridge.revokeWorker(handle.id);
+          this.opts.workspaceManager?.release(handle.id, false);
+          return;
+        }
+      }
       handle.session = sessionFactory({
         cwd: workerCwd,
-        autoApproveScope: handle.authorityGrant ? 'off' : this.autoApproveScope,
-        envOverride: this.opts.workerEnv,
-        confirmDestructive: handle.authorityGrant
+        autoApproveScope: (handle.authorityGrant || cliBinding) ? 'off' : this.autoApproveScope,
+        envOverride: cliBinding
+          ? buildWorkerCliEnv(cliBinding, this.opts.workerEnv)
+          : this.opts.workerEnv,
+        confirmDestructive: (handle.authorityGrant || cliBinding)
           ? undefined
           : this.opts.confirmDestructive,
         emit: (e) => this.onWorkerEvent(
@@ -4414,8 +5191,19 @@ export class WorkerScheduler {
           // renderer stage terminal can attach; SDK adapters ignore it.
           workerId: handle.id,
           ...(approvedCommandGuard ? { approvedCommandGuard } : {}),
-          ...(handle.authorityGrant && ['claude-code-terminal', 'codex-terminal'].includes(handle.backendId)
-            ? { nativeWorkerAuthority: this.nativeAuthorityPorts(handle, sessionAttempt) } : {}),
+          ...(cliBinding
+            ? {
+                nativeCliWorker: {
+                  mode: 'native-cli-self-approval' as const,
+                  meetingId: cliBinding.meetingId,
+                  taskId: cliBinding.taskId,
+                  workerId: handle.id,
+                  attempt: sessionAttempt,
+                  workspaceCwd: workerCwd,
+                  workspaceMode: this.workspaceInputFor(handle).mode as 'git-worktree' | 'shared-locked',
+                },
+              }
+            : {}),
           ...(handle.backendSession?.sessionId
             ? { resumeSessionId: handle.backendSession.sessionId }
             : {}),
@@ -4441,11 +5229,6 @@ export class WorkerScheduler {
       handle.stallNotifiedTs = undefined;
       this.startStallWatch();
       const session = handle.session;
-      await session.start();
-      handle.backendSession = session.snapshot?.() ?? handle.backendSession;
-      // The meeting may have ended, the task may have been cancelled, or an
-      // auth-required event may have disposed the session during the handshake.
-      if (handle.session !== session || handle.status !== 'running') return;
 
       // First prompt mentions peer workers so the new worker knows it may be
       // touching shared code with others.
@@ -4455,17 +5238,35 @@ export class WorkerScheduler {
       const peerLine = peers.length > 0
         ? `\n\n（同事 worker 也在跑：${peers.map((p) => `${p.id}「${p.title}」`).join('、')}。注意可能改到同一份代码。）`
         : '';
-      const initialMailboxMessage = this.queuedInitialMessage(handle);
-      const mailboxLine = initialMailboxMessage
-        ? `\n\n(follow-up attempt ${handle.attempt}) ${this.messageText(initialMailboxMessage)}`
-        : '';
-      const terminalSuffix = isTerminalWorkerBackend(handle.backendId)
-        ? TERMINAL_WORKER_COMPLETION_INSTRUCTION
-        : '';
+      const terminalSuffix = isNativeCliWorkerBackend(handle.backendId)
+        ? `${buildTerminalWorkerReportInstruction(handle.id, sessionAttempt)}${TERMINAL_WORKER_COMPLETION_INSTRUCTION}`
+        : isTerminalWorkerBackend(handle.backendId)
+          ? TERMINAL_WORKER_COMPLETION_INSTRUCTION
+          : '';
+      const prepareInitialPrompt = () => {
+        const mailboxMessage = this.queuedInitialMessage(handle);
+        const mailboxLine = mailboxMessage
+          ? `\n\n(follow-up attempt ${handle.attempt}) ${this.messageText(mailboxMessage)}`
+          : '';
+        return {
+          mailboxMessage,
+          text: `${handle.contextPackage ? firstMessage : handle.prompt + peerLine}${mailboxLine}${terminalSuffix}`,
+        };
+      };
+      let launchPrompt: ReturnType<typeof prepareInitialPrompt> | undefined;
+      if (cliBinding && session.stageInitialTask) {
+        const prompt = prepareInitialPrompt();
+        if (session.stageInitialTask(prompt.text, cliBinding.runtimeDir)) launchPrompt = prompt;
+      }
+      await session.start();
+      handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+      // The meeting may have ended, the task may have been cancelled, or an
+      // auth-required event may have disposed the session during the handshake.
+      if (handle.session !== session || handle.status !== 'running') return;
+      const initialPrompt = launchPrompt ?? prepareInitialPrompt();
+      const initialMailboxMessage = initialPrompt.mailboxMessage;
       try {
-        session.sendUserText(
-          `${handle.contextPackage ? firstMessage : handle.prompt + peerLine}${mailboxLine}${terminalSuffix}`,
-        );
+        if (!launchPrompt) session.sendUserText(initialPrompt.text);
         if (initialMailboxMessage && this.opts.taskMailbox) {
           await this.opts.taskMailbox.markDelivered(handle.id, initialMailboxMessage.id);
           this.pendingMailboxAckByWorker.set(handle.id, initialMailboxMessage.id);
@@ -4506,7 +5307,6 @@ export class WorkerScheduler {
           summary: err.message,
           recommendedAction: 'revise-plan',
           workerId: handle.id,
-          taskId: handle.id,
           blockers: ['工作区在预检后发生变化；未创建 Worker，也未执行副作用。'],
         });
         this.emitPlanUpdate();
@@ -4580,6 +5380,10 @@ export class WorkerScheduler {
    *  Idempotent: safe to call again on an already-disposed handle. */
   private disposeWorker(handle: WorkerHandle, finalStatus: WorkerStatusKind, summary?: string): void {
     for (const pending of this.nativeApprovalReplies.values()) if (pending.workerId === handle.id) pending.resolve('deny');
+    // Acceptance can race the receipt flush. Keep that deferral until
+    // afterResponse; failed/interrupted/closed sessions clean up now.
+    if (finalStatus !== 'accepted' || this.opts.isClosed()) this.deferSessionReleaseWorkers.delete(handle.id);
+    void this.cliBridge.revokeWorker(handle.id);
     if (handle.flushTimer) {
       clearTimeout(handle.flushTimer);
       handle.flushTimer = null;
@@ -4590,11 +5394,17 @@ export class WorkerScheduler {
       // end repeatedly on the same session.
       const session = handle.session;
       handle.backendSession = session.snapshot?.() ?? handle.backendSession;
-      handle.session = null;
-      try {
-        session.end();
-      } catch (err) {
-        console.warn(`[scheduler] worker.end() threw for ${handle.id}:`, err);
+      if (isNativeCliWorkerBackend(handle.backendId)) {
+        void this.releaseNativeWorkerSession(handle, session).then((released) => {
+          if (released) { this.emitPlanUpdate(); this.spawnReadyWorkers(); }
+        });
+      } else {
+        handle.session = null;
+        try {
+          session.end();
+        } catch (err) {
+          console.warn(`[scheduler] worker.end() threw for ${handle.id}:`, err);
+        }
       }
     }
     handle.bufferedUpdates = [];
@@ -4662,6 +5472,10 @@ export class WorkerScheduler {
           ? {
               recovery: assessTaskRecovery({
                 status: h.status,
+                executorBackendId: h.executorBackendId ?? h.backendId,
+                executionProfile: h.executionProfile
+                  ? { backendId: h.executionProfile.backendId }
+                  : undefined,
                 workspaceMode: h.workspaceMode,
                 authorityRequest: h.authorityRequest
                   ? structuredClone(h.authorityRequest)
@@ -4767,6 +5581,8 @@ export class WorkerScheduler {
       testsFailed: 0,
       blockers: [],
       ...input,
+      // Commands address the stable plan node. currentTaskId keys turn history.
+      ...(input.workerId ? { taskId: input.workerId } : {}),
     };
     this.opts.emit({
       source: 'system',
@@ -4774,6 +5590,7 @@ export class WorkerScheduler {
     });
     this.talkerProvider()?.sendUserText(
       `[structured coordinator briefing]\n${JSON.stringify(briefing)}\n`
+      + 'Use the briefing taskId for task commands. '
       + 'Use this summary to decide whether to continue, request rework, revise the plan, or ask the user. Do not echo raw Worker logs.',
       'high',
     );

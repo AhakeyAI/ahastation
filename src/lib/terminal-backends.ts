@@ -16,6 +16,17 @@ export function isTerminalWorkerBackendId(backendId: string | null | undefined):
   return !!backendId && TERMINAL_WORKER_BACKEND_ID_SET.has(backendId);
 }
 
+export const NATIVE_CLI_WORKER_BACKEND_IDS: readonly string[] = [
+  'claude-code-terminal',
+  'codex-terminal',
+];
+
+const NATIVE_CLI_WORKER_BACKEND_ID_SET: ReadonlySet<string> = new Set(NATIVE_CLI_WORKER_BACKEND_IDS);
+
+export function isNativeCliWorkerBackendId(backendId: string | null | undefined): boolean {
+  return !!backendId && NATIVE_CLI_WORKER_BACKEND_ID_SET.has(backendId);
+}
+
 /** Deterministic pty id of a terminal-mode HOST session — renderer mirror of
  *  hostTerminalWorkerId in electron/backends/terminal-cli-adapter.ts. The
  *  main side injects this as the host session's workerId; the stage terminal

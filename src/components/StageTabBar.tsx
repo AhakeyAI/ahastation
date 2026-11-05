@@ -5,6 +5,8 @@ import { requestHideBrowser } from '../lib/browser-store';
 import type { LocalCliInfo } from '../types';
 import { terminalSessionStore } from '../lib/terminal-session-store';
 import { TerminalProfileIcon } from './TerminalProfileIcon';
+import type { WorkerState } from '../lib/meeting-store';
+import { nativeCliForBackend } from '../lib/native-cli';
 
 interface StageTabBarProps {
   windows: StageWindow[];
@@ -19,9 +21,17 @@ interface StageTabBarProps {
   localOnly?: boolean;
   /** Pending-attention count shown on a tab (the board's 待处理 badge). */
   badges?: Record<string, number>;
+  workers?: readonly WorkerState[];
 }
 
 const PHASE_LABELS = { starting: '启动中', running: '运行中', exited: '已退出', error: '错误', closing: '关闭中' };
+const WORKER_LABELS: Record<string, string> = {
+  pending: '排队中', running: '执行中', verifying: '验证中', reviewing: '审查中',
+  'coordinator-reviewing': '审查中', 'integration-queued': '等待集成', integrating: '集成中',
+  accepted: '已验收', done: '已完成', failed: '失败', interrupted: '已中断',
+  blocked: '受阻', 'budget-paused': '预算暂停', 'integration-conflict': '集成冲突',
+  reworking: '返工中', cancelled: '已取消', idle: '空闲',
+};
 
 const ICON_MAP: Record<StageWindowType, typeof Globe> = {
   board: LayoutGrid,
@@ -42,6 +52,7 @@ export function StageTabBar({
   popOutLabel,
   localOnly = false,
   badges,
+  workers = [],
 }: StageTabBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -121,10 +132,14 @@ export function StageTabBar({
           const Icon = ICON_MAP[win.type];
           const isPinned = isPinnedStageWindow(win.id);
           const state = win.localCliId ? terminalSessionStore.getState(win.id) : null;
+          const worker = win.workerId ? workers.find((w) => w.id === win.workerId)
+            ?? workers.find((w) => w.role === 'talker' && w.hostId === win.workerId) : undefined;
+          const workerIcon = nativeCliForBackend(worker?.backendId);
           return (
             <div
               key={win.id}
-              className={`stage-tab ${win.id === activeWindowId ? 'stage-tab-active' : ''}`}
+              className={`stage-tab ${win.workerId ? 'stage-tab-worker' : ''} ${win.id === activeWindowId ? 'stage-tab-active' : ''}`}
+              title={win.title}
               onClick={() => onSelect(win.id)}
               role="tab"
               aria-selected={win.id === activeWindowId}
@@ -137,7 +152,8 @@ export function StageTabBar({
               }}
             >
               <span className="stage-tab-icon">
-                {win.localCliId ? <TerminalProfileIcon id={win.localCliId === 'shell' ? win.shellId : win.localCliId} size={14} /> : <Icon size={14} />}
+                {win.localCliId ? <TerminalProfileIcon id={win.localCliId === 'shell' ? win.shellId : win.localCliId} size={14} />
+                  : workerIcon ? <TerminalProfileIcon id={workerIcon} size={14} /> : <Icon size={14} />}
               </span>
               <span className="stage-tab-title">{win.title}</span>
               {(badges?.[win.id] ?? 0) > 0 && (
@@ -147,6 +163,9 @@ export function StageTabBar({
                 aria-label={state.error ? '错误' : PHASE_LABELS[state.phase]}
                 title={state.error ?? (state.phase === 'exited' ? `退出码：${state.exitCode ?? '未知'}` : PHASE_LABELS[state.phase])}>
                 {state.error ? '错误' : PHASE_LABELS[state.phase]}
+              </span>}
+              {worker && !state && <span className={`stage-tab-status is-${worker.status === 'failed' ? 'error' : worker.status === 'running' ? 'running' : 'exited'}`}>
+                {WORKER_LABELS[worker.status] ?? worker.status}
               </span>}
               {!isPinned && !win.localCliId && onPopOut && (canPopOut?.(win) ?? true) && (
                 <button

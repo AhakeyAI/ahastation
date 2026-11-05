@@ -25,9 +25,9 @@ test('an expert may message only the sub-agent tasks it owns (AME-D14), nothing 
   assert.equal(legacy.ok, false);
 });
 
-test('sub-agents run on the expert SDK while native admission is closed', () => {
-  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code');
-  assert.equal(terminalWorkerBackendFor('codex'), 'codex');
+test('sub-agents route claude-code and codex to admitted native CLI terminal backends', () => {
+  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code-terminal');
+  assert.equal(terminalWorkerBackendFor('codex'), 'codex-terminal');
   assert.equal(terminalWorkerBackendFor('kimi'), 'kimi');
   assert.equal(terminalWorkerBackendFor('unknown-backend'), 'unknown-backend');
   const profile = { title: '产品专家', name: '小禾' };
@@ -54,33 +54,38 @@ test('a stopped expert sub-agent restarts as a new attempt owned by the same exp
   const { Orchestrator } = await import('../dist-electron/orchestrator.js');
   const { randomUUID } = await import('node:crypto');
   const events = [];
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const cwd = await mkdtemp(join(tmpdir(), 'native-owned-restart-'));
   const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {} });
-  const orchestrator = new Orchestrator({ emit: (e) => events.push(e), cwd: '/tmp', meetingId: `restart-${randomUUID()}`, sessionFactory: fake });
+  const orchestrator = new Orchestrator({ emit: (e) => events.push(e), cwd, meetingId: `restart-${randomUUID()}`, sessionFactory: fake });
   try {
-    const task = { id: 'kickoff-brainstorm-abc', title: '调研项目现状与方向', prompt: '只读调研', deps: [], workspaceMode: 'read-only' };
+    const task = { id: 'kickoff-develop-abc', title: '记录开发结果', prompt: 'write a note', deps: [], workspaceMode: 'shared-locked', writePaths: ['fixture-output'] };
     assert.deepEqual(await orchestrator.installPlan([task]), { ok: true });
     // startKickoff records these after a real expert host starts; seed them directly.
     orchestrator.taskOwners.set(task.id, 'default');
     orchestrator.ownedTaskInputs.set(task.id, task);
 
     const first = await orchestrator.restartOwnedTask(task.id);
-    assert.deepEqual(first, { ok: true, taskId: 'kickoff-brainstorm-abc-r2' });
-    assert.equal(orchestrator.isTaskOwnedBy('kickoff-brainstorm-abc-r2', 'default'), true);
-    const second = await orchestrator.restartOwnedTask('kickoff-brainstorm-abc-r2');
-    assert.deepEqual(second, { ok: true, taskId: 'kickoff-brainstorm-abc-r3' });
+    assert.deepEqual(first, { ok: true, taskId: 'kickoff-develop-abc-r2' });
+    assert.equal(orchestrator.isTaskOwnedBy('kickoff-develop-abc-r2', 'default'), true);
+    const second = await orchestrator.restartOwnedTask('kickoff-develop-abc-r2');
+    assert.deepEqual(second, { ok: true, taskId: 'kickoff-develop-abc-r3' });
 
     await new Promise((r) => setTimeout(r, 50));
     const assigned = events.filter((e) => e.event?.kind === 'task-owner-assigned').map((e) => e.event.taskId);
-    assert.deepEqual(assigned, ['kickoff-brainstorm-abc-r2', 'kickoff-brainstorm-abc-r3']);
+    assert.deepEqual(assigned, ['kickoff-develop-abc-r2', 'kickoff-develop-abc-r3']);
     assert.deepEqual(await orchestrator.restartOwnedTask('not-owned'), { ok: false, error: 'task has no owning expert' });
   } finally {
-    await orchestrator.close?.();
+    await orchestrator.end();
+    await rm(cwd, { recursive: true, force: true });
   }
 });
 
 test('quitting the app keeps the kickoff for the next meeting in the folder; ending it by hand does not', async () => {
   const { app } = await import('electron');
-  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { mkdtemp, rm, mkdir } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Orchestrator } = await import('../dist-electron/orchestrator.js');
@@ -88,11 +93,12 @@ test('quitting the app keeps the kickoff for the next meeting in the folder; end
   const root = await mkdtemp(join(tmpdir(), 'kickoff-carry-'));
   const oldPath = app.getPath;
   app.getPath = () => root;
-  const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {} });
+  const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {}, async terminateSessionTree() { return { confirmed: true, pid: null }; } });
   try {
     const cwd = join(root, 'room');
+    await mkdir(cwd, { recursive: true });
     const orchestrator = new Orchestrator({ emit: () => {}, cwd, meetingId: 'carry-meeting', sessionFactory: fake });
-    const task = { id: 'kickoff-brainstorm-xyz', title: '调研项目现状与方向', prompt: '只读调研', deps: [], workspaceMode: 'read-only' };
+    const task = { id: 'kickoff-brainstorm-xyz', title: '调研项目现状与方向', prompt: '记录调研结果', deps: [], workspaceMode: 'shared-locked', writePaths: ['fixture-output'] };
     assert.deepEqual(await orchestrator.installPlan([task]), { ok: true });
     orchestrator.taskOwners.set(task.id, 'expert-1');
     orchestrator.ownedTaskInputs.set(task.id, task);

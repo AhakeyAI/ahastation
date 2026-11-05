@@ -172,7 +172,7 @@ test('spawn passes an xterm-256color terminal with string-only env', () => {
     file: 'claude',
     args: ['--settings', 's.json'],
     cwd: '/tmp/task',
-    env: { GOOD: 'yes', BAD: undefined },
+    env: { GOOD: 'yes', BAD: undefined, TERM: 'dumb' },
   });
   const { options, file, args } = spawned[0];
   assert.equal(file, 'claude');
@@ -180,7 +180,7 @@ test('spawn passes an xterm-256color terminal with string-only env', () => {
   assert.equal(options.name, 'xterm-256color');
   assert.equal(options.cols, 100);
   assert.equal(options.rows, 30);
-  assert.deepEqual(options.env, { GOOD: 'yes' });
+  assert.deepEqual(options.env, { GOOD: 'yes', TERM: 'xterm-256color' });
   host.killAll();
 });
 
@@ -260,4 +260,12 @@ test('guarded PTY keeps its sealed owner after unconfirmed stop; never falls thr
   assert.equal(host.has('guarded'), true); assert.equal(pty.killed, false);
   confirmed = true; await host.terminateTree('guarded');
   assert.equal(host.has('guarded'), false);
+});
+
+test('root exit without a tree-stop receipt cannot confirm descendant exit', async () => {
+  const { host, spawned } = createHost();
+  host.spawn('exited-without-tree-proof', SPAWN_OPTS);
+  spawned[0].pty.emitExit(0);
+  assert.equal(host.has('exited-without-tree-proof'), false);
+  await assert.rejects(host.terminateTree('exited-without-tree-proof'), /No live PTY owner/);
 });

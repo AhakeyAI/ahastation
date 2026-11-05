@@ -246,6 +246,33 @@ test('interrupt sends Esc — Claude TUI\'s native stop key', async (t) => {
   session.end();
 });
 
+test('tree stop retries require fresh evidence; a closed session alone never confirms exit', async (t) => {
+  const cwd = await createWorkspace(t);
+  const { backend, host } = createFixture(t);
+  const session = backend.createSession(
+    { cwd, firstMessage: 'task', extra: { workerId: 'retry-tree-stop' } },
+    () => {},
+  );
+  await session.start();
+  let attempts = 0;
+  host.terminateTree = async () => {
+    attempts += 1;
+    if (attempts < 3) throw new Error('descendant exit unconfirmed');
+  };
+  assert.equal((await session.terminateSessionTree()).confirmed, false);
+  assert.equal((await session.terminateSessionTree()).confirmed, false);
+  assert.equal(attempts, 2, 'retry must check the process owner again');
+  assert.equal((await session.terminateSessionTree()).confirmed, true);
+  assert.equal((await session.terminateSessionTree()).confirmed, true);
+
+  const closed = backend.createSession(
+    { cwd, extra: { workerId: 'closed-without-proof' } },
+    () => {},
+  );
+  closed.end();
+  assert.equal((await closed.terminateSessionTree()).confirmed, false);
+});
+
 test('a trust-folder dialog holds the prompt until the user answers it (#125)', async (t) => {
   const { backend, spawned } = createFixture(t, { timersEnabled: true });
   const cwd = await createWorkspace(t);

@@ -1,7 +1,10 @@
 import type { BackendInfo, PlanMeetingTaskInput } from '../types';
 import { draftDependencyGate } from './dependency-gate.ts';
 import { DEFAULT_TASK_BUDGET } from './task-budget.ts';
-import { TERMINAL_WORKER_BACKEND_IDS } from './terminal-backends.ts';
+import {
+  isNativeCliWorkerBackendId,
+  isTerminalWorkerBackendId,
+} from './terminal-backends.ts';
 
 export function normalizePlanDraft(
   task: PlanMeetingTaskInput,
@@ -69,7 +72,7 @@ export function normalizePlanDraft(
 export function isWorkerBackendReady(backend: BackendInfo | undefined): boolean {
   return Boolean(
     backend
-    && !TERMINAL_WORKER_BACKEND_IDS.includes(backend.id)
+    && (!isTerminalWorkerBackendId(backend.id) || isNativeCliWorkerBackendId(backend.id))
     && backend.supportsWorkers
     && backend.available
     && (backend.loggedIn || backend.hasApiKey || backend.authMode === 'none'),

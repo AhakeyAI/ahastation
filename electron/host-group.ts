@@ -151,6 +151,7 @@ export interface HostGroupOpts {
   /** Shared Meeting mailbox; every Worker instruction is journaled here
    * before a Backend session receives it. */
   taskMailbox?: TaskMailbox;
+  recordCustomEvent?: (kind: string, payload: Record<string, unknown>) => Promise<void>;
   /** Worker concurrency ceiling forwarded to the scheduler (default 4). */
   maxConcurrentWorkers?: number;
 }
@@ -241,6 +242,7 @@ export class HostGroup {
       persistPermissionDecision: opts.persistPermissionDecision,
       taskAuthorityCompilerRequired: opts.taskAuthorityCompilerRequired,
       taskMailbox: opts.taskMailbox,
+      recordCustomEvent: opts.recordCustomEvent,
       maxConcurrentWorkers: opts.maxConcurrentWorkers,
       buildWorkerMcp: (workerId, attempt) => (
         buildWorkerMcp(this.bridge, workerId, this.cwd, attempt)
@@ -399,18 +401,20 @@ export class HostGroup {
     await Promise.allSettled(tasks);
   }
 
-  /** Tear down host + workers. Returns the final buffered worker lines. */
-  end(): string[] {
+  /** Tear down host + workers and wait for Worker CLI cleanup. */
+  async end(): Promise<void> {
     // Scheduler always exists (set in constructor) and may have live workers
     // even when host is null (e.g. tests that spawn workers directly).
-    const finalLines = this.scheduler.collectFinalBufferedLines();
-    this.scheduler.endAll();
-    this.host?.end();
-    this.host = null;
-    this.ready = false;
-    this.lifecycle = 'ended';
-    this.lifecycleError = undefined;
-    return finalLines;
+    const workerCleanup = this.scheduler.endAll();
+    try {
+      this.host?.end();
+    } finally {
+      this.host = null;
+      this.ready = false;
+      this.lifecycle = 'ended';
+      this.lifecycleError = undefined;
+      await workerCleanup;
+    }
   }
 
   /** Returns true if the host session died unexpectedly (not from our end()). */

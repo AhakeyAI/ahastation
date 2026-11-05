@@ -70,7 +70,9 @@ export async function maybeAppendGitignore(cwd: string, dirName: string = DIR_NA
 
   const entry = `${dirName}/`;
   try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd, timeout: 10_000 });
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd, timeout: 10_000, windowsHide: true,
+    });
     const excludePath = path.resolve(cwd, stdout.trim());
     let current = '';
     try {

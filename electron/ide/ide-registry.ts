@@ -210,7 +210,7 @@ async function detectIdes(): Promise<IdeDetection[]> {
   let version: string | null = null;
   if (binary) {
     try {
-      const { stdout } = await execFileAsync(binary, ['--version'], { timeout: 10_000 });
+      const { stdout } = await execFileAsync(binary, ['--version'], { timeout: 10_000, windowsHide: true });
       version = stdout.trim() || null;
     } catch (err) {
       console.warn('[ide-registry] opencode --version failed:', err);

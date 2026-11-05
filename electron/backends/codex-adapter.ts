@@ -578,6 +578,7 @@ class CodexAppServerSession implements BackendSession {
         }
         return;
       }
+      if (item.type === 'agentMessage' && notification.method !== 'item/completed') return;
       const message = this.normalizeAppServerItem(notification.params.item);
       if (message) this.emit({ kind: 'message', message });
       return;
@@ -671,13 +672,22 @@ class CodexAppServerSession implements BackendSession {
     switch (item.type) {
       case 'agentMessage': {
         const text = typeof item.text === 'string' ? item.text : '';
-        const { visibleText, hasSpeakCommand, hasNonSpeakCommand } = dispatchAppServerCommands(
-          text, this.meetingCommandHandler, this.emit,
+        const { visibleText, hasSpeakCommand, results } = dispatchAppServerCommands(
+          text, this.meetingCommandHandler, (event) => { if (!this.closed) this.emit(event); },
         );
         if (hasSpeakCommand) return null;
-        const chatText = visibleText || (hasNonSpeakCommand ? COMMAND_ONLY_ACK : '');
-        if (!chatText) return null;
-        return { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: chatText }] }, raw: item };
+        if (visibleText) {
+          return { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: visibleText }] }, raw: item };
+        }
+        if (results.length > 0) {
+          void Promise.all(results).then((accepted) => {
+            if (this.closed || !accepted.every(Boolean)) return;
+            this.emit({ kind: 'message', message: { type: 'assistant', message: {
+              role: 'assistant', content: [{ type: 'text', text: COMMAND_ONLY_ACK }],
+            }, raw: item } });
+          });
+        }
+        return null;
       }
       case 'reasoning': {
         const summary = Array.isArray(item.summary) ? item.summary.map(String).join('\n') : '';
@@ -1308,14 +1318,13 @@ function isCodexAuthError(message: string): boolean {
   return /\b401\b|unauthorized|missing bearer|authentication (?:is )?required/i.test(message);
 }
 
-/** Turn a raw Codex service rejection into an actionable message. The
- *  unsupported-model 400 (third-party model ID with ChatGPT-account auth)
- *  otherwise surfaces as opaque JSON and the meeting idles dead. */
+/** Keep the service rejection without guessing another model or auth mode.
+ * Different CLI versions can disagree about model availability for one account. */
 export function describeCodexTurnError(detail: string): string {
   if (/model.{0,40}not supported/i.test(detail)) {
     const model = /'([^']+)' model/i.exec(detail)?.[1];
-    return `${detail} — 当前 Codex 登录方式不支持模型${model ? ` "${model}"` : ''}。`
-      + '请在设置中为 Codex 后端选择 gpt-5.x 系列模型，或改用 API key + 自定义 baseURL 接入该模型。';
+    return `${detail} — 当前 Codex 运行时拒绝模型${model ? ` "${model}"` : ''}。`
+      + '请核对 Host 与本机终端的 CLI 版本、配置和登录账号；在同一原生 CLI 的 /model 中查看可用模型，再显式选择。';
   }
   return detail;
 }
@@ -1328,26 +1337,33 @@ function dispatchAppServerCommands(
   text: string,
   handler: ((command: unknown) => Promise<unknown> | unknown) | undefined,
   emit: (event: BackendSessionEvent) => void,
-): { visibleText: string; hasSpeakCommand: boolean; hasNonSpeakCommand: boolean } {
+): { visibleText: string; hasSpeakCommand: boolean; results: Promise<boolean>[] } {
   const fenced = /```meeting-command\s*([\s\S]*?)```/gi;
   let hasSpeakCommand = false;
-  let hasNonSpeakCommand = false;
+  const results: Promise<boolean>[] = [];
   for (const match of text.matchAll(fenced)) {
     try {
       const command = JSON.parse(match[1]);
       if (command?.kind === 'speak' && typeof command.text === 'string' && command.text.trim()) {
         hasSpeakCommand = true;
-      } else hasNonSpeakCommand = true;
-      if (handler) {
-        void Promise.resolve(handler(command)).catch((error) => {
-          emit({ kind: 'error', error: `Meeting command failed: ${String(error)}` });
-        });
       }
+      results.push(Promise.resolve().then(async () => {
+        if (!handler) throw new Error('会议命令处理器不可用');
+        const result = await handler(command);
+        if (isRecord(result) && result.ok === false) {
+          throw new Error(typeof result.error === 'string' ? result.error : '会议命令被拒绝');
+        }
+        return true;
+      }).catch((error) => {
+        emit({ kind: 'error', error: `会议命令未提交：${error instanceof Error ? error.message : String(error)}` });
+        return false;
+      }));
     } catch (error) {
       emit({ kind: 'error', error: `Invalid meeting-command JSON: ${String(error)}` });
+      results.push(Promise.resolve(false));
     }
   }
-  return { visibleText: text.replace(fenced, '').trim(), hasSpeakCommand, hasNonSpeakCommand };
+  return { visibleText: text.replace(fenced, '').trim(), hasSpeakCommand, results };
 }
 
 const COMMAND_ONLY_ACK = '我正在处理，有结果会马上告诉你。';
@@ -1486,12 +1502,14 @@ export class CodexBackend implements CliBackend {
 
 }
 
-/** Resolve an OS-executable Codex path. In a packaged Electron app the SDK is
- * loaded from app.asar, but child_process.spawn cannot execute an ASAR virtual
- * path. electron-builder unpacks the native platform package, so prefer that
- * real path and pass it to the SDK via codexPathOverride.
+/** Prefer the installed native CLI so Host and terminal share a runtime.
+ * If unavailable, use the bundled executable outside app.asar: child_process
+ * cannot execute an ASAR virtual path. Windows npm shims resolve to their exe.
  */
-export function resolveCodexRuntime(resourcesPath = process.resourcesPath): string | null {
+export function resolveCodexRuntime(
+  resourcesPath = process.resourcesPath,
+  options: { systemBinary?: string | null } = {},
+): string | null {
   const platformPackage = process.platform === 'darwin'
     ? `codex-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
     : process.platform === 'linux'
@@ -1508,6 +1526,20 @@ export function resolveCodexRuntime(resourcesPath = process.resourcesPath): stri
         : null;
   const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
   const candidates: string[] = [];
+  // Use the same installed CLI as the native terminal, including its current
+  // model catalog. On Windows the SDK/app-server must receive an executable,
+  // never the npm .cmd shim (CreateProcess cannot execute a batch file).
+  const system = options.systemBinary === undefined ? resolveBinaryFromPath('codex') : options.systemBinary;
+  if (system) {
+    if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(system)) {
+      if (platformPackage && triple) {
+        for (const packageRoot of [
+          join(dirname(system), 'node_modules', '@openai', 'codex', 'node_modules', '@openai', platformPackage),
+          join(dirname(system), 'node_modules', '@openai', platformPackage),
+        ]) candidates.push(join(packageRoot, 'vendor', triple, 'bin', binaryName));
+      }
+    } else candidates.push(system);
+  }
   if (resourcesPath && platformPackage && triple) {
     candidates.push(join(
       resourcesPath,
@@ -1534,8 +1566,6 @@ export function resolveCodexRuntime(resourcesPath = process.resourcesPath): stri
       ));
     } catch { /* the optional native package is unavailable */ }
   }
-  const system = resolveBinaryFromPath('codex');
-  if (system) candidates.push(system);
   for (const candidate of candidates) {
     try {
       if (!existsSync(candidate)) continue;

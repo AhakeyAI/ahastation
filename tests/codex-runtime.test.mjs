@@ -21,6 +21,29 @@ test('resolveCodexRuntime prefers an executable unpacked native binary', async (
   await writeFile(binary, '#!/bin/sh\nexit 0\n');
   await chmod(binary, 0o755);
 
-  assert.equal(resolveCodexRuntime(root), await realpath(binary));
-  assert.equal(resolveCodexRuntime(root).includes('app.asar/'), false);
+  assert.equal(resolveCodexRuntime(root, { systemBinary: null }), await realpath(binary));
+  assert.equal(resolveCodexRuntime(root, { systemBinary: null }).includes('app.asar/'), false);
+});
+
+test('Host prefers the installed executable used by the native CLI', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'ahastation-system-codex-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const binary = join(root, process.platform === 'win32' ? 'codex.exe' : 'codex');
+  await writeFile(binary, '#!/bin/sh\nexit 0\n');
+  await chmod(binary, 0o755);
+  assert.equal(await realpath(resolveCodexRuntime(root, { systemBinary: binary })), await realpath(binary));
+});
+
+test('Windows npm launcher resolves to its native executable instead of an unrelated bundled CLI', async (t) => {
+  if (process.platform !== 'win32') { t.skip('Windows launcher layout'); return; }
+  const root = await mkdtemp(join(tmpdir(), 'ahastation-codex-shim-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const triple = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  const binary = join(root, `node_modules/@openai/codex/node_modules/@openai/codex-win32-${arch}/vendor/${triple}-pc-windows-msvc/bin/codex.exe`);
+  await mkdir(join(binary, '..'), { recursive: true });
+  await writeFile(binary, 'fixture');
+  const shim = join(root, 'codex.cmd');
+  await writeFile(shim, '@echo off');
+  assert.equal(await realpath(resolveCodexRuntime(undefined, { systemBinary: shim })), await realpath(binary));
 });

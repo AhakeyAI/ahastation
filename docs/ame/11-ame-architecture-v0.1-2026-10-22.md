@@ -1,5 +1,7 @@
 # AhaStudio AME 架构草案
 
+> 2026-11-02 局部架构更新：原生 CLI Worker 的执行审批留在 CLI，不增加回 Host 的工具裁决/permit 通路，也不修改 Codex 引擎。实施接缝和当前代码事实见[接线规划](../plans/2026-11-02-native-cli-worker-integration.md)；本文较早的执行建议不再作为这条路线的额外前置，其他架构范围保持。
+
 版本：0.1。日期：2026-10-22。配套[产品规格](./10-ame-product-spec-v0.1-2026-10-22.md)。以下分层、实体和接口是供技术评审的实现建议；已确认产品边界以[决策记录](./09-ame-product-decisions-and-open-questions-2026-10-21.md)为准。
 
 > **在用版本（2026-10-27）。** 本文件已从 Codex 10-22 交接包迁到 `docs/ame/`（决定 G12），以这里为准；交接包里的原件保持不变。修改处标「（10-27 更正）」，汇总见 [README](./README.md)。

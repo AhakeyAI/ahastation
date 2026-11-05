@@ -25,7 +25,8 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 
 import { ClaudeCodeBackend } from '../dist-electron/backends/claude-code-adapter.js';
-import { CodexBackend } from '../dist-electron/backends/codex-adapter.js';
+import { ClaudeTerminalBackend } from '../dist-electron/backends/claude-terminal-adapter.js';
+import { CodexTerminalBackend } from '../dist-electron/backends/codex-terminal-adapter.js';
 import {
   getBackendRegistry,
   resetBackendRegistry,
@@ -116,22 +117,20 @@ function wrapBackend(base, backendId, binaryPath, sessions) {
         config,
         emit,
         inputs: [],
-        permissions: [],
         interrupts: [],
         ended: false,
         async start() {},
         end() { this.ended = true; },
         sendUserText(text, priority) { this.inputs.push({ text, priority }); },
         sendUserContent(content, priority) { this.inputs.push({ content, priority }); },
-        resolvePermission(id, decision, message) {
-          this.permissions.push({ id, decision, message });
-        },
+        resolvePermission() { assert.fail('native CLI approval must stay inside the terminal'); },
         async interrupt(reason) { this.interrupts.push(reason); },
+        async terminateSessionTree() { return { confirmed: true, pid: null }; },
         snapshot() {
           return {
-            protocol: backendId === 'codex' ? 'codex-app-server' : 'claude-cli',
+            protocol: backendId,
             sessionId,
-            backendVersion: backendId === 'codex' ? '0.156.1' : '2.1.150',
+            backendVersion: backendId === 'codex-terminal' ? '0.156.1' : '2.1.150',
           };
         },
       };
@@ -266,7 +265,8 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
 }, async (t) => {
   const claudeRuntime = fakeRuntimeBinary('2.1.150');
   const codexRuntime = fakeRuntimeBinary('0.156.1');
-  if (!runtimeReady('claude-code', claudeRuntime.binary) || !runtimeReady('codex', codexRuntime.binary)) {
+  if (!runtimeReady('claude-code-terminal', claudeRuntime.binary)
+    || !runtimeReady('codex-terminal', codexRuntime.binary)) {
     t.skip('stub Worker runtime version probe unavailable on this host');
     return;
   }
@@ -300,17 +300,21 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
 
   resetBackendRegistry();
   const registry = getBackendRegistry();
-  const claude = new ClaudeCodeBackend();
-  const codex = new CodexBackend();
   registry.register(wrapBackend(
-    claude,
+    new ClaudeCodeBackend(),
     'claude-code',
     claudeRuntime.binary,
     sessions,
   ));
   registry.register(wrapBackend(
-    codex,
-    'codex',
+    new ClaudeTerminalBackend(),
+    'claude-code-terminal',
+    claudeRuntime.binary,
+    sessions,
+  ));
+  registry.register(wrapBackend(
+    new CodexTerminalBackend(),
+    'codex-terminal',
     codexRuntime.binary,
     sessions,
   ));
@@ -352,7 +356,7 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   );
   assert.deepEqual(
     rootWorkers.map((session) => session.backendId).sort(),
-    ['claude-code', 'codex'],
+    ['claude-code-terminal', 'codex-terminal'],
   );
   const loginSession = rootWorkers.find(
     (session) => taskIdForSession(session, taskIds) === 'task-login',
@@ -419,28 +423,8 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   assert.deepEqual(steer, { ok: true, queued: false });
   assert.deepEqual(loginSession.interrupts, ['steer']);
 
-  unitSession.emit({
-    kind: 'permission-request',
-    id: 'high-risk-push',
-    toolName: 'Bash',
-    input: { command: ['git', 'push', '--force', 'origin', 'main'] },
-    toolUseID: 'high-risk-push',
-  });
-  const approvalCard = await waitFor(
-    () => rendererEvents.find(
-      (entry) => entry.event?.kind === 'permission-request'
-        && entry.event.id === 'high-risk-push',
-    ),
-    'high-risk permission did not reach the user',
-  );
-  assert.equal(approvalCard.event.toolName, 'Bash');
-  assert.deepEqual(unitSession.permissions, []);
-  orchestrator.resolvePermission('high-risk-push', 'allow', 'User approved this fixture request.');
-  assert.deepEqual(unitSession.permissions, [{
-    id: 'high-risk-push',
-    decision: 'allow',
-    message: 'User approved this fixture request.',
-  }]);
+  assert.equal(unitSession.config.nativeCliWorker?.mode, 'native-cli-self-approval');
+  assert.equal(unitSession.config.autoApproveScope, 'off');
 
   assert.equal(
     await orchestrator.forwardTaskMessage('task-login', 'task-unit', 'not-a-worker-question')
@@ -573,13 +557,6 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
       event.type === 'task-message-enqueued'
       && event.payload?.taskId === 'task-unit'
       && event.payload?.data?.kind === 'follow-up'
-    )),
-    true,
-  );
-  assert.equal(
-    finalJournal.some((event) => (
-      event.type === 'task-permission-decided'
-      && event.payload?.data?.decision === 'ask-user'
     )),
     true,
   );

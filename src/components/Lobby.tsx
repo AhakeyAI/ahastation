@@ -428,7 +428,7 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                 </select>
               </div>
 
-              {currentBackend?.id === 'claude-code' && currentBackend.available && (
+              {currentBackend && currentBackend.id !== 'pocket-vibe' && (
                 <div className="join-auth-block">
                   <div className="join-auth-block-title">Claude Code CLI 来源</div>
                   <select
@@ -456,27 +456,34 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                   <div className="join-auth-block-title">Worker 执行模式</div>
                   <select
                     className="join-auth-input join-auth-input-full lobby-backend-select"
-                    value={currentBackend.effectiveDefaultWorkerBackendId ?? 'claude-code'}
+                    aria-label="Worker 执行模式"
+                    value={currentBackend.effectiveDefaultWorkerBackendId ?? 'codex-terminal'}
                     onChange={(e) => {
                       void setDefaultWorkerBackend(e.target.value);
                     }}
                   >
                     {[
                       { id: 'claude-code-terminal', label: '终端 TUI（Claude Code）' },
-                      { id: 'kimi-code-terminal', label: '终端 TUI（Kimi Code）' },
                       { id: 'codex-terminal', label: '终端 TUI（Codex）' },
-                      { id: 'qoder-terminal', label: '终端 TUI（Qoder）' },
-                      { id: 'claude-code', label: '无头 Worker' },
                     ]
                       .filter((opt) =>
                         backends.some((b) => b.id === opt.id)
                         || opt.id === (currentBackend.defaultWorkerBackendId ?? 'claude-code-terminal'))
-                      .map((opt) => (
-                        <option key={opt.id} value={opt.id} disabled={opt.id.endsWith('-terminal')}>{opt.label}{opt.id.endsWith('-terminal') ? '（待准入验证）' : ''}</option>
-                      ))}
+                      .map((opt) => {
+                        const admittedNative = opt.id === 'claude-code-terminal' || opt.id === 'codex-terminal';
+                        const unsupportedTerminal = opt.id.endsWith('-terminal') && !admittedNative;
+                        const backendInfo = backends.find((b) => b.id === opt.id);
+                        const unavailable = backendInfo ? !backendInfo.available : false;
+                        return (
+                          <option key={opt.id} value={opt.id} disabled={unsupportedTerminal || unavailable}>
+                            {opt.label}
+                            {unsupportedTerminal ? '（仅手动终端）' : unavailable ? '（未安装）' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                   <div className="join-auth-hint">
-                    {'当前使用 SDK Worker。Claude / Codex 原生终端路径须完成独立守卫与 B04 验证后开放。'}
+                    {'Worker 使用本机原生 CLI，派工后自动打开任务终端标签。工具确认在终端内处理；未安装或不支持时会提示，不切换为无头 Worker。'}
                   </div>
                 </div>
               )}

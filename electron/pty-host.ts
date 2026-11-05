@@ -165,19 +165,74 @@ export function resolveDefaultShell(): string {
   return process.env.SHELL || '/bin/bash';
 }
 
+function processAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}
+
+function collectPosixDescendants(rootPid: number): number[] {
+  const found: number[] = [];
+  const queue = [rootPid];
+  const seen = new Set<number>([rootPid]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    try {
+      const out = execFileSync('pgrep', ['-P', String(current)], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 1_500,
+        windowsHide: true,
+      });
+      for (const line of out.split(/\r?\n/)) {
+        const child = Number.parseInt(line.trim(), 10);
+        if (Number.isInteger(child) && child > 0 && !seen.has(child)) {
+          seen.add(child);
+          found.push(child);
+          queue.push(child);
+        }
+      }
+    } catch (error) {
+      // pgrep status 1 means no children; discovery failure is not exit proof.
+      if ((error as { status?: number }).status !== 1) throw error;
+    }
+  }
+  return found;
+}
+
+async function waitForPidExit(pid: number, timeoutMs = 2_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return !processAlive(pid);
+}
+
 /** One pty per id. The caller (adapter or shell-pty IPC) owns the lifecycle
  *  (spawn/kill); the IPC layers only attach for data mirroring and forward
  *  keyboard input. */
 export class PtyHost {
   private readonly sessions = new Map<string, LivePty>();
   private readonly spawnImpl: PtySpawn | null;
+  private readonly useOsTreeKill: boolean;
 
-  constructor(opts: { spawn?: PtySpawn } = {}) {
+  constructor(opts: { spawn?: PtySpawn; osTreeKill?: boolean } = {}) {
     this.spawnImpl = opts.spawn ?? null;
+    this.useOsTreeKill = opts.osTreeKill ?? (opts.spawn === undefined);
   }
 
   has(id: string): boolean {
     return this.sessions.has(id);
+  }
+
+  pidOf(id: string): number | null {
+    const live = this.sessions.get(id);
+    return live && live.pty.pid > 0 ? live.pty.pid : null;
   }
 
   spawn(id: string, options: PtySpawnOptions): number {
@@ -187,8 +242,13 @@ export class PtyHost {
     const spawnFn = this.spawnImpl ?? defaultPtySpawn();
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(options.env)) {
+      if (process.platform === 'win32' && k.toUpperCase() === 'TERM') continue;
       if (typeof v === 'string') env[k] = v;
     }
+    // node-pty's `name` does not set the child's TERM on Windows.
+    // Match the embedded xterm even when Electron itself came from TERM=dumb.
+    const terminalName = 'xterm-256color';
+    env.TERM = terminalName;
     let file = options.file;
     let args: string[] | string = options.args;
     if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
@@ -197,7 +257,7 @@ export class PtyHost {
       args = `/d /s /v:off /c "${command}"`;
     }
     const pty = spawnFn(file, args, {
-      name: 'xterm-256color',
+      name: terminalName,
       cols: options.cols ?? 100,
       rows: options.rows ?? 30,
       cwd: options.cwd,
@@ -304,7 +364,7 @@ export class PtyHost {
    * Keep subscriptions until ConPTY reports exit; kill() alone is no receipt. */
   async terminateTree(id: string): Promise<void> {
     const live = this.sessions.get(id);
-    if (!live || live.exited) return;
+    if (!live || live.exited) throw new Error('No live PTY owner for process-tree exit evidence');
     // Renderer keyboard IPC also writes through this owner, bypassing the
     // adapter's input queue. Revoke it before awaiting native teardown.
     live.stopping = true;
@@ -313,23 +373,39 @@ export class PtyHost {
     const unsubscribe = this.onExit(id, finish);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.readyPid(id);
+      const pid = await this.readyPid(id);
       if (live.pty.terminateTree) {
         const evidence = await live.pty.terminateTree();
         if (!evidence.confirmed) throw new Error('Guarded PTY tree stop unconfirmed');
-      } else if (process.platform === 'win32') {
+      } else if (this.useOsTreeKill && process.platform === 'win32') {
+        // A missing root after a failed taskkill says nothing about its
+        // descendants. Preserve the failure instead of claiming tree exit.
         await promisify(execFile)(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
-          ['/pid', String(live.pty.pid), '/t', '/f'], { windowsHide: true, timeout: 10_000 });
+          ['/pid', String(pid), '/t', '/f'], { windowsHide: true, timeout: 10_000 });
         // taskkill confirms the owned OS tree; also release node-pty's ConPTY
         // handles and conout worker rather than retain them until daemon exit.
         if (live.pty.releaseAfterTreeExit) live.pty.releaseAfterTreeExit();
         else live.pty.kill();
+      } else if (this.useOsTreeKill) {
+        const descendants = collectPosixDescendants(pid).reverse();
+        for (const childPid of descendants) {
+          try { process.kill(childPid, 'SIGKILL'); } catch { /* exited */ }
+        }
+        const descendantExits = await Promise.all(descendants.map((childPid) => waitForPidExit(childPid)));
+        if (descendantExits.some((exited) => !exited)) {
+          throw new Error('Owned PTY descendant exit unconfirmed');
+        }
+        try { process.kill(-pid, 'SIGKILL'); } catch { /* not a group leader */ }
+        live.pty.kill();
       } else {
         live.pty.kill();
       }
       await Promise.race([exited, new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('Timed out waiting for PTY exit')), 10_000);
       })]);
+      if (this.useOsTreeKill && !(await waitForPidExit(pid))) {
+        throw new Error(`Owned PTY root PID ${pid} remained alive after tree stop`);
+      }
     } finally { clearTimeout(timer); unsubscribe(); }
   }
 

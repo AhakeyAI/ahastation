@@ -14,6 +14,7 @@ import {
 } from '../dist-electron/backends/worker-runtime-contract.js';
 
 const SLOW_VERSION_FIXTURE = fileURLToPath(new URL('./fixtures/worker-runtime/slow-version.mjs', import.meta.url));
+const CODEX_EXPECTED_VERSION = process.platform === 'win32' ? '>=0.156.1 <0.157.0 || =0.166.0' : '>=0.156.1 <0.157.0';
 
 test('runtime versions are extracted from common CLI output', () => {
   assert.equal(extractRuntimeVersion('codex-cli 0.156.1'), '0.156.1');
@@ -53,7 +54,7 @@ test('Worker runtime becomes available at each backend verified version with aut
     assert.equal(result.state, 'available', backendId);
     assert.equal(
       result.expectedVersion,
-      backendId === 'codex' ? '>=0.156.1 <0.157.0' : version,
+      backendId === 'codex' ? CODEX_EXPECTED_VERSION : version,
       backendId,
     );
   }
@@ -95,7 +96,7 @@ test('assessConfiguredWorkerRuntime accepts system Claude versions at dispatch t
 
 test('Codex dispatch and real evidence accept the shared verified interval', () => {
   const expectedRuntimeVersion = resolveWorkerExpectedVersion('codex', '0.156.2');
-  assert.equal(expectedRuntimeVersion, '>=0.156.1 <0.157.0');
+  assert.equal(expectedRuntimeVersion, CODEX_EXPECTED_VERSION);
   assert.equal(assessWorkerRuntime({
     backendId: 'codex', installed: true, implementationEnabled: true,
     authenticated: true, version: '0.156.2',

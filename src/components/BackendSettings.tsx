@@ -721,7 +721,7 @@ function BackendCard({
           <div className="backend-card-name">{b.displayName}</div>
           <div className="backend-card-status">
             <span className={`backend-status-dot ${hasAuth ? 'status-ok' : 'status-none'}`} />
-            {hasAuth ? '已配置' : '未配置'}
+            {hasAuth ? '已配置' : b.authCheckDeferred ? '待检查登录' : '未配置'}
             {b.isDefault && <span className="backend-default-badge">默认</span>}
             {!b.available && <span className="backend-unavailable-badge">未安装</span>}
           </div>
@@ -855,7 +855,7 @@ function BackendCard({
                   }}
                   placeholder={
                     b.id === 'codex'
-                      ? '留空则使用 Codex CLI 默认模型；可填 gpt-5.4 / glm-5.2 等'
+                      ? '留空继承本机 Codex 配置；模型须在当前账号或 Provider 的可用列表中'
                       : (b.defaultModel ?? '默认模型')
                   }
                   disabled={saving}

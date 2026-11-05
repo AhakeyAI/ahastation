@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appendFile, mkdtemp, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -75,6 +75,60 @@ test('codex backend id and capabilities are terminal-shaped', () => {
   assert.equal(backend.capabilities.executeTasks, true);
   assert.equal(backend.capabilities.coordinate, false);
   assert.equal(backend.resolveBinary(), '/x/codex');
+});
+
+test('Windows Codex launches a long multiline task without pasting it or exposing it in argv', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
+  const { backend, spawned } = createFixture(t, { resolveBinary: () => 'C:\\fixture\\codex.exe' });
+  const cwd = await createWorkspace(t);
+  const runtimeDir = await createWorkspace(t);
+  const taskId = 'launch-task';
+  const session = backend.createSession({
+    cwd,
+    executionRole: 'worker',
+    extra: { workerId: taskId },
+    taskProfile: { backendId: 'codex-terminal' },
+    nativeCliWorker: {
+      mode: 'native-cli-self-approval', meetingId: 'fixture', taskId, workerId: taskId,
+      attempt: 1, workspaceMode: 'git-worktree', workspaceCwd: cwd,
+    },
+    env: {
+      AHASTATION_WORKER_URL: 'http://127.0.0.1:54321',
+      AHASTATION_WORKER_TOKEN: 'fixture',
+      AHASTATION_WORKER_ENTRY: 'fixture.cjs',
+    },
+  }, () => {});
+  t.after(() => session.end());
+  const task = `## Task\n${'完整中文任务正文和上下文\n'.repeat(3_500)}\nContext package: fixture-hash`;
+  assert.ok(task.length > 32_767);
+  assert.equal(session.stageInitialTask(task, runtimeDir), true);
+  await session.start();
+  const { args, options, pty } = spawned[0];
+  assert.equal(options.env.AHASTATION_WORKER_BRIEF, join(runtimeDir, 'initial-task.txt'));
+  assert.equal(await readFile(options.env.AHASTATION_WORKER_BRIEF, 'utf8'), task);
+  assert.equal(args.at(-2), '--');
+  assert.match(args.at(-1), /AHASTATION_WORKER_BRIEF/);
+  assert.ok(!args.some((arg) => arg.includes('fixture-hash')));
+  assert.deepEqual(pty.writes, []);
+  assert.equal(session.isIdleForAutomaticInput(), false);
+});
+
+test('a Codex TERM=dumb prompt never receives the queued task', async (t) => {
+  const { backend, spawned } = createFixture(t, { timersEnabled: true });
+  const events = [];
+  const session = backend.createSession({ cwd: await createWorkspace(t) }, event => events.push(event));
+  await session.start();
+  t.after(() => session.end());
+  session.sendUserText('fixture task');
+  const { pty } = spawned[0];
+  pty.emitData('WARNING: TERM is set ');
+  pty.emitData('to “dumb”.\r\nContinue anyway? [y/N]:');
+  const failures = events.filter(e => e.signal?.kind === 'failed');
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].signal.code, 'terminal-startup-blocked');
+  await new Promise(resolve => setTimeout(resolve, 1_750));
+  assert.deepEqual(pty.writes, [], 'task input must not answer the CLI startup prompt');
 });
 
 test('codex launches with inline-TOML Stop hook injection, no managed home', async (t) => {

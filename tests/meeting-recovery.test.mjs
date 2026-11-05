@@ -114,12 +114,16 @@ test('user-confirmed recovery projects interrupted tasks but spawns no workers',
 test('the user can explicitly resolve or restart an interrupted task', async () => {
   const events = [];
   const meetingId = `recovery-${randomUUID()}`;
+  const cwd = mkdtempSync(join(tmpdir(), 'ahastation-recovery-retry-'));
   const orchestrator = new Orchestrator({
-    emit: (event) => events.push(event), cwd: '/tmp', meetingId,
+    emit: (event) => events.push(event), cwd, meetingId,
     sessionFactory: fakeSessionFactory,
     recoveredTasks: [
       { id: 'abandon-task', title: 'Abandoned task', prompt: 'done', status: 'interrupted', deps: [] },
-      { id: 'retry-task', title: 'Retry task', prompt: 'do it again', status: 'interrupted', deps: [] },
+      {
+        id: 'retry-task', title: 'Retry task', prompt: 'do it again', status: 'interrupted', deps: [],
+        workspaceMode: 'shared-locked', writePaths: ['result.txt'],
+      },
     ],
   });
   try {
@@ -141,6 +145,7 @@ test('the user can explicitly resolve or restart an interrupted task', async () 
   } finally {
     await orchestrator.end();
     await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
   }
 });
 
@@ -357,7 +362,7 @@ test('a durable accepted task never regresses because of a late plan event', asy
   }
 });
 
-test('only explicit read-only running tasks auto-resume after durable authorization', async () => {
+test('recovered native read-only task stays interrupted when its restriction cannot be enforced', async () => {
   const sessions = [];
   const events = [];
   const meetingId = `recovery-read-only-${randomUUID()}`;
@@ -373,28 +378,14 @@ test('only explicit read-only running tasks auto-resume after durable authorizat
   });
   try {
     await orchestrator.start();
-    const deadline = Date.now() + 2_000;
-    while (!events.some((event) => (
-      event.event.kind === 'worker-spawned'
-      && event.event.workerId === 'read-only-task'
-    ))) {
-      if (Date.now() > deadline) assert.fail('read-only task did not auto-resume');
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.equal(sessions.length, 2, 'one Host and one read-only Worker are created');
+    assert.equal(sessions.length, 1, 'only the Host is created');
+    assert.equal(events.some((event) => event.event.kind === 'worker-spawned'), false);
+    assert.equal(orchestrator.meetingScheduler.snapshot().find((task) => task.id === 'read-only-task')?.status, 'interrupted');
     const journal = await MeetingRepository.replay(meetingId);
-    const authorization = journal.find(
-      (event) => event.type === 'recovered-task-resolution-authorized',
-    );
-    const spawned = journal.find((event) => (
-      event.type === 'event:worker-spawned'
-      && event.payload.event.workerId === 'read-only-task'
-    ));
-    assert.ok(authorization);
-    assert.equal(authorization.payload.action, 'continue-read-only');
-    assert.equal(authorization.payload.actor, 'system-auto-read-only');
-    assert.ok(spawned);
-    assert.ok(authorization.seq < spawned.seq);
+    assert.equal(journal.some((event) => event.type === 'recovered-task-resolution-authorized'), false);
+    const failure = journal.find((event) => event.type === 'recovered-task-auto-resume-failed');
+    assert.equal(failure?.payload.taskId, 'read-only-task');
+    assert.match(failure?.payload.error ?? '', /^unsupported-contract:.*read-only/);
   } finally {
     await orchestrator.end();
     await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
@@ -771,6 +762,7 @@ test('recovery keeps expert ownership so a stopped sub-agent can restart', async
   const runtime = fakeHostRuntime();
   const events = [];
   const meetingId = `recovery-owned-${randomUUID()}`;
+  const cwd = mkdtempSync(join(tmpdir(), 'ahastation-recovery-owner-'));
   const taskId = 'kickoff-develop-ab12cd';
   const input = {
     id: taskId,
@@ -778,13 +770,14 @@ test('recovery keeps expert ownership so a stopped sub-agent can restart', async
     prompt: '只改工作树',
     deps: [],
     executorBackendId: 'claude-code-terminal',
-    workspaceMode: 'read-only',
+    workspaceMode: 'shared-locked',
+    writePaths: ['result.txt'],
   };
   resetBackendRegistry();
   getBackendRegistry().register(fakeCoordinatingBackend(runtime.binary));
   const orchestrator = new Orchestrator({
     emit: (event) => events.push(event),
-    cwd: '/tmp',
+    cwd,
     meetingId,
     sessionFactory() { return fakeSessionFactory(); },
     recoveredHosts: [
@@ -854,5 +847,6 @@ test('recovery keeps expert ownership so a stopped sub-agent can restart', async
     await orchestrator.end();
     await rm(`${testMeetingsPath(meetingId)}`, { recursive: true, force: true });
     await rm(runtime.dir, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
   }
 });

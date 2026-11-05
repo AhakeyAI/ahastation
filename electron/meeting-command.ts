@@ -161,6 +161,7 @@ export function authorizeMeetingCommand(
     defaultBackendId?: string;
     cwd?: string;
     baselineKind?: 'git-clean' | 'git-dirty' | 'non-git';
+    nativeCliWorkers?: boolean;
   } = {},
 ): { ok: true; command: MeetingCommand } | { ok: false; code: 'invalid-command' | 'forbidden'; error: string } {
   const input = meetingCommandInputSchema.safeParse(raw);
@@ -171,6 +172,7 @@ export function authorizeMeetingCommand(
   const normalizeOptions = {
     cwd: options.cwd,
     baselineKind: options.baselineKind,
+    nativeCliWorkers: options.nativeCliWorkers,
   };
   let normalized: unknown = input.data;
   try {

@@ -363,6 +363,12 @@ const api = {
   workerPty: {
     trustStatus: (workerId) => ipcRenderer.invoke('worker-pty:trust-status', { workerId }),
     confirmTrust: (workerId, generation) => ipcRenderer.invoke('worker-pty:confirm-trust', { workerId, generation }),
+    ready: (sessionId, workerId) => ipcRenderer.invoke('worker-pty:ready', { sessionId, workerId }),
+    takeoverStatus: (workerId) => ipcRenderer.invoke('worker-pty:takeover-status', { workerId }),
+    takeover: (sessionId, workerId, reason) =>
+      ipcRenderer.invoke('worker-pty:takeover', { sessionId, workerId, ...(reason ? { reason } : {}) }),
+    handback: (sessionId, workerId, note) =>
+      ipcRenderer.invoke('worker-pty:handback', { sessionId, workerId, ...(note ? { note } : {}) }),
     attach: (workerId) => ipcRenderer.invoke('worker-pty:attach', { workerId }),
     input: (workerId, data) => ipcRenderer.invoke('worker-pty:input', { workerId, data }),
     resize: (workerId, rows, cols) =>
