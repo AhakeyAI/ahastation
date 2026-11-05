@@ -85,7 +85,7 @@ test('a stopped expert sub-agent restarts as a new attempt owned by the same exp
 
 test('quitting the app keeps the kickoff for the next meeting in the folder; ending it by hand does not', async () => {
   const { app } = await import('electron');
-  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { mkdtemp, rm, mkdir } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Orchestrator } = await import('../dist-electron/orchestrator.js');
@@ -93,11 +93,12 @@ test('quitting the app keeps the kickoff for the next meeting in the folder; end
   const root = await mkdtemp(join(tmpdir(), 'kickoff-carry-'));
   const oldPath = app.getPath;
   app.getPath = () => root;
-  const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {} });
+  const fake = (opts) => ({ opts, async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {}, async terminateSessionTree() { return { confirmed: true, pid: null }; } });
   try {
     const cwd = join(root, 'room');
+    await mkdir(cwd, { recursive: true });
     const orchestrator = new Orchestrator({ emit: () => {}, cwd, meetingId: 'carry-meeting', sessionFactory: fake });
-    const task = { id: 'kickoff-brainstorm-xyz', title: '调研项目现状与方向', prompt: '只读调研', deps: [], workspaceMode: 'read-only' };
+    const task = { id: 'kickoff-brainstorm-xyz', title: '调研项目现状与方向', prompt: '记录调研结果', deps: [], workspaceMode: 'shared-locked', writePaths: ['fixture-output'] };
     assert.deepEqual(await orchestrator.installPlan([task]), { ok: true });
     orchestrator.taskOwners.set(task.id, 'expert-1');
     orchestrator.ownedTaskInputs.set(task.id, task);
