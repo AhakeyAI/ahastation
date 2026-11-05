@@ -6,6 +6,7 @@
     "name": "AhaStation",
     "email": "contact@ahastation.com"
   },
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "main": "dist-electron/bootstrap.js",

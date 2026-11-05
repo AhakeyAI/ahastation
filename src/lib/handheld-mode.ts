@@ -9,6 +9,11 @@ import { useCallback, useEffect, useState } from 'react';
 export type HandheldOverride = 'auto' | 'handheld' | 'desktop';
 export type UiMode = 'handheld' | 'desktop';
 
+// Handheld layout is parked (2026-11-05): until it is redesigned as its own,
+// simpler interaction, every setting resolves to the desktop UI. The stored
+// three-way setting and the auto heuristic below are kept for that redesign.
+export const HANDHELD_LAYOUT_ENABLED = false;
+
 export const HANDHELD_AUTO_MAX_SCREEN_WIDTH = 1300;
 
 export function resolveUiMode(
@@ -16,6 +21,7 @@ export function resolveUiMode(
   pointerCoarse: boolean,
   screenWidth: number,
 ): UiMode {
+  if (!HANDHELD_LAYOUT_ENABLED) return 'desktop';
   if (override === 'handheld') return 'handheld';
   if (override === 'desktop') return 'desktop';
   return pointerCoarse && screenWidth <= HANDHELD_AUTO_MAX_SCREEN_WIDTH

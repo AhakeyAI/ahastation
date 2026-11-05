@@ -6,7 +6,7 @@
 
 import { listChineseVoices, tierLabel, type ListedVoice } from '../lib/voice-quality';
 import type { SpeechFilterMode } from '../lib/speech-format';
-import type { HandheldOverride } from '../lib/handheld-mode';
+import { HANDHELD_LAYOUT_ENABLED, type HandheldOverride } from '../lib/handheld-mode';
 import type { XfyunAsrCredentials } from '../types';
 
 interface VoiceSelectorProps {
@@ -228,7 +228,8 @@ export function VoiceSelector({
         </div>
       </>)}
 
-      {show('general') && (<>
+      {/* Hidden while the handheld layout is parked — every choice would look the same. */}
+      {show('general') && HANDHELD_LAYOUT_ENABLED && (<>
         <div className="drawer-settings-row">
           <div className="drawer-settings-label">
             <div className="drawer-settings-title">掌机模式</div>

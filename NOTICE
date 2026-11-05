@@ -1,0 +1,17 @@
+AhaStation
+Copyright 2026 AhaStation
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software developed by third parties:
+
+- Orca (MIT License, Copyright (c) 2026 Lovecast Inc.): portions adapted in
+  electron/projects.ts, electron/rate-limits.ts, src/lib/rate-limits.ts,
+  src/lib/terminal-appearance.ts, src/components/TerminalBrandIcons.tsx and
+  src/assets/cli-icons/. The full notice is in
+  src/assets/cli-icons/ORCA-LICENSE.txt.
+- public/vad/: ONNX Runtime Web (MIT), @ricky0123/vad-web (ISC) and the
+  Silero VAD v5 model (MIT).
+- public/voice-id/: the 3D-Speaker CAM++ speaker-embedding model (Apache-2.0).
+
+npm dependencies keep their own licenses, listed in node_modules/*/package.json.
