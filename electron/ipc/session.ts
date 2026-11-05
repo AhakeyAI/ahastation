@@ -9,8 +9,6 @@ import { formatError } from '../format-error.js';
 import type { AutoApproveScope } from '../auto-approve-policy.js';
 import type { IpcContext } from './context.js';
 import { saveImageToMaterials } from '../materials.js';
-import { z } from 'zod';
-import { planMeetingTasksSchema,meetingPlanBriefInputSchema } from '../meeting-tools.js';
 
 const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan'] as const);
 type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
@@ -55,35 +53,6 @@ export function registerSessionIpc(ctx: IpcContext): void {
     try {
       await slot.orchestrator.setAutoOrchestration(enabled);
       return { ok: true };
-    } catch (error) {
-      return { ok: false, error: formatError(error) };
-    }
-  });
-
-  ipcMain.handle('session:approve-plan', async (_e, payload: unknown) => {
-    if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid payload' };
-    const approved = (payload as { approved?: unknown }).approved;
-    if (typeof approved !== 'boolean') return { ok: false, error: 'approved must be boolean' };
-    const identity = z.object({
-      proposalId: z.string().uuid(),
-      proposalVersion: z.number().int().positive(),
-      approvalCommandId: z.string().uuid(),
-    }).safeParse((payload as Record<string, unknown>).identity);
-    if (!identity.success) return { ok: false, error: 'invalid plan proposal identity' };
-    let revisedTasks;
-    if ('tasks' in (payload as Record<string, unknown>)) {
-      const parsed = planMeetingTasksSchema.safeParse(
-        (payload as Record<string, unknown>).tasks,
-      );
-      if (!parsed.success) return { ok: false, error: 'invalid revised plan' };
-      revisedTasks = parsed.data;
-    }
-    const slot = ctx.registry.resolve(pickSessionId(payload));
-    if (!slot) return { ok: false, error: 'No active session' };
-    const brief=meetingPlanBriefInputSchema.safeParse((payload as Record<string,unknown>).brief??{});
-    if(!brief.success)return {ok:false,error:'Invalid readable plan'};
-    try {
-      return await slot.orchestrator.approvePendingPlan(approved, revisedTasks, brief.data, identity.data);
     } catch (error) {
       return { ok: false, error: formatError(error) };
     }

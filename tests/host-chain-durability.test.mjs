@@ -9,6 +9,102 @@ import { HostInbox } from '../dist-electron/host/inbox.js';
 import { HostRuntime } from '../dist-electron/host/runtime.js';
 import { MeetingRepository } from '../dist-electron/meeting-repository.js';
 import { Orchestrator } from '../dist-electron/orchestrator.js';
+import { normalizeMeetingPlanBrief, normalizePlanMeetingTasks } from '../dist-electron/meeting-tools.js';
+import { createHash } from 'node:crypto';
+import { buildTalkerMcp } from '../dist-electron/meeting-mcp.js';
+
+const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function planFixture(journal = []) {
+  const append = async (type, payload) => {
+    const event = { id: randomUUID(), seq: journal.length + 1, ts: Date.now(), type, payload: structuredClone(payload) };
+    journal.push(event);
+    return event;
+  };
+  const emit = event => { if (event.event.kind === 'plan-updated') void append('event:plan-updated', event); };
+  const runtime = new HostRuntime({
+    cwd: tmpdir(), emit, autoApproveScope: 'none', getTalker: () => null, isClosed: () => false,
+    sessionFactory: () => assert.fail('recovery must not launch a Worker'), buildWorkerMcp() {},
+  }, { append }, emit, () => false);
+  runtime.scheduler.spawnReadyWorkers = () => {};
+  const tasks = normalizePlanMeetingTasks([
+    { id: 'resume', title: 'Resume', prompt: 'write a result', deps: [], writePaths: ['result.txt'] },
+  ], 'claude-code', { cwd: tmpdir(), baselineKind: 'git-dirty', nativeCliWorkers: true }).tasks;
+  const brief = normalizeMeetingPlanBrief(undefined, tasks);
+  const draft = { id: 'draft-event', seq: 1, type: 'plan-proposal-v1', payload: {
+    schemaVersion: 1, proposalId: 'draft', proposalVersion: 1, basePlanVersion: 0,
+    tasks, brief, contentHash: digest({ normalized: tasks, brief }),
+  } };
+  return { runtime, journal, tasks, brief, draft };
+}
+
+test('commit without plan projection restores idempotency and never queues a duplicate', async t => {
+  const f = planFixture();
+  t.after(() => f.runtime.scheduler.endAll());
+  await f.runtime.install(f.tasks, 'host-request');
+  const recovered = planFixture(f.journal.filter(e => e.type !== 'event:plan-updated'));
+  t.after(() => recovered.runtime.scheduler.endAll());
+  recovered.runtime.restore(recovered.journal, []);
+  assert.deepEqual(await recovered.runtime.install(f.tasks, 'host-request'), { ok: true });
+  assert.deepEqual(recovered.runtime.scheduler.snapshot().map(task => [task.id, task.status]), [['resume', 'interrupted']]);
+  assert.equal(recovered.journal.filter(e => e.type === 'plan-install-committed').length, 1);
+});
+
+test('resumed draft resolution survives commit-only recovery; uncommitted grants preserve the draft', async t => {
+  const f = planFixture();
+  t.after(() => f.runtime.scheduler.endAll());
+  f.journal.push(f.draft);
+  f.runtime.restore(f.journal, []);
+  await f.runtime.install(f.tasks, 'host-request', f.brief);
+  for (const committed of [false, true]) {
+    const journal = f.journal.filter(e => e.type !== 'event:plan-updated' && (committed || e.type !== 'plan-install-committed'));
+    const recovered = planFixture(journal);
+    t.after(() => recovered.runtime.scheduler.endAll());
+    recovered.runtime.restore(journal, []);
+    assert.equal(recovered.runtime.retainedProposal?.proposalId ?? null, committed ? null : 'draft');
+    assert.equal(recovered.runtime.scheduler.snapshot().length, committed ? 1 : 0);
+  }
+});
+
+test('approval-era flat proposal identity resolves only with a matching installation commit', async t => {
+  const f = planFixture();
+  t.after(() => f.runtime.scheduler.endAll());
+  await f.runtime.install(f.tasks, 'host-request');
+  const grant = f.journal.find(e => e.type === 'plan-authority-approved');
+  Object.assign(grant.payload, { schemaVersion: 1, source: 'plan-meeting-confirmation', proposalId: 'draft', approvalCommandId: grant.payload.decisionId });
+  for (const committed of [false, true]) {
+    const journal = [f.draft, ...f.journal.filter(e => e.type !== 'event:plan-updated' && (committed || e.type !== 'plan-install-committed'))];
+    const recovered = planFixture(journal);
+    t.after(() => recovered.runtime.scheduler.endAll());
+    recovered.runtime.restore(journal, []);
+    assert.equal(recovered.runtime.retainedProposal?.proposalId ?? null, committed ? null : 'draft');
+  }
+});
+
+test('delegate MCP retries keep their task identity, while new calls and changed content remain distinct', async t => {
+  const orch = new Orchestrator({ cwd: tmpdir(), emit() {} });
+  t.after(() => orch.end());
+  // Keep the production delegation path, bypass readiness without calling an account.
+  orch.validateExecutionBackends = async () => null;
+  orch.hostRuntime.scheduler.spawnReadyWorkers = () => {};
+  const server = buildTalkerMcp(orch).instance;
+  const call = (id, description = 'write a result') => server.dispatch({ jsonrpc: '2.0', id, method: 'tools/call',
+    params: { name: 'delegate_task', arguments: { description, writePaths: ['result.txt'] } } });
+  const [first, retried] = await Promise.all([call(1), call(1)]);
+  assert.deepEqual(first, retried);
+  assert.equal(orch.hostRuntime.scheduler.snapshot().length, 1);
+  await call(2); // Intentional new call with identical content.
+  assert.equal(orch.hostRuntime.scheduler.snapshot().length, 2);
+  assert.deepEqual(await call(1), first); // A retry also works after another install.
+  const conflict = await call(1, 'write something different');
+  assert.match(conflict.result.content[0].text, /identity reused/);
+  const journal = await orch.replayMeetingJournal();
+  const recovered = planFixture(journal);
+  t.after(() => recovered.runtime.scheduler.endAll());
+  recovered.runtime.restore(journal, []);
+  const grant = journal.find(e => e.type === 'plan-authority-approved');
+  assert.deepEqual(await recovered.runtime.install(grant.payload.normalizedTasks, 'host-request', undefined, undefined, grant.payload.requestId), { ok: true });
+  assert.equal(recovered.runtime.scheduler.snapshot().length, 2);
+});
 
 test('Host acceptance survives disconnection, lost reply and restart without replaying uncertain sends', async (t) => {
   const rootDir = await mkdtemp(join(tmpdir(), 'host-inbox-recovery-'));
@@ -118,8 +214,8 @@ test('cancelled user input stays cancelled and an unsent question follows the ne
   assert.deepEqual(sent, [['current', 'durable question']]);
 });
 
-test('the current proposal survives restart and stale or duplicate approvals cannot install extra tasks', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'host-plan-version-'));
+test('direct plan installs are durable and idempotent, while approval-era drafts stay inert', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'host-plan-direct-'));
   const meetingId = randomUUID();
   const originalPath = app.getPath;
   const meetings = [];
@@ -139,52 +235,106 @@ test('the current proposal survives restart and stale or duplicate approvals can
       async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {},
     }),
   };
+  const task = id => ({ id, title: id, prompt: 'create output', deps: [], writePaths: ['output.txt'] });
   const orch = new Orchestrator(opts);
   meetings.push(orch);
   await orch.start();
-  const task = id => ({ id, title: id, prompt: 'create output', deps: [], writePaths: ['output.txt'] });
-  assert.equal((await orch.proposePlan([task('proposal-a')])).ok, true);
-  assert.equal((await orch.proposePlan([task('proposal-b')])).ok, true);
+  assert.deepEqual(await orch.proposePlan([task('direct-a')]), { ok: true, status: 'installed' });
+  assert.deepEqual(await orch.proposePlan([task('direct-b')]), { ok: true, status: 'installed' });
+  const installedJournal = await MeetingRepository.replay(meetingId);
+  assert.deepEqual(
+    installedJournal.filter(event => event.type === 'plan-authority-approved').map(event => event.payload.source),
+    ['host-request', 'host-request'],
+  );
+  // A retransmitted request cannot install a duplicate task.
+  assert.deepEqual(await orch.proposePlan([task('direct-b')]), { ok: true, status: 'installed' });
+  const retriedJournal = await MeetingRepository.replay(meetingId);
+  assert.equal(retriedJournal.filter(event => event.type === 'plan-authority-approved').length, 2);
+  assert.deepEqual(
+    retriedJournal.filter(event => event.type === 'plan-install-committed').at(-1).payload.taskIds,
+    ['direct-b'],
+  );
   await orch.end();
-  const journal = await MeetingRepository.replay(meetingId);
-  const proposals = journal.filter(event => event.type === 'plan-proposal-v1').map(event => event.payload);
-  const recovered = new Orchestrator({ ...opts, recoverySeq: journal.at(-1).seq });
+
+  const recovered = new Orchestrator({ ...opts, recoverySeq: retriedJournal.at(-1).seq });
   meetings.push(recovered);
   await recovered.start();
-  const identity = ({ proposalId, proposalVersion }) => ({ proposalId, proposalVersion, approvalCommandId: randomUUID() });
-  assert.match((await recovered.approvePendingPlan(true, [task('proposal-a')], undefined, identity(proposals[0]))).error, /version conflict/);
-  assert.match((await recovered.approvePendingPlan(false, undefined, undefined, identity(proposals[0]))).error, /version conflict/);
-  const approval = identity(proposals[1]);
-  const [first, retry] = await Promise.all([
-    recovered.approvePendingPlan(true, undefined, undefined, approval),
-    recovered.approvePendingPlan(true, undefined, undefined, approval),
-  ]);
-  assert.deepEqual(first, { ok: true });
-  assert.deepEqual(retry, first);
-  assert.match((await recovered.approvePendingPlan(false, undefined, undefined, approval)).error, /command content conflict/);
-  const entries = await MeetingRepository.replay(meetingId);
-  const grants = entries.filter(event => event.type === 'plan-authority-approved');
-  assert.equal(grants.length, 1);
-  assert.deepEqual(grants[0].payload.tasks.map(task => task.taskId), ['proposal-b']);
+  const recoveredPlan = (await recovered.replayMeetingJournal())
+    .filter(event => event.type === 'event:plan-updated').at(-1).payload.event.plan;
+  assert.deepEqual(recoveredPlan.nodes.map(node => node.id).sort(), ['direct-a', 'direct-b']);
+  assert.equal(events.some(event => event.kind === 'plan-draft-retained'), false);
+  await recovered.end();
 
-  const commit = entries.find(event => event.type === 'plan-install-committed');
-  assert.ok(commit);
-  for (const committed of [false, true]) {
-    const eventsAtCrash = entries.filter(event => event.seq <= (committed ? commit.seq : grants[0].seq));
-    const runtime = new HostRuntime({
-      cwd: root, emit() {}, autoApproveScope: 'none', getTalker: () => null,
-      sessionFactory: () => assert.fail('replay must not launch a session'), buildWorkerMcp() {},
-    }, new MeetingRepository(meetingId), () => {}, () => false);
-    const tasksAtRecovery = [];
-    runtime.restore(eventsAtCrash, tasksAtRecovery);
-    if (committed) {
-      assert.equal(runtime.pendingProposal, null);
-      assert.deepEqual(tasksAtRecovery.map(task => [task.id, task.status, task.approvalDecisionId]),
-        [['proposal-b', 'interrupted', approval.approvalCommandId]]);
-    } else {
-      assert.equal(runtime.pendingProposal.proposalId, proposals[1].proposalId);
-      assert.deepEqual(tasksAtRecovery, []);
-    }
-    await runtime.scheduler.endAll();
-  }
+  // Crash between grant and commit: no installed task and no idempotency token.
+  const normalized = normalizePlanMeetingTasks(
+    [task('crash-task')], 'claude-code', { cwd: root, baselineKind: 'git-dirty', nativeCliWorkers: true },
+  ).tasks;
+  const crashRepository = new MeetingRepository(meetingId);
+  const crashRuntime = new HostRuntime({
+    cwd: root, emit() {}, autoApproveScope: 'none', getTalker: () => null, isClosed: () => false,
+    sessionFactory: () => ({
+      async start() {}, end() {}, sendUserText() {}, sendUserContent() {}, resolvePermission() {}, async interrupt() {},
+    }), buildWorkerMcp() {},
+  }, crashRepository, () => {}, () => false);
+  const requestHash = (await import('node:crypto')).createHash('sha256')
+    .update(JSON.stringify(normalized)).digest('hex');
+  crashRuntime.restore([{
+    id: randomUUID(), seq: 1, ts: Date.now(), type: 'plan-authority-approved',
+    payload: {
+      schemaVersion: 2, decisionId: 'grant-without-commit', approvedAt: Date.now(),
+      source: 'host-request', requestHash, planVersion: 1, normalizedTasks: normalized, tasks: [],
+    },
+  }], []);
+  assert.deepEqual(crashRuntime.scheduler.snapshot(), []);
+  assert.deepEqual(await crashRuntime.install(normalized, 'host-request'), { ok: true });
+  assert.deepEqual(crashRuntime.scheduler.snapshot().map(entry => entry.id), ['crash-task']);
+  await crashRuntime.scheduler.endAll();
+
+  // Approval-era drafts are readable but a restart must not execute them.
+  const { tasks: legacyTasks } = normalizePlanMeetingTasks(
+    [{ id: 'legacy-draft', title: 'Legacy draft', prompt: 'write the old plan', deps: [], writePaths: ['legacy.txt'] }],
+    'claude-code', { cwd: root, baselineKind: 'git-dirty', nativeCliWorkers: true },
+  );
+  const brief = normalizeMeetingPlanBrief({ goal: 'legacy goal', steps: [], risks: [], openQuestions: [] }, legacyTasks);
+  const proposalId = randomUUID();
+  const contentHash = (await import('node:crypto')).createHash('sha256')
+    .update(JSON.stringify({ normalized: legacyTasks, brief })).digest('hex');
+  const emitted = [];
+  const draftRepository = new MeetingRepository(meetingId);
+  const draftRuntime = new HostRuntime({
+    cwd: root, emit() {}, autoApproveScope: 'none', getTalker: () => null, isClosed: () => false,
+    sessionFactory: () => assert.fail('a retained draft must not launch a session'), buildWorkerMcp() {},
+  }, draftRepository, event => emitted.push(event.event), () => false);
+  const recoveredTasks = [];
+  draftRuntime.restore([{
+    id: randomUUID(), seq: 1, ts: Date.now(), type: 'plan-proposal-v1',
+    payload: {
+      schemaVersion: 1, proposalId, proposalVersion: 1, basePlanVersion: 0, contentHash,
+      tasks: legacyTasks, brief,
+    },
+  }], recoveredTasks);
+  assert.deepEqual(recoveredTasks, []);
+  assert.equal(draftRuntime.retainedProposal.proposalId, proposalId);
+  draftRuntime.publishPlanState();
+  assert.deepEqual(emitted.map(event => event.kind), ['plan-draft-retained']);
+  assert.equal(emitted[0].tasks[0].id, 'legacy-draft');
+  await draftRuntime.scheduler.endAll();
+
+  // A legacy confirmation already installed that draft; it is not offered again.
+  const resolvedRuntime = new HostRuntime({
+    cwd: root, emit() {}, autoApproveScope: 'none', getTalker: () => null, isClosed: () => false,
+    sessionFactory: () => assert.fail('a resolved legacy draft must not launch a session'), buildWorkerMcp() {},
+  }, new MeetingRepository(meetingId), () => {}, () => false);
+  resolvedRuntime.restore([
+    {
+      id: 'legacy-proposal-event', seq: 1, ts: Date.now(), type: 'plan-proposed',
+      payload: { tasks: legacyTasks, brief },
+    },
+    {
+      id: 'legacy-confirmation', seq: 2, ts: Date.now(), type: 'plan-approval-result',
+      payload: { source: 'plan-meeting-confirmation' },
+    },
+  ], []);
+  assert.equal(resolvedRuntime.retainedProposal, null);
+  await resolvedRuntime.scheduler.endAll();
 });

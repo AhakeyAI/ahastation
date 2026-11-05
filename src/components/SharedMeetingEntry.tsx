@@ -10,7 +10,7 @@ export function SharedMeetingEntry({backends,defaultHost,onEnter}:{backends:Back
       const binding=await sharedRequest(project==='new-directory'?'directory.grant':'project.bind',{projectId,permission:'workspace-write'}) as {cancelled?:boolean};if(binding.cancelled)return;
     }
     let base:string|undefined;if(projectId){const result=await sharedRequest('project.inspect',{projectId}) as {commit?:string};base=result.commit;}
-    const meeting=await sharedCommand('meeting.create',{title,members:[],participants:[],autoApprovePlan:false,autoAssign:false,hostAgentId:actualHost,hostAuthority:'original-orchestrator',...(projectId?{mainProjectId:projectId}:{}),...(base?{mainBaseCommit:base}:{})}) as {id:string};selectSharedMeeting(meeting.id);onEnter();
+    const meeting=await sharedCommand('meeting.create',{title,members:[],participants:[],autoApprovePlan:true,autoAssign:false,hostAgentId:actualHost,hostAuthority:'original-orchestrator',...(projectId?{mainProjectId:projectId}:{}),...(base?{mainBaseCommit:base}:{})}) as {id:string};selectSharedMeeting(meeting.id);onEnter();
   }finally{setBusy(false);}};
   return <section className="unified-entry"><h2>同账号会议</h2><p>{view?.connected?'本机已接入，可创建或加入同一会议':'先在设置登录 Station 并接入本机；原本机会议仍可使用。'}</p>{(error||view?.error)&&<p role="alert">{error||view?.error}</p>}<button onClick={()=>void window.vibeMeet.settingsWindow.open()}>账号、本机与 Agent 设置</button>
     {(view?.snapshot.entities.meeting??[]).map(m=><button className="lobby-row" key={m.id} onClick={()=>{selectSharedMeeting(m.id);onEnter();}}><strong>{String(m.title)}</strong><small>沿用原 Host、项目和任务 · 加入查看与交流</small></button>)}

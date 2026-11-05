@@ -11,11 +11,6 @@ import type {
 } from '../types';
 import type { MeetingState } from '../lib/meeting-store';
 import { shallowEqualArray, useMeetingSelector } from '../hooks/useMeetingSelector';
-import {
-  DISPATCH_MODE_HINTS,
-  DISPATCH_MODE_LABELS,
-  type DispatchMode,
-} from '../lib/dispatch-mode';
 import { ApprovalCard } from './ApprovalCard';
 import { FileTree } from './FileTree';
 import { Modal } from './Modal';
@@ -52,8 +47,6 @@ interface SideDrawerProps {
   ) => Promise<{ ok: boolean; error?: string;pending?:boolean }>;
   onSubscribeDroppedFiles?: (cb: (files: File[]) => void) => () => void;
   multiAgent?: boolean;
-  dispatchMode?: DispatchMode;
-  onChangeDispatchMode?: (mode: DispatchMode) => void;
   disabled: boolean;
   disabledReason?: string;
   sessionId?: string | null;
@@ -230,8 +223,6 @@ export const SideDrawer = memo(function SideDrawer({
   onSendAttachments,
   onSubscribeDroppedFiles,
   multiAgent = false,
-  dispatchMode = 'direct',
-  onChangeDispatchMode,
   disabled,
   disabledReason = '会议未开始',
   sessionId,
@@ -581,9 +572,7 @@ export const SideDrawer = memo(function SideDrawer({
   const placeholder = disabled
     ? disabledReason
     : multiAgent
-      ? dispatchMode === 'plan'
-        ? 'Plan 模式 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
-        : '直接派活 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
+      ? '直接说明要做什么 · Enter 发送 · Shift+Enter 换行 · 📎/拖放/粘贴可附文件'
       : '输入消息，Enter 发送；可附文件、拖放或粘贴';
 
   const sendDisabled = disabled || staging || sending || (staged.length === 0 && !text.trim());
@@ -773,26 +762,6 @@ export const SideDrawer = memo(function SideDrawer({
           <div className="drawer-composer">
             {composerHint && <p role="status">{composerHint}</p>}
             {composerTools && <div className="composer-tools" role="toolbar" aria-label="会议工具">{composerTools}</div>}
-            {multiAgent && onChangeDispatchMode && (
-              <div
-                className="dispatch-mode-switch"
-                role="group"
-                aria-label="派活方式"
-              >
-                {(['direct', 'plan'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`dispatch-mode-option ${dispatchMode === mode ? 'is-active' : ''}`}
-                    aria-pressed={dispatchMode === mode}
-                    title={DISPATCH_MODE_HINTS[mode]}
-                    onClick={() => onChangeDispatchMode(mode)}
-                  >
-                    {DISPATCH_MODE_LABELS[mode]}
-                  </button>
-                ))}
-              </div>
-            )}
             {(staged.length > 0 || rejected.length > 0) && (
               <div className="attachment-strip">
                 {staged.map((a) => (

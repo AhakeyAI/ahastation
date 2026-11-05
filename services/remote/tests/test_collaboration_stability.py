@@ -8,13 +8,14 @@ class StabilityTest(baseline.StationCollaborationTest):
     def current(self,meeting):
         return next(m for m in CollaborationStore(self.store).snapshot(self.account['owner_id'])['entities']['meeting'] if m['id']==meeting['id'])
 
-    async def test_identical_host_proposal_keeps_existing_approval_and_only_real_change_needs_review(self):
+    async def test_host_proposal_dispatches_directly_even_when_legacy_auto_approve_is_off(self):
         m,task=await self.prepare();before=self.current(m)
         same=await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'expectedPlanVersion':before['planVersion'],'expectedPlanDecisionVersion':before['planDecisionVersion'],'tasks':[task]})
         self.assertTrue(same['planApproved']);self.assertEqual(same['planVersion'],before['planVersion']);self.assertEqual(same['planDecisionVersion'],before['planDecisionVersion'])
         changed=await self.command(self.a['token'],'plan.propose',{'meetingId':m['id'],'expectedPlanVersion':same['planVersion'],'expectedPlanDecisionVersion':same['planDecisionVersion'],'tasks':[{**task,'objective':'actual new arrangement'}]})
-        self.assertFalse(changed['planApproved']);self.assertEqual(changed['planVersion'],same['planVersion']+1)
-        # An explicit human rejection still changes the decision on the same content.
+        self.assertTrue(changed['planApproved']);self.assertEqual(changed['planVersion'],same['planVersion']+1)
+        # Explicit human decisions remain available for older clients, but the
+        # Host's new arrangement is already approved for direct dispatch.
         approved=await self.command(self.b['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':changed['planVersion'],'approved':True})
         rejected=await self.command(self.b['token'],'plan.decide',{'meetingId':m['id'],'expectedPlanVersion':approved['planVersion'],'approved':False})
         self.assertFalse(rejected['planApproved']);self.assertEqual(rejected['planVersion'],approved['planVersion'])

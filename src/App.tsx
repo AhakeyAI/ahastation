@@ -64,14 +64,6 @@ import { EditorOverlay } from './components/EditorOverlay';
 import { Modal } from './components/Modal';
 import { ToastViewport } from './components/ToastViewport';
 import { roomWindowCwd } from './lib/room-window';
-import { PlanMeetingModal } from './components/PlanMeetingModal';
-import {
-  buildDirectAttachmentDirective,
-  buildDirectDirective,
-  buildPlanAttachmentDirective,
-  buildPlanDirective,
-  type DispatchMode,
-} from './lib/dispatch-mode';
 import type { AutoApproveScope, BackendInfo, DesktopSource, LocalCliInfo, PendingPermission, SkillInfo } from './types';
 
 const ROOM_CWD = roomWindowCwd();
@@ -154,7 +146,6 @@ export function App() {
   const [muted, setMuted] = useState(false);
   const [autoApproveScope, setAutoApproveScope] = useState<AutoApproveScope>('off');
   const [multiAgent, setMultiAgent] = useState(true);
-  const [dispatchMode, setDispatchMode] = useState<DispatchMode>('direct');
   // P3 agent 详情面板（右侧滑出）：'user' 忽略，hostId/workerId 打开详情
   const [agentPanelId, setAgentPanelId] = useState<string | null>(null);
   // P6 探索页
@@ -336,7 +327,6 @@ export function App() {
     if (kickoffDismissed[cwd]) return false;
     try { if (window.localStorage.getItem(kickoffDismissKey)) return false; } catch { /* storage off: show */ }
     const boardEmpty = !crossProjectTasks.tasks.some((t) => t.cwd === cwd)
-      && !crossProjectTasks.pendingPlans.some((p) => p.cwd === cwd)
       && !backlog.some((b) => b.cwd === cwd);
     if (!boardEmpty) return false;
     if (meetingStore.isFreshProject(cwd)) return true;
@@ -370,8 +360,7 @@ export function App() {
   }, [meetingGate.sessionId, dismissKickoff]);
 
   const attentionCount = useMemo(
-    () => crossProjectTasks.tasks.filter((t) => t.column === 'confirm').length
-      + crossProjectTasks.pendingPlans.length,
+    () => crossProjectTasks.tasks.filter((t) => t.column === 'confirm').length,
     [crossProjectTasks],
   );
 
@@ -386,22 +375,18 @@ export function App() {
     return { worker: directWorker ?? talker, hostGroup: hg };
   }, [agentPanelId, workers.hostGroups, workers.workerList]);
 
-  // 状态栏活跃任务计数（进行中 + 待批准 + 待验收）
+  // 状态栏活跃任务计数（进行中 + 待验收）
   const activeTaskCount = useMemo(() => {
     const nodes = workers.plan?.nodes ?? [];
     const active = nodes.filter(
       (node) => !['accepted', 'done', 'failed', 'interrupted'].includes(node.status),
     ).length;
-    return active + (pendingPermission ? 1 : 0) + (workers.pendingPlan ? 1 : 0);
-  }, [workers.plan, pendingPermission, workers.pendingPlan]);
+    return active + (pendingPermission ? 1 : 0);
+  }, [workers.plan, pendingPermission]);
 
   const handleOpenTaskFromBoard = useCallback((sessionId: string, taskId: string) => {
     void meetingStore.setActive(sessionId);
     setTaskFocus((prev) => ({ taskId, seq: (prev?.seq ?? 0) + 1 }));
-  }, []);
-
-  const handleOpenPlanFromBoard = useCallback((sessionId: string) => {
-    void meetingStore.setActive(sessionId);
   }, []);
 
   const enterBoardOnly = useCallback(() => {
@@ -888,21 +873,8 @@ export function App() {
   const sendWithMode = useCallback(async (raw: string, _mentions?: unknown, inputId?: string, source?: 'voice-transcript') => {
     const trimmed = raw.trim();
     if (!trimmed) return;
-    const remoteMention = remoteMentionIds(trimmed, [...workers.hostGroups.values()]).length > 0;
-    if (remoteMention) {
-      await sendText(trimmed, { inputId, source });
-      return;
-    }
-    if (!multiAgent) {
-      await sendText(trimmed, { inputId, source });
-      return;
-    }
-    const directive = dispatchMode === 'plan'
-      ? buildPlanDirective(trimmed)
-      : trimmed;
-    // Chat shows only the user's words; the model still gets the full directive.
-    await sendText(directive, { displayText: trimmed, inputId, source });
-  }, [dispatchMode, multiAgent, sendText, workers.hostGroups]);
+    await sendText(trimmed, { inputId, source });
+  }, [sendText]);
 
   sendWithModeRef.current = sendWithMode;
 
@@ -912,18 +884,9 @@ export function App() {
       if (staged.length && remoteMentionIds(trimmed, [...workers.hostGroups.values()], true).length) {
         return { ok: false, error: REMOTE_ATTACHMENT_ERROR };
       }
-      if (!multiAgent) {
-        return sendAttachments(staged, trimmed, { inputId });
-      }
-      const directive = dispatchMode === 'plan'
-        ? buildPlanAttachmentDirective(trimmed)
-        : trimmed;
-      return sendAttachments(staged, directive, {
-        displayText: trimmed.length > 0 ? trimmed : undefined,
-        inputId,
-      });
+      return sendAttachments(staged, trimmed, { inputId });
     },
-    [dispatchMode, multiAgent, sendAttachments, workers.hostGroups],
+    [sendAttachments, workers.hostGroups],
   );
 
   // Memoized element trees handed to memoized children. Inline JSX in props
@@ -1157,7 +1120,6 @@ export function App() {
               <TasksView
                 data={crossProjectTasks}
                 onOpenTask={handleOpenTaskFromBoard}
-                onOpenPlan={handleOpenPlanFromBoard}
                 onOpenTaskTerminal={(task) => void openTaskTerminalFromBoard(task)}
                 onStartBacklog={(item) => void startBacklogFromBoard(item)}
                 onContinueObserved={continueObservedFromBoard}
@@ -1190,8 +1152,6 @@ export function App() {
           onSendAttachments={sendAttachmentsWithMode}
           onSubscribeDroppedFiles={onDroppedFiles}
           multiAgent={multiAgent}
-          dispatchMode={dispatchMode}
-          onChangeDispatchMode={setDispatchMode}
           disabled={!meetingGate.acceptsInput}
           disabledReason={meetingGate.reason}
           composerHint={meetingGate.acceptsInput && !meetingGate.ready ? 'Host 暂未就绪，发送的内容会保存并等待处理。' : undefined}
@@ -1291,16 +1251,6 @@ export function App() {
       />
 
       <ToastViewport />
-
-      <PlanMeetingModal
-        key={workers.pendingProposal?.proposalId ?? 'local-plan'}
-        open={Boolean(workers.pendingPlan)}
-        brief={workers.pendingPlanBrief}
-        tasks={workers.pendingPlan ?? []}
-        backends={backends}
-        onReject={() => workers.decidePendingPlan(false, undefined, undefined, workers.pendingProposal)}
-        onSubmit={(tasks,brief) => workers.decidePendingPlan(true, tasks, brief, workers.pendingProposal)}
-      />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
       {/* 空项目开场：弹窗询问先脑暴还是开发，不占用看板标签。 */}

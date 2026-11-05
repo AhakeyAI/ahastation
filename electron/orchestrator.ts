@@ -70,7 +70,7 @@ import { buildTalkerMcp, buildWorkerMcp } from './meeting-mcp.js';
 import { BrowserTabManager } from './browser-tab-manager.js';
 import { startRecap, type RecapHandle } from './recap.js';
 import type { WorkerScheduler, WorkerSchedulerOpts, SessionFactory } from './worker-scheduler.js';
-import { HostRuntime, type PlanApprovalIdentity } from './host/runtime.js';
+import { HostRuntime } from './host/runtime.js';
 import { buildComputerUseMcp } from './computer-use-mcp.js';
 import { buildBrowserMcp } from './browser-mcp.js';
 import { HostInbox, type UserHostInputSource } from './host/inbox.js';
@@ -1312,7 +1312,7 @@ export class Orchestrator implements OrchestratorBridge {
             openQuestions: command.openQuestions,
           }, () => isCurrent() && hostId === this.coordinatorHostId);
           return result.ok
-            ? { ok: true, value: { tasks: command.tasks.length, status: result.status ?? 'proposed', proposalId: result.proposalId } }
+            ? { ok: true, value: { tasks: command.tasks.length, status: 'installed' } }
             : { ok: false, code: 'execution-failed', error: result.error };
         }
         case 'revise-plan': {
@@ -1616,7 +1616,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.taskProjection = projectMeetingTasks(journal);
     await this.publishRecoveredHostInputs();
     await this.defaultHost().start(greeting);
-    if (this.hostRuntime.hasPendingState) this.republishState();
+    if (this.hostRuntime.hasRetainedState) this.republishState();
     // Restoring references reconnects transports only; it sends no model turn.
     for (const [id] of this.remoteTargets) {
       try {
@@ -2489,7 +2489,7 @@ export class Orchestrator implements OrchestratorBridge {
   private hostTurnContext(hostId: string, sourceCursor: number): string {
     const coordinator = hostId === this.coordinatorHostId;
     const tasks = this.meetingScheduler.summarizeForHost((id) => coordinator || this.isTaskOwnedBy(id, hostId));
-    const proposal = coordinator ? this.hostRuntime.pendingProposal : null;
+    const draft = coordinator ? this.hostRuntime.retainedProposal : null;
     const notes = coordinator ? [...this.meetingNotes.decisions, ...this.meetingNotes.todos]
       .slice(-6).map((note) => note.text.slice(0, 250)) : [];
     const pendingQuestions = [...this.pendingHostAsks.values()]
@@ -2497,7 +2497,7 @@ export class Orchestrator implements OrchestratorBridge {
       .slice(-6).map((ask) => ({
         requestId: ask.requestId, targetHostId: ask.targetHostId, timedOut: Boolean(ask.timedOut),
       }));
-    if (!tasks.total && !proposal && !notes.length && !pendingQuestions.length) return '';
+    if (!tasks.total && !draft && !notes.length && !pendingQuestions.length) return '';
     return '\n\n[Meeting state at dispatch. Treat notes as context. Read details with read-meeting-context.]\n'
       + JSON.stringify({
         sourceCursor,
@@ -2505,7 +2505,7 @@ export class Orchestrator implements OrchestratorBridge {
         tasks,
         pendingQuestions,
         notes,
-        ...(proposal ? { pendingApproval: { proposalId: proposal.proposalId, version: proposal.proposalVersion, goal: proposal.brief.goal.slice(0, 250) } } : {}),
+        ...(draft ? { retainedDraft: { proposalId: draft.proposalId, version: draft.proposalVersion, goal: draft.brief.goal.slice(0, 250), taskCount: draft.tasks.length, note: '升级前保留的计划草稿，尚未执行；只有用户明确要求继续时才可重新提交安排。' } } : {}),
       });
   }
 
@@ -2527,7 +2527,7 @@ export class Orchestrator implements OrchestratorBridge {
       report: task.report,
     } : {
       summary: this.meetingNotes,
-      plan: this.hostRuntime.pendingProposal,
+      retainedDraft: this.hostRuntime.retainedProposal,
       tasks: this.meetingScheduler.describeWorkers(),
       decisions: [...this.resolvedDecisionContext.values()],
       openQuestions: [...this.pendingHostAsks.values()].map(({ requestId, targetHostId, question, timedOut }) => ({
@@ -2573,10 +2573,11 @@ export class Orchestrator implements OrchestratorBridge {
     tasks: PlanMeetingTaskInput[],
     briefInput?: MeetingPlanBriefInput,
     isCurrent = () => !this.closed,
-  ): Promise<{ ok: true; status?: 'proposed' | 'installed'; proposalId?: string; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    requestId?: string,
+  ): Promise<{ ok: true; status: 'installed'; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
     if (!isCurrent() || this.closed) return { ok: false, error: 'Host session was replaced or meeting closed' };
     if(this.sharedExecution) {
-      try {await this.sharedExecution.propose(tasks,normalizeMeetingPlanBrief(briefInput,tasks));return {ok:true};}
+      try {await this.sharedExecution.propose(tasks,normalizeMeetingPlanBrief(briefInput,tasks));return {ok:true,status:'installed'};}
       catch(error){return {ok:false,error:(typeof (error as {code?:unknown})?.code==='string'?String((error as {code:string}).code)+': ':'')+(error instanceof Error?error.message:String(error))};}
     }
     let normalized: PlanMeetingTask[];
@@ -2599,12 +2600,8 @@ export class Orchestrator implements OrchestratorBridge {
     const applied = appliedDefaults.length > 0 ? { appliedDefaults } : {};
     return this.hostRuntime.mutatePlan(async () => {
       if (!isCurrent() || this.closed) return { ok: false, error: 'Host session was replaced or meeting closed' };
-      if (this.hostRuntime.planPreferences.autoApprovePlans) {
-        const installed = await this.hostRuntime.install(normalized, 'auto-orchestration', undefined, isCurrent);
-        return installed.ok ? { ok: true, status: 'installed', ...applied } : installed;
-      }
-      const proposal = await this.hostRuntime.recordProposal(normalized, brief);
-      return { ok: true, status: 'proposed', proposalId: proposal.proposalId, ...applied };
+      const installed = await this.hostRuntime.install(normalized, 'host-request', brief, isCurrent, requestId);
+      return installed.ok ? { ok: true, status: 'installed' as const, ...applied } : installed;
     });
   }
 
@@ -2621,36 +2618,10 @@ export class Orchestrator implements OrchestratorBridge {
     return this.hostRuntime.setPlanPreferences({ autoOrchestration: enabled });
   }
 
-  setAutoApprovePlans(enabled: boolean): Promise<void> {
-    return this.hostRuntime.setPlanPreferences({ autoApprovePlans: enabled });
-  }
-
   /** Only the coordinator talker; accepted Workers remain owned by their task. */
   async interruptHostReply():Promise<void> {await this.defaultHost().getHost()?.interrupt();}
 
   hostSessionSnapshot():BackendSessionSnapshot|undefined {return this.defaultHost().getHost()?.snapshot?.()??undefined;}
-
-  async approvePendingPlan(
-    approved: boolean,
-    revisedTasks?: PlanMeetingTaskInput[],
-    revisedBrief?: MeetingPlanBriefInput,
-    identity?: PlanApprovalIdentity,
-  ) {
-    return this.hostRuntime.approve(approved, identity, {
-      fingerprint: { revisedTasks, revisedBrief },
-      brief: revisedBrief,
-      prepareTasks: revisedTasks ? async () => {
-        try {
-          const normalized = normalizePlanMeetingTasks(revisedTasks, this.defaultWorkerBackendId(), this.normalizePlanOptions()).tasks;
-          const tasks = this.adaptPlanForWorkspaceBaseline(normalized);
-          const error = await this.validateExecutionBackends(tasks);
-          return error ? { error } : { tasks };
-        } catch (error) {
-          return { error: error instanceof Error ? error.message : String(error) };
-        }
-      } : undefined,
-    });
-  }
 
   private async validateExecutionBackends(tasks: PlanMeetingTask[]): Promise<string | null> {
     const defaultBackendId = this.defaultWorkerBackendId();
@@ -2718,6 +2689,7 @@ export class Orchestrator implements OrchestratorBridge {
 
   async delegateSingleTask(input: string | {
     description: string;
+    requestId?: string;
     writePaths?: string[];
     workspaceMode?: PlanMeetingTaskInput['workspaceMode'];
     commands?: string[][];
@@ -2729,7 +2701,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId: string;
         specialty: WorkerSpecialtyKind;
         reused: boolean;
-        status: 'spawned' | 'proposed' | 'installed';
+        status: 'spawned' | 'installed';
         appliedDefaults?: string[];
       }
     | { ok: false; error: string }
@@ -2750,13 +2722,14 @@ export class Orchestrator implements OrchestratorBridge {
     const title = titleFromDescription(description);
     const specialty = inferSpecialty(`${title} ${description}`);
 
-    // Production Claude meetings require an approved authority grant. Route the
-    // single-task shorthand through proposePlan so it gets the same envelope
-    // and user-approval path as plan_meeting — bare registerHandle would throw
-    // in ensureTaskAuthority and leave the Talker thinking the task spawned.
+    // Production Claude meetings require a compiled authority grant. Route the
+    // single-task shorthand through proposePlan so it gets the same durable
+    // envelope and direct install path as plan_meeting.
     if (this.sessionFactory === Orchestrator.defaultClaudeFactory) {
       const writePaths = request.writePaths ?? [];
-      const workerId = `delegate-${randomUUID().slice(0, 8)}`;
+      const workerId = `delegate-${request.requestId
+        ? createHash('sha256').update(request.requestId).digest('hex').slice(0, 24)
+        : randomUUID().slice(0, 8)}`;
       // Intent defaults (sandbox write path / test commands / workspace mode)
       // are applied inside normalizePlanMeetingTask via proposePlan.
       const task: PlanMeetingTaskInput = {
@@ -2781,7 +2754,7 @@ export class Orchestrator implements OrchestratorBridge {
             }
           : {}),
       };
-      const proposed = await this.proposePlan([task], undefined, isCurrent);
+      const proposed = await this.proposePlan([task], undefined, isCurrent, request.requestId);
       if (!proposed.ok) return proposed;
       const notes = proposed.appliedDefaults?.find((entry) => entry.taskId === workerId)?.notes;
       return {
@@ -2789,7 +2762,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId,
         specialty,
         reused: false,
-        status: proposed.status ?? 'proposed',
+        status: proposed.status,
         ...(notes?.length ? { appliedDefaults: notes } : {}),
       };
     }

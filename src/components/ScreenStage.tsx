@@ -102,7 +102,7 @@ interface ScreenStageProps {
   customAvatars?: Map<string, string | null>;
   /** Task board rendered by the pinned 「任务看板」 tab (the stage default). */
   boardContent?: ReactNode;
-  /** 待批准 + 待确认 count, badged on the board tab. */
+  /** 待确认任务 count, badged on the board tab. */
   boardAttention?: number;
   /** Expert-owned sub-agent tasks (AME-D14): taskId → owner hostId + title. */
   ownedTasks?: Map<string, { hostId: string; title: string }> | null;

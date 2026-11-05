@@ -159,7 +159,7 @@ export type OrchestratorOnlyEvent =
   | { kind: 'coordinator-briefing'; briefing: CoordinatorBriefing }
   | { kind: 'plan-updated'; plan: MeetingPlan }
   | {
-    kind: 'plan-proposed';
+    kind: 'plan-draft-retained';
     proposalId: string;
     proposalVersion: number;
     tasks: PlanMeetingTask[];
@@ -171,7 +171,6 @@ export type OrchestratorOnlyEvent =
       openQuestions: string[];
     };
   }
-  | { kind: 'plan-proposal-resolved'; proposalId: string }
   | { kind: 'plan-install-uncertain'; proposalId: string }
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string }

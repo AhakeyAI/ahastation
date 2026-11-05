@@ -6,8 +6,6 @@ import type {
   CommandRun,
   CoordinatorBriefing,
   MeetingPlan,
-  MeetingPlanBrief,
-  PlanMeetingTaskInput,
   RendererTaskSnapshot,
   OpenTabMeta,
   PendingPermission,
@@ -207,9 +205,6 @@ export interface DeliverySnapshot {
 export interface MeetingState {
   workers: Map<AgentSource, WorkerState>;
   plan: MeetingPlan | null;
-  pendingPlan: PlanMeetingTaskInput[] | null;
-  pendingPlanBrief: MeetingPlanBrief | null;
-  pendingProposal: { proposalId: string; proposalVersion: number } | null;
   running: boolean;
   lastError: string | null;
   /** Most recent delivery awaiting user acceptance. Null when nothing is
@@ -330,20 +325,8 @@ export interface AggregatedTask {
   blockedReason: string | null;
 }
 
-/** A plan the coordinator proposed that the user hasn't approved yet. Surfaced
- *  on the board so the 待批准 column reflects meeting-level approvals too, not
- *  just per-task permission prompts. */
-export interface PendingPlanSummary {
-  sessionId: string;
-  cwd: string;
-  projectName: string;
-  taskCount: number;
-  goal?: string;
-}
-
 export interface CrossProjectTasks {
   tasks: AggregatedTask[];
-  pendingPlans: PendingPlanSummary[];
 }
 
 interface SlotInternal {
@@ -447,9 +430,6 @@ function emptyState(defaultBackendId: string = 'claude-code'): MeetingState {
   return {
     workers,
     plan: null,
-    pendingPlan: null,
-    pendingPlanBrief: null,
-    pendingProposal: null,
     running: false,
     lastError: null,
     currentDelivery: null,
@@ -502,8 +482,7 @@ function optimisticMentionedHostId(state: MeetingState, text: string): string | 
 }
 
 class MeetingStore {
-  private readonly planDecisions = new Map<string, string>();
-  private slots = new Map<string, SlotInternal>();
+private slots = new Map<string, SlotInternal>();
   private activeId: string | null = null;
   private recentCwds: RecentCwdMeta[] = [];
   private restoreHydrated = false;
@@ -842,21 +821,10 @@ class MeetingStore {
     if (this.cachedCrossProjectTasks) return this.cachedCrossProjectTasks;
 
     const tasks: AggregatedTask[] = [];
-    const pendingPlans: PendingPlanSummary[] = [];
 
     for (const slot of this.slots.values()) {
       if (slot.placeholder) continue;
       const projectName = projectNameFromCwd(slot.cwd);
-
-      if (slot.state.pendingPlan && slot.state.pendingPlan.length > 0) {
-        pendingPlans.push({
-          sessionId: slot.id,
-          cwd: slot.cwd,
-          projectName,
-          taskCount: slot.state.pendingPlan.length,
-          goal: slot.state.pendingPlanBrief?.goal,
-        });
-      }
 
       for (const node of slot.state.plan?.nodes ?? []) {
         const worker = slot.state.workers.get(node.id);
@@ -897,7 +865,7 @@ class MeetingStore {
       }
     }
 
-    this.cachedCrossProjectTasks = { tasks, pendingPlans };
+    this.cachedCrossProjectTasks = { tasks };
     return this.cachedCrossProjectTasks;
   };
 
@@ -2040,52 +2008,23 @@ class MeetingStore {
       this.mutateSlot(slot.id, (s) => ({ ...s, plan: e.plan }));
       return;
     }
-    if (e.kind === 'plan-proposal-resolved') {
-      this.mutateSlot(slot.id, (s) => s.pendingProposal?.proposalId === e.proposalId
-        ? { ...s, pendingPlan: null, pendingPlanBrief: null, pendingProposal: null }
-        : s);
-      return;
-    }
     if (e.kind === 'plan-install-uncertain') {
       this.mutateSlot(slot.id, (s) => ({ ...s, lastError: `计划 ${e.proposalId} 的安装结果待核对` }));
       return;
     }
-    if (e.kind === 'plan-proposed') {
-      this.mutateSlot(slot.id, (s) => ({
-        ...s,
-        pendingProposal: e.proposalId && e.proposalVersion
-          ? { proposalId: e.proposalId, proposalVersion: e.proposalVersion } : null,
-        pendingPlan: e.tasks.map((task) => ({
-          ...task,
-          deps: [...task.deps],
-          acceptanceCriteria: task.acceptanceCriteria?.map((criterion) => ({
-            ...criterion,
-            verification: criterion.verification.kind === 'command'
-              ? { ...criterion.verification, argv: [...criterion.verification.argv] }
-              : { kind: 'manual' },
-          })),
-        })),
-        pendingPlanBrief: e.brief
-          ? {
-            goal: e.brief.goal,
-            approach: e.brief.approach,
-            steps: e.brief.steps.map((step) => ({ ...step })),
-            risks: [...e.brief.risks],
-            openQuestions: [...e.brief.openQuestions],
-          }
-          : {
-            goal: e.tasks.length === 1
-              ? e.tasks[0]!.title
-              : `完成 ${e.tasks.length} 项协作任务`,
-            steps: e.tasks.map((task) => ({
-              title: task.title,
-              detail: task.prompt,
-              taskId: task.id,
-            })),
-            risks: [],
-            openQuestions: [],
-          },
-      }));
+    if (e.kind === 'plan-draft-retained') {
+      const noticeId = `plan-draft:${e.proposalId ?? 'legacy'}`;
+      const titles = e.tasks.map((task) => task.title).filter(Boolean).slice(0, 8).join('、');
+      const text = `升级前保留的计划草稿（${e.tasks.length} 项）尚未执行${titles ? `：${titles}` : ''}。`
+        + '如果要按这份安排继续，请明确说“继续执行”。';
+      this.updateWorker(slot, 'talker', (w) => w.transcript.some((entry) => entry.id === noticeId)
+        ? w
+        : {
+            ...w,
+            transcript: appendCapped(w.transcript, [{
+              id: noticeId, role: 'system', text, ts: Date.now(),
+            }], MAX_TRANSCRIPT),
+          });
       return;
     }
     if (e.kind === 'auth-required') {
@@ -3264,41 +3203,6 @@ class MeetingStore {
       normalized,
     );
     return result.ok ? { ok: true } : result;
-  }
-
-  async decidePendingPlan(
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-    brief?:MeetingPlanBrief,
-    basis?: MeetingState['pendingProposal'],
-  ): Promise<{ ok: boolean; error?: string }> {
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const slot = this.slots.get(id);
-    if (!slot?.state.pendingPlan) return { ok: false, error: 'No pending plan' };
-    if (!basis || slot.state.pendingProposal?.proposalId !== basis.proposalId) {
-      return { ok: false, error: '计划版本已更新，请重新核对' };
-    }
-    const payload = JSON.stringify([basis, approved, tasks, brief]);
-    if (!this.planDecisions.has(payload)) this.planDecisions.set(payload, globalThis.crypto.randomUUID());
-    const result = await window.vibeMeet.approvePlan(id, approved, tasks, brief, {
-      ...basis, approvalCommandId: this.planDecisions.get(payload)!,
-    });
-    this.planDecisions.delete(payload);
-    if (result.ok) {
-      this.mutateSlot(id, (state) => state.pendingProposal?.proposalId !== basis.proposalId ? state : ({
-        ...state,
-        pendingPlan: null,
-        pendingPlanBrief: null,
-        pendingProposal: null,
-      }));
-    } else {
-      this.mutateSlot(id, (state) => ({
-        ...state,
-        lastError: result.error ?? 'Plan approval failed',
-      }));
-    }
-    return result;
   }
 
   // ===========================================================================

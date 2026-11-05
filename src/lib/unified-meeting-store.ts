@@ -1,9 +1,8 @@
 import {verifiedDelivery} from '../../electron/collaboration/delivery-identity';
 import { useEffect,useSyncExternalStore } from 'react';
 import type { SharedEntity,StationView } from '../../electron/collaboration/production-types';
-import type { BackendInfo,MeetingPlanBrief,PlanMeetingTaskInput,TranscriptEntry } from '../types';
+import type { BackendInfo,TranscriptEntry } from '../types';
 import {resolveSharedMention,type SharedMention} from './shared-mentions';
-import {plannedTaskExists} from '../../electron/collaboration/plan-revision';
 
 export type UnifiedModel={view:StationView;meeting:SharedEntity;tasks:SharedEntity[];members:UnifiedMember[]};
 export type UnifiedMember={id:string;deviceId:string;agentId:string;label:string;online:boolean;executionCandidate?:boolean;nativeSessionId?:string;tasks:SharedEntity[]};
@@ -56,26 +55,6 @@ export async function sendShared(model:UnifiedModel,text:string,taskId?:string,a
   const id=submissionId??globalThis.crypto?.randomUUID?.()??'submit-'+Date.now()+'-'+Math.random().toString(36).slice(2);
   const result=await sharedCommand('message.send',payload,id) as {pending?:boolean};
   if(result?.pending)throw Object.assign(new Error('发送结果待核对；原提交已保存在本机，恢复连接后补投同一次提交。'),{pending:true,submissionId:id});
-}
-export function sharedPlanTasks(model:UnifiedModel):PlanMeetingTaskInput[]{
-  return ((model.meeting.plan??[]) as Array<Record<string,unknown>>).map((task,index)=>({
-    id:String(task.planTaskId??'planned-'+index),title:String(task.title),prompt:String(task.objective),
-    deps:task.dependencies as string[],executorBackendId:String(task.agentId),
-    acceptanceCriteria:task.acceptanceCriteria as PlanMeetingTaskInput['acceptanceCriteria'],
-    sharedTarget:{deviceId:String(task.targetDeviceId),agentId:String(task.agentId),resource:task.resource as 'text',permission:task.permission as 'read-only',
-      ...(task.projectId?{projectId:String(task.projectId)}:{}),...(task.baseCommit?{baseCommit:String(task.baseCommit)}:{}),
-      ...(task.nativeSessionId?{nativeSessionId:String(task.nativeSessionId)}:{})},
-  }));
-}
-export async function approveSharedPlan(model:UnifiedModel,tasks:PlanMeetingTaskInput[],brief?:MeetingPlanBrief,basis:SharedEntity=model.meeting){
-  if(basis.id!==model.meeting.id)throw new Error('计划审阅依据属于另一会议');
-  const before=(basis.plan??[]) as Array<Record<string,unknown>>;
-  const mapped=tasks.map(t=>{const original=before.find((p,i)=>(p.planTaskId??'planned-'+i)===t.id)??{};const {deviceId,agentId,...target}=t.sharedTarget!;
-    const defaultCriteria=[{id:'manual-acceptance',description:'人工检查交付内容并确认满足任务目标',verification:{kind:'manual'}}];
-    const unchanged=t.title===original.title&&t.prompt===original.objective&&deviceId===original.targetDeviceId&&agentId===original.agentId&&JSON.stringify(t.deps)===JSON.stringify(original.dependencies)&&['resource','permission','projectId','baseCommit','nativeSessionId'].every(k=>target[k as keyof typeof target]===original[k])&&JSON.stringify(t.acceptanceCriteria??[])===JSON.stringify(original.acceptanceCriteria??defaultCriteria);
-    if(plannedTaskExists(model.tasks,model.meeting.id,original)&&unchanged)return original;
-    return {...original,meetingId:basis.id,...(Object.keys(original).length?{}:{planTaskId:t.id}),inputs:original.inputs??[],title:t.title,objective:t.prompt,dependencies:t.deps,targetDeviceId:deviceId,agentId,...target,...(t.acceptanceCriteria?{acceptanceCriteria:t.acceptanceCriteria}:{})};});
-  await sharedCommand('plan.review',{meetingId:basis.id,expectedPlanVersion:Number(basis.planVersion??0),tasks:mapped,approved:true,...(brief?{brief}:{})});return {ok:true};
 }
 export function sharedPhase(task:SharedEntity):string{
   if(task.status==='accepted')return '最终已验收';if(verifiedDelivery(task))return '检查通过，待最终验收';

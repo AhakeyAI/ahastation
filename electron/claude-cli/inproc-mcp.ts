@@ -10,6 +10,7 @@
 // Argument validation stays server-side via zod, so a JSON-schema conversion
 // failure degrades the advertised inputSchema instead of breaking the tool.
 
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { errorMessage } from '../format-error.js';
 
@@ -24,7 +25,8 @@ export interface McpToolResult {
 
 type ZodShape = Record<string, z.ZodType>;
 type AnyZodSchema = z.ZodType;
-type ErasedHandler = (args: never) => Promise<McpToolResult>;
+export interface McpCallContext { requestId: string }
+type ErasedHandler = (args: never, context?: McpCallContext) => Promise<McpToolResult>;
 
 export interface InProcTool {
   name: string;
@@ -37,13 +39,13 @@ export function tool<Schema extends ZodShape>(
   name: string,
   description: string,
   inputSchema: Schema,
-  handler: (args: z.infer<z.ZodObject<Schema>>) => Promise<McpToolResult>,
+  handler: (args: z.infer<z.ZodObject<Schema>>, context?: McpCallContext) => Promise<McpToolResult>,
 ): InProcTool;
 export function tool<S extends AnyZodSchema>(
   name: string,
   description: string,
   inputSchema: S,
-  handler: (args: z.infer<S>) => Promise<McpToolResult>,
+  handler: (args: z.infer<S>, context?: McpCallContext) => Promise<McpToolResult>,
 ): InProcTool;
 export function tool(
   name: string,
@@ -75,6 +77,7 @@ class InProcMcpServerImpl implements InProcMcpServer {
   readonly name: string;
   readonly version: string;
   private readonly tools = new Map<string, InProcTool>();
+  private readonly callScope = randomUUID();
   private readonly schemaCache = new Map<string, Record<string, unknown>>();
 
   constructor(name: string, version: string, tools: InProcTool[]) {
@@ -160,7 +163,7 @@ class InProcMcpServerImpl implements InProcMcpServer {
       });
     }
     try {
-      return this.result(id, await t.handler(parsed.data as never));
+      return this.result(id, await t.handler(parsed.data as never, { requestId: JSON.stringify([this.callScope, id]) }));
     } catch (err) {
       return this.result(id, {
         content: [{ type: 'text', text: errorMessage(err) }],

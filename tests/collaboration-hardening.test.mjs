@@ -72,3 +72,14 @@ test('H03 native history suspension leaves another native history and effective 
  f.s.helper=async r=>{if(r.operation==='history'&&r.sessionId==='first'){entered.resolve();return g.promise;}if(r.operation==='history')return {messages:[]};if(r.operation==='approval-list')return {approvals:[{id:'approval',tool:'fixture',turnId:'exact-turn',supported:true}]};if(r.operation==='approval-decide')return {decided:true,decision:'allow'};throw new Error('unexpected native operation');};
  f.s.scheduleNativeSync();await entered.promise;await until(()=>f.sent.some(c=>c.a==='approval.observed'));assert.ok(f.s.storage.read().nativeHistoryCursors.second);assert.equal(f.s.storage.read().nativeHistoryCursors.first,undefined);g.resolve({messages:[]});await Promise.allSettled([...f.s.objectJobs.values()]);
  }finally{g.resolve({messages:[]});await Promise.allSettled([...f.s.objectJobs.values()]);await f.close();}});
+test('H14 a direct Host plan dispatches once while a legacy unapproved plan stays inert',async()=>{const f=await fixture();try{
+ const planned={meetingId:'m',planTaskId:'whole',title:'whole delivery',objective:'complete the work',targetDeviceId:'B',agentId:'codex',resource:'text',permission:'read-only',dependencies:[],inputs:[]};
+ await f.s.storage.update(st=>{st.config.acceptingTasks=true;st.allowedAgents=['codex'];st.snapshot.entities.device=[{id:'B',revision:1,online:true,acceptingTasks:true,revoked:false,agents:[{agentId:'codex',available:true}]}];st.snapshot.entities.meeting=[{id:'m',revision:1,coordinatorDeviceId:'A',hostAgentId:'codex',members:['B'],planApproved:true,plan:[planned]}];});
+ await f.s.doPump();
+ await until(()=>f.sent.some(c=>c.a==='task.create'&&c.p.planTaskId==='whole'));
+ const dispatched=f.sent.filter(c=>c.a==='task.create'&&c.p.planTaskId==='whole').length;
+ assert.equal(dispatched,1);
+ await f.s.storage.update(st=>{st.snapshot.entities.meeting[0].planApproved=false;st.snapshot.entities.task=[];});
+ await f.s.doPump();await tick();await tick();
+ assert.equal(f.sent.filter(c=>c.a==='task.create'&&c.p.planTaskId==='whole').length,dispatched);
+ }finally{await f.close();}});

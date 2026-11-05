@@ -902,7 +902,7 @@ export type RendererEvent =
   | { kind: 'coordinator-briefing'; briefing: CoordinatorBriefing; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'plan-updated'; plan: MeetingPlan; source?: AgentSource; sessionId?: string; hostId?: string }
   | {
-    kind: 'plan-proposed';
+    kind: 'plan-draft-retained';
     proposalId?: string;
     proposalVersion?: number;
     tasks: PlanMeetingTaskInput[];
@@ -911,7 +911,6 @@ export type RendererEvent =
     sessionId?: string;
     hostId?: string;
   }
-  | { kind: 'plan-proposal-resolved'; proposalId: string; source?: AgentSource; sessionId?: string }
   | { kind: 'plan-install-uncertain'; proposalId: string; source?: AgentSource; sessionId?: string }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string; source?: AgentSource; sessionId?: string }
   | { kind: 'coordinator-restored'; hostId: string; source?: AgentSource; sessionId?: string }
@@ -1338,13 +1337,6 @@ export interface VibeMeetApi {
   setPermissionMode: (sessionId: string | null, mode: string) => Promise<{ ok: boolean }>;
   setAutoApprove: (scope: AutoApproveScope) => Promise<{ ok: boolean; autoApproveScope?: AutoApproveScope }>;
   setOrchestrationMode: (sessionId: string | null, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
-  approvePlan: (
-    sessionId: string | null,
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-    brief?:MeetingPlanBrief,
-    identity?: { proposalId: string; proposalVersion: number; approvalCommandId: string },
-  ) => Promise<{ ok: boolean; error?: string }>;
   acceptDelivery: (
     sessionId: string | null,
     deliveryId: string,

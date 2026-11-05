@@ -251,7 +251,9 @@ function installFixture(fixture: string): void {
 
       if (fixture === 'plan') {
         emit({
-          kind: 'plan-proposed',
+          kind: 'plan-draft-retained',
+          proposalId: 'fixture-retained-draft',
+          proposalVersion: 1,
           source: 'talker',
           tasks: tasks.slice(0, 3).map(([id, title, executorBackendId], index) => ({
             id,

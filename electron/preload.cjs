@@ -71,8 +71,6 @@ const api = {
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
   setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks, brief, identity) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}), brief, identity }),
   acceptDelivery: (sessionId, deliveryId, candidateId) =>
     ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
   returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>
