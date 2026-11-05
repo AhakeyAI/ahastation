@@ -10,6 +10,7 @@ import { BrowserWindow, app, nativeTheme, screen, webContents } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSettings } from '../store.js';
+import { HANDHELD_LAYOUT_ENABLED } from '../handheld-mode.js';
 import {
   NO_EDITOR_CAPABILITIES,
   serializeEditorCapabilities,
@@ -173,8 +174,8 @@ export function createEditorWindow(options: EditorWindowOptions): BrowserWindow 
   // main, so width is the proxy). Deliberately NO minWidth (§3.3).
   const workArea = screen.getPrimaryDisplay().workAreaSize;
   const handheldPref = getSettings().handheldMode ?? 'auto';
-  const handheldish = handheldPref === 'handheld'
-    || (handheldPref === 'auto' && workArea.width <= 1300);
+  const handheldish = HANDHELD_LAYOUT_ENABLED && (handheldPref === 'handheld'
+    || (handheldPref === 'auto' && workArea.width <= 1300));
 
   const win = new BrowserWindow({
     width: Math.min(1200, workArea.width),
