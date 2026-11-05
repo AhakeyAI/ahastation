@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "checks": {
+    "V3": {
+      "result": "not-run",
+      "observed": "Error: Command failed: powershell.exe -NoProfile -Command Get-Process WindowsTerminal -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"
+    },
+    "C1": {
+      "result": "fail",
+      "observed": "notepad=false; computerUseLabel=true; nativeError=false"
+    },
+    "C3": {
+      "result": "not-run",
+      "observed": "C1 did not open Notepad"
+    },
+    "C4": {
+      "result": "not-run",
+      "observed": "C1 did not create a usable Computer Use Worker"
+    }
+  },
+  "screenshots": [
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-round3-host-3\\C1-notepad.png",
+    "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-round3-host-3\\C1-app.png"
+  ],
+  "repo": "C:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-MOmGmW",
+  "display": {
+    "accelerometerSupport": "unknown",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1024,
+      "height": 576
+    },
+    "colorDepth": 24,
+    "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+    "depthPerComponent": 8,
+    "detected": true,
+    "displayFrequency": 53,
+    "id": 4135340215,
+    "internal": true,
+    "label": "",
+    "maximumCursorSize": {
+      "width": 0,
+      "height": 0
+    },
+    "monochrome": false,
+    "nativeOrigin": {
+      "x": 0,
+      "y": 0
+    },
+    "rotation": 90,
+    "scaleFactor": 1.25,
+    "size": {
+      "width": 1024,
+      "height": 576
+    },
+    "workArea": {
+      "x": 0,
+      "y": 24,
+      "width": 1024,
+      "height": 552
+    },
+    "workAreaSize": {
+      "width": 1024,
+      "height": 552
+    },
+    "touchSupport": "unknown"
+  },
+  "workerBackendSetting": {
+    "ok": true
+  },
+  "planApprovals": [
+    "确认并调度 1 个任务"
+  ],
+  "codexTrustApproved": true,
+  "codexHooksSkipped": true,
+  "finalBody": "pr156-host-repo-MOmGmW\n首页 / 选择目录\nC:\\Users\\shawn\\AppData\\Local\\Temp\\pr156-host-repo-MOmGmW\n05:37\n自动批准\nYou\nYou\n麦克风空闲\n助理\n执行中\n任务看板\n工作区\nopen-notepad-and-type\n{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4' model is not supported\nwhen using Codex with a ChatGPT account.\",\"code\":\"model_not_found\"}}           \n                                                                               \n                                                                               \n› Ask Codex to do anything                                                     \n                                                                               \n  gpt-5.4 medium · ~\\AppData\\Local\\Temp\\pr156-host-…  ⚠ 1 warning · f2 to view \n协作\n›\n任务\n执行中\n\n请作为 Computer Use Worker 实际操作用户桌面。使用鼠标打开 Windows 记事本，不要只提供操作步骤；在记事本中输入：你好 AhaStudio。完成后目视核对文字准确显示，并报告实际执行结果。无需保存文件。\n\nAttempt 1\nMailbox 0\n验收条件（1）\nFollow-up\n加入后续队列\nSteering\n在安全边界转向\nInterrupt Task\nMailbox\n0 条\n\n尚无 Coordinator、Worker 或用户消息。\n\n展开完整检查器\n参会者\n1\n对话\n3\n文件\nYou\n5 分钟前\n帮我用鼠标打开记事本，输入：你好 AhaStudio。请派出 Computer Use Worker 实际执行，不要只给操作步骤。\nCodex\n4 分钟前\n我现在派 Computer Use Worker 去桌面上打开记事本并输入这句话，完成后会请它核对结果。\nCodex\n4 分钟前\n我正在处理，有结果会马上告诉你。\n与 Host 交流\nPlan 模式\n麦克风\n播报开\n共享屏幕\n打断\n更多\n离开\n讯飞 ASR 凭证未配置 - 请在 设置 → 语音 → 讯飞 ASR 中填写"
+}

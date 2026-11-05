@@ -67,17 +67,36 @@ async function send(text) {
     result.planApprovals.push(await approve.innerText());
     await approve.click();
   }
-  await window.waitForTimeout(5000);
-  if ((await window.locator('body').innerText()).includes('Trust this folder?')) {
-    result.codexTrustApproved = true;
-    await window.locator('.xterm textarea').last().focus();
-    await window.keyboard.press('Enter');
-    await window.waitForTimeout(2000);
-  }
-  if ((await window.locator('body').innerText()).includes('Update available')) {
-    result.codexUpdateSkipped = true;
-    await window.locator('.xterm textarea').last().focus();
-    await window.keyboard.press('Escape');
+  const terminalDeadline = Date.now() + 30000;
+  let handledTerminalPrompt = false;
+  while (Date.now() < terminalDeadline) {
+    const terminalBody = await window.locator('body').innerText();
+    if (terminalBody.includes('Trust this folder?')) {
+      result.codexTrustApproved = true;
+      handledTerminalPrompt = true;
+      await window.locator('.xterm textarea').last().focus();
+      await window.keyboard.press('Enter');
+      await window.waitForTimeout(2000);
+      continue;
+    }
+    if (terminalBody.includes('Hooks need review')) {
+      result.codexHooksSkipped = true;
+      handledTerminalPrompt = true;
+      await window.locator('.xterm textarea').last().focus();
+      await window.keyboard.press('3');
+      await window.keyboard.press('Enter');
+      await window.waitForTimeout(2000);
+      continue;
+    }
+    if (terminalBody.includes('Update available')) {
+      result.codexUpdateSkipped = true;
+      handledTerminalPrompt = true;
+      await window.locator('.xterm textarea').last().focus();
+      await window.keyboard.press('Escape');
+      await window.waitForTimeout(2000);
+      continue;
+    }
+    await window.waitForTimeout(1000);
   }
 }
 
@@ -213,10 +232,11 @@ try {
   await checkV3().catch((error) => {
     result.checks.V3 = { result: 'not-run', observed: String(error) };
   });
-  await sampleAgent();
+  if (process.env.PR156_SKIP_AGENT_SAMPLE !== '1') await sampleAgent();
   const notepadOpened = await waitFor(() => processCount('notepad') > 0, 240);
   await window.waitForTimeout(15000);
   await snap('C1-notepad', true);
+  await snap('C1-app');
   const c1Body = await window.locator('body').innerText();
   result.checks.C1 = {
     result: notepadOpened ? 'pending-visual-review' : 'fail',
@@ -227,11 +247,12 @@ try {
     await send('让刚才的 Computer Use Worker 在刚打开的记事本里按 cmd+a、cmd+c，然后按右箭头、回车、cmd+v。这样可用重复文本验证全选和复制，不要只解释。');
     await window.waitForTimeout(90000);
     await snap('C3-shortcuts', true);
+    await snap('C3-app');
     result.checks.C3 = { result: 'pending-visual-review', observed: 'Requested cmd+a/cmd+c and duplicate-by-paste; inspect desktop screenshot' };
 
     const longPage = resolve(output, 'long-page.html');
     writeFileSync(longPage, `<!doctype html><meta charset="utf-8"><title>PR156 scroll</title><body>${Array.from({ length: 30 }, (_, i) => `<h1 style="height:180px">Section ${i + 1}</h1>`).join('')}</body>`);
-    execFileSync('powershell.exe', ['-NoProfile', '-Command', `Start-Process -FilePath '${longPage.replaceAll("'", "''")}'`]);
+    execFileSync('powershell.exe', ['-NoProfile', '-Command', `Start-Process -FilePath 'C:/Program Files/Google/Chrome/Application/chrome.exe' -ArgumentList '${longPage.replaceAll("'", "''")}'`]);
     await window.waitForTimeout(5000);
     await snap('C4-before', true);
     await send('让 Computer Use Worker 在当前打开的长网页上向下滚动 3 格。用鼠标和滚动工具实际执行，不要只告诉我怎么做。');
