@@ -107,7 +107,7 @@ test('Orchestrator binds two targets and host replies independently, restores re
     const second = orch.addHost('pocket-vibe', 'remote-b', target('native-b', { agent_id: 'desktop-claude', provider: 'claude', cwd: '/remote/b' }));
     assert.equal(first.ok, true); assert.equal(second.ok, true);
     await waitFor(() => events.filter((e) => e.event.kind === 'session-ready').length === 2);
-    orch.sendUserText('@remote-a first'); orch.sendUserText('@remote-b second'); orch.sendUserText('@remote-a followup');
+    await orch.sendUserText('@remote-a first'); await orch.sendUserText('@remote-b second'); await orch.sendUserText('@remote-a followup');
     await waitFor(() => events.filter((e) => e.event.kind === 'message' && e.event.message.type === 'assistant').length === 3);
     const replies = events.filter((e) => e.event.kind === 'message' && e.event.message.type === 'assistant');
     assert.equal(replies.filter((e) => e.hostId === 'remote-a').length, 2);
@@ -128,7 +128,7 @@ test('Orchestrator binds two targets and host replies independently, restores re
     assert.deepEqual(restored.listHosts().filter((host) => host.remoteTarget).map((host) => host.remoteTarget), refs.map((ref) => ref.remoteTarget));
     // Exercise the real factory on recovery without starting the default CLI.
     await restored.hostGroups.get('remote-a').start();
-    restored.sendUserText('@remote-a recovered');
+    await restored.sendUserText('@remote-a recovered');
     await waitFor(() => hub.posts.length === 4);
     assert.equal(hub.posts[3].session_id, 'native-a'); assert.equal(hub.posts[3].cwd, target().cwd);
     assert.match(orch.addHost('pocket-vibe', 'remote-c', target('native-c')).error, /capacity/);
@@ -252,16 +252,21 @@ test('connecting/failed remote mention cannot reach local input; remote attachme
   const cwd = await mkdtemp(join(tmpdir(), 'remote-attachment-'));
   const orch = new Orchestrator({ cwd, emit: (e) => events.push(e) });
   const local = orch.hostGroups.get('default');
-  local.sendUserText = (text) => localTexts.push(text); local.sendUserImage = (blocks) => localImages.push(blocks);
+  local.sessionFactory = () => ({
+    async start() {}, end() {},
+    sendUserText(text) { localTexts.push(text); },
+    sendUserContent(blocks) { localImages.push(blocks); },
+  });
+  await local.start();
   const handlers = new Map(); const originalHandle = ipcMain.handle;
   ipcMain.handle = (name, handler) => handlers.set(name, handler);
   const slot = { id: 'fixture', cwd, orchestrator: orch };
   const ctx = { registry: { resolve: () => slot, touch() {} } };
   try {
     orch.addHost('pocket-vibe', 'remote-pending', target());
-    assert.throws(() => orch.sendUserText('@remote-pending do this'), /连接/);
-    assert.throws(() => orch.sendUserText('@pocket-vibe do this'), /连接/);
-    assert.throws(() => orch.sendUserText('@pocket-vibe-12345678-1234-1234-1234-123456789abc do this'), /不可用/);
+    await assert.rejects(orch.sendUserText('@remote-pending do this'), /连接/);
+    await assert.rejects(orch.sendUserText('@pocket-vibe do this'), /连接/);
+    await assert.rejects(orch.sendUserText('@pocket-vibe-12345678-1234-1234-1234-123456789abc do this'), /不可用/);
     assert.deepEqual(localTexts, []);
     const remoteCoordinator = new Orchestrator({ cwd, emit() {}, defaultBackendId: 'pocket-vibe' });
     assert.match(remoteCoordinator.remoteInputError('image without mention', true), /仅支持文本/);
@@ -276,11 +281,14 @@ test('connecting/failed remote mention cannot reach local input; remote attachme
     assert.deepEqual(await readdir(cwd), before); assert.deepEqual(localImages, []); assert.deepEqual(localTexts, []);
     rejectStart(new Error('fixture remote connection failed'));
     await waitFor(() => events.some((e) => e.event.kind === 'session-start-failed'));
-    assert.throws(() => orch.sendUserText('@remote-pending after failure'), /连接/);
+    await assert.rejects(orch.sendUserText('@remote-pending after failure'), /连接/);
     assert.deepEqual(localTexts, []);
-    orch.sendUserText('ordinary local message'); assert.deepEqual(localTexts, ['ordinary local message']);
+    await orch.sendUserText('ordinary local message');
+    await waitFor(() => localTexts.length === 1);
+    assert.deepEqual(localTexts, ['ordinary local message']);
     const normal = await handlers.get('session:user-attachments')({}, { items: [item], caption: 'ordinary local attachment' });
-    assert.equal(normal.ok, true, normal.error); assert.equal(localImages.length, 1);
+    assert.equal(normal.ok, true, normal.error);
+    await waitFor(() => localImages.length === 1);
   } finally {
     rejectStart?.(new Error('cleanup')); ipcMain.handle = originalHandle;
     await orch.end(); registry.register(original); await rm(cwd, { recursive: true, force: true });
@@ -406,10 +414,15 @@ test('production voice handler sends normalized remote titles to actual hosts, r
     createSession:()=> ({ start:()=> ready ? Promise.resolve() : new Promise((_, reject)=> { rejectStart = reject; }),
       end() {}, sendUserText(text) { remoteTexts.push(text); }, sendUserContent() {}, resolvePermission() {}, async interrupt() {} }) });
   const orch = new Orchestrator({ cwd:root, emit:(event)=>events.push(event) });
-  orch.hostGroups.get('default').sendUserText = (text)=>localTexts.push(text);
+  const local = orch.hostGroups.get('default');
+  local.sessionFactory = () => ({ async start() {}, end() {}, sendUserText(text) { localTexts.push(text); } });
+  await local.start();
   const host = { id:'voice-host', remoteTarget:target('voice-native', { title:'远端 项目' }) };
   const options = { skills:[], backends:[], activeBackendIds:new Set(), hosts:[host], notify:(message)=>notices.push(message),
-    send:(text)=> { try { orch.sendUserText(text); } catch (error) { errors.push(error.message); } } };
+    send:async(text)=> {
+      try { await orch.sendUserText(text); await orch.hostInbox.flush(); }
+      catch (error) { errors.push(error.message); }
+    } };
   try {
     assert.equal(orch.addHost('pocket-vibe', host.id, host.remoteTarget).ok, true);
     await waitFor(()=>events.some((event)=>event.hostId===host.id && event.event.kind==='session-ready'));

@@ -411,6 +411,71 @@ test('Codex production app-server session becomes ready without a model turn', a
   session.end();
 });
 
+test('Codex app-server Reviewer requests read-only scope and disables external tools', async () => {
+  let threadOptions;
+  const backend = new CodexBackend({
+    resolveBinary: () => '/fake/codex',
+    createAppServerTransport: () => ({
+      async start() { return { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } }; },
+      async call(method, params) {
+        assert.equal(method, 'config/read');
+        assert.deepEqual(params, { cwd: '/review-runtime' });
+        return { config: { mcp_servers: { sentinel: { command: 'local-tool' } } } };
+      },
+      async openThread(options) { threadOptions = options; return 'review-thread'; },
+      close() {},
+    }),
+  });
+  const session = backend.createSession({
+    cwd: '/review-runtime', executionRole: 'host',
+    extra: { codexTransport: 'app-server', restrictCodexReviewerTools: true },
+  }, () => {});
+  await session.start();
+  assert.equal(threadOptions.sandbox, 'read-only');
+  assert.equal(threadOptions.approvalPolicy, 'never');
+  assert.deepEqual(threadOptions.config, {
+    features: { shell_tool: false, unified_exec: false, code_mode: false },
+    web_search: 'disabled',
+    mcp_servers: { sentinel: { enabled: false } },
+  });
+  session.end();
+});
+
+test('Codex app-server close fences both initialization and a late thread identity', async () => {
+  for (const pending of ['initialize', 'thread']) {
+    const calls = [];
+    let releaseInitialize;
+    let releaseThread;
+    const initialized = new Promise((resolve) => { releaseInitialize = resolve; });
+    const opened = new Promise((resolve) => { releaseThread = resolve; });
+    const transport = {
+      start() { return initialized; },
+      openThread() { calls.push('thread/start'); return opened; },
+      close() { calls.push('close'); },
+    };
+    const backend = new CodexBackend({
+      resolveBinary: () => '/fake/codex',
+      createAppServerTransport: () => transport,
+    });
+    const session = backend.createSession({
+      cwd: '/workspace', executionRole: 'host', extra: { codexTransport: 'app-server' },
+    }, () => {});
+    const start = session.start();
+    const ready = { userAgent: 'Codex/0.156.1', account: { type: 'chatgpt' } };
+    if (pending === 'thread') {
+      releaseInitialize(ready);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(calls, ['thread/start']);
+    }
+    session.end();
+    releaseInitialize(ready);
+    releaseThread('late-thread');
+    await assert.rejects(start, /closed during startup/);
+    assert.deepEqual(calls, pending === 'initialize' ? ['close'] : ['thread/start', 'close']);
+    assert.equal(session.snapshot(), null);
+  }
+});
+
 test('Codex app-server host emits turn-status around the turn lifecycle', async () => {
   const events = [];
   let notification;
@@ -443,8 +508,8 @@ test('Codex app-server host emits turn-status around the turn lifecycle', async 
   session.sendUserText('hi');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(events, [
-    { kind: 'turn-status', status: 'started' },
-    { kind: 'turn-status', status: 'completed' },
+    { kind: 'turn-status', status: 'started', turnId: 'turn-ts' },
+    { kind: 'turn-status', status: 'completed', turnId: 'turn-ts' },
   ]);
   session.end();
 });

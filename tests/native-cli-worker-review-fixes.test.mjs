@@ -143,8 +143,10 @@ async function fixture(t, { tree = false, record = async () => {} } = {}) {
     ...extra,
   });
   const start = async (id = 'review-task') => {
+    const previousSpawns = spawned.length;
     assert.deepEqual(scheduler.installPlan([task(id)]), { ok: true });
-    await waitFor(() => scheduler.workers.get(id)?.status === 'running');
+    await waitFor(() => spawned.length > previousSpawns && scheduler.workers.get(id)?.status === 'running',
+      'Worker did not launch its report transport');
   };
   const postReport = (index = 0) => {
     const env = spawned[index].options.env;
@@ -203,7 +205,9 @@ test('report is rejected while stop is still waiting for its durable mailbox ent
   const stop = f.scheduler.interruptWorker('review-task', 'stop before report');
   await entered.promise;
   const response = await f.postReport();
-  assert.equal(response.status, 409);
+  // During stop the attempt is fenced. Confirmed early exit may already
+  // have revoked the credential while the mailbox acknowledgement is held.
+  assert.ok([401, 409].includes(response.status), await response.text());
   resume.resolve();
   assert.deepEqual(await stop, { ok: true });
 });

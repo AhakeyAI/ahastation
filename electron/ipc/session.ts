@@ -10,7 +10,7 @@ import type { AutoApproveScope } from '../auto-approve-policy.js';
 import type { IpcContext } from './context.js';
 import { saveImageToMaterials } from '../materials.js';
 import { z } from 'zod';
-import { planMeetingTaskSchema,meetingPlanBriefInputSchema } from '../meeting-tools.js';
+import { planMeetingTasksSchema,meetingPlanBriefInputSchema } from '../meeting-tools.js';
 
 const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan'] as const);
 type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
@@ -52,17 +52,27 @@ export function registerSessionIpc(ctx: IpcContext): void {
     if (typeof enabled !== 'boolean') return { ok: false, error: 'enabled must be boolean' };
     const slot = ctx.registry.resolve(pickSessionId(payload));
     if (!slot) return { ok: false, error: 'No active session' };
-    slot.orchestrator.setAutoOrchestration(enabled);
-    return { ok: true };
+    try {
+      await slot.orchestrator.setAutoOrchestration(enabled);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle('session:approve-plan', async (_e, payload: unknown) => {
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid payload' };
     const approved = (payload as { approved?: unknown }).approved;
     if (typeof approved !== 'boolean') return { ok: false, error: 'approved must be boolean' };
+    const identity = z.object({
+      proposalId: z.string().uuid(),
+      proposalVersion: z.number().int().positive(),
+      approvalCommandId: z.string().uuid(),
+    }).safeParse((payload as Record<string, unknown>).identity);
+    if (!identity.success) return { ok: false, error: 'invalid plan proposal identity' };
     let revisedTasks;
     if ('tasks' in (payload as Record<string, unknown>)) {
-      const parsed = z.array(planMeetingTaskSchema).min(1).max(20).safeParse(
+      const parsed = planMeetingTasksSchema.safeParse(
         (payload as Record<string, unknown>).tasks,
       );
       if (!parsed.success) return { ok: false, error: 'invalid revised plan' };
@@ -72,7 +82,11 @@ export function registerSessionIpc(ctx: IpcContext): void {
     if (!slot) return { ok: false, error: 'No active session' };
     const brief=meetingPlanBriefInputSchema.safeParse((payload as Record<string,unknown>).brief??{});
     if(!brief.success)return {ok:false,error:'Invalid readable plan'};
-    return slot.orchestrator.approvePendingPlan(approved, revisedTasks,brief.data);
+    try {
+      return await slot.orchestrator.approvePendingPlan(approved, revisedTasks, brief.data, identity.data);
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle('session:accept-delivery', async (_e, payload: unknown) => {
@@ -114,17 +128,47 @@ export function registerSessionIpc(ctx: IpcContext): void {
       return { ok: false, error: formatError(error) };
     }
   });
-  ipcMain.handle('session:user-text', async (_e, payload: { sessionId?: string; text: string }) => {
+  ipcMain.handle('session:user-text', async (_e, payload: { sessionId?: string; text: string; inputId?: string; source?: string }) => {
     const slot = ctx.registry.resolve(pickSessionId(payload));
     if (!slot) return { ok: false, error: 'No active session' };
     const text = typeof payload?.text === 'string' ? payload.text : '';
     if (!text.trim()) return { ok: false, error: 'Text is required' };
     if (text.length > 100_000) return { ok: false, error: 'Text is too large' };
     try {
-      slot.orchestrator.sendUserText(text);
+      if (payload.inputId !== undefined && typeof payload.inputId !== 'string') throw new Error('Invalid inputId');
+      const receipt = await slot.orchestrator.sendUserText(text, payload.inputId, payload.source === 'voice-transcript' ? 'voice-transcript' : 'user-text');
       ctx.registry.touch(slot.id);
-      return { ok: true };
+      return { ok: true, receipt };
     } catch (error) { return { ok: false, error: formatError(error) }; }
+  });
+
+  ipcMain.handle('session:read-host-input', async (_e, payload?: { sessionId?: string; inputId?: string }) => {
+    const slot = ctx.registry.resolve(pickSessionId(payload));
+    if (!slot || typeof payload?.inputId !== 'string') return { ok: false };
+    const input = await slot.orchestrator.readHostInput(payload.inputId);
+    return input ? { ok: true, input } : { ok: false };
+  });
+
+  ipcMain.handle('session:assign-host-input', async (_e, payload?: { sessionId?: string; inputId?: string; hostId?: string }) => {
+    const slot = ctx.registry.resolve(pickSessionId(payload));
+    if (!slot || typeof payload?.inputId !== 'string' || typeof payload.hostId !== 'string') {
+      return { ok: false, error: 'Invalid input target' };
+    }
+    try {
+      return { ok: true, receipt: await slot.orchestrator.assignHostInput(payload.inputId, payload.hostId) };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
+  });
+
+  ipcMain.handle('session:cancel-host-input', async (_e, payload?: { sessionId?: string; inputId?: string }) => {
+    const slot = ctx.registry.resolve(pickSessionId(payload));
+    if (!slot || typeof payload?.inputId !== 'string') return { ok: false, error: 'Invalid inputId' };
+    try {
+      return { ok: true, receipt: await slot.orchestrator.cancelHostInput(payload.inputId) };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle(
@@ -144,15 +188,19 @@ export function registerSessionIpc(ctx: IpcContext): void {
     },
   );
 
-  ipcMain.handle('session:interrupt', async (_e, payload?: { sessionId?: string }) => {
+  ipcMain.handle('session:interrupt', async (_e, payload?: { sessionId?: string; hostId?: string }) => {
     const slot = ctx.registry.resolve(pickSessionId(payload));
     // Prefer the live orchestrator. Fall back to a slot's recap-pending state
     // for post-end interrupts (B4); the recap reference is the same
     // Orchestrator instance, so .interrupt() still aborts it.
     const target = slot?.orchestrator ?? null;
     if (!target) return { ok: false };
-    await target.interrupt();
-    return { ok: true };
+    try {
+      await target.interrupt(typeof payload?.hostId === 'string' ? payload.hostId : undefined);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle(
@@ -228,7 +276,7 @@ export function registerSessionIpc(ctx: IpcContext): void {
   ipcMain.handle('session:end', async (_e, payload?: { sessionId?: string }) => {
     const slot = ctx.registry.resolve(pickSessionId(payload));
     if (!slot) return { ok: true };
-    slot.orchestrator.end();
+    void slot.orchestrator.end().catch((error) => console.error('[session] cleanup failed:', error));
     // B4: end() fires the recap pass. Mark the slot as recap-pending so a
     // follow-up `session:interrupt` (same sessionId) still reaches the
     // Orchestrator. The slot stays in the registry until the renderer asks
@@ -245,12 +293,17 @@ export function registerSessionIpc(ctx: IpcContext): void {
         slot.recapPending = false;
       }
     }
-    return { ok: true };
+    try {
+      await slot.orchestrator.waitForExecutionCleanup();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: formatError(error) };
+    }
   });
 
   ipcMain.handle(
     'session:user-image',
-    async (_e, payload: { sessionId?: string; dataUrl: string; caption: string }) => {
+    async (_e, payload: { sessionId?: string; dataUrl: string; caption: string; inputId?: string }) => {
       const slot = ctx.registry.resolve(pickSessionId(payload));
       if (!slot) return { ok: false, error: 'No active session' };
       const dataUrl = typeof payload?.dataUrl === 'string' ? payload.dataUrl : '';
@@ -273,10 +326,10 @@ export function registerSessionIpc(ctx: IpcContext): void {
       }
       const mediaType = mimeMatch[1] as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
       try {
-        slot.orchestrator.sendUserImage([
+        const receipt = await slot.orchestrator.sendUserImage([
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
           { type: 'text', text: caption || 'Here is my current screen. Please take a look.' },
-        ]);
+        ], payload.inputId);
         ctx.registry.touch(slot.id);
         if (slot.cwd) {
           saveImageToMaterials({ cwd: slot.cwd, base64: b64, mediaType }).catch((err: unknown) => {
@@ -285,10 +338,10 @@ export function registerSessionIpc(ctx: IpcContext): void {
         } else {
           console.warn('[session] No cwd available, screenshot not saved to materials');
         }
+        return { ok: true, receipt };
       } catch (err: unknown) {
         return { ok: false, error: `Send failed: ${formatError(err)}` };
       }
-      return { ok: true };
     },
   );
 }

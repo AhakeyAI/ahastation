@@ -81,3 +81,35 @@ test('host lifecycle retains handshake and authentication errors, including a la
     assert.deepEqual(auth.group.getLifecycle(), { phase: 'failed', error: 'login expired' });
   } finally { auth.group.end(); }
 });
+
+test('closing during memory initialization cancels construction and concurrent starts share a handshake', async () => {
+  const f = fixture(async () => {});
+  const first = f.group.start();
+  assert.equal(f.group.start(), first);
+  await f.group.end();
+  await assert.rejects(first, /cancelled/);
+  assert.equal(f.group.getHost(), null);
+});
+
+test('an old generation cannot invalidate a restarted Host', async () => {
+  const sessions = [];
+  const group = new HostGroup({
+    id: 'default', backendId: 'codex', emit() {}, cwd: root,
+    projectId: 'generation-fixture', autoApproveScope: 'off', bridge: {},
+    isClosed: () => false, isCoordinator: () => true,
+    sessionFactory: options => {
+      const session = { emit: options.emit, async start() {}, end() {} };
+      sessions.push(session);
+      return session;
+    },
+  });
+  try {
+    await group.start();
+    sessions[0].emit({ kind: 'ended' });
+    await group.start();
+    sessions[0].emit({ kind: 'auth-required', error: 'old auth error' });
+    sessions[0].emit({ kind: 'ended' });
+    assert.equal(group.getHost(), sessions[1]);
+    assert.deepEqual(group.getLifecycle(), { phase: 'ready' });
+  } finally { await group.end(); }
+});

@@ -174,7 +174,7 @@ export class UnifiedMeetingHost {
         if(this.images.length&&this.meeting.hostAgentId!=='codex')throw new Error('本轮共享图片输入需要 Codex Host；其他 Host 的本机图片能力仍可在原本机会议使用');
         if(this.cancelled.has(message.id))throw new Error('Host 本轮已在启动前停止');
         if(this.meeting.hostAgentId!=='codex'){await this.hooks.checkpoint(message.id,'starting');if(this.cancelled.has(message.id))throw new Error('Host 本轮已在启动前停止');input.invoked=true;}
-        this.orch!.sendUserText('这是同一共享会议的当前状态。你是原会议唯一 Host；保留澄清、完整交付计划、独立批准、依赖、咨询与交付检查。不要在本机执行用户项目，不自动批准计划，不按电脑/文件/步骤拆任务。所有任务通过 propose-plan / plan_meeting，逐项填写 sharedTarget={deviceId,agentId,resource,permission,projectId?,baseCommit?,nativeSessionId?}；以快照的真实候选与授权为准。目标不可用须等待或提出可见修订。不要输出 station-plan。讨论直接答复，普通邀请不触发模型。\n'+context+'\n本次用户输入：\n'+(prepared?.text??String(message.text)));
+        await this.orch!.sendUserText('这是同一共享会议的当前状态。你是原会议唯一 Host；保留澄清、完整交付计划、独立批准、依赖、咨询与交付检查。不要在本机执行用户项目，不自动批准计划，不按电脑/文件/步骤拆任务。所有任务通过 propose-plan / plan_meeting，逐项填写 sharedTarget={deviceId,agentId,resource,permission,projectId?,baseCommit?,nativeSessionId?}；以快照的真实候选与授权为准。目标不可用须等待或提出可见修订。不要输出 station-plan。讨论直接答复，普通邀请不触发模型。\n'+context+'\n本次用户输入：\n'+(prepared?.text??String(message.text)),message.id);
         await done;
         await this.planWrites;
         if(this.rejectedPlans.has(message.id))throw this.rejectedPlans.get(message.id)!;

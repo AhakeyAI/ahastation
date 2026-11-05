@@ -1,4 +1,5 @@
 import type { PlanMeetingTask } from './meeting-tools.js';
+import type { PersistedMeetingEvent } from './meeting-repository.js';
 
 export const TASK_RECOVERY_ACTIONS = [
   'continue-read-only',
@@ -17,6 +18,7 @@ export interface TaskRecoveryAssessment {
     | 'requires-user'
     | 'integration-conflict'
     | 'budget-paused'
+    | 'process-uncertain'
     | 'terminal';
   reasonCode:
     | 'explicit-read-only-authority'
@@ -24,6 +26,7 @@ export interface TaskRecoveryAssessment {
     | 'legacy-or-incomplete-authority'
     | 'integration-conflict'
     | 'budget-paused'
+    | 'native-process-exit-unconfirmed'
     | 'terminal';
   allowedActions: TaskRecoveryAction[];
   autoResume: boolean;
@@ -113,6 +116,15 @@ export function isExplicitReadOnlyRecoveryTask(task: Record<string, unknown>): b
 }
 
 export function assessTaskRecovery(task: Record<string, unknown>): TaskRecoveryAssessment {
+  if (task.launchPhase === 'uncertain') {
+    return {
+      schemaVersion: 1,
+      classification: 'process-uncertain',
+      reasonCode: 'native-process-exit-unconfirmed',
+      allowedActions: ['abandon-task'],
+      autoResume: false,
+    };
+  }
   const status = normalizeRecoveredTaskStatus(task.status);
   if (TERMINAL_TASK_STATUSES.has(status)) {
     return {
@@ -158,6 +170,27 @@ export function assessTaskRecovery(task: Record<string, unknown>): TaskRecoveryA
     allowedActions: ['continue-side-effecting', 'retry-attempt', 'abandon-task'],
     autoResume: false,
   };
+}
+
+/** Launch intents reserve ownership until an exact attempt has tree-exit proof. */
+export function unresolvedNativeLaunches(events: readonly PersistedMeetingEvent[]): Map<string, Set<number>> {
+  const open = new Map<string, Set<number>>();
+  for (const event of events) {
+    if (event.type !== 'worker-native-launch-intent' && event.type !== 'worker-stop-confirmed'
+      && event.type !== 'worker-stop-unconfirmed') continue;
+    const data = record(event.payload);
+    const taskId = typeof data?.workerId === 'string' ? data.workerId : data?.taskId;
+    const attempt = data?.attempt;
+    if (typeof taskId !== 'string' || typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 1) continue;
+    if (event.type === 'worker-stop-confirmed') {
+      open.get(taskId)?.delete(attempt);
+    } else {
+      const attempts = open.get(taskId) ?? new Set<number>();
+      attempts.add(attempt);
+      open.set(taskId, attempts);
+    }
+  }
+  return open;
 }
 
 export function assertRecoveryActionAllowed(

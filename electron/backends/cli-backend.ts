@@ -101,14 +101,26 @@ export interface NormalizedMessage {
 // Mirrors `SessionEvent` from claude-session.ts so the orchestrator's event
 // handling stays unchanged.
 
+export type NativeLaunchPhase =
+  | 'preparing' | 'process-created' | 'waiting-for-user' | 'input-ready'
+  | 'input-written' | 'execution-observed' | 'failed' | 'uncertain';
+
+export interface NativeLaunchEvent {
+  kind: 'native-launch-phase';
+  phase: NativeLaunchPhase;
+  detail?: string;
+  processId?: number;
+}
+
 export type BackendSessionEvent =
+  | NativeLaunchEvent
   | { kind: 'message'; message: NormalizedMessage }
   | { kind: 'worker-signal'; signal: WorkerAdapterSignal }
   | { kind: 'permission-request'; id: string; toolName: string; input: Record<string, unknown>; toolUseID: string }
   | { kind: 'permission-cancelled'; id: string }
   | { kind: 'auth-required'; error: string }
   | { kind: 'error'; error: string }
-  | { kind: 'turn-status'; status: 'started' | 'completed' }
+  | { kind: 'turn-status'; status: 'started' | 'completed'; turnId?: string }
   | { kind: 'ended' };
 
 // ── User message input ────────────────────────────────────────────────────────
@@ -244,6 +256,8 @@ export interface BackendSession {
   end(): void;
   /** Send a text message from the user. */
   sendUserText(text: string, priority?: InputPriority): void;
+  /** Evidence about the transport. A PTY write says nothing about model consumption. */
+  submitTaskInput?(text: string): Promise<'queued' | 'written' | 'rejected' | 'uncertain'>;
   /** Send structured content (text + images) from the user. */
   sendUserContent(content: string | UserContentBlock[], priority?: InputPriority): void;
   /** Resolve a pending tool permission request. */
@@ -263,7 +277,7 @@ export interface BackendSession {
   /** Enter human keyboard takeover mode (pauses automatic input injection). */
   enterTakeover?(): Promise<{ ok: boolean; error?: string }>;
   /** Complete human takeover and resume automatic input with optional diff summary. */
-  completeHandback?(instruction?: string): { ok: boolean; error?: string };
+  completeHandback?(instruction?: string): Promise<{ ok: boolean; error?: string; receipt?: 'queued' | 'written' }>;
   /** Whether a human currently holds exclusive takeover of this terminal session. */
   isTakenOver?(): boolean;
   /** Whether the session is ready, idle between turns, and not gated or taken over. */

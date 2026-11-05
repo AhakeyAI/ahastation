@@ -65,6 +65,7 @@ interface SideDrawerProps {
   forceParticipantsTab?: boolean|number;
   /** 输入框上方的会议工具条（共享屏幕 / 截图 / 打断），取代底部菜单栏。 */
   composerTools?: ReactNode;
+  composerHint?: string;
 }
 
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = [];
@@ -242,6 +243,7 @@ export const SideDrawer = memo(function SideDrawer({
   forceParticipantsTab,
   shared,linkedTaskId,onLinkTask,
   composerTools,
+  composerHint,
 }: SideDrawerProps) {
   // High-frequency meeting streams are subscribed in-component (not threaded
   // through App): transcript/activity append many times per minute during a
@@ -284,9 +286,10 @@ export const SideDrawer = memo(function SideDrawer({
   const [sharedMentions,setSharedMentions]=useState<SharedMention[]>([]);
   const draftVersion=useRef(0);
   const flight=useRef<{id:string;version:number;fileIds:string[]}|null>(null);
+  const retryDraft = useRef<{ id: string; version: number }>();
   const [sending,setSending]=useState(false),[pendingSubmission,setPendingSubmission]=useState<string|null>(null);
   const updateDraft=(value:string)=>{draftVersion.current++;if(shared)setSharedMentions(current=>editSharedMentions(text,value,current));setText(value);};
-  useEffect(()=>{draftVersion.current++;},[linkedTaskId]);
+  useEffect(()=>{draftVersion.current++;},[linkedTaskId, sessionId]);
   const finishSubmission=()=>{const submitted=flight.current;if(!submitted)return;setStaged(current=>current.filter(file=>!submitted.fileIds.includes(file.id)));if(draftVersion.current===submitted.version){draftVersion.current++;setText('');setSharedMentions([]);setRejected([]);}flight.current=null;setSending(false);setPendingSubmission(null);};
   useEffect(()=>{if(!pendingSubmission)return;const result=shared?.view.messageSubmissions?.find(s=>s.requestId===pendingSubmission);if(result?.status==='accepted')finishSubmission();else if(result?.status==='rejected'){flight.current=null;setSending(false);setPendingSubmission(null);toast.error(result.error??'原提交已被拒绝，输入保留');}},[shared?.view.messageSubmissions,pendingSubmission]);
 
@@ -553,7 +556,10 @@ export const SideDrawer = memo(function SideDrawer({
     if(disabled||staging||flight.current)return;
     const trimmed = text.trim();
     if(!trimmed&&!staged.length)return;
-    const submission={id:crypto.randomUUID(),version:draftVersion.current,fileIds:staged.map(f=>f.id)};
+    const version = draftVersion.current;
+    const id = !shared && retryDraft.current?.version === version ? retryDraft.current.id : crypto.randomUUID();
+    const submission = { id, version, fileIds: staged.map(file => file.id) };
+    if (!shared) retryDraft.current = { id, version };
     // Ref is set before the first await, including before attachment publication.
     flight.current=submission;setSending(true);
     try{
@@ -687,7 +693,27 @@ export const SideDrawer = memo(function SideDrawer({
                     {timeLabel && (
                       <span className="msg-time" title={isoTitle}>{timeLabel}</span>
                     )}
+                    {e.inputState && (
+                      <span className="msg-time">
+                        {{ queued: '已接收，等待 Host', submitted: '已交给 Host 适配器', uncertain: '提交状态待核对',
+                          'awaiting-target': '已接收，等待选择 Host', cancelled: '已取消' }[e.inputState]}
+                      </span>
+                    )}
                   </div>
+                  {e.inputState === 'awaiting-target' && sessionId && e.inputTargetChoices?.map((hostId) => (
+                    <button key={hostId} type="button" onClick={() => {
+                      void window.vibeMeet.assignHostInput(sessionId, e.id, hostId).then((result) => {
+                        if (!result.ok) toast.error(result.error ?? '无法选择 Host');
+                      }).catch((error) => toast.error(String(error)));
+                    }}>{backendNameForHost(hostId)} · {hostId}</button>
+                  ))}
+                  {sessionId && (e.inputState === 'queued' || e.inputState === 'awaiting-target') && (
+                    <button type="button" onClick={() => {
+                      void window.vibeMeet.cancelHostInput(sessionId, e.id).then((result) => {
+                        if (!result.ok) toast.error(result.error ?? '无法取消输入');
+                      }).catch((error) => toast.error(String(error)));
+                    }}>取消发送</button>
+                  )}
                   {e.imageUrl && (
                     <img
                       className="msg-image msg-image-clickable"
@@ -745,6 +771,7 @@ export const SideDrawer = memo(function SideDrawer({
             <div ref={endRef} />
           </div>
           <div className="drawer-composer">
+            {composerHint && <p role="status">{composerHint}</p>}
             {composerTools && <div className="composer-tools" role="toolbar" aria-label="会议工具">{composerTools}</div>}
             {multiAgent && onChangeDispatchMode && (
               <div

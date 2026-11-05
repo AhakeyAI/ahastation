@@ -13,6 +13,8 @@ import { isReadOnlyNetworkEnvelope } from './read-only-network.js';
 export { MEETING_TOOLS, MEETING_TOOL_NAMES } from './meeting-tool-names.js';
 export type { MeetingToolName } from './meeting-tool-names.js';
 
+const MAX_PLAN_TASKS = 100;
+
 const taskContextSelectionSchema = z.object({
   mode: taskExecutionProfileSchema.shape.contextMode,
   messageIds: z.array(z.string().trim().min(1).max(500)).max(500).default([]),
@@ -82,7 +84,7 @@ export const meetingPlanBriefInputSchema = z.object({
     .describe('Plan overview: what success looks like for the user.'),
   approach: z.string().trim().min(1).max(20_000).optional()
     .describe('Approach and rationale: architecture, trade-offs, sequencing.'),
-  steps: z.array(meetingPlanStepSchema).max(50).optional()
+  steps: z.array(meetingPlanStepSchema).max(MAX_PLAN_TASKS).optional()
     .describe('Ordered plan steps the host can read before approving.'),
   risks: z.array(z.string().trim().min(1).max(2_000)).max(20).optional()
     .describe('Risks, unknowns, or blast radius.'),
@@ -194,6 +196,9 @@ export const planMeetingTaskSchema = z.object({
 });
 
 export type PlanMeetingTask = z.infer<typeof planMeetingTaskSchema>;
+
+export const planMeetingTaskInputsSchema = z.array(planMeetingTaskInputSchema).min(1).max(MAX_PLAN_TASKS);
+export const planMeetingTasksSchema = z.array(planMeetingTaskSchema).min(1).max(MAX_PLAN_TASKS);
 
 export interface NormalizedPlanMeetingTask {
   task: PlanMeetingTask;
@@ -494,7 +499,7 @@ export const planMeetingArgsSchema = {
   steps: meetingPlanBriefInputSchema.shape.steps,
   risks: meetingPlanBriefInputSchema.shape.risks,
   openQuestions: meetingPlanBriefInputSchema.shape.openQuestions,
-  tasks: z.array(planMeetingTaskInputSchema).min(1)
+  tasks: planMeetingTaskInputsSchema
     .describe('Worker DAG implementing the plan. Each task prompt must be a full brief.'),
 };
 

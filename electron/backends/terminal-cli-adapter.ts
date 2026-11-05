@@ -247,6 +247,8 @@ export function toMatchableText(data: string): string {
  *  exit" — so the prompt waits until the user has answered (#125). */
 export const TRUST_PROMPT_PATTERN =
   /trust\s*this\s*(folder|directory|workspace|hook)|do\s*you\s*trust\s*(the\s*(files|contents)|.*\bhooks?\b)|is\s*this\s*a\s*project\s*you\s*created|allow\s*codex\s*to\s*work\s*in\s*this\s*(folder|directory)/i;
+// Codex's hook review also consumes Enter, even without a trust question.
+const HOOK_REVIEW_PATTERN = /\b\d+\s+hooks?\s+needs?\s+review\s+before\s+(?:it|they)\s+can\s+run\b/i;
 const TRUST_SETTLE_MS = 800;
 
 export function stripAnsi(data: string): string {
@@ -538,6 +540,7 @@ export class TerminalCliSession implements BackendSession {
   private authWallDeadline = 0;
   private authWallEmitted = false;
   private readyBuffer = '';
+  private readinessTimedOut = false;
   private readonly pendingTexts: string[] = [];
   private watcher: FSWatcher | null = null;
   private eventsOffset = 0;
@@ -681,6 +684,7 @@ export class TerminalCliSession implements BackendSession {
       cwd: this.config.cwd,
       env,
     });
+    this.emit({ kind: 'native-launch-phase', phase: 'process-created', processId });
     if (this.initialTask) this.turnActive = true;
     TerminalCliSession.trustSessions.set(this.workerId, this);
 
@@ -693,17 +697,23 @@ export class TerminalCliSession implements BackendSession {
       const blocker = this.profile.startupBlocker;
       if (blocker?.pattern.test(this.trustBuffer)) {
         this.startupBlocked = true;
+        this.emit({ kind: 'native-launch-phase', phase: 'failed', detail: blocker.message });
         if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
         this.emit({ kind: 'worker-signal', signal: {
           kind: 'failed', code: 'terminal-startup-blocked', message: blocker.message, retryable: true,
         } });
         return;
       }
-      if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
+      const reviewingHooks = HOOK_REVIEW_PATTERN.test(this.trustBuffer);
+      if (reviewingHooks || TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
         if (!this.trustGated) {
           this.trustGated = true;
           if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
-          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: '等待你确认是否信任这个文件夹' } });
+          const message = reviewingHooks
+            ? '等待你处理终端中的 Stop hook 审核'
+            : '等待你确认是否信任这个文件夹';
+          this.emit({ kind: 'native-launch-phase', phase: 'waiting-for-user', detail: message });
+          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message } });
         }
         this.trustBuffer = '';
         this.lastTrustSeenAt = Date.now();
@@ -714,7 +724,9 @@ export class TerminalCliSession implements BackendSession {
         // accepted. Only the explicit user action resumes.
         return;
       }
-      if (this.profile.readyPattern) {
+      const readyPattern = this.profile.readyPattern ?? (this.config.nativeCliWorker
+        ? /(?:^|[\r\n])\s*[│┃]?\s*[›❯>](?:\s|$)/u : undefined);
+      if (readyPattern) {
         // Pattern-gated: boot frames (token refresh, trust dialogs) are not
         // proof the input box exists — only the pattern is. But the pattern
         // appearing is not proof the TUI is DONE booting either: MCP/skills
@@ -723,7 +735,7 @@ export class TerminalCliSession implements BackendSession {
         // 0% once quiet). Wait for output to go quiet; every new frame
         // re-arms the quiesce timer via scheduleReady's clear-and-reset.
         this.readyBuffer = (this.readyBuffer + stripAnsi(data)).slice(-READY_BUFFER_MAX);
-        if (!this.profile.readyPattern.test(this.readyBuffer)) return;
+        if (!readyPattern.test(this.readyBuffer)) return;
         this.scheduleReady(READY_QUIESCE_MS);
         return;
       }
@@ -749,7 +761,7 @@ export class TerminalCliSession implements BackendSession {
     // token refresh) legitimately takes seconds before the input box is
     // drawn, and a 5s fallback would fire mid-boot and swallow the prompt.
     this.scheduleReady(
-      this.profile.readyPattern ? READY_FALLBACK_PATTERN_MS : READY_FALLBACK_MS,
+      this.profile.readyPattern || this.config.nativeCliWorker ? READY_FALLBACK_PATTERN_MS : READY_FALLBACK_MS,
       true,
     );
 
@@ -769,13 +781,25 @@ export class TerminalCliSession implements BackendSession {
       this.markReady();
       return;
     }
-    this.readyTimer = setTimeout(() => this.markReady(), delayMs);
+    this.readyTimer = setTimeout(() => {
+      this.readyTimer = null;
+      if (fallback && this.config.nativeCliWorker) {
+        this.readinessTimedOut = true;
+        const detail = '未观察到终端输入框。请在终端确认已就绪后继续。';
+        this.emit({ kind: 'native-launch-phase', phase: 'waiting-for-user', detail });
+        this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: `${TERMINAL_INPUT_PENDING_MARKER} ${detail}` } });
+      } else {
+        this.markReady();
+      }
+    }, delayMs);
     this.readyTimer.unref?.();
   }
 
   private markReady(): void {
     if (this.ready || this.closed || this.stopping || this.trustGated || this.loginGated || this.takenOver || this.startupBlocked) return;
     this.ready = true;
+    this.readinessTimedOut = false;
+    this.emit({ kind: 'native-launch-phase', phase: 'input-ready' });
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
       this.readyTimer = null;
@@ -791,6 +815,7 @@ export class TerminalCliSession implements BackendSession {
     if (!gate.pattern.test(this.loginGateBuffer)) return false;
     if (!this.loginGated) {
       this.loginGated = true;
+      this.emit({ kind: 'native-launch-phase', phase: 'waiting-for-user', detail: gate.message });
       if (this.readyTimer) {
         clearTimeout(this.readyTimer);
         this.readyTimer = null;
@@ -830,11 +855,11 @@ export class TerminalCliSession implements BackendSession {
     });
   }
 
-  private pasteIntoTui(text: string): void {
-    if (this.closed || this.stopping || this.authWallEmitted || this.takenOver) return;
+  private pasteIntoTui(text: string): Promise<'written' | 'rejected' | 'uncertain'> {
+    if (this.closed || this.stopping || this.authWallEmitted || this.takenOver) return Promise.resolve('rejected');
+    if (!this.deps.host.write(this.workerId, buildPasteFrame(text))) return Promise.resolve('rejected');
     this.turnActive = true;
     if (this.profile.sessionTranscript) this.transcriptPrompts.add(text);
-    this.deps.host.write(this.workerId, buildPasteFrame(text));
     const submitSeq = this.profile.submitSequence ?? '\r';
     const submit = () => {
       if (
@@ -845,20 +870,24 @@ export class TerminalCliSession implements BackendSession {
         || this.takenOver
         || this.authWallEmitted
         || !this.ready
-      ) return;
-      if (this.profile.beforeSubmitSequence) {
-        this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence);
-      }
-      this.deps.host.write(this.workerId, submitSeq);
+      ) return 'uncertain';
+      if (this.profile.beforeSubmitSequence && !this.deps.host.write(this.workerId, this.profile.beforeSubmitSequence)) return 'uncertain';
+      if (!this.deps.host.write(this.workerId, submitSeq)) return 'uncertain';
+      this.emit({ kind: 'native-launch-phase', phase: 'input-written' });
+      return 'written';
     };
-    if (this.deps.timersEnabled === false) submit();
-    else setTimeout(submit, SUBMIT_DELAY_MS).unref?.();
     // Transcript-tailed sessions own a started/completed pair: the tailer's
     // turnEnded entry closes what we open here. Other profiles stay out of
     // this state machine (their confirm bar is the turn-end signal).
     if (this.profile.sessionTranscript) {
       this.emit({ kind: 'turn-status', status: 'started' });
     }
+    if (this.deps.timersEnabled === false) return Promise.resolve(submit());
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        try { resolve(submit()); } catch { resolve('uncertain'); }
+      }, SUBMIT_DELAY_MS);
+    });
   }
 
   private startTurnEventWatcher(): void {
@@ -1061,15 +1090,21 @@ export class TerminalCliSession implements BackendSession {
   }
 
   sendUserText(text: string): void {
+    void this.submitTaskInput(text).catch((error) => {
+      if (!this.closed) this.emit({ kind: 'error', error: String(error) });
+    });
+  }
+
+  async submitTaskInput(text: string): Promise<'queued' | 'written' | 'rejected' | 'uncertain'> {
     // Once the login gate was detected, injecting more text is pointless
     // (it lands on the auth menu) and its \r submit can even arm the
     // sign-in flow. Drop input; the scheduler disposes us via the failure.
-    if (this.closed || this.stopping || this.authWallEmitted || !text) return;
+    if (this.closed || this.stopping || this.authWallEmitted || this.startupBlocked || !text) return 'rejected';
     if (!this.ready || this.trustGated || this.loginGated || this.takenOver) {
       this.pendingTexts.push(text);
-      return;
+      return 'queued';
     }
-    this.pasteIntoTui(text);
+    return this.pasteIntoTui(text);
   }
 
   sendUserContent(content: UserContentBlock[]): void {
@@ -1093,7 +1128,7 @@ export class TerminalCliSession implements BackendSession {
 
   resumePendingInput(): boolean {
     if (this.closed || this.stopping || this.authWallEmitted || this.takenOver) return false;
-    if (!this.loginGated && (this.trustGated || this.ready || this.pendingTexts.length === 0)) {
+    if (!this.loginGated && (this.trustGated || this.ready || (!this.readinessTimedOut && this.pendingTexts.length === 0))) {
       return false;
     }
     this.loginGated = false;
@@ -1123,7 +1158,7 @@ export class TerminalCliSession implements BackendSession {
     return { ok: true };
   }
 
-  completeHandback(instruction?: string): { ok: boolean; error?: string } {
+  async completeHandback(instruction?: string): Promise<{ ok: boolean; error?: string; receipt?: 'queued' | 'written' }> {
     if (this.closed || this.stopping) {
       return { ok: false, error: '终端会话已停止，不能交还继续执行' };
     }
@@ -1135,11 +1170,16 @@ export class TerminalCliSession implements BackendSession {
     this.takenOver = false;
     if (!this.trustGated && !this.loginGated) {
       this.ready = true;
-      if (continuation) this.pasteIntoTui(continuation);
+      if (continuation) {
+        const receipt = await this.pasteIntoTui(continuation);
+        if (receipt !== 'written') return { ok: false, error: '交还说明的写入结果待核对' };
+        return { ok: true, receipt };
+      }
     } else if (continuation) {
       // Keep the inspection context ahead of old instructions even when a
       // login/trust gate delays the actual submission.
       this.pendingTexts.push(continuation);
+      return { ok: true, receipt: 'queued' };
     }
     return { ok: true };
   }

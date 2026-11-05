@@ -403,8 +403,9 @@ class CodexAppServerSession implements BackendSession {
   }
 
   async start(): Promise<void> {
+    if (this.closed || this.stopping) throw new Error('Codex session is closed');
     if (!this.binaryPath) throw new Error('Codex CLI runtime is unavailable');
-    this.transport = this.createTransport({
+    const transport = this.createTransport({
       binaryPath: this.binaryPath,
       env: this.config.env ?? isolatedSubprocessEnv(),
       onNotification: (notification) => this.onNotification(notification),
@@ -430,8 +431,15 @@ class CodexAppServerSession implements BackendSession {
         }
       },
     });
+    this.transport = transport;
+    const ensureCurrent = () => {
+      if (this.closed || this.stopping || this.transport !== transport) {
+        throw new Error('Codex session closed during startup');
+      }
+    };
     try {
-      const ready = await this.transport.start();
+      const ready = await transport.start();
+      ensureCurrent();
       this.backendVersion = extractCodexRuntimeVersion(ready.userAgent) ?? undefined;
       const options: Record<string, unknown> = {
         cwd: this.config.cwd,
@@ -443,17 +451,39 @@ class CodexAppServerSession implements BackendSession {
         developerInstructions: this.config.systemPrompt,
         experimentalRawEvents: false,
       };
+      if (this.config.extra?.restrictCodexReviewerTools === true) {
+        // Candidate evidence comes through the scoped portable commands.
+        const { config } = await transport.call<{ config: { mcp_servers?: Record<string, unknown> } }>(
+          'config/read', { cwd: this.config.cwd },
+        );
+        ensureCurrent();
+        if (!config || typeof config !== 'object'
+          || (config.mcp_servers != null && (typeof config.mcp_servers !== 'object' || Array.isArray(config.mcp_servers)))) {
+          throw new Error('Codex Reviewer could not validate its MCP configuration');
+        }
+        options.config = {
+          features: { shell_tool: false, unified_exec: false, code_mode: false },
+          web_search: 'disabled',
+          mcp_servers: Object.fromEntries(
+            Object.keys(config.mcp_servers ?? {}).map((name) => [name, { enabled: false }]),
+          ),
+        };
+      }
       const model = codexModelOverride(this.config.model);
       if (model) options.model = model;
       const reasoningEffort = codexReasoningEffort(this.config);
       if (reasoningEffort) options.modelReasoningEffort = reasoningEffort;
-      this.threadId = this.config.resumeSessionId
-        ? await this.transport.resumeThread(this.config.resumeSessionId, options)
-        : await this.transport.openThread(options);
+      const threadId = this.config.resumeSessionId
+        ? await transport.resumeThread(this.config.resumeSessionId, options)
+        : await transport.openThread(options);
+      ensureCurrent();
+      this.threadId = threadId;
     } catch (error) {
       if (isCodexAuthError(String(error))) this.emitAuthRequired();
-      this.transport.close();
-      this.transport = null;
+      if (this.transport === transport) {
+        this.transport = null;
+        transport.close();
+      }
       throw error;
     }
   }
@@ -586,7 +616,9 @@ class CodexAppServerSession implements BackendSession {
     if (notification.method === 'turn/started') {
       // Host turns drive the renderer's "thinking" indicator; worker turns
       // already surface progress through worker signals.
-      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'started' });
+      const turn = notification.params.turn;
+      const turnId = isRecord(turn) && typeof turn.id === 'string' ? turn.id : undefined;
+      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'started', turnId });
       return;
     }
 
@@ -615,7 +647,7 @@ class CodexAppServerSession implements BackendSession {
           this.emit({ kind: 'worker-signal', signal });
         }
       }
-      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'completed' });
+      if (!this.isWorker) this.emit({ kind: 'turn-status', status: 'completed', turnId: turnId || undefined });
       if (turnId) this.completeTurn(turnId);
       return;
     }
@@ -674,6 +706,14 @@ class CodexAppServerSession implements BackendSession {
         const text = typeof item.text === 'string' ? item.text : '';
         const { visibleText, hasSpeakCommand, results } = dispatchAppServerCommands(
           text, this.meetingCommandHandler, (event) => { if (!this.closed) this.emit(event); },
+          this.config.extra?.meetingCommandFeedback
+            ? (commandId, result) => {
+              if (!this.closed && !this.stopping) this.sendUserText(
+                `<meeting-command-result>\n${JSON.stringify({ commandId, result })}\n</meeting-command-result>`,
+                'high',
+              );
+            }
+            : undefined,
         );
         if (hasSpeakCommand) return null;
         if (visibleText) {
@@ -1337,6 +1377,7 @@ function dispatchAppServerCommands(
   text: string,
   handler: ((command: unknown) => Promise<unknown> | unknown) | undefined,
   emit: (event: BackendSessionEvent) => void,
+  feedback?: (commandId: string, result: unknown) => void,
 ): { visibleText: string; hasSpeakCommand: boolean; results: Promise<boolean>[] } {
   const fenced = /```meeting-command\s*([\s\S]*?)```/gi;
   let hasSpeakCommand = false;
@@ -1350,6 +1391,12 @@ function dispatchAppServerCommands(
       results.push(Promise.resolve().then(async () => {
         if (!handler) throw new Error('会议命令处理器不可用');
         const result = await handler(command);
+        if (feedback && (typeof command?.commandId === 'string'
+          || command?.kind === 'inspect-tasks' || command?.kind === 'read-meeting-context')) {
+          const commandId = typeof command.commandId === 'string' && /^[\w.-]{1,128}$/.test(command.commandId)
+            ? command.commandId : randomUUID();
+          feedback(commandId, result);
+        }
         if (isRecord(result) && result.ok === false) {
           throw new Error(typeof result.error === 'string' ? result.error : '会议命令被拒绝');
         }

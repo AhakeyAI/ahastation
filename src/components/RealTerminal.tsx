@@ -140,11 +140,11 @@ export function RealTerminal({ workerId, readOnly = false, onOutput }: RealTermi
         ? <div className="real-terminal-note">终端进程已经结束，没有可回放的画面。</div>
         : <div className="real-terminal-error">{error}</div>)}
       {trust && <div role="status" className="real-terminal-error">
-        请在下方终端接管并确认是否信任此文件夹；任务提示词正在等待。
+        请在终端处理信任提示或 Hook 审核，回到输入框后再继续。任务提示词已暂存。
         <button type="button" disabled={readOnly} onClick={async () => {
           const result = await window.vibeMeet.workerPty.confirmTrust(workerId, trust.generation);
           if (result.ok) setTrust(null); else setError(result.error ?? '确认已失效');
-        }}>已在终端确认，继续任务</button>
+        }}>已回到输入框，继续任务</button>
       </div>}
       <div
         ref={containerRef}

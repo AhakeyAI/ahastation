@@ -48,21 +48,22 @@ test('resumePlaceholder duplicate branch cannot strand a slot-less activeId', ()
     'pointing activeId at a slot-less id strands the user on the Lobby');
 });
 
-test('closeTab bounds the sessions.close wait so Leave always tears down locally', () => {
+test('closeTab bounds the sessions.close wait and surfaces cleanup errors before dropping the tab', () => {
   const store = read('src/lib/meeting-store.ts');
-  assert.match(store, /CLOSE_IPC_TIMEOUT_MS = 10_000/);
+  assert.match(store, /CLOSE_IPC_TIMEOUT_MS = 17_000/);
   const body = store.slice(store.indexOf('async closeTab('));
   assert.match(body, /Promise\.race\(\[\s*window\.vibeMeet\.sessions\.close\(id\)/);
-  assert.match(body, /sessions\.close timed out/);
+  assert.match(body, /未收到会议清理结果/);
+  assert.match(body, /if \(!result\.ok.*throw new Error/);
   assert.match(body, /this\.slots\.delete\(id\)/);
 });
 
-test('main sessions:close bounds orchestrator.end() and always frees the registry slot', () => {
+test('main sessions:close bounds execution cleanup separately from recap', () => {
   const ipc = read('electron/ipc/sessions.ts');
   assert.match(ipc, /END_TIMEOUT_MS = 15_000/);
   const body = ipc.slice(ipc.indexOf("ipcMain.handle('sessions:close'"));
-  assert.match(body, /Promise\.race\(\[\s*slot\.orchestrator\.end\(\)/);
-  assert.match(body, /endTimedOut/);
+  assert.match(body, /Promise\.race\(\[\s*slot\.orchestrator\.waitForExecutionCleanup\(\)/);
+  assert.match(body, /会议仍在清理执行进程/);
   assert.match(body, /ctx\.registry\.close\(id\)/);
 });
 

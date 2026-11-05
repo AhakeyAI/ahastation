@@ -83,6 +83,10 @@ export class TaskMailbox {
   private messagesById = new Map<string, TaskMessage>();
   private idsByTask = new Map<string, string[]>();
   private nextSeqByTask = new Map<string, number>();
+  private transportReceipts = new Map<string, number>();
+  private nativeSubmissions = new Set<string>();
+  private inboxOffers = new Map<string, { attempt: number; expiresAt: number }>();
+  private mutationTail = Promise.resolve();
 
   constructor(
     private readonly repository: MeetingRepository,
@@ -93,6 +97,9 @@ export class TaskMailbox {
     this.messagesById.clear();
     this.idsByTask.clear();
     this.nextSeqByTask.clear();
+    this.transportReceipts.clear();
+    this.nativeSubmissions.clear();
+    this.inboxOffers.clear();
     for (const event of [...events].sort((left, right) => left.seq - right.seq)) {
       const envelope = taskEnvelope(event);
       if (!envelope) continue;
@@ -107,12 +114,21 @@ export class TaskMailbox {
         event.type !== 'task-message-delivered'
         && event.type !== 'task-message-acknowledged'
         && event.type !== 'task-message-failed'
+        && event.type !== 'task-message-transport-received'
+        && event.type !== 'task-message-native-submit-intent'
+        && event.type !== 'task-message-cancelled'
       ) continue;
       const data = envelope.data as { messageId?: unknown };
       if (typeof data?.messageId !== 'string') continue;
       const current = this.messagesById.get(data.messageId);
       if (!current || current.taskId !== envelope.taskId) continue;
-      if (event.type === 'task-message-delivered' && current.status !== 'acknowledged') {
+      if (event.type === 'task-message-transport-received' && envelope.attempt) {
+        this.transportReceipts.set(current.id, envelope.attempt);
+      } else if (event.type === 'task-message-native-submit-intent') {
+        this.nativeSubmissions.add(current.id);
+      } else if (event.type === 'task-message-cancelled') {
+        this.messagesById.set(current.id, { ...current, status: 'failed' });
+      } else if (event.type === 'task-message-delivered' && current.status !== 'acknowledged') {
         this.messagesById.set(current.id, { ...current, status: 'delivered' });
       } else if (event.type === 'task-message-acknowledged') {
         this.messagesById.set(current.id, { ...current, status: 'acknowledged' });
@@ -131,7 +147,16 @@ export class TaskMailbox {
     }
   }
 
-  async enqueue(input: NewTaskMessage): Promise<TaskMessage> {
+  async enqueue(input: NewTaskMessage, isCurrent = () => true): Promise<TaskMessage> {
+    const message = await this.mutate(() => {
+      if (!isCurrent()) throw new Error('Task message actor expired');
+      return this.enqueueDurably(input);
+    });
+    if (message.created) await this.options.onDurableEnqueue?.(structuredClone(message.value));
+    return message.value;
+  }
+
+  private async enqueueDurably(input: NewTaskMessage): Promise<{ value: TaskMessage; created: boolean }> {
     assertNoNativePayload(input.payload);
     const id = input.id?.trim() || randomUUID();
     const existing = this.messagesById.get(id);
@@ -155,7 +180,7 @@ export class TaskMailbox {
       if (!isDeepStrictEqual(requested, persisted)) {
         throw new Error(`task message id already exists with different semantics: ${id}`);
       }
-      return structuredClone(existing);
+      return { value: structuredClone(existing), created: false };
     }
     const lifecycle = this.options.getTaskLifecycle?.(input.taskId);
     if (
@@ -188,8 +213,69 @@ export class TaskMailbox {
       data: message,
     });
     this.remember(message);
-    await this.options.onDurableEnqueue?.(structuredClone(message));
-    return structuredClone(message);
+    return { value: structuredClone(message), created: true };
+  }
+
+  hasTransportReceipt(messageId: string, attempt: number): boolean {
+    return this.transportReceipts.get(messageId) === attempt;
+  }
+
+  canSubmitNatively(messageId: string, attempt: number): boolean {
+    return !this.nativeSubmissions.has(messageId) && !this.hasTransportReceipt(messageId, attempt)
+      && !this.hasActiveInboxOffer(messageId, attempt);
+  }
+
+  offerInInbox(attempt: number, messages: TaskMessage[]): void {
+    const expiresAt = Date.now() + 30_000;
+    for (const { id } of messages) this.inboxOffers.set(id, { attempt, expiresAt });
+  }
+
+  hasActiveInboxOffer(messageId: string, attempt: number): boolean {
+    const offer = this.inboxOffers.get(messageId);
+    return offer?.attempt === attempt && offer.expiresAt > Date.now();
+  }
+
+  cancelSubmission(taskId: string, messageId: string): Promise<void> {
+    return this.mutate(async () => {
+      const message = this.requireMessage(taskId, messageId);
+      if (message.status !== 'queued') return;
+      await this.appendStatus('task-message-cancelled', message);
+      this.updateStatus(message, 'failed');
+    });
+  }
+
+  claimNativeSubmission(taskId: string, attempt: number, messageId: string): Promise<boolean> {
+    return this.mutate(async () => {
+      const message = this.requireMessage(taskId, messageId);
+      if (message.status !== 'queued' || !this.canSubmitNatively(messageId, attempt)) return false;
+      await this.repository.appendTaskEvent('task-message-native-submit-intent', {
+        schemaVersion: 1, taskId, attempt, data: { messageId },
+      });
+      this.nativeSubmissions.add(messageId);
+      return true;
+    });
+  }
+
+  recordTransportReceipt(taskId: string, attempt: number, messageId: string, isCurrent: () => boolean): Promise<void> {
+    return this.mutate(async () => {
+      if (!isCurrent()) throw new Error('Worker attempt is no longer active');
+      const message = this.requireMessage(taskId, messageId);
+      if (message.attempt > attempt || !['coordinator', 'user'].includes(message.sender)
+        || !['instruction', 'steer', 'follow-up'].includes(message.kind)) {
+        throw new Error('Message is outside the Worker inbox');
+      }
+      if (this.hasTransportReceipt(messageId, attempt)) return;
+      await this.repository.appendTaskEvent('task-message-transport-received', {
+        schemaVersion: 1, taskId, attempt, data: { messageId },
+      });
+      this.transportReceipts.set(messageId, attempt);
+    });
+  }
+
+  private mutate<T>(apply: () => Promise<T>): Promise<T> {
+    const result = this.mutationTail.then(apply);
+    this.mutationTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async markDelivered(taskId: string, messageId: string): Promise<TaskMessage> {
@@ -223,6 +309,11 @@ export class TaskMailbox {
   get(taskId: string, messageId: string): TaskMessage | undefined {
     const message = this.messagesById.get(messageId);
     return message?.taskId === taskId ? structuredClone(message) : undefined;
+  }
+
+  findMessage(messageId: string): TaskMessage | undefined {
+    const message = this.messagesById.get(messageId);
+    return message && structuredClone(message);
   }
 
   list(taskId: string, afterSeq = 0): TaskMessage[] {

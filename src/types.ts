@@ -342,6 +342,7 @@ export interface RendererTaskSnapshot {
     };
   };
   mailbox: TaskMessage[];
+  inboxReceivedMessageIds?: string[];
   mailboxTruncated: boolean;
   attempts: Array<{
     attempt: number;
@@ -411,6 +412,8 @@ export interface TasksApi {
     sessionId: string,
     taskId: string,
     text: string,
+    inputId?: string,
+    replyTo?: string,
   ) => Promise<{ ok: boolean; error?: string; message?: TaskMessage }>;
   steer: (
     sessionId: string,
@@ -506,6 +509,7 @@ export interface MeetingPlanNode {
   /** True while the worker session is being brought up (slot already consumed
    *  but status is still 'pending'). Mirrors backend MeetingPlanNode.launching. */
   launching?: boolean;
+  launchPhase?: import('../electron/backends/cli-backend').NativeLaunchPhase;
   budget?: TaskBudget;
   budgetState?: {
     attempts: number;
@@ -899,13 +903,18 @@ export type RendererEvent =
   | { kind: 'plan-updated'; plan: MeetingPlan; source?: AgentSource; sessionId?: string; hostId?: string }
   | {
     kind: 'plan-proposed';
+    proposalId?: string;
+    proposalVersion?: number;
     tasks: PlanMeetingTaskInput[];
     brief?: MeetingPlanBrief;
     source?: AgentSource;
     sessionId?: string;
     hostId?: string;
   }
+  | { kind: 'plan-proposal-resolved'; proposalId: string; source?: AgentSource; sessionId?: string }
+  | { kind: 'plan-install-uncertain'; proposalId: string; source?: AgentSource; sessionId?: string }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string; source?: AgentSource; sessionId?: string }
+  | { kind: 'coordinator-restored'; hostId: string; source?: AgentSource; sessionId?: string }
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string; source?: AgentSource; sessionId?: string; hostId?: string }
@@ -914,6 +923,7 @@ export type RendererEvent =
   | { kind: 'meeting-notes-updated'; notes: MeetingNotes; updatedAt: number; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'task-owner-assigned'; taskId: string; title: string; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'user-mentioned-host'; backendId?: string; chars?: number; source?: AgentSource; sessionId?: string; hostId?: string }
+  | ({ kind: 'host-input-state'; source?: AgentSource; sessionId?: string; text?: string; receivedAt?: number } & import('../electron/host/inbox').HostInputReceipt)
   | { kind: 'session-start-failed'; error: string; source?: AgentSource; sessionId?: string; hostId?: string; remoteTarget?: PocketVibeRemoteTarget };
 
 export interface DesktopSource {
@@ -1302,12 +1312,20 @@ export interface VibeMeetApi {
   remoteControl: { request: (action: string, payload?: Record<string, unknown>) => Promise<import('../electron/remote-control-types').RemoteControlReply>; onChanged: (cb: () => void) => () => void };
   collaboration: {request(action:string,payload?:Record<string,unknown>):Promise<{ok:boolean;value?:unknown;error?:string}>;onChanged(cb:()=>void):()=>void};
   sessions: SessionsApi;
-  sendUserText: (sessionId: string | null, text: string) => Promise<{ ok: boolean; error?: string }>;
-  sendUserImage: (sessionId: string | null, dataUrl: string, caption: string) => Promise<{ ok: boolean; error?: string }>;
+  sendUserText: (sessionId: string | null, text: string, inputId?: string, source?: 'user-text' | 'voice-transcript') => Promise<{
+    ok: boolean; error?: string; receipt?: import('../electron/host/inbox').HostInputReceipt;
+  }>;
+  readHostInput: (sessionId: string | null, inputId: string) => Promise<{
+    ok: boolean; input?: import('../electron/host/inbox').HostInputReceipt & { text: string };
+  }>;
+  assignHostInput: (sessionId: string, inputId: string, hostId: string) => Promise<{ ok: boolean; error?: string }>;
+  cancelHostInput: (sessionId: string, inputId: string) => Promise<{ ok: boolean; error?: string }>;
+  sendUserImage: (sessionId: string | null, dataUrl: string, caption: string, inputId?: string) => Promise<{ ok: boolean; error?: string }>;
   sendUserAttachments: (
     sessionId: string | null,
     items: AttachmentSendWire[],
     caption: string,
+    inputId?: string,
   ) => Promise<{ ok: boolean; error?: string; inlinedCount?: number; workspaceCount?: number }>;
   resolvePermission: (
     sessionId: string | null,
@@ -1316,7 +1334,7 @@ export interface VibeMeetApi {
     message?: string,
     scope?: 'worker' | 'task-wide',
   ) => Promise<{ ok: boolean }>;
-  interrupt: (sessionId: string | null) => Promise<{ ok: boolean }>;
+  interrupt: (sessionId: string | null, hostId?: string) => Promise<{ ok: boolean; error?: string }>;
   setPermissionMode: (sessionId: string | null, mode: string) => Promise<{ ok: boolean }>;
   setAutoApprove: (scope: AutoApproveScope) => Promise<{ ok: boolean; autoApproveScope?: AutoApproveScope }>;
   setOrchestrationMode: (sessionId: string | null, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
@@ -1325,6 +1343,7 @@ export interface VibeMeetApi {
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
     brief?:MeetingPlanBrief,
+    identity?: { proposalId: string; proposalVersion: number; approvalCommandId: string },
   ) => Promise<{ ok: boolean; error?: string }>;
   acceptDelivery: (
     sessionId: string | null,
@@ -1353,7 +1372,7 @@ export interface VibeMeetApi {
       reason: string,
     ) => Promise<{ ok: true; planVersion: number; taskIds: string[] } | { ok: false; error: string }>;
   };
-  endSession: (sessionId: string | null) => Promise<{ ok: boolean }>;
+  endSession: (sessionId: string | null) => Promise<{ ok: boolean; error?: string }>;
   pickCwd: () => Promise<string | null>;
   listDir: (path: string | null, showHidden?: boolean) => Promise<ListDirResult>;
   confirmCwd: (path: string) => Promise<string | null>;
@@ -1733,6 +1752,8 @@ declare global {
 }
 
 export interface TranscriptEntry {
+  inputState?: import('../electron/host/inbox').HostInputReceipt['state'];
+  inputTargetChoices?: string[];
   id: string;
   role: 'user' | 'assistant' | 'system';
   text: string;

@@ -52,21 +52,27 @@ const api = {
     restartHost: (sessionId, hostId) =>
       ipcRenderer.invoke('sessions:restart-host', { sessionId, hostId }),
   },
-  sendUserText: (sessionId, text) =>
-    ipcRenderer.invoke('session:user-text', { sessionId, text }),
-  sendUserImage: (sessionId, dataUrl, caption) =>
-    ipcRenderer.invoke('session:user-image', { sessionId, dataUrl, caption }),
-  sendUserAttachments: (sessionId, items, caption) =>
-    ipcRenderer.invoke('session:user-attachments', { sessionId, items, caption }),
+  sendUserText: (sessionId, text, inputId, source) =>
+    ipcRenderer.invoke('session:user-text', { sessionId, text, inputId, source }),
+  readHostInput: (sessionId, inputId) =>
+    ipcRenderer.invoke('session:read-host-input', { sessionId, inputId }),
+  assignHostInput: (sessionId, inputId, hostId) =>
+    ipcRenderer.invoke('session:assign-host-input', { sessionId, inputId, hostId }),
+  cancelHostInput: (sessionId, inputId) =>
+    ipcRenderer.invoke('session:cancel-host-input', { sessionId, inputId }),
+  sendUserImage: (sessionId, dataUrl, caption, inputId) =>
+    ipcRenderer.invoke('session:user-image', { sessionId, dataUrl, caption, inputId }),
+  sendUserAttachments: (sessionId, items, caption, inputId) =>
+    ipcRenderer.invoke('session:user-attachments', { sessionId, items, caption, inputId }),
   resolvePermission: (sessionId, id, decision, message, scope) =>
     ipcRenderer.invoke('session:resolve-permission', { sessionId, id, decision, message, scope }),
-  interrupt: (sessionId) => ipcRenderer.invoke('session:interrupt', { sessionId }),
+  interrupt: (sessionId, hostId) => ipcRenderer.invoke('session:interrupt', { sessionId, hostId }),
   setPermissionMode: (sessionId, mode) =>
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
   setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks,brief) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}),...(brief?{brief}:{}) }),
+  approvePlan: (sessionId, approved, tasks, brief, identity) =>
+    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}), brief, identity }),
   acceptDelivery: (sessionId, deliveryId, candidateId) =>
     ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
   returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>
@@ -229,8 +235,8 @@ const api = {
         });
       };
     },
-    followUp: (sessionId, taskId, text) =>
-      ipcRenderer.invoke('tasks:follow-up', { sessionId, taskId, text }),
+    followUp: (sessionId, taskId, text, inputId, replyTo) =>
+      ipcRenderer.invoke('tasks:follow-up', { sessionId, taskId, text, inputId, replyTo }),
     steer: (sessionId, taskId, text) =>
       ipcRenderer.invoke('tasks:steer', { sessionId, taskId, text }),
     interrupt: (sessionId, taskId, reason) =>

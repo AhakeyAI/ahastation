@@ -27,6 +27,7 @@ function installFakeSafeStorage({ available = true } = {}) {
 }
 
 const b64 = (s) => Buffer.from(s).toString('base64');
+const remoteControl = { enabled: true, mode: 'public', serviceUrl: 'https://fixture.example' };
 let seq = 0;
 
 // Each case gets its own userData dir and a fresh store module instance.
@@ -45,12 +46,15 @@ test('warmSecrets decrypts ciphertext written by the old sync API', async (t) =>
   const { store } = await freshStore(t, {
     anthropicApiKeyEnc: b64('v2:sk-anthropic'),
     backendAuth: [{ backendId: 'codex', authMode: 'api-key', apiKeyEnc: b64('v2:sk-codex') }],
+    remoteControl: { ...remoteControl, controlTokenEnc: b64('v2:fixture-account') },
   });
   assert.equal(store.getSettings().anthropicApiKey, undefined, 'nothing is decrypted before warmSecrets');
+  assert.equal(store.getSettings().remoteControl.controlToken, undefined);
   await store.warmSecrets();
   assert.equal(store.getSettings().anthropicApiKey, 'sk-anthropic');
   assert.equal(store.getBackendAuth('codex')?.apiKey, 'sk-codex');
   assert.equal(store.listBackendAuth()[0]?.apiKey, 'sk-codex');
+  assert.equal(store.getSettings().remoteControl.controlToken, 'fixture-account');
 });
 
 test('writes keep keys encrypted on disk and readable in memory', async (t) => {
@@ -73,11 +77,14 @@ test('values flagged shouldReEncrypt are rewritten with the current key', async 
   const { store, onDisk } = await freshStore(t, {
     anthropicApiKeyEnc: b64('v1:sk-old'),
     backendAuth: [{ backendId: 'codex', authMode: 'api-key', apiKeyEnc: b64('v1:sk-codex') }],
+    remoteControl: { ...remoteControl, controlTokenEnc: b64('v1:fixture-account') },
   });
   await store.warmSecrets();
   const disk = onDisk();
   assert.equal(disk.anthropicApiKeyEnc, b64('v2:sk-old'));
   assert.equal(disk.backendAuth[0].apiKeyEnc, b64('v2:sk-codex'));
+  assert.equal(disk.remoteControl.controlTokenEnc, b64('v2:fixture-account'));
+  assert.equal(disk.remoteControl.controlToken, undefined);
   assert.equal(store.getBackendAuth('codex')?.apiKey, 'sk-codex');
 });
 
@@ -99,24 +106,32 @@ test('undecryptable ciphertext survives unrelated writes', async (t) => {
   const { store, onDisk } = await freshStore(t, {
     anthropicApiKeyEnc: b64('garbage'),
     backendAuth: [{ backendId: 'codex', authMode: 'api-key', apiKeyEnc: b64('garbage-codex') }],
+    remoteControl: { ...remoteControl, controlTokenEnc: b64('garbage-remote') },
   });
   await store.warmSecrets();
   assert.equal(store.getSettings().anthropicApiKey, undefined);
   assert.equal(store.getBackendAuth('codex')?.apiKey, undefined);
+  assert.equal(store.getSettings().remoteControl.controlToken, undefined);
   await store.updateSettings({ voiceLockEnabled: true });
   const disk = onDisk();
   assert.equal(disk.anthropicApiKeyEnc, b64('garbage'));
   assert.equal(disk.backendAuth[0].apiKeyEnc, b64('garbage-codex'));
+  assert.equal(disk.remoteControl.controlTokenEnc, b64('garbage-remote'));
 });
 
 test('without OS encryption a key is never written as plaintext', async (t) => {
   installFakeSafeStorage({ available: false });
-  const { store, onDisk } = await freshStore(t);
+  const { store, onDisk } = await freshStore(t, {
+    remoteControl: { ...remoteControl, controlTokenEnc: b64('v2:fixture-account') },
+  });
   await store.warmSecrets();
+  assert.equal(store.remoteCredentialStorageAvailable(), false);
   await store.updateSettings({ anthropicApiKey: 'sk-memory-only' });
   await store.setBackendAuth('codex', { authMode: 'api-key', apiKey: 'sk-codex-memory' });
   const raw = JSON.stringify(onDisk());
   assert.ok(!raw.includes('sk-memory-only'));
   assert.ok(!raw.includes('sk-codex-memory'));
   assert.equal(store.getSettings().anthropicApiKey, 'sk-memory-only');
+  assert.equal(store.getSettings().remoteControl.controlToken, undefined);
+  assert.equal(onDisk().remoteControl.controlTokenEnc, b64('v2:fixture-account'));
 });

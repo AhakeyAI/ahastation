@@ -200,13 +200,13 @@ test('a connecting host cannot take over coordination before readiness', async (
     await orchestrator.start();
     const added = orchestrator.addHost('codex', 'connecting-codex');
     assert.equal(added.ok, true);
-    assert.deepEqual(orchestrator.setCoordinator('connecting-codex'), {
+    assert.deepEqual(await orchestrator.setCoordinator('connecting-codex'), {
       ok: false,
       error: "host group 'connecting-codex' is not ready",
     });
     releaseSecond();
     await new Promise((resolve) => setImmediate(resolve));
-    const handed = orchestrator.setCoordinator('connecting-codex');
+    const handed = await orchestrator.setCoordinator('connecting-codex');
     assert.deepEqual(handed, {
       ok: true,
       coordinatorHostId: 'connecting-codex',
@@ -327,7 +327,8 @@ test('a backend mention routes the user turn to the ready expert instead of the 
     assert.equal(orchestrator.addHost('codex', 'codex-expert').ok, true);
     await new Promise((resolve) => setImmediate(resolve));
 
-    orchestrator.sendUserText('排查 ASR 为什么启动失败@codex');
+    await orchestrator.sendUserText('排查 ASR 为什么启动失败@codex');
+    await waitFor(() => sessions[1].inputs.length === 1, 'directed Host input was not submitted');
 
     assert.deepEqual(sessions[0].inputs, [], 'the coordinator must not consume a directly addressed expert turn');
     assert.equal(sessions[1].inputs.length, 1, 'the expert receives exactly the user-directed turn, not a startup greeting');
@@ -348,7 +349,7 @@ test('a backend mention routes the user turn to the ready expert instead of the 
       'the expert response should emit after its journal entry is durable',
     );
     assert.ok(emitted.some((event) => event.hostId === 'codex-expert' && event.event.kind === 'message'));
-    assert.match(sessions[0].inputs[0], /expert response from codex-expert.*ASR 依赖没有加载成功/s);
+    assert.deepEqual(sessions[0].inputs, [], 'direct user replies do not trigger another Host turn');
   } finally {
     await orchestrator.end();
   }

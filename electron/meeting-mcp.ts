@@ -36,6 +36,7 @@ import type { CreateDecisionPayload } from './decisions.js';
 import type { MemoryCategory } from './memory.js';
 import type { WorkerSpecialtyKind } from './orchestrator-types.js';
 import type { CoordinatorReviewFinding } from './coordinator-review.js';
+import type { MeetingCommandResult } from './meeting-command.js';
 import { listAssets } from './attachments/assets.js';
 import type {
   ObservedActionOutcome,
@@ -55,14 +56,6 @@ export interface SaveMemoryResult {
   ok: boolean;
   preview?: string;
   error?: string;
-}
-
-/** Pending Coordinator review that currently narrows the Coordinator tool surface. */
-export interface ActiveReviewGate {
-  reviewId: string;
-  deliveryId: string;
-  uncoveredChunkIds: string[];
-  remainingChunks: number;
 }
 
 /** Result of asking the orchestrator to steer a worker mid-flight. The Talker
@@ -104,7 +97,7 @@ export interface OrchestratorBridge {
     commands?: string[][];
     networkHosts?: string[];
     toolKinds?: string[];
-  }): Promise<
+  }, isCurrent?: () => boolean): Promise<
     | {
         ok: true;
         workerId: string;
@@ -120,13 +113,17 @@ export interface OrchestratorBridge {
   proposePlan(
     tasks: PlanMeetingTaskInput[],
     brief?: MeetingPlanBriefInput,
+    isCurrent?: () => boolean,
   ): Promise<
-    | { ok: true; appliedDefaults?: AppliedTaskDefaults[] }
+    | { ok: true; status?: 'proposed' | 'installed'; proposalId?: string; appliedDefaults?: AppliedTaskDefaults[] }
     | { ok: false; error: string }
   >;
   steerWorker(workerId: string, addendum: string): Promise<SteerResult>;
-  sendTaskMessage(taskId: string, message: string, executorBackendId?: string): Promise<{ id: string; status: string }>;
-  queueTaskFollowUp(taskId: string, message: string, executorBackendId?: string): Promise<{ id: string; status: string }>;
+  sendTaskMessage(taskId: string, message: string, executorBackendId?: string, isCurrent?: () => boolean): Promise<{ id: string; status: string }>;
+  queueTaskFollowUp(
+    taskId: string, message: string, executorBackendId?: string,
+    identity?: { inputId: string; replyTo?: string }, isCurrent?: () => boolean,
+  ): Promise<{ id: string; status: string }>;
   interruptWorker(workerId: string, reason?: string): Promise<{ ok: true } | { ok: false; error: string }>;
   forwardTaskMessage(fromTaskId: string, toTaskId: string, messageId: string): Promise<{ id: string; status: string }>;
   inspectDeliveryReview(reviewId: string): unknown;
@@ -146,7 +143,6 @@ export interface OrchestratorBridge {
     findings: CoordinatorReviewFinding[],
     executorBackendId?: string,
   ): Promise<unknown>;
-  activeReviewGate(): ActiveReviewGate | null;
   hasWorker(workerId: string): boolean;
   activeWorkerIds(): string[];
   describeWorkers(workerId?: string): string;
@@ -166,6 +162,9 @@ export interface OrchestratorBridge {
   // Document tool (report mode — saves full response as a reviewable document)
   saveDocument(input: { title: string; content: string; spokenSummary: string }): Promise<{ ok: boolean; filename?: string; error?: string }>;
   sendHostMessage(fromHostId: string, toHostId: string, text: string): { ok: boolean; error?: string; truncated?: boolean };
+  askExpert(fromHostId: string, toHostId: string, question: string, isCurrent?: () => boolean): Promise<string>;
+  replyExpertAsk(hostId: string, requestId: string, text: string, isCurrent?: () => boolean): Promise<void>;
+  readMeetingContext(hostId: string, input: { taskId?: string; cursor?: number; expectedHash?: string }): unknown;
   getCoordinatorHostId(): string;
 
   // Worker tools
@@ -187,7 +186,6 @@ const REVIEW_MODE_TOOLS: ReadonlySet<string> = new Set<string>([
   MEETING_TOOLS.REQUEST_DELIVERY_REWORK,
 ]);
 
-type ToolHandler = (...args: never[]) => Promise<unknown>;
 
 interface ToolTextResult {
   // The SDK tool-handler return type requires a string index signature.
@@ -255,68 +253,36 @@ export function formatObservedActionOutcome(
   return observedToolText(`error: ${why}`, true);
 }
 
-/**
- * A frozen candidate waiting on the Coordinator must not compete with new
- * planning, delegation or steering turns. While a review is active every
- * non-review tool is refused with the pending reviewId and the chunk ids still
- * owed a verdict, so the model is told exactly how to unblock itself instead of
- * silently wandering off and stalling the delivery.
- */
-export function gateDuringCoordinatorReview<T extends { name: string; handler: ToolHandler }>(
-  bridge: OrchestratorBridge,
-  tools: T[],
-): T[] {
-  return tools.map((definition) => {
-    if (REVIEW_MODE_TOOLS.has(definition.name)) return definition;
-    const inner = definition.handler as (...args: unknown[]) => Promise<unknown>;
-    return {
-      ...definition,
-      handler: async (...args: unknown[]) => {
-        const gate = bridge.activeReviewGate();
-        if (!gate) return inner(...args);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `error: ${definition.name} is unavailable while Coordinator review ${gate.reviewId} is open. ${gate.remainingChunks} chunk(s) still need a hash-bound verdict: ${gate.uncoveredChunkIds.join(', ') || 'none'}. Finish the review with get_delivery_review_chunk / submit_delivery_chunk_review / complete_delivery_review (or request_delivery_rework) first.`,
-          }],
-          isError: true,
-        };
-      },
-    } as unknown as T;
-  });
-}
-
 export function buildTalkerMcp(
   bridge: OrchestratorBridge,
   canCoordinate: () => boolean = () => true,
   hostId = 'default',
+  isCurrent: () => boolean = () => true,
+  reviewId?: string,
+  executeReview?: (raw: unknown) => Promise<MeetingCommandResult>,
 ) {
   const denied = () => ({ content: [{ type: 'text' as const, text: 'error: this host is an expert; only the active coordinator may schedule or speak for the meeting' }] });
   return createSdkMcpServer({
     name: 'meeting',
     version: '0.2.0',
-    tools: gateDuringCoordinatorReview(bridge, [
+    tools: [
       tool(
         MEETING_TOOLS.ASK_HOST,
         'Ask one expert host for an internal opinion. The expert reply is routed back to the coordinator and is not spoken directly to the user.',
         askHostArgsSchema,
         async ({ hostId: targetHostId, question }) => {
           if (!canCoordinate()) return denied();
-          const result = bridge.sendHostMessage(hostId, targetHostId, `[expert request] ${question}`);
-          if (!result.ok) return { content: [{ type: 'text', text: `error: ${result.error}` }] };
-          const note = result.truncated ? ' (truncated to fit the host bus)' : '';
-          return { content: [{ type: 'text', text: `question sent to ${targetHostId}${note}` }] };
+          const requestId = await bridge.askExpert(hostId, targetHostId, question, isCurrent);
+          return { content: [{ type: 'text', text: JSON.stringify({ requestId, targetHostId, status: 'requested' }) }] };
         },
       ),
       tool(
         MEETING_TOOLS.REPLY_COORDINATOR,
         'Reply internally to the active coordinator. Use this after receiving an expert request; do not address the user directly.',
-        { text: z.string().min(1).max(20_000) },
-        async ({ text }) => {
-          const result = bridge.sendHostMessage(hostId, bridge.getCoordinatorHostId(), `[expert reply from ${hostId}] ${text}`);
-          if (!result.ok) return { content: [{ type: 'text', text: `error: ${result.error}` }] };
-          const note = result.truncated ? ' (truncated to fit the host bus)' : '';
-          return { content: [{ type: 'text', text: `reply sent to coordinator${note}` }] };
+        { requestId: z.string().uuid(), text: z.string().min(1).max(20_000) },
+        async ({ requestId, text }) => {
+          await bridge.replyExpertAsk(hostId, requestId, text, isCurrent);
+          return { content: [{ type: 'text', text: `reply recorded for ${requestId}` }] };
         },
       ),
       tool(
@@ -341,7 +307,7 @@ export function buildTalkerMcp(
             workspaceMode,
             commands,
             networkHosts,
-          });
+          }, () => isCurrent() && canCoordinate());
           if (!r.ok) {
             return { content: [{ type: 'text', text: `error: ${r.error}` }] };
           }
@@ -379,7 +345,7 @@ export function buildTalkerMcp(
             steps,
             risks,
             openQuestions,
-          });
+          }, () => isCurrent() && canCoordinate());
           if (!result.ok) {
             return { content: [{ type: 'text', text: `error: ${result.error}` }] };
           }
@@ -393,8 +359,10 @@ export function buildTalkerMcp(
           return {
             content: [{
               type: 'text',
-              text: `plan proposed: ${goal ? `"${goal}" · ` : ''}${tasks.length} workers `
-                + `(${spawned} can start now, ${queued} wait on deps) — waiting for host approval${auto}`,
+              text: result.status === 'installed'
+                ? `plan installed: ${tasks.length} tasks; check status for actual execution${auto}`
+                : `plan proposed${result.proposalId ? ` (${result.proposalId})` : ''}: ${goal ? `"${goal}" · ` : ''}${tasks.length} tasks `
+                  + `(${spawned} can start after approval, ${queued} wait on deps) — waiting for user approval${auto}`,
             }],
           };
         },
@@ -456,7 +424,8 @@ export function buildTalkerMcp(
         async ({ taskId, message, executorBackendId }) => {
           if (!canCoordinate() && !bridge.isTaskOwnedBy?.(taskId, hostId)) return denied();
           try {
-            const queued = await bridge.sendTaskMessage(taskId, message, executorBackendId);
+            const queued = await bridge.sendTaskMessage(taskId, message, executorBackendId,
+              () => isCurrent() && (canCoordinate() || bridge.isTaskOwnedBy?.(taskId, hostId) === true));
             return { content: [{ type: 'text', text: `queued ${queued.id} for ${taskId}; acknowledgement pending` }] };
           } catch (error) {
             return {
@@ -475,7 +444,8 @@ export function buildTalkerMcp(
         async ({ taskId, message, executorBackendId }) => {
           if (!canCoordinate() && !bridge.isTaskOwnedBy?.(taskId, hostId)) return denied();
           try {
-            const queued = await bridge.queueTaskFollowUp(taskId, message, executorBackendId);
+            const queued = await bridge.queueTaskFollowUp(taskId, message, executorBackendId, undefined,
+              () => isCurrent() && (canCoordinate() || bridge.isTaskOwnedBy?.(taskId, hostId) === true));
             return { content: [{ type: 'text', text: `follow-up ${queued.id} queued for ${taskId}` }] };
           } catch (error) {
             return {
@@ -588,12 +558,24 @@ export function buildTalkerMcp(
         },
       ),
       tool(
+        'read_meeting_context',
+        'Read paginated meeting or authorized task context. Continue with the returned cursor and hash. Join page text before parsing JSON.',
+        {
+          taskId: z.string().optional(),
+          cursor: z.number().int().nonnegative().optional(),
+          expectedHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+        },
+        async (input) => ({
+          content: [{ type: 'text', text: JSON.stringify(bridge.readMeetingContext(hostId, input)) }],
+        }),
+      ),
+      tool(
         MEETING_TOOLS.STATUS,
         'Get current state of one worker (pass workerId) or all workers (no args). Returns busy flag, current tool, and last spoken thought per worker. Use when the user asks "what are you doing?" or you need a status update unprompted.',
         { workerId: z.string().optional().describe('Optional worker id to query; omit to get all.') },
-        async ({ workerId }) => ({
-          content: [{ type: 'text', text: bridge.describeWorkers(workerId) }],
-        }),
+        async ({ workerId }) => canCoordinate() || (workerId && bridge.isTaskOwnedBy?.(workerId, hostId))
+          ? { content: [{ type: 'text', text: bridge.describeWorkers(workerId) }] }
+          : denied(),
       ),
       tool(
         MEETING_TOOLS.OBSERVED_SESSIONS_LIST,
@@ -706,7 +688,26 @@ export function buildTalkerMcp(
           return { content: [{ type: 'text', text: `Document "${title}" saved (${r.filename}). Now reply with your spoken summary: ${spokenSummary}` }] };
         },
       ),
-    ]),
+    ].filter((definition) => REVIEW_MODE_TOOLS.has(definition.name) === Boolean(reviewId)).map((definition) => {
+      const handle = definition.handler as (...args: unknown[]) => Promise<unknown>;
+      return {
+        ...definition,
+        handler: async (...args: unknown[]) => {
+          const input = args[0] as { reviewId?: unknown } | null;
+          if (!isCurrent() || (reviewId && input?.reviewId !== reviewId)) {
+            return { content: [{ type: 'text' as const, text: 'Session expired or review is outside its scope' }], isError: true };
+          }
+          if (reviewId && executeReview) {
+            const result = await executeReview({ ...input, kind: definition.name });
+            return {
+              content: [{ type: 'text' as const, text: result.ok ? JSON.stringify(result.value ?? null) : result.error }],
+              isError: !result.ok,
+            };
+          }
+          return handle(...args);
+        },
+      } as typeof definition;
+    }),
   });
 }
 

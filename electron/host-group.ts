@@ -1,37 +1,13 @@
-// host-group.ts — one Host agent + its WorkerScheduler.
-//
-// Encapsulates the per-backend pair (host session, worker pool) so the
-// Orchestrator can manage M HostGroups in a single meeting. Each HostGroup
-// is tied to one CLI backend (Claude Code, Codex, Kimi, etc.) and runs its
-// own talker (the "host") and its own set of workers.
-//
-// The orchestrator keeps shared state (decisions, memory, recap, transcript)
-// and coordinates between HostGroups. The HostGroup owns only the live
-// sessions and their per-worker mechanics.
-//
-// Backward compatibility: when there is only one HostGroup with id='default',
-// the system behaves identically to the pre-multi-host architecture.
+// HostGroup owns one Host session. Worker execution belongs to the meeting.
 
-import { ClaudeSession, type SessionEvent } from './claude-session.js';
+import type { SessionEvent } from './claude-session.js';
 import type { BackendSession } from './backends/cli-backend.js';
-import type {
-  NativePermissionRequest,
-  PermissionNormalizationResult,
-} from './backends/canonical-execution.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
-import type { BrowserTabManager } from './browser-tab-manager.js';
-import {
-  buildTalkerMcp,
-  buildWorkerMcp,
-  type OrchestratorBridge,
-} from './meeting-mcp.js';
-import { buildComputerUseMcp, type ComputerUseBridge } from './computer-use-mcp.js';
-import { buildBrowserMcp, type BrowserMcpBridge } from './browser-mcp.js';
-import { WorkerScheduler, type SessionFactory } from './worker-scheduler.js';
+import { buildTalkerMcp, type OrchestratorBridge } from './meeting-mcp.js';
+import type { SessionFactory } from './worker-scheduler.js';
 import {
   TALKER_PROMPT,
   COORDINATOR_ROLE_PROMPT,
-  COORDINATOR_REVIEW_PROMPT,
   EXPERT_ROLE_PROMPT,
   REPORT_MODE_SUFFIX,
 } from './orchestrator-prompts.js';
@@ -50,28 +26,12 @@ import type {
   TalkerTurn,
 } from './orchestrator-types.js';
 import type { SDKMessage, SDKUserMessage } from './claude-cli/types.js';
-import type { TaskWorkspaceManager } from './task-workspace.js';
-import type { DeliveryHarness } from './delivery-harness.js';
-import type {
-  AuthorizedMeetingContextSource,
-  ContextSelection,
-} from './task-context.js';
-import type { ContextPackage, TaskAuthorityGrant } from './task-collaboration.js';
-import type {
-  BackendEffectiveProfile,
-  TaskExecutionProfile,
-} from './task-collaboration.js';
-import type { BackendRuntime } from './backends/task-profile.js';
-import type { PlanMeetingTask } from './meeting-tools.js';
-import type { TaskMailbox } from './task-mailbox.js';
 
 export interface HostGroupOpts {
   /** Unique identifier for this host group. Default = 'default'. */
   id: string;
   /** Backend identifier (e.g. 'claude-code', 'codex', 'kimi', 'qoder'). */
   backendId: string;
-  /** Default executor for worker tasks (may differ from host backendId). */
-  defaultWorkerBackendId?: string;
   /** Emit channel — should be the orchestrator's safeEmit wrapper. */
   emit: (e: OrchestratorEvent) => void;
   /** Shared workspace cwd. */
@@ -83,77 +43,12 @@ export interface HostGroupOpts {
   talkerModel?: string;
   confirmDestructive?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
   sessionFactory: SessionFactory;
-  resolveWorkerSessionFactory?: (backendId?: string) => SessionFactory;
-  browserTabManager?: BrowserTabManager;
   /** Bridge to the orchestrator for MCP tool callbacks. */
   bridge: OrchestratorBridge;
   /** Reports orchestrator shutdown. */
   isClosed: () => boolean;
-  /** Live read of speech filter mode. */
-  getSpeechFilterMode: () => 'strict' | 'off';
   isCoordinator: () => boolean;
-  workspaceManager?: TaskWorkspaceManager;
-  meetingId: string;
-  deliveryHarness: DeliveryHarness;
-  deliveryArtifactRoot?: string;
-  flushEvents?: () => Promise<void>;
-  /** Latest durably accepted Meeting integration head. New dependency-released
-   * task worktrees branch from this head rather than the unchanged user base. */
-  getIntegrationHead?: () => string | undefined;
-  initialPlanVersion?: number;
-  getAuthorizedTaskContextSource: (
-    taskId: string,
-    selection: ContextSelection,
-  ) => Promise<AuthorizedMeetingContextSource>;
-  persistContextPackage: (contextPackage: ContextPackage) => Promise<void>;
-  compileTaskProfile?: (
-    requested: TaskExecutionProfile,
-  ) => Promise<{
-    runtime: BackendRuntime;
-    effectiveProfile: BackendEffectiveProfile;
-  }>;
-  persistTaskProfile?: (input: {
-    taskId: string;
-    attempt: number;
-    requestedProfile: TaskExecutionProfile;
-    runtime: BackendRuntime;
-    effectiveProfile: BackendEffectiveProfile;
-  }) => Promise<void>;
-  taskProfileCompilerRequired?: boolean;
-  compileTaskAuthority?: (input: {
-    taskId: string;
-    attempt: number;
-    planVersion: number;
-    approvalDecisionId: string;
-    workspaceRoot: string;
-    authorityRequest: PlanMeetingTask['authorityRequest'];
-    approvedAt: number;
-  }) => TaskAuthorityGrant;
-  persistTaskAuthority?: (input: {
-    taskId: string;
-    attempt: number;
-    authorityGrant: TaskAuthorityGrant;
-  }) => Promise<void>;
-  normalizePermissionRequest?: (
-    backendId: string,
-    native: NativePermissionRequest,
-  ) => PermissionNormalizationResult;
-  persistPermissionDecision?: (input: {
-    taskId: string;
-    attempt: number;
-    nativeRequestId: string;
-    decision: 'allow' | 'ask-user' | 'deny';
-    reason: string;
-    safeInput: Record<string, unknown>;
-    grantHash?: string;
-  }) => Promise<void>;
-  taskAuthorityCompilerRequired?: boolean;
-  /** Shared Meeting mailbox; every Worker instruction is journaled here
-   * before a Backend session receives it. */
-  taskMailbox?: TaskMailbox;
-  recordCustomEvent?: (kind: string, payload: Record<string, unknown>) => Promise<void>;
-  /** Worker concurrency ceiling forwarded to the scheduler (default 4). */
-  maxConcurrentWorkers?: number;
+  coordinatorPrompt?: () => boolean;
 }
 
 export class HostGroup {
@@ -166,8 +61,9 @@ export class HostGroup {
   // backend factory (meeting initialization and memory reads can await).
   private lifecycle: 'starting' | 'ready' | 'ended' | 'failed' = 'starting';
   private lifecycleError: string | undefined;
-  private suppressUnexpectedHostEnd = false;
-  private scheduler: WorkerScheduler;
+  private generation = 0;
+  private starting: Promise<void> | null = null;
+  private turnActive = false;
   private emit: (e: OrchestratorEvent) => void;
   private cwd: string;
   private projectId: string;
@@ -176,11 +72,11 @@ export class HostGroup {
   private talkerModel: string | undefined;
   private confirmDestructive: ((toolName: string, input: Record<string, unknown>) => Promise<boolean>) | undefined;
   private sessionFactory: SessionFactory;
-  private browserTabManager: BrowserTabManager | undefined;
   private bridge: OrchestratorBridge;
   private isClosed: () => boolean;
-  private getSpeechFilterMode: () => 'strict' | 'off';
   private isCoordinator: () => boolean;
+  private coordinatorPrompt: () => boolean;
+  private readonly completedTurns = new Set<string>();
 
   /** Talker transcript for recap. Accumulates user+assistant text turns. */
   private talkerTranscript: TalkerTurn[] = [];
@@ -197,73 +93,10 @@ export class HostGroup {
     this.talkerModel = opts.talkerModel;
     this.confirmDestructive = opts.confirmDestructive;
     this.sessionFactory = opts.sessionFactory;
-    this.browserTabManager = opts.browserTabManager;
     this.bridge = opts.bridge;
     this.isClosed = opts.isClosed;
-    this.getSpeechFilterMode = opts.getSpeechFilterMode;
     this.isCoordinator = opts.isCoordinator;
-
-    const cuBridge: ComputerUseBridge = {
-      injectScreenshot: (workerId, data) => {
-        this.scheduler.injectScreenshotToWorker(workerId, data);
-      },
-    };
-    const browserBridge: BrowserMcpBridge = {
-      injectScreenshot: (workerId, data) => {
-        this.scheduler.injectScreenshotToWorker(workerId, data);
-      },
-    };
-
-    this.scheduler = new WorkerScheduler({
-      emit: (e) => this.taggedEmit(e),
-      cwd: this.cwd,
-      autoApproveScope: this.autoApproveScope,
-      workerEnv: this.workerEnv,
-      confirmDestructive: this.confirmDestructive,
-      sessionFactory: this.sessionFactory,
-      resolveSessionFactory: opts.resolveWorkerSessionFactory,
-      workspaceManager: opts.workspaceManager,
-      meetingId: opts.meetingId,
-      defaultBackendId: opts.defaultWorkerBackendId ?? opts.backendId,
-      deliveryHarness: opts.deliveryHarness,
-      deliveryArtifactRoot: opts.deliveryArtifactRoot,
-      flushEvents: opts.flushEvents,
-      getIntegrationHead: opts.getIntegrationHead,
-      initialPlanVersion: opts.initialPlanVersion,
-      getAuthorizedTaskContextSource: opts.getAuthorizedTaskContextSource,
-      persistContextPackage: opts.persistContextPackage,
-      contextCompilerRequired: true,
-      compileTaskProfile: opts.compileTaskProfile,
-      persistTaskProfile: opts.persistTaskProfile,
-      taskProfileCompilerRequired: opts.taskProfileCompilerRequired,
-      compileTaskAuthority: opts.compileTaskAuthority,
-      persistTaskAuthority: opts.persistTaskAuthority,
-      normalizePermissionRequest: opts.normalizePermissionRequest,
-      persistPermissionDecision: opts.persistPermissionDecision,
-      taskAuthorityCompilerRequired: opts.taskAuthorityCompilerRequired,
-      taskMailbox: opts.taskMailbox,
-      recordCustomEvent: opts.recordCustomEvent,
-      maxConcurrentWorkers: opts.maxConcurrentWorkers,
-      buildWorkerMcp: (workerId, attempt) => (
-        buildWorkerMcp(this.bridge, workerId, this.cwd, attempt)
-      ),
-      buildComputerUseMcp: process.platform === 'darwin'
-        ? (workerId) => buildComputerUseMcp(cuBridge, workerId)
-        : undefined,
-      buildBrowserMcp: this.browserTabManager
-        ? (workerId) => buildBrowserMcp(this.browserTabManager!, browserBridge, workerId)
-        : undefined,
-      getTalker: () => this.host,
-      isClosed: this.isClosed,
-      getSpeechFilterMode: this.getSpeechFilterMode,
-    });
-  }
-
-  /** Emit an event tagged with this HostGroup's id. */
-  private taggedEmit(e: OrchestratorEvent) {
-    // The OrchestratorEvent shape gets a hostId field added in this phase.
-    // For now, emit as-is — the orchestrator's wrapper adds hostId.
-    this.emit(e);
+    this.coordinatorPrompt = opts.coordinatorPrompt ?? opts.isCoordinator;
   }
 
   getHost(): BackendSession | null {
@@ -278,10 +111,6 @@ export class HostGroup {
     return { phase: this.lifecycle, ...(this.lifecycleError ? { error: this.lifecycleError } : {}) };
   }
 
-  getScheduler(): WorkerScheduler {
-    return this.scheduler;
-  }
-
   getTranscript(): TalkerTurn[] {
     return [...this.talkerTranscript];
   }
@@ -289,28 +118,52 @@ export class HostGroup {
   setAutoApproveScope(scope: AutoApproveScope) {
     this.autoApproveScope = scope;
     this.host?.setAutoApproveScope?.(scope);
-    this.scheduler.setAutoApproveScope(scope);
   }
 
-  async start(greeting?: string) {
+  start(greeting?: string): Promise<void> {
+    if (this.isClosed()) return Promise.reject(new Error('meeting is closed'));
+    if (this.starting) return this.starting;
+    if (this.isReady()) return Promise.resolve();
+    const generation = ++this.generation;
     this.lifecycle = 'starting';
     this.lifecycleError = undefined;
-    try {
-      await this.startHost(greeting);
-    } catch (error) {
-      this.ready = false;
-      this.lifecycle = 'failed';
-      this.lifecycleError = error instanceof Error ? error.message : String(error);
+    const starting = this.startHost(generation, greeting).catch((error: unknown) => {
+      if (this.isCurrent(generation)) {
+        const host = this.invalidate('failed', error instanceof Error ? error.message : String(error));
+        host?.end();
+      }
       throw error;
-    }
+    }).finally(() => {
+      if (this.starting === starting) this.starting = null;
+    });
+    this.starting = starting;
+    return starting;
   }
 
-  private async startHost(greeting?: string) {
-    this.ready = false;
-    const meetingMcp = buildTalkerMcp(this.bridge, this.isCoordinator, this.id);
+  private isCurrent(generation: number): boolean {
+    return generation === this.generation && !this.isClosed();
+  }
 
-    const rolePrompt = this.isCoordinator()
-      ? `${COORDINATOR_ROLE_PROMPT}${COORDINATOR_REVIEW_PROMPT}`
+  private invalidate(phase: 'ended' | 'failed', error?: string): BackendSession | null {
+    const host = this.host;
+    ++this.generation;
+    this.starting = null;
+    this.host = null;
+    this.ready = false;
+    this.turnActive = false;
+    this.completedTurns.clear();
+    this.lifecycle = phase;
+    this.lifecycleError = error;
+    return host;
+  }
+
+  private async startHost(generation: number, greeting?: string) {
+    this.ready = false;
+    const isCurrent = () => this.isCurrent(generation);
+    const meetingMcp = buildTalkerMcp(this.bridge, this.isCoordinator, this.id, isCurrent);
+
+    const rolePrompt = this.coordinatorPrompt()
+      ? COORDINATOR_ROLE_PROMPT
       : EXPERT_ROLE_PROMPT;
     let systemPrompt: string = TALKER_PROMPT + rolePrompt;
     try {
@@ -333,13 +186,15 @@ export class HostGroup {
       systemPrompt += '\n' + REPORT_MODE_SUFFIX;
     }
 
-    this.host = this.sessionFactory({
+    if (!isCurrent()) throw new Error('Host startup was cancelled');
+    const host = this.sessionFactory({
       cwd: this.cwd,
       autoApproveScope: this.autoApproveScope,
       envOverride: this.workerEnv,
       confirmDestructive: this.confirmDestructive,
-      emit: (e) => this.onHostEvent(e),
+      emit: (e) => { if (isCurrent()) this.onHostEvent(e); },
       sessionOptions: {
+        isCurrentHostSession: isCurrent,
         systemPrompt,
         tools: [],
         mcpServers: { meeting: meetingMcp },
@@ -350,20 +205,21 @@ export class HostGroup {
       },
     });
 
-    await this.host.start();
+    if (!isCurrent()) {
+      host.end();
+      throw new Error('Host startup was cancelled');
+    }
+    this.host = host;
+    await host.start();
 
     // The session may have been torn down while its handshake promise was
     // settling. A missing host is a failed readiness transition, never Ready.
-    if (!this.host) {
+    if (!isCurrent() || this.host !== host) {
       throw new Error(`backend '${this.backendId}' ended before readiness`);
     }
     this.lifecycle = 'ready';
-    if (greeting) {
-      this.ready = true;
-      this.host.sendUserText(greeting, 'normal');
-    } else {
-      this.ready = true;
-    }
+    this.ready = true;
+    if (greeting) host.sendUserText(greeting, 'normal');
   }
 
   sendUserText(text: string) {
@@ -381,40 +237,21 @@ export class HostGroup {
     id: string,
     decision: 'allow' | 'deny',
     message?: string,
-    scope: 'worker' | 'task-wide' = 'worker',
   ) {
     this.host?.resolvePermission(id, decision, message);
-    this.scheduler.resolvePermissionInAny(id, decision, message, scope);
   }
 
   async interrupt() {
-    const tasks: Promise<void>[] = [];
-    if (this.host) tasks.push(this.host.interrupt());
-    for (const t of this.scheduler.interruptAll()) tasks.push(t);
-    await Promise.allSettled(tasks);
+    await this.host?.interrupt();
   }
 
   async setPermissionMode(mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan') {
-    const tasks: Promise<void>[] = [];
-    if (this.host?.setPermissionMode) tasks.push(this.host.setPermissionMode(mode));
-    for (const t of this.scheduler.setPermissionModeAll(mode)) tasks.push(t);
-    await Promise.allSettled(tasks);
+    await this.host?.setPermissionMode?.(mode);
   }
 
-  /** Tear down host + workers and wait for Worker CLI cleanup. */
+  /** Tear down only the Host session. */
   async end(): Promise<void> {
-    // Scheduler always exists (set in constructor) and may have live workers
-    // even when host is null (e.g. tests that spawn workers directly).
-    const workerCleanup = this.scheduler.endAll();
-    try {
-      this.host?.end();
-    } finally {
-      this.host = null;
-      this.ready = false;
-      this.lifecycle = 'ended';
-      this.lifecycleError = undefined;
-      await workerCleanup;
-    }
+    this.invalidate('ended')?.end();
   }
 
   /** Returns true if the host session died unexpectedly (not from our end()). */
@@ -423,20 +260,16 @@ export class HostGroup {
   }
 
   private onHostEvent(e: SessionEvent) {
+    if (e.kind === 'native-launch-phase') return;
     // Terminal adapters originated as worker-only backends and report process
     // failures through WorkerAdapterSignal. A host cannot forward that private
     // protocol to the renderer: normalize it into the public host lifecycle so
     // errors are visible and the responding indicator always closes.
     if (e.kind === 'worker-signal') {
       if (e.signal.kind === 'failed') {
-        this.taggedEmit({
-          source: 'talker',
-          event: { kind: 'error', error: e.signal.message },
-        });
-        this.taggedEmit({
-          source: 'talker',
-          event: { kind: 'turn-status', status: 'completed' },
-        });
+        this.emit({ source: 'talker', event: { kind: 'error', error: e.signal.message } });
+        this.turnActive = false;
+        this.emit({ source: 'talker', event: { kind: 'turn-status', status: 'completed' } });
       } else if (e.signal.kind === 'ended') {
         this.onHostEvent({ kind: 'ended' });
       }
@@ -445,32 +278,19 @@ export class HostGroup {
     if (e.kind === 'auth-required') {
       // Authentication failure is an intentional circuit-breaker, not a
       // subprocess crash. Stop routing new turns and preserve existing workers.
-      this.suppressUnexpectedHostEnd = true;
-      this.host?.end();
-      this.host = null;
-      this.ready = false;
-      this.lifecycle = 'failed';
-      this.lifecycleError = e.error;
-      this.taggedEmit({ source: 'talker', event: e });
+      this.invalidate('failed', e.error)?.end();
+      this.emit({ source: 'talker', event: e });
       return;
     }
-    if (e.kind === 'ended') {
-      this.host = null;
-      this.ready = false;
-      if (!this.suppressUnexpectedHostEnd) {
-        this.lifecycle = 'ended';
-        this.lifecycleError = undefined;
-      }
-    }
-    this.taggedEmit({ source: 'talker', event: e });
-
-    if (e.kind === 'ended' && this.suppressUnexpectedHostEnd) {
-      this.suppressUnexpectedHostEnd = false;
+    if (e.kind === 'turn-status') {
+      this.updateTurn(e.status, e.turnId);
       return;
     }
+    if (e.kind === 'ended') this.invalidate('ended');
+    this.emit({ source: 'talker', event: e });
 
     if (e.kind === 'ended' && !this.isClosed()) {
-      this.taggedEmit({
+      this.emit({
         source: 'talker',
         event: {
           kind: 'message',
@@ -496,13 +316,28 @@ export class HostGroup {
       const msg: any = e.message;
       const t = msg?.type;
       if (t === 'assistant') {
+        this.updateTurn('started');
         const text = extractText(msg);
         if (text) this.appendTurn({ role: 'assistant', text });
       } else if (t === 'user') {
         const text = extractText(msg);
         if (text) this.appendTurn({ role: 'user', text });
+      } else if (t === 'result') {
+        this.updateTurn('completed');
       }
     }
+  }
+
+  private updateTurn(status: 'started' | 'completed', turnId?: string) {
+    if (turnId && this.completedTurns.has(turnId)) return;
+    if (turnId && status === 'completed') {
+      this.completedTurns.add(turnId);
+      if (this.completedTurns.size > 128) this.completedTurns.delete(this.completedTurns.values().next().value!);
+    }
+    const active = status === 'started';
+    if (this.turnActive === active) return;
+    this.turnActive = active;
+    this.emit({ source: 'talker', event: { kind: 'turn-status', status, turnId } });
   }
 
   private appendTurn(turn: Pick<TalkerTurn, 'role' | 'text'>) {

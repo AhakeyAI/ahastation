@@ -24,7 +24,7 @@ import { parsePocketVibeRemoteHosts, type PocketVibeRemoteHost } from './backend
 import type { RemoteControlSettings } from './remote-control-types.js';
 
 export function remoteCredentialStorageAvailable(): boolean {
-  if (!safeStorageAvailable()) return false;
+  if (!secureStorageReady) return false;
   return process.platform !== 'linux' || ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(safeStorage.getSelectedStorageBackend?.() ?? 'unknown');
 }
 
@@ -190,21 +190,23 @@ let cachedPath: string | null = null;
 
 const decryptedSecrets = new Map<string, string>(); // ciphertext base64 → plaintext
 let plaintextKeyOnDisk = false;
+let secureStorageReady = false;
 
 async function safeStorageAvailable(): Promise<boolean> {
   try {
     // The async encryptor only initializes after `ready`; waiting here keeps
     // an early write from dropping the key as "encryption unavailable".
     await app.whenReady();
-    return await safeStorage.isAsyncEncryptionAvailable();
+    secureStorageReady = await safeStorage.isAsyncEncryptionAvailable();
   } catch {
-    return false;
+    secureStorageReady = false;
   }
+  return secureStorageReady;
 }
 
-async function tryEncryptKey(plain: string): Promise<string | null> {
+async function tryEncryptKey(plain: string, remoteCredential = false): Promise<string | null> {
   try {
-    if (!(await safeStorageAvailable())) return null;
+    if (!(await safeStorageAvailable()) || (remoteCredential && !remoteCredentialStorageAvailable())) return null;
     const b64 = (await safeStorage.encryptStringAsync(plain)).toString('base64');
     decryptedSecrets.set(b64, plain);
     return b64;
@@ -241,6 +243,14 @@ export function warmSecrets(): Promise<void> {
     if (!(await safeStorageAvailable())) return;
     let rewrite = plaintextKeyOnDisk;
     const next: Settings = { ...current };
+    const remote = current.remoteControl;
+    if (remote?.controlTokenEnc && remoteCredentialStorageAvailable()) {
+      const { ok, reEncrypt } = await decryptIntoCache(remote.controlTokenEnc);
+      if (ok) {
+        next.remoteControl = { ...remote, controlToken: tryDecryptKey(remote.controlTokenEnc) ?? undefined };
+        rewrite ||= reEncrypt;
+      }
+    }
     // In-memory convention for the Anthropic key is plaintext; see load().
     if (next.anthropicApiKeyEnc) {
       const { ok, reEncrypt } = await decryptIntoCache(next.anthropicApiKeyEnc);
@@ -294,7 +304,7 @@ async function toDiskForm(s: Settings): Promise<Settings> {
   let safeRest: Settings = backendAuth ? { ...rest, backendAuth } : rest;
   if (rest.remoteControl) {
     const { controlToken, controlTokenEnc, ...safeRemote } = rest.remoteControl;
-    const enc = controlToken && remoteCredentialStorageAvailable() ? await tryEncryptKey(controlToken) : controlTokenEnc;
+    const enc = controlToken ? await tryEncryptKey(controlToken, true) ?? controlTokenEnc : controlTokenEnc;
     safeRest = { ...safeRest, remoteControl: enc ? { ...safeRemote, controlTokenEnc: enc } : safeRemote };
   }
   if (anthropicApiKey) {
@@ -378,13 +388,6 @@ function load(): Settings {
     delete cached.remoteControl.controlToken; // Public credentials are accepted from safeStorage only, never plaintext disk.
     needsRewrite = true;
   }
-  if (cached.remoteControl?.controlTokenEnc && remoteCredentialStorageAvailable()) {
-    const token = tryDecryptKey(cached.remoteControl.controlTokenEnc);
-    if (token !== null) {
-      cached.remoteControl.controlToken = token;
-      delete cached.remoteControl.controlTokenEnc;
-    }
-  }
   if (cached.lastCwd && (!cached.recentCwds || cached.recentCwds.length === 0)) {
     const migrated: Settings = {
       ...cached,
@@ -446,18 +449,13 @@ async function persist(next: Settings): Promise<void> {
   await fsp.rename(tmp, p);
   // Cache flips only after the rename succeeds — if write/rename throws we
   // keep the prior cache so the rest of the app sees a coherent value.
-  cached = next;
+  cached = next.remoteControl
+    ? { ...next, remoteControl: { ...next.remoteControl, controlTokenEnc: onDisk.remoteControl?.controlTokenEnc } }
+    : next;
 }
 
 export function getSettings(): Settings {
-  const state=load();
-  // Static imports may read settings before Electron's secure storage is
-  // ready. Rehydrate the collaboration credential when it becomes available.
-  if(state.remoteControl?.controlTokenEnc&&!state.remoteControl.controlToken&&remoteCredentialStorageAvailable()) {
-    const token=tryDecryptKey(state.remoteControl.controlTokenEnc);
-    if(token!==null)state.remoteControl={...state.remoteControl,controlToken:token};
-  }
-  return { ...state };
+  return { ...load() };
 }
 
 /** Remote-only atomic edits share the existing settings write queue. */

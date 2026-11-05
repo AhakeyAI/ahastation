@@ -9,7 +9,7 @@ import {
   CodexTerminalBackend,
   CODEX_TERMINAL_PROFILE,
 } from '../dist-electron/backends/codex-terminal-adapter.js';
-import { TERMINAL_TURN_ENDED_MARKER } from '../dist-electron/backends/terminal-cli-adapter.js';
+import { TERMINAL_TURN_ENDED_MARKER, TerminalCliSession } from '../dist-electron/backends/terminal-cli-adapter.js';
 import { PtyHost } from '../dist-electron/pty-host.js';
 
 const PASTE_START = '\u001b[200~';
@@ -212,6 +212,33 @@ test('task prompt is pasted once ready; Stop hook surfaces turn-ended', async (t
   ));
   assert.ok(events.every((e) => e.signal?.kind !== 'ended'));
   assert.ok(events.every((e) => e.signal?.kind !== 'delivery'));
+  session.end();
+});
+
+test('Codex holds task input while Stop hooks need review', async (t) => {
+  const { backend, spawned } = createFixture(t, { timersEnabled: true });
+  const cwd = await createWorkspace(t);
+  const workerId = 'cw-hook-review';
+  const events = [];
+  const session = backend.createSession({ cwd, extra: { workerId } }, (event) => events.push(event));
+  t.after(() => session.end());
+  session.sendUserText('探查项目');
+  await session.start();
+
+  const pty = spawned[0].pty;
+  pty.emitData('OpenAI Codex\r\nStop hooks\r\n1 hook needs');
+  pty.emitData('\u001b[1Creview before it can run.');
+  const status = TerminalCliSession.trustStatus(workerId);
+  assert.equal(status.waiting, true);
+  assert.ok(events.some((event) => event.signal?.message.includes('Stop hook 审核')));
+  await new Promise((resolve) => setTimeout(resolve, 1_800));
+  assert.deepEqual(pty.writes, []);
+
+  pty.emitData('\u001b[2J\r\n› ');
+  assert.deepEqual(pty.writes, []);
+  assert.equal(TerminalCliSession.confirmTrust(workerId, status.generation).ok, true);
+  await waitFor(() => pty.writes.length === 2);
+  assert.deepEqual(pty.writes, [`${PASTE_START}探查项目${PASTE_END}`, '\r']);
   session.end();
 });
 

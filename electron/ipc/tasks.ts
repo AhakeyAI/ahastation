@@ -93,6 +93,7 @@ export interface RendererTaskSnapshot {
     };
   };
   mailbox: TaskMessage[];
+  inboxReceivedMessageIds?: string[];
   mailboxTruncated: boolean;
   attempts: Array<{
     attempt: number;
@@ -210,6 +211,7 @@ function summarizeTaskEnvelope(
     event.type === 'task-message-delivered'
     || event.type === 'task-message-acknowledged'
     || event.type === 'task-message-failed'
+    || event.type === 'task-message-transport-received'
   ) {
     return {
       messageId: typeof data.messageId === 'string' ? data.messageId : undefined,
@@ -630,12 +632,15 @@ export class TaskIpcService {
         ...(rawTask.delivery ? { delivery: redactRendererValue(rawTask.delivery) } : {}),
       }];
     const reviewEvidence = latestReviewEvidence(events);
+    const receivedIds = new Set(events.filter((event) => event.type === 'task-message-transport-received'
+      && event.attempt === task.attempt).map((event) => objectValue(event.data).messageId));
     const snapshot: RendererTaskSnapshot = {
       schemaVersion: 1,
       sessionId: request.sessionId,
       meetingId: source.meetingId,
       task,
       mailbox: mailbox.messages,
+      inboxReceivedMessageIds: mailbox.messages.filter((message) => receivedIds.has(message.id)).map((message) => message.id),
       mailboxTruncated: mailbox.truncated,
       attempts,
       diagnostics: (source.diagnostics ?? []).slice(-500).map((entry) => ({
@@ -781,10 +786,17 @@ export class TaskIpcService {
     const value = objectValue(payload);
     const text = boundedInputText(value, 'text', MAX_TEXT_CHARS);
     if (!request || !text) return { ok: false, error: 'Invalid follow-up request' };
+    const inputId = typeof value.inputId === 'string' ? value.inputId : undefined;
+    const replyTo = typeof value.replyTo === 'string' ? value.replyTo : undefined;
+    if ((inputId && !/^[\w.-]{1,128}$/.test(inputId)) || (replyTo && (!inputId || !/^[\w.-]{1,128}$/.test(replyTo)))) {
+      return { ok: false, error: 'Invalid follow-up identity' };
+    }
     const slot = this.ctx.registry.get(request.sessionId);
     if (!slot) return { ok: false, error: 'Session not found' };
     try {
-      const message = await slot.orchestrator.queueTaskFollowUp(request.taskId, text);
+      const message = await slot.orchestrator.queueTaskFollowUp(
+        request.taskId, text, undefined, inputId ? { inputId, replyTo } : undefined,
+      );
       return { ok: true, message };
     } catch (error) {
       return {

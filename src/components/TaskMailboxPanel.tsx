@@ -1,12 +1,12 @@
 import {SharedScopeRevision} from './SharedScopeRevision';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { CornerDownRight, Octagon, Route } from 'lucide-react';
 import type { RendererTaskSnapshot, TaskMessage } from '../types';
 
 const MESSAGE_STATUS: Record<TaskMessage['status'], string> = {
   queued: '排队中',
-  delivered: '已送达',
-  acknowledged: '已确认',
+  delivered: '已提交输入',
+  acknowledged: '旧协议已确认',
   failed: '待重试',
 };
 
@@ -41,6 +41,8 @@ export function TaskMailboxPanel({
   coordinatorLabel?: string;
 }) {
   const [followUp, setFollowUp] = useState('');
+  const [replyTo, setReplyTo] = useState<string>();
+  const retry = useRef<{ text: string; replyTo?: string; inputId: string }>();
   const [steering, setSteering] = useState('');
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
@@ -78,6 +80,7 @@ export function TaskMailboxPanel({
       {!readOnly && <section className="task-control-stack" aria-label="Task message controls">
         <label>
           <span><CornerDownRight size={14} /> Follow-up</span>
+          {replyTo && <span>回复问题 {replyTo} <button type="button" onClick={() => setReplyTo(undefined)}>取消关联</button></span>}
           <textarea
             value={followUp}
             onChange={(event) => setFollowUp(event.target.value)}
@@ -90,10 +93,18 @@ export function TaskMailboxPanel({
             onClick={() => {
               const text = followUp.trim();
               if (!text) return;
+              if (retry.current?.text !== text || retry.current.replyTo !== replyTo) {
+                retry.current = { text, replyTo, inputId: globalThis.crypto.randomUUID() };
+              }
+              const { inputId } = retry.current;
               void runAction('follow-up', () => (
-                window.vibeMeet.tasks.followUp(sessionId, taskId, text)
+                window.vibeMeet.tasks.followUp(sessionId, taskId, text, inputId, replyTo)
               )).then((ok) => {
-                if (ok) setFollowUp('');
+                if (ok) {
+                  setFollowUp('');
+                  setReplyTo(undefined);
+                  retry.current = undefined;
+                }
               });
             }}
           >
@@ -158,8 +169,13 @@ export function TaskMailboxPanel({
                   <time>{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
                 </div>
                 <p>{visiblePayload(message.payload).slice(0, 4_000)}</p>
+                {!readOnly && message.kind === 'question' && message.sender === 'worker'
+                  && message.attempt === snapshot.task.attempt && snapshot.task.status === 'running' && (
+                    <button type="button" onClick={() => setReplyTo(message.id)}>回复此问题</button>
+                  )}
                 <small className={`is-${message.status}`}>
-                  {MESSAGE_STATUS[message.status]} · seq {message.seq}
+                  {snapshot.inboxReceivedMessageIds?.includes(message.id)
+                    ? 'CLI 已持久接收，处理状态未知' : MESSAGE_STATUS[message.status]} · seq {message.seq}
                 </small>
               </li>
             ))}

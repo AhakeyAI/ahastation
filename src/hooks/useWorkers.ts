@@ -20,6 +20,7 @@ export interface UseWorkersResult {
   plan: MeetingPlan | null;
   pendingPlan: PlanMeetingTaskInput[] | null;
   pendingPlanBrief: MeetingPlanBrief | null;
+  pendingProposal: { proposalId: string; proposalVersion: number } | null;
   running: boolean;
   cwd: string | null;
   lastError: string | null;
@@ -30,12 +31,12 @@ export interface UseWorkersResult {
   coordinatorBriefings: CoordinatorBriefing[];
   savedDocuments: string[];
   restartSession: () => Promise<void>;
-  sendText: (text: string, options?: { displayText?: string }) => Promise<void>;
+  sendText: (text: string, options?: { displayText?: string; inputId?: string; source?: 'user-text' | 'voice-transcript' }) => Promise<void>;
   sendImage: (dataUrl: string, caption: string) => Promise<void>;
   sendAttachments: (
     staged: StagedAttachment[],
     text: string,
-    options?: { displayText?: string },
+    options?: { displayText?: string; inputId?: string },
   ) => Promise<{ ok: boolean; error?: string }>;
   publishDroppedFiles: (files: File[]) => void;
   onDroppedFiles: (cb: (files: File[]) => void) => () => void;
@@ -58,6 +59,7 @@ export interface UseWorkersResult {
     approved: boolean,
     tasks?: PlanMeetingTaskInput[],
     brief?:MeetingPlanBrief,
+    basis?: { proposalId: string; proposalVersion: number } | null,
   ) => Promise<{ ok: boolean; error?: string }>;
   toggleHostGroupCollapsed: (hostId: string) => void;
   addHostGroup: (backendId: string, remoteTarget?: PocketVibeRemoteTarget) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
@@ -82,7 +84,7 @@ export function useWorkers(): UseWorkersResult {
 
   const restartSession = useCallback(async () => { await meetingStore.restartSession(); }, []);
   const sendText = useCallback(
-    (text: string, options?: { displayText?: string }) => meetingStore.sendText(text, options),
+    (text: string, options?: Parameters<typeof meetingStore.sendText>[1]) => meetingStore.sendText(text, options),
     [],
   );
   const sendImage = useCallback((dataUrl: string, caption: string) => meetingStore.sendImage(dataUrl, caption), []);
@@ -90,7 +92,7 @@ export function useWorkers(): UseWorkersResult {
     (
       staged: StagedAttachment[],
       text: string,
-      options?: { displayText?: string },
+      options?: Parameters<typeof meetingStore.sendAttachments>[2],
     ) => meetingStore.sendAttachments(staged, text, options),
     [],
   );
@@ -120,8 +122,8 @@ export function useWorkers(): UseWorkersResult {
     [],
   );
   const decidePendingPlan = useCallback(
-    (approved: boolean, tasks?: PlanMeetingTaskInput[],brief?:MeetingPlanBrief) =>
-      meetingStore.decidePendingPlan(approved, tasks,brief),
+    (approved: boolean, tasks?: PlanMeetingTaskInput[], brief?: MeetingPlanBrief, basis?: UseWorkersResult['pendingProposal']) =>
+      meetingStore.decidePendingPlan(approved, tasks, brief, basis),
     [],
   );
   const toggleHostGroupCollapsed = useCallback(
@@ -151,6 +153,7 @@ export function useWorkers(): UseWorkersResult {
     plan: state.plan,
     pendingPlan: state.pendingPlan,
     pendingPlanBrief: state.pendingPlanBrief,
+    pendingProposal: state.pendingProposal,
     running: state.running,
     cwd,
     lastError: state.lastError,

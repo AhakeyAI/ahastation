@@ -9,13 +9,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Orchestrator } from '../dist-electron/orchestrator.js';
 import { TaskWorkspaceManager } from '../dist-electron/task-workspace.js';
-import { gateDuringCoordinatorReview } from '../dist-electron/meeting-mcp.js';
+import { buildTalkerMcp } from '../dist-electron/meeting-mcp.js';
 
 class FakeSession {
   constructor(options = {}) {
@@ -33,6 +34,7 @@ class FakeSession {
   async setPermissionMode() { /* no-op */ }
   setAutoApprove() { /* no-op */ }
   end() { this.ended = true; }
+  async terminateSessionTree() { this.ended = true; return { confirmed: true, pid: null }; }
   /** Simulate a provider turn boundary for this host. */
   endTurn() {
     this.options.emit?.({ kind: 'message', message: { type: 'result' } });
@@ -108,21 +110,22 @@ test('an unfinished Coordinator turn re-briefs the review instead of stalling th
     unresolved: [],
   });
 
-  await waitUntil(() => coordinator.briefings().length >= 1, 'Coordinator never received a review briefing');
-  const first = JSON.parse(coordinator.briefings()[0].split('\n')[1]);
+  const reviewer = await waitUntil(() => sessions.find(session => session.briefings().length), 'Reviewer never received a briefing');
+  assert.notEqual(reviewer, coordinator);
+  assert.equal(coordinator.briefings().length, 0);
+  const first = JSON.parse(reviewer.briefings()[0].split('\n')[1]);
   assert.equal(first.status, 'active');
   assert.ok(first.uncoveredChunkIds.length > 0, 'briefing must name the chunks still owed a verdict');
   assert.match(first.nextAction, /submit_delivery_chunk_review/);
 
-  const gate = orch.activeReviewGate();
-  assert.equal(gate.reviewId, first.reviewId);
-  assert.deepEqual(gate.uncoveredChunkIds, first.uncoveredChunkIds);
+  assert.equal(orch.inspectDeliveryReview(first.reviewId).status, 'active');
 
   // The Coordinator ends its turn without covering anything: the delivery must
   // not be abandoned in `coordinator-reviewing`.
-  coordinator.endTurn();
+  reviewer.endTurn();
+  reviewer.options.emit({ kind: 'turn-status', status: 'completed' });
   await waitUntil(
-    () => coordinator.briefings().length >= 2,
+    () => reviewer.briefings().length >= 2,
     'an unfinished Coordinator turn did not re-brief the review',
   );
   assert.equal(orch.inspectDeliveryReview(first.reviewId).turnCount, 1);
@@ -144,56 +147,97 @@ test('an unfinished Coordinator turn re-briefs the review instead of stalling th
   );
   await orch.completeDeliveryReview(first.reviewId);
 
-  assert.equal(orch.activeReviewGate(), null);
-  const settled = coordinator.briefings().length;
-  coordinator.endTurn();
+  assert.equal(orch.inspectDeliveryReview(first.reviewId).status, 'completed');
+  const settled = reviewer.briefings().length;
+  reviewer.endTurn();
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(coordinator.briefings().length, settled, 'a completed review must stop re-briefing');
+  assert.equal(reviewer.briefings().length, settled, 'a completed review must stop re-briefing');
 });
 
-test('review mode refuses every non-review Coordinator tool with the uncovered chunks', async () => {
-  const bridge = {
-    activeReviewGate: () => ({
-      reviewId: 'review-1',
-      deliveryId: 'delivery-1',
-      uncoveredChunkIds: ['chunk-2', 'chunk-3'],
-      remainingChunks: 2,
-    }),
-  };
+test('Codex portable Reviewer receives bound evidence and completes without blocking Host chat', async (t) => {
+  const root = createGitWorkspace(t);
+  const meetingId = `portable-review-${Date.now()}`;
+  const sessions = [];
+  const orch = new Orchestrator({
+    emit() {}, cwd: root, meetingId, defaultBackendId: 'codex', reviewStallTimeoutMs: 0,
+    workspaceManager: new TaskWorkspaceManager(meetingId, root, { worktreeRoot: join(root, '.task-worktrees') }),
+    sessionFactory: options => { const session = new FakeSession(options); sessions.push(session); return session; },
+  });
+  t.after(() => orch.end());
+  await orch.start();
+  assert.equal((await orch.installPlan([{ id: 'portable', title: 'Portable', prompt: 'write result', deps: [], writePaths: ['result.txt'] }])).ok, true);
+  const worker = await waitUntil(() => sessions[1]?.started && sessions[1], 'Worker startup');
+  const hostTurnsBeforeProgress = sessions[0].inputs.length;
+  for (let index = 0; index < 100; index++) {
+    orch.schedulerOnWorkerEvent('portable', { kind: 'worker-signal', signal: { kind: 'progress', message: `update ${index}` } });
+  }
+  await orch.hostInbox.flush();
+  assert.equal(sessions[0].inputs.length - hostTurnsBeforeProgress, 0, 'ordinary progress must not cause a Host turn');
+  writeFileSync(join(worker.cwd, 'result.txt'), 'review-bound evidence\n');
+  const summary = 'portable evidence ' + '核🧪'.repeat(4_000);
+  orch.submitWorkerReport('portable', {
+    status: 'completed', summary, files: [{ path: 'result.txt', action: 'created' }], tests: [], unresolved: [],
+  });
+  const reviewer = await waitUntil(() => sessions.find(session => session.briefings().length), 'Reviewer startup');
+  const readContext = (options = {}) => orch.executeMeetingCommand('default', {
+    kind: 'read-meeting-context', taskId: 'portable', ...options,
+  });
+  const firstPage = (await readContext()).value;
+  assert.equal(firstPage.complete, false);
+  const stale = await readContext({ cursor: firstPage.nextCursor, expectedHash: '0'.repeat(64) });
+  assert.equal(stale.ok, false);
+  assert.match(stale.error, /version conflict/);
+  let text = firstPage.text;
+  for (let page = firstPage; page.nextCursor !== null;) {
+    page = (await readContext({ cursor: page.nextCursor, expectedHash: firstPage.hash })).value;
+    text += page.text;
+  }
+  assert.equal(JSON.parse(text).report.summary, summary);
+  const { reviewId } = JSON.parse(reviewer.briefings()[0].split('\n')[1]);
+  const command = reviewer.options.sessionOptions.meetingCommandHandler;
+  await command({ kind: 'get_delivery_review_chunk', commandId: 'wrong-scope', reviewId: randomUUID() });
+  await command({ kind: 'get_delivery_review_chunk', commandId: 'evidence', reviewId });
+  reviewer.options.emit({ kind: 'turn-status', status: 'completed', turnId: 'turn-1' });
+  await orch.sendUserText('new requirement during review');
+  const discussion = await waitUntil(() => sessions[0].inputs.find(text => text.startsWith('new requirement during review')),
+    'Host should still accept discussion');
+  const context = JSON.parse(discussion.split('\n').at(-1));
+  assert.ok(context.sourceCursor > 0);
+  assert.equal(context.tasks.tasks[0].taskId, 'portable');
+  const next = await waitUntil(() => reviewer.briefings()[1], 'command results were not returned');
+  const results = JSON.parse(next.split('<meeting-command-results>\n')[1].split('\n</meeting-command-results>')[0]);
+  assert.equal(results.find(item => item.commandId === 'wrong-scope').result.ok, false);
+  assert.match(JSON.stringify(results.find(item => item.commandId === 'evidence')), /review-bound evidence/);
+  reviewer.options.emit({ kind: 'turn-status', status: 'completed', turnId: 'turn-1' });
+  assert.equal(orch.inspectDeliveryReview(reviewId).turnCount, 1, 'late duplicate must not charge the next turn');
+  for (let chunk; (chunk = orch.getDeliveryReviewChunk(reviewId));) {
+    await command({ kind: 'submit_delivery_chunk_review', commandId: chunk.id, reviewId, chunkId: chunk.id,
+      chunkHash: chunk.hash, verdict: 'passed', findings: [] });
+  }
+  await command({ kind: 'complete_delivery_review', commandId: 'done', reviewId });
+  assert.equal(orch.inspectDeliveryReview(reviewId).status, 'completed');
+  assert.equal(reviewer.ended, true);
+});
+
+test('Claude MCP Host and Reviewer mount disjoint command surfaces and reject a stale review', async () => {
+  const reviewId = randomUUID();
+  let current = true;
   const calls = [];
-  const [planning, reviewing] = gateDuringCoordinatorReview(bridge, [
-    {
-      name: 'plan_meeting',
-      handler: async () => {
-        calls.push('plan_meeting');
-        return { content: [{ type: 'text', text: 'planned' }] };
-      },
-    },
-    {
-      name: 'submit_delivery_chunk_review',
-      handler: async () => {
-        calls.push('submit_delivery_chunk_review');
-        return { content: [{ type: 'text', text: 'submitted' }] };
-      },
-    },
-  ]);
-
-  const refused = await planning.handler({});
-  assert.equal(refused.isError, true);
-  assert.match(refused.content[0].text, /review-1/);
-  assert.match(refused.content[0].text, /chunk-2, chunk-3/);
-
-  const allowed = await reviewing.handler({});
-  assert.equal(allowed.content[0].text, 'submitted');
-  assert.deepEqual(calls, ['submit_delivery_chunk_review']);
-});
-
-test('the tool gate lifts as soon as no review is owed', async () => {
-  const bridge = { activeReviewGate: () => null };
-  const [planning] = gateDuringCoordinatorReview(bridge, [{
-    name: 'plan_meeting',
-    handler: async () => ({ content: [{ type: 'text', text: 'planned' }] }),
-  }]);
-  const result = await planning.handler({});
-  assert.equal(result.content[0].text, 'planned');
+  const host = buildTalkerMcp({}).instance;
+  const reviewer = buildTalkerMcp({}, () => true, 'reviewer', () => current, reviewId, async (input) => {
+    calls.push(input);
+    return { ok: true, value: { chunk: 'bound evidence' } };
+  }).instance;
+  const list = async (server) => (await server.dispatch({ method: 'tools/list', id: 1 })).result.tools.map(t => t.name);
+  assert.ok((await list(host)).includes('plan_meeting'));
+  assert.ok(!(await list(host)).includes('get_delivery_review_chunk'));
+  assert.ok(!(await list(reviewer)).includes('plan_meeting'));
+  const read = (id) => reviewer.dispatch({
+    method: 'tools/call', id: 2, params: { name: 'get_delivery_review_chunk', arguments: { reviewId: id } },
+  });
+  assert.equal((await read(randomUUID())).result.isError, true);
+  assert.match((await read(reviewId)).result.content[0].text, /bound evidence/);
+  current = false;
+  assert.equal((await read(reviewId)).result.isError, true);
+  assert.deepEqual(calls, [{ kind: 'get_delivery_review_chunk', reviewId }]);
 });
