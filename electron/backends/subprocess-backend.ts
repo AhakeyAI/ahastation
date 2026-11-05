@@ -14,6 +14,7 @@
 //   • stderr ring buffer for error diagnostics
 
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { existsSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import {
@@ -94,6 +95,9 @@ export abstract class SubprocessSession implements BackendSession {
       this.emit({ kind: 'ended' });
       return;
     }
+
+    const proc = this.process;
+    trackAgentProcess(proc.pid, (onExit) => { proc.once('exit', onExit); });
 
     // stdout: JSONL line-by-line
     let buffer = '';

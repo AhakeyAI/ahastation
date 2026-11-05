@@ -243,6 +243,11 @@ export interface BackendSession {
   setPermissionMode?(mode: string): Promise<void>;
   /** Durable native handle used for interrupted recovery. */
   snapshot?(): BackendSessionSnapshot | null;
+  resumePendingInput?(): boolean;
+  /** Admission wait is not a stalled native turn. */
+  isWaitingForResources?(): boolean;
+  /** Admission wait overlapping [timestamp, now], including an ongoing wait. */
+  resourceWaitTimeSince?(timestamp: number): number;
 }
 
 // ── CLI backend factory ────────────────────────────────────────────────────────

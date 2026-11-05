@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { guardWindowsPtyStartup } from './windows-pty-startup.js';
+import { trackAgentProcess } from './agent-process-scope.js';
 
 const require_ = createRequire(import.meta.url);
 
@@ -190,6 +191,8 @@ export class PtyHost {
       cwd: options.cwd,
       env,
     });
+    // Independent of live.disposables: kill() is not proof of native exit.
+    trackAgentProcess(pty.pid, (onExit) => { pty.onExit(onExit); });
     const live: LivePty = {
       pty,
       buffer: new PtyRingBuffer(),

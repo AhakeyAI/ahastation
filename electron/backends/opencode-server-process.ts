@@ -13,6 +13,7 @@
 //   - SIGTERM for shutdown (verified clean, no child processes, on macOS).
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -207,6 +208,9 @@ export async function spawnOpencodeServer(opts: SpawnServerOptions): Promise<Ope
     env: buildServerEnv({ password, config: opts.config, providerEnv: opts.providerEnv }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+
+  // Track even if banner/health startup fails before a handle can be returned.
+  trackAgentProcess(proc.pid, (onExit) => { proc.once('exit', onExit); });
 
   let output = '';
   const url = await new Promise<string>((resolve, reject) => {

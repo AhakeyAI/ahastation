@@ -40,6 +40,15 @@ function makeSessionFactory(sessions) {
       // test can inject a talker message (simulating an expert reply).
       emit: options.emit,
       inputs: [],
+      resourceWaits: [],
+      beginResourceWait() { this.resourceWaits.push({ start: Date.now(), end: null }); },
+      endResourceWait() { this.resourceWaits.at(-1).end = Date.now(); },
+      isWaitingForResources() { return this.resourceWaits.at(-1)?.end === null; },
+      resourceWaitTimeSince(timestamp) {
+        return this.resourceWaits.reduce((total, wait) => (
+          total + Math.max(0, (wait.end ?? Date.now()) - Math.max(timestamp, wait.start))
+        ), 0);
+      },
       async start() {},
       end() {},
       sendUserText(text) { this.inputs.push(text); },
@@ -177,4 +186,96 @@ test('an expert reply before the timeout clears the ask_host watchdog', async ()
     rmSync(runtime.dir, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+function admissionClock() {
+  const waits = [];
+  return {
+    begin() { waits.push({ start: Date.now(), end: null }); },
+    end() { waits.at(-1).end = Date.now(); },
+    isWaitingForResources() { return waits.at(-1)?.end === null; },
+    resourceWaitTimeSince(since) {
+      return waits.reduce((total, wait) => total
+        + Math.max(0, (wait.end ?? Date.now()) - Math.max(since, wait.start)), 0);
+    },
+  };
+}
+
+test('ask watchdog preserves the active timeout budget across an admission wait', (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const host = admissionClock();
+  const stalled = [];
+  const orch = Object.assign(Object.create(Orchestrator.prototype), {
+    closed: false,
+    hostAskTimeoutMs: 100,
+    pendingHostAsks: new Map(),
+    hostGroups: new Map([['expert', { getHost: () => host }]]),
+    notifyHostAskStalled: (...args) => stalled.push(args),
+  });
+  orch.trackHostAsk('expert', 'question');
+  t.mock.timers.tick(20);
+  host.begin();
+  t.mock.timers.tick(200);
+  assert.equal(stalled.length, 0);
+  host.end();
+  t.mock.timers.tick(79);
+  assert.equal(stalled.length, 0);
+  t.mock.timers.tick(1);
+  assert.deepEqual(stalled, [['expert', 'question']]);
+  assert.equal(orch.pendingHostAsks.size, 0);
+});
+
+test('ask reply and replacement cancel a watchdog that re-armed during admission', (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const host = admissionClock();
+  const stalled = [];
+  const orch = Object.assign(Object.create(Orchestrator.prototype), {
+    closed: false,
+    hostAskTimeoutMs: 100,
+    pendingHostAsks: new Map(),
+    hostGroups: new Map([['expert', { getHost: () => host }]]),
+    notifyHostAskStalled: (...args) => stalled.push(args),
+  });
+  host.begin();
+  orch.trackHostAsk('expert', 'old');
+  t.mock.timers.tick(200);
+  orch.trackHostAsk('expert', 'new');
+  host.end();
+  t.mock.timers.tick(99);
+  assert.equal(stalled.length, 0);
+  orch.clearHostAsk('expert');
+  t.mock.timers.tick(1000);
+  assert.equal(stalled.length, 0);
+});
+
+test('Coordinator review stall budget excludes both current and completed admission waits', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const host = admissionClock();
+  const charged = [];
+  const orch = Object.assign(Object.create(Orchestrator.prototype), {
+    closed: false,
+    coordinatorHostId: 'default',
+    reviewStallTimeoutMs: 100,
+    hostGroups: new Map([['default', { getHost: () => host }]]),
+    coordinatorReviewDriver: {
+      activeSessions: () => [{ id: 'review', updatedAt: 1000 }],
+      onCoordinatorTurnEnded: async (id) => charged.push(id),
+    },
+    reviewsAwaitingFirstTurn: new Set(['review']),
+  });
+  now += 40;
+  host.begin();
+  now += 500;
+  await orch.sweepStalledReviews();
+  assert.equal(charged.length, 0);
+  assert.equal(orch.reviewsAwaitingFirstTurn.has('review'), true);
+  host.end();
+  now += 59;
+  await orch.sweepStalledReviews();
+  assert.equal(charged.length, 0);
+  now++;
+  await orch.sweepStalledReviews();
+  assert.deepEqual(charged, ['review']);
+  assert.equal(orch.reviewsAwaitingFirstTurn.has('review'), false);
 });

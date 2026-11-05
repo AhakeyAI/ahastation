@@ -7,6 +7,7 @@
 // line stays buffered until the rest arrives.
 
 import { spawn } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { terminateProcessTree } from '../backends/process-tree.js';
 
 export interface SpawnSpec {
@@ -60,6 +61,7 @@ const defaultSpawn: SpawnFn = (spec) => spawn(spec.file, spec.args, {
 export function createCliTransport(spec: SpawnSpec, deps: CliTransportDeps): CliTransport {
   const spawnFn = deps.spawnFn ?? defaultSpawn;
   const proc = spawnFn(spec);
+  trackAgentProcess(proc.pid, (onExit) => { proc.on('exit', onExit); });
   let buffer = '';
   let settled = false;
   let intentionalClose = false;

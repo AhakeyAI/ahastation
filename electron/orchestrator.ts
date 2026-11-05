@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { ClaudeSession, type SessionEvent } from './claude-session.js';
 import type { BackendSession, BackendSessionSnapshot } from './backends/cli-backend.js';
 import { getBackendRegistry } from './backends/registry.js';
+import { createManagedAgentSession } from './managed-agent-session.js';
 import {
   hostTerminalWorkerId,
   isTerminalWorkerBackend,
@@ -607,7 +608,8 @@ export class Orchestrator implements OrchestratorBridge {
             : requestedModel?.startsWith('claude-')
               ? (auth.model ?? backend.capabilities.defaultModel)
               : (auth.model ?? requestedModel ?? backend.capabilities.defaultModel);
-      return backend.createSession(
+      return createManagedAgentSession(
+        backend,
         {
           cwd: opts.cwd,
           ...(backendId === 'pocket-vibe' && purpose === 'host'
@@ -1033,13 +1035,30 @@ export class Orchestrator implements OrchestratorBridge {
     const existing = this.pendingHostAsks.get(targetHostId);
     if (existing) clearTimeout(existing.timer);
     const question = payload.length > 400 ? `${payload.slice(0, 398)}…` : payload;
-    const timer = setTimeout(() => {
+    const startedAt = Date.now();
+    const checkTimeout = () => {
+      if (this.pendingHostAsks.get(targetHostId) !== entry) return;
+      if (this.closed) {
+        this.pendingHostAsks.delete(targetHostId);
+        return;
+      }
+      const host = this.hostGroups.get(targetHostId)?.getHost();
+      const activeElapsed = Date.now() - startedAt - (host?.resourceWaitTimeSince?.(startedAt) ?? 0);
+      const remaining = this.hostAskTimeoutMs - activeElapsed;
+      if (remaining > 0 || host?.isWaitingForResources?.()) {
+        // Keep the current handle in the entry so replies, replacement asks and
+        // disposal cancel the re-armed timer too. Avoid polling a queued host
+        // with a zero-delay timer if its active budget was already exhausted.
+        entry.timer = setTimeout(checkTimeout, remaining > 0 ? remaining : this.hostAskTimeoutMs);
+        entry.timer.unref?.();
+        return;
+      }
       this.pendingHostAsks.delete(targetHostId);
-      if (this.closed) return;
       this.notifyHostAskStalled(targetHostId, question);
-    }, this.hostAskTimeoutMs);
-    timer.unref?.();
-    this.pendingHostAsks.set(targetHostId, { question, timer });
+    };
+    const entry = { question, timer: setTimeout(checkTimeout, this.hostAskTimeoutMs) };
+    entry.timer.unref?.();
+    this.pendingHostAsks.set(targetHostId, entry);
   }
 
   /** Any talker message from the expert counts as a reply - disarm its timer. */
@@ -3299,9 +3318,14 @@ export class Orchestrator implements OrchestratorBridge {
       this.stopReviewStallWatchdog();
       return;
     }
-    const deadline = Date.now() - this.reviewStallTimeoutMs;
     for (const session of active) {
-      if (session.updatedAt > deadline) continue;
+      const host = this.hostGroups.get(this.coordinatorHostId)?.getHost();
+      if (host?.isWaitingForResources?.()) continue;
+      // Admission waits are not review activity: discount them without changing
+      // the persisted timestamp or consuming a fictitious Coordinator turn.
+      const activeElapsed = Date.now() - session.updatedAt
+        - (host?.resourceWaitTimeSince?.(session.updatedAt) ?? 0);
+      if (activeElapsed < this.reviewStallTimeoutMs) continue;
       this.reviewsAwaitingFirstTurn.delete(session.id);
       try {
         await this.coordinatorReviewDriver.onCoordinatorTurnEnded(session.id);

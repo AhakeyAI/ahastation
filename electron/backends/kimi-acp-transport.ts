@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { createInterface } from 'node:readline';
 
 export interface KimiAcpNotification { method: string; params?: unknown }
 export interface KimiAcpRequest { id: number | string; method: string; params?: unknown }
 
 interface AcpProcess {
+  readonly pid?: number;
   stdin: { write(data: string): unknown; end?(): unknown };
   stdout: NodeJS.ReadableStream;
   stderr: NodeJS.ReadableStream;
@@ -43,6 +45,8 @@ export class KimiAcpTransport {
       ['acp'],
       { cwd: this.options.cwd, env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'] },
     );
+    const proc = this.process;
+    trackAgentProcess(proc.pid, (onExit) => { proc.on('exit', onExit); });
     const lines = createInterface({ input: this.process.stdout });
     lines.on('line', (line) => this.handleLine(line));
     this.process.on('error', (error: unknown) => this.handleExit(toError(error)));
