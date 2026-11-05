@@ -394,6 +394,100 @@ test('Pocket Vibe host reports invalid meeting-command JSON as an error event', 
   session.end();
 });
 
+test('Pocket Vibe command rejection and handler failures never receive a processing acknowledgement', async (t) => {
+  const cases = [
+    ['returned rejection', () => ({ ok: false, code: 'forbidden', error: 'task scope denied' }), /task scope denied/],
+    ['asynchronous rejection', async () => ({ ok: false }), /会议命令被拒绝/],
+    ['thrown failure', () => { throw new Error('sync handler failed'); }, /sync handler failed/],
+    ['rejected promise', async () => { throw new Error('async handler failed'); }, /async handler failed/],
+    ['missing handler', undefined, /会议命令处理器不可用/],
+  ];
+  for (const [name, handler, expected] of cases) {
+    await t.test(name, async () => {
+      const hub = fakeHub({ statuses: [{ status: 'done', result: {
+        stdout: '```meeting-command\n{"kind":"propose-plan","tasks":[]}\n```',
+      } }] });
+      const events = [];
+      const session = makeSession(makeBackend(hub), events, {
+        executionRole: 'host', extra: { meetingCommandHandler: handler },
+      });
+      try {
+        await session.start();
+        session.sendUserText('dispatch');
+        await waitFor(() => events.some((event) => event.kind === 'message' && event.message.type === 'result'),
+          'command result did not finish');
+        assert.ok(events.some((event) => event.kind === 'error' && expected.test(event.error)));
+        assert.equal(events.some((event) => event.kind === 'message' && event.message.type === 'assistant'), false);
+      } finally { session.end(); }
+    });
+  }
+});
+
+test('Pocket Vibe waits for all command results before acknowledging mixed output', async () => {
+  let release;
+  let entered = false;
+  const outcome = new Promise((resolve) => { release = resolve; });
+  const commands = ['broadcast-hosts', 'inspect-tasks'].map((kind) => (
+    '```meeting-command\n' + JSON.stringify({ kind }) + '\n```'
+  )).join('\n');
+  const hub = fakeHub({ statuses: [{ status: 'done', result: { stdout: commands } }] });
+  const events = [];
+  const session = makeSession(makeBackend(hub), events, {
+    executionRole: 'host',
+    extra: { meetingCommandHandler: (command) => {
+      if (command.kind === 'broadcast-hosts') return { ok: true };
+      entered = true;
+      return outcome;
+    } },
+  });
+  try {
+    await session.start();
+    session.sendUserText('dispatch');
+    await waitFor(() => entered, 'deferred handler was not called');
+    assert.equal(events.some((event) => event.kind === 'message' && event.message.type !== 'system'), false,
+      'command outcome is still unknown');
+    release({ ok: false, error: 'query denied' });
+    await waitFor(() => events.some((event) => event.kind === 'message' && event.message.type === 'result'),
+      'deferred command did not finish');
+    assert.ok(events.some((event) => event.kind === 'error' && /query denied/.test(event.error)));
+    assert.equal(events.some((event) => event.kind === 'message' && event.message.type === 'assistant'), false);
+  } finally {
+    release({ ok: false, error: 'fixture stopped' });
+    session.end();
+  }
+});
+
+test('Pocket Vibe interrupt releases a pending command and ignores its late rejection', async () => {
+  let release;
+  let calls = 0;
+  const outcome = new Promise((_, reject) => { release = reject; });
+  const hub = fakeHub({ statuses: [{ status: 'done', result: {
+    stdout: '```meeting-command\n{"kind":"inspect-tasks"}\n```',
+  } }] });
+  const events = [];
+  const session = makeSession(makeBackend(hub), events, {
+    executionRole: 'host',
+    extra: { meetingCommandHandler: () => ++calls === 1 ? outcome : { ok: true } },
+  });
+  try {
+    await session.start();
+    session.sendUserText('first turn');
+    await waitFor(() => calls === 1, 'first command did not start');
+    await session.interrupt();
+    session.sendUserText('next turn');
+    await waitFor(() => events.some((event) => event.kind === 'message' && event.message.type === 'result'),
+      'new turn stayed blocked on the interrupted command');
+    assert.equal(calls, 2);
+    const settledEvents = events.length;
+    release(new Error('late failure'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(events.length, settledEvents, 'interrupted command emitted a late outcome');
+  } finally {
+    release(new Error('fixture stopped'));
+    session.end();
+  }
+});
+
 test('Pocket Vibe replays the system prompt on every turn without session continuity', async () => {
   const hub = fakeHub({
     statuses: [{ status: 'done', result: { stdout: 'ok' } }],
