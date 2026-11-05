@@ -75,4 +75,4 @@ npm run dist:dmg     # macOS arm64 DMG（未签名体验版）
 
 ## License
 
-待定（未定开源协议前，保留所有权利）。
+[Apache License 2.0](LICENSE)。第三方代码和模型的许可见 [NOTICE](NOTICE)。
