@@ -45,14 +45,13 @@ import type {
 import type { WorkerStatus } from '../types';
 import type {UnifiedModel} from '../lib/unified-meeting-store';
 import {sharedPhase} from '../lib/unified-meeting-store';
+import {plannedTaskExists} from '../../electron/collaboration/plan-revision';
 
 interface TasksViewProps {
   shared?:UnifiedModel;
   data: CrossProjectTasks;
   /** Focus the owning project and drop the user into its meeting view. */
   onOpenTask: (sessionId: string, taskId: string) => void;
-  /** Focus the owning project so its plan-approval modal comes up. */
-  onOpenPlan: (sessionId: string) => void;
   /** 查看: the worker's native terminal in its project room's stage. */
   onOpenTaskTerminal?: (task: AggregatedTask) => void;
   /** 开始: a local CLI in the project room's stage, seeded with the card. */
@@ -205,8 +204,12 @@ function ObservedTaskCard({ session, onContinue }: { session: ObservedSession; o
  *  single session, so the user sees one meeting's worth of work even though
  *  each project still runs its own Orchestrator underneath. Observed sessions
  *  (external CLI windows) mix into the same columns after orchestrated cards. */
-export function TasksView(props:TasksViewProps){return props.shared?<SharedTaskBoard model={props.shared} onOpen={id=>props.onOpenTask(props.shared!.meeting.id,id)} onPlan={()=>props.onOpenPlan(props.shared!.meeting.id)}/>:<LocalTasksView {...props}/>;}
-function SharedTaskBoard({model,onOpen,onPlan}:{model:UnifiedModel;onOpen:(id:string)=>void;onPlan:()=>void}){return <main className="tasks-view"><header className="tasks-header"><h2>{String(model.meeting.title)} · 任务</h2>{!model.meeting.planApproved&&<button onClick={onPlan}>审阅当前计划</button>}</header><div className="tasks-board">{[['attention','待批准／待确认'],['active','执行／等待'],['settled','成果／已完成']].map(([column,label])=><section className={'tasks-column tasks-column-'+column} key={column}><header className="tasks-column-head">{label}</header><div className="tasks-column-body">{model.tasks.filter(t=>{const state=t.status==='accepted'||t.status==='delivered'?'settled':t.stopRequested||['stopped','approval','reconcile'].includes(String(t.status))?'attention':'active';return state===column;}).map(t=><button className="tasks-card" key={t.id} onClick={()=>onOpen(t.id)}><strong>{String(t.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</span><span>{sharedPhase(t)}</span></button>)}</div></section>)}</div></main>;}
+export function TasksView(props:TasksViewProps){return props.shared?<SharedTaskBoard model={props.shared} onOpen={id=>props.onOpenTask(props.shared!.meeting.id,id)}/>:<LocalTasksView {...props}/>;}
+function SharedTaskBoard({model,onOpen}:{model:UnifiedModel;onOpen:(id:string)=>void}){
+  const planned=((model.meeting.plan??[]) as Array<Record<string,unknown>>).filter(p=>!plannedTaskExists(model.tasks,model.meeting.id,p));
+  const columns:[string,string][]=[['attention','待处理／待确认'],['active','执行／等待'],['settled','成果／已完成']];
+  return <main className="tasks-view"><header className="tasks-header"><h2>{String(model.meeting.title)} · 任务</h2></header><div className="tasks-board">{columns.map(([column,label])=><section className={'tasks-column tasks-column-'+column} key={column}><header className="tasks-column-head">{label}</header><div className="tasks-column-body">{model.tasks.filter(t=>{const state=t.status==='accepted'||t.status==='delivered'?'settled':t.stopRequested||['stopped','approval','reconcile'].includes(String(t.status))?'attention':'active';return state===column;}).map(t=><button className="tasks-card" key={t.id} onClick={()=>onOpen(t.id)}><strong>{String(t.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===t.targetDeviceId)?.name)} · {String(t.agentId)}</span><span>{sharedPhase(t)}</span></button>)}{column==='active'&&planned.map((plan,index)=><div className="tasks-card" key={'planned:'+String(plan.planTaskId??index)}><strong>{String(plan.title)}</strong><span>{String(model.view.snapshot.entities.device?.find(d=>d.id===plan.targetDeviceId)?.name)} · {String(plan.agentId)}</span><span>已记录安排 · 等待开始</span></div>)}</div></section>)}</div></main>;
+}
 function BacklogCard({ item, onStart }: { item: BacklogItem; onStart?: () => void }) {
   return (
     <div className="tasks-card tasks-card-backlog" title={item.source ?? item.cwd}>
@@ -284,12 +287,11 @@ function LaneMenu({ lanes, onAdd, onReset }: { lanes: BoardLane[]; onAdd: (lane:
 
 type LaneCard =
   | { kind: 'task'; task: AggregatedTask }
-  | { kind: 'plan'; plan: CrossProjectTasks['pendingPlans'][number] }
   | { kind: 'backlog'; item: BacklogItem }
   | { kind: 'observed'; session: ObservedSession; noise: boolean };
 
 function LocalTasksView({
-  data, onOpenTask, onOpenPlan, onOpenTaskTerminal, onStartBacklog, onContinueObserved, project,
+  data, onOpenTask, onOpenTaskTerminal, onStartBacklog, onContinueObserved, project,
 }: TasksViewProps) {
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [backendFilter, setBackendFilter] = useState<string>(ALL);
@@ -318,7 +320,6 @@ function LocalTasksView({
   const folders = useMemo(() => [
     ...(project ? [project] : []),
     ...data.tasks.map((t) => t.cwd),
-    ...data.pendingPlans.map((p) => p.cwd),
     ...backlog.map((b) => b.cwd),
     ...boardableObserved.map(({ session }) => session.cwd),
   ], [project, data, backlog, boardableObserved]);
@@ -354,7 +355,6 @@ function LocalTasksView({
       const id = laneFor(sub, lanes);
       map.set(id, [...(map.get(id) ?? []), card]);
     };
-    for (const plan of data.pendingPlans) if (inProject(plan.cwd)) push('plan-approval', { kind: 'plan', plan });
     if (backendFilter === ALL) {
       for (const item of backlog) if (inProject(item.cwd)) push('backlog', { kind: 'backlog', item });
     }
@@ -432,20 +432,6 @@ function LocalTasksView({
               </header>
               <div className="tasks-column-scroll">
                 {normal.map((card) => {
-                  if (card.kind === 'plan') {
-                    return (
-                      <button type="button" key={`plan:${card.plan.sessionId}`} className="tasks-card is-plan"
-                        onClick={() => onOpenPlan(card.plan.sessionId)} title={card.plan.cwd}>
-                        <span className="tasks-card-project">{card.plan.projectName}</span>
-                        <strong className="tasks-card-title">计划待批准</strong>
-                        <span className="tasks-card-meta">
-                          <ShieldAlert size={13} />
-                          <em className="tasks-sub-chip is-plan-approval">计划待批准</em>
-                          {card.plan.taskCount} 个任务
-                        </span>
-                      </button>
-                    );
-                  }
                   if (card.kind === 'backlog') {
                     return <BacklogCard key={`bl:${card.item.id}`} item={card.item}
                       onStart={onStartBacklog && (() => onStartBacklog(card.item))} />;

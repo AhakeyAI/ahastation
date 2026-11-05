@@ -46,7 +46,7 @@ export const TASK_COLUMNS: readonly TaskColumnMeta[] = [
 export type BoardSubStatus =
   | 'backlog' | 'queued'
   | 'running' | 'checking' | 'integrating' | 'reworking' | 'observed-active'
-  | 'plan-approval' | 'permission' | 'acceptance' | 'blocked' | 'waiting-input'
+  | 'permission' | 'acceptance' | 'blocked' | 'waiting-input'
   | 'accepted' | 'done' | 'failed' | 'interrupted' | 'observed-idle' | 'observed-done';
 
 export const SUB_STATUS_META: Record<BoardSubStatus, { parent: TaskColumnId; label: string }> = {
@@ -57,7 +57,6 @@ export const SUB_STATUS_META: Record<BoardSubStatus, { parent: TaskColumnId; lab
   integrating: { parent: 'active', label: '集成中' },
   reworking: { parent: 'active', label: '返工中' },
   'observed-active': { parent: 'active', label: '外部会话进行中' },
-  'plan-approval': { parent: 'confirm', label: '计划待批准' },
   permission: { parent: 'confirm', label: '权限待批准' },
   acceptance: { parent: 'confirm', label: '待验收' },
   blocked: { parent: 'confirm', label: '受阻待处理' },

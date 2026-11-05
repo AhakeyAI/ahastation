@@ -17,8 +17,7 @@ class HardeningTest(baseline.StationCollaborationTest):
         self.assertEqual(verified['attemptId'],task['attemptId']);self.assertTrue(verified['stopRequested']);self.assertEqual(verified['integration'],'verified')
         dependent={**payload,'planTaskId':'dependent','title':'separate approved delivery','dependencies':[task['id']]}
         plan=await self.command(self.a['token'],'plan.propose',{'meetingId':meeting['id'],'tasks':[payload,dependent]})
-        await self.command(self.a['token'],'task.create',dependent,expected=409)
-        await self.command(self.a['token'],'plan.decide',{'meetingId':meeting['id'],'expectedRevision':plan['revision'],'approved':True})
+        self.assertTrue(plan['planApproved'])
         created=await self.command(self.a['token'],'task.create',dependent);self.assertEqual(created['dependencies'],[task['id']])
         accepted=await self.command(self.a['token'],'task.control',{**base,'operation':'accept'})
         self.assertEqual(accepted['status'],'accepted');self.assertTrue(accepted['stopRequested']);self.assertEqual(accepted['attemptId'],task['attemptId'])

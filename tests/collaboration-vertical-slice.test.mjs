@@ -342,14 +342,11 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
       'Draft regression pass',
     ),
   ];
-  const proposal = await orchestrator.proposePlan(draft);
-  assert.equal(proposal.ok, true);
-  assert.equal(proposal.status, 'proposed');
-  assert.ok(proposal.proposalId);
   const revised = structuredClone(draft);
   revised[0].title = 'Implement login validation';
   revised[1].title = 'Implement unit tests';
-  assert.deepEqual(await orchestrator.approvePendingPlan(true, revised), { ok: true });
+  const proposal = await orchestrator.proposePlan(revised);
+  assert.deepEqual(proposal, { ok: true, status: 'installed' });
 
   const rootWorkers = await waitFor(
     () => sessions.filter((session) => session.config.executionRole === 'worker').length === 2

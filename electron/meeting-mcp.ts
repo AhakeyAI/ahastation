@@ -92,6 +92,7 @@ export interface OrchestratorBridge {
   // Talker tools
   delegateSingleTask(input: string | {
     description: string;
+    requestId?: string;
     writePaths?: string[];
     workspaceMode?: PlanMeetingTaskInput['workspaceMode'];
     commands?: string[][];
@@ -103,7 +104,7 @@ export interface OrchestratorBridge {
         workerId: string;
         specialty: WorkerSpecialtyKind;
         reused: boolean;
-        status: 'spawned' | 'proposed' | 'installed';
+        status: 'spawned' | 'installed';
         /** Authority the runtime filled in, so the Talker can say it out loud. */
         appliedDefaults?: string[];
       }
@@ -115,7 +116,7 @@ export interface OrchestratorBridge {
     brief?: MeetingPlanBriefInput,
     isCurrent?: () => boolean,
   ): Promise<
-    | { ok: true; status?: 'proposed' | 'installed'; proposalId?: string; appliedDefaults?: AppliedTaskDefaults[] }
+    | { ok: true; status: 'installed'; appliedDefaults?: AppliedTaskDefaults[] }
     | { ok: false; error: string }
   >;
   steerWorker(workerId: string, addendum: string): Promise<SteerResult>;
@@ -299,9 +300,10 @@ export function buildTalkerMcp(
           networkHosts: z.array(z.string().min(1)).max(100).optional()
             .describe('Allowed network hosts when the task needs fetch/web tools.'),
         },
-        async ({ description, writePaths, workspaceMode, commands, networkHosts }) => {
+        async ({ description, writePaths, workspaceMode, commands, networkHosts }, context) => {
           if (!canCoordinate()) return denied();
           const r = await bridge.delegateSingleTask({
+            requestId: context?.requestId,
             description,
             writePaths,
             workspaceMode,
@@ -316,11 +318,11 @@ export function buildTalkerMcp(
           const auto = r.appliedDefaults?.length
             ? ` — auto-authority: ${r.appliedDefaults.join('; ')}`
             : '';
-          if (r.status === 'proposed') {
+          if (r.status === 'installed') {
             return {
               content: [{
                 type: 'text',
-                text: `plan proposed as ${r.workerId} (${r.specialty}) — waiting for user approval${auto}`,
+                text: `task installed as ${r.workerId} (${r.specialty}); delivery is scheduled, not yet confirmed running${auto}`,
               }],
             };
           }
@@ -332,8 +334,8 @@ export function buildTalkerMcp(
       ),
       tool(
         MEETING_TOOLS.PLAN_MEETING,
-        'Propose a detailed execution plan (goal, approach, steps, risks) plus a worker DAG. '
-        + 'Write a Cursor-style plan the host can read before approving — not a bare task list. '
+        'Submit a readable execution plan (goal, approach, steps, risks) plus a worker DAG. '
+        + 'A valid plan is installed and scheduled directly — no extra approval click. '
         + 'Each task needs id/title and a full worker prompt; writePaths/workspaceMode/commands '
         + 'are optional (runtime fills safe defaults). Dispatch via the tool; do not ask which test framework to use.',
         planMeetingArgsSchema,
@@ -349,8 +351,6 @@ export function buildTalkerMcp(
           if (!result.ok) {
             return { content: [{ type: 'text', text: `error: ${result.error}` }] };
           }
-          const spawned = tasks.filter((t) => (t.deps ?? []).length === 0).length;
-          const queued = tasks.length - spawned;
           const auto = result.appliedDefaults?.length
             ? ` — auto-authority: ${result.appliedDefaults
                 .map((entry) => `${entry.taskId}: ${entry.notes.join('; ')}`)
@@ -359,10 +359,7 @@ export function buildTalkerMcp(
           return {
             content: [{
               type: 'text',
-              text: result.status === 'installed'
-                ? `plan installed: ${tasks.length} tasks; check status for actual execution${auto}`
-                : `plan proposed${result.proposalId ? ` (${result.proposalId})` : ''}: ${goal ? `"${goal}" · ` : ''}${tasks.length} tasks `
-                  + `(${spawned} can start after approval, ${queued} wait on deps) — waiting for user approval${auto}`,
+              text: `plan installed: ${tasks.length} tasks recorded; check status for actual execution${auto}`,
             }],
           };
         },

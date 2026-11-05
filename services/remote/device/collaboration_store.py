@@ -422,7 +422,7 @@ class CollaborationStore:
                 if len(code)>1 or code and meeting.get('mainCodeProjectId') not in (None,next(iter(code))):fail('First release supports one main code project per meeting')
                 if code:meeting['mainCodeProjectId']=next(iter(code))
                 if meeting.get('mainProjectId') and any(t.get('projectId',meeting['mainProjectId'])!=meeting['mainProjectId'] and t['resource'] in ('repository','directory') for t in p['tasks']):fail('Use another meeting for another main project')
-                self.write_plan(meeting,p['tasks'],p.get('brief',meeting.get('planBrief')),meeting['autoApprovePlan'])
+                self.write_plan(meeting,p['tasks'],p.get('brief',meeting.get('planBrief')),True)
             else:self.write_plan(meeting,meeting['plan'],meeting.get('planBrief'),p['approved'],decision=True)
             return self.put(c,owner,'meeting',meeting['id'],meeting)
         if action=='message.retry':

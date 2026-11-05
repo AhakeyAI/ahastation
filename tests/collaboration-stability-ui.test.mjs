@@ -62,7 +62,6 @@ test('unified fixture supplies the rate-limit subscription API on first navigati
 });
 test('F2 actual React rapid clicks submit once',async()=>{const p=await page();try{await delaySends(p);await p.locator('textarea').fill('只发一次');await p.locator('.drawer-send-icon').evaluate(b=>{b.click();b.click();});await p.waitForTimeout(1000);assert.equal(await p.evaluate(()=>window.__sends.length),1);}finally{await p.close();}});
 test('F2 actual React old response preserves text typed while sending',async()=>{const p=await page();try{await delaySends(p);const input=p.locator('textarea');await input.fill('上一条');await p.locator('.drawer-send-icon').click();await input.fill('下一条未发送文字');await p.waitForTimeout(1000);assert.equal(await input.inputValue(),'下一条未发送文字');}finally{await p.close();}});
-test('F3 actual React identical refresh preserves the exact baseline edit',async()=>{const p=await page();try{await p.getByRole('button',{name:'夹具：依赖基线',exact:true}).click();await p.getByRole('button',{name:/审阅可读计划/}).click();await p.getByRole('button',{name:'将此准确提交加入待批准修订',exact:true}).click();await p.evaluate(async()=>{await (await import('/src/lib/unified-meeting-store.ts')).refreshShared();});await p.waitForTimeout(150);assert.equal(await p.getByText('修订已加入草稿，请审阅并批准整份计划后执行。',{exact:true}).count(),1);}finally{await p.close();}});
 test('S04/S06 actual Enter is synchronous, and Hub confirmation enables the next identical message before model completion',async()=>{const p=await page();try{await delaySends(p);const input=p.locator('textarea');await input.fill('相同正文');await input.press('Enter');await input.press('Enter');await p.waitForTimeout(1000);assert.equal(await p.evaluate(()=>window.__sends.length),1);await input.fill('相同正文');await input.press('Enter');await p.waitForTimeout(1000);const sends=await p.evaluate(()=>window.__sends);assert.equal(sends.length,2);assert.notEqual(sends[0].requestId,sends[1].requestId);}finally{await p.close();}});
 test('S05/S08 actual attachment staging freezes the selected mention and preserves next text and new attachment',async()=>{const p=await page();try{
   await p.locator('.unified-materials summary').click();await p.locator('.unified-materials select').first().selectOption('fixture-materials');
@@ -78,12 +77,6 @@ test('S07 actual pending submission reconciles its original ID and releases only
   await p.evaluate(()=>{window.__pending=null;window.__sends=[];window.__reconciles=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command'&&p.action==='message.send'){window.__sends.push(p);await original(a,p);window.__pending={requestId:p.requestId,meetingId:p.payload.meetingId,text:p.payload.text,status:'pending'};return {ok:true,value:{pending:true}};}if(a==='message.reconcile'){window.__reconciles.push(p.requestId);window.__pending={...window.__pending,status:'accepted'};return {ok:true,value:{}};}const reply=await original(a,p);if(a==='status')reply.value.messageSubmissions=window.__pending?[window.__pending]:[];return reply;};});
   const input=p.locator('textarea');await input.fill('已保存但响应丢失');await p.locator('.drawer-send-icon').click();await p.locator('.unified-error-summary summary').first().click();await p.getByRole('button',{name:'核对／补投原提交',exact:true}).waitFor();await input.fill('核对期间的新输入');await p.getByRole('button',{name:'核对／补投原提交',exact:true}).click();await p.waitForTimeout(150);const result=await p.evaluate(()=>({sends:window.__sends,reconciles:window.__reconciles}));assert.equal(result.sends.length,1);assert.deepEqual(result.reconciles,[result.sends[0].requestId]);assert.equal(await input.inputValue(),'核对期间的新输入');assert.equal(await p.locator('.drawer-send-icon').isEnabled(),true);
 }finally{await p.close();}});
-async function review(p){await p.getByRole('button',{name:/审阅可读计划/}).click();return p.locator('.plan-task-card').first().getByLabel('标题',{exact:true});}
-test('S09 actual open review retains edits on identical snapshots, rename, online state and unrelated progress',async()=>{const p=await page();try{const title=await review(p);await title.fill('用户自己的标题');for(const label of ['夹具：相同快照','夹具：设备改名','夹具：切换离线','夹具：普通进度'])await p.getByRole('button',{name:label,exact:true}).click();await p.waitForTimeout(100);assert.equal(await title.inputValue(),'用户自己的标题');assert.equal(await p.getByText('计划内容已有新版；下面的当前修改完整保留，尚未提交。',{exact:true}).count(),0);}finally{await p.close();}});
-test('S10 actual new plan preserves edits, blocks stale approval, and explicit rebase submits the reviewed version',async()=>{const p=await page();try{await p.evaluate(()=>{window.__commands=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command')window.__commands.push(p);return original(a,p);};});const title=await review(p);await title.fill('保留的人工标题');await p.getByRole('button',{name:'夹具：新计划',exact:true}).click();await p.getByText('计划内容已有新版；下面的当前修改完整保留，尚未提交。',{exact:true}).waitFor();await capture(p,'S10-retained-edits-and-new-plan');await capture(p.locator('.plan-task-card').first(),'S10-retained-task-fields');assert.equal(await title.inputValue(),'保留的人工标题');assert.equal(await p.getByRole('button',{name:'批准计划，执行尚未分发的任务',exact:true}).isDisabled(),true);await p.getByRole('button',{name:'已核对，将自己的修改应用于新版',exact:true}).click();assert.equal(await title.inputValue(),'保留的人工标题');assert.match(await p.locator('.plan-task-card textarea').first().inputValue(),/新版交付要求/);await p.getByRole('button',{name:'批准计划，执行尚未分发的任务',exact:true}).click();await p.waitForTimeout(150);const commands=await p.evaluate(()=>window.__commands.filter(c=>c.action==='plan.review'));assert.equal(commands.length,1);assert.equal(commands[0].payload.expectedPlanVersion,2);assert.equal(commands[0].payload.tasks[0].title,'保留的人工标题');}finally{await p.close();}});
-test('S11 actual close, switch and return preserve only this meeting edits; explicit discard sends no rejection',async()=>{const p=await page();try{await p.getByRole('button',{name:'夹具：第二会议',exact:true}).click();await p.evaluate(()=>{window.__commands=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command')window.__commands.push(p);return original(a,p);};});let title=await review(p);await title.fill('第一会议未批准修改');await p.getByRole('button',{name:'关闭查看，保留本机修改',exact:true}).click();await p.evaluate(async()=>{(await import('/src/lib/unified-meeting-store.ts')).selectSharedMeeting('ui-second-meeting');});title=await review(p);assert.notEqual(await title.inputValue(),'第一会议未批准修改');await title.fill('第二会议修改');await p.getByRole('button',{name:'关闭查看，保留本机修改',exact:true}).click();await p.evaluate(async()=>{(await import('/src/lib/unified-meeting-store.ts')).selectSharedMeeting('ui-unified-meeting');});title=await review(p);assert.equal(await title.inputValue(),'第一会议未批准修改');await p.getByRole('button',{name:'放弃本机修改',exact:true}).click();assert.notEqual(await title.inputValue(),'第一会议未批准修改');assert.equal(await p.evaluate(()=>window.__commands.length),0);await p.reload();title=await review(p);assert.notEqual(await title.inputValue(),'第一会议未批准修改');}finally{await p.close();}});
-test('S12 actual view/edit never pauses auto approval; a task dispatched while editing becomes immutable',async()=>{const p=await page();try{await p.getByLabel('自动批准后续计划',{exact:true}).check();const title=await review(p);await title.fill('编辑期间派发');await p.getByRole('button',{name:'夹具：分发首项',exact:true}).click();await p.waitForTimeout(100);assert.equal(await title.isDisabled(),true);assert.equal(await p.getByRole('button',{name:'批准计划，执行尚未分发的任务',exact:true}).isDisabled(),true);await p.getByRole('button',{name:'还原已分发任务：编辑期间派发',exact:true}).click();assert.equal(await p.getByLabel('自动批准后续计划',{exact:true}).isChecked(),true);const status=await p.evaluate(async()=> (await window.vibeMeet.collaboration.request('status')).value);assert.equal(status.snapshot.entities.task.length,1);assert.equal(status.snapshot.entities.task[0].stopRequested,undefined);await p.getByRole('button',{name:'关闭查看，保留本机修改',exact:true}).click();await p.getByLabel('自动批准后续计划',{exact:true}).uncheck();const latest=await p.evaluate(async()=> (await window.vibeMeet.collaboration.request('status')).value);assert.equal(latest.snapshot.entities.task.length,1);assert.equal(latest.snapshot.entities.task[0].objective,status.snapshot.entities.task[0].objective);}finally{await p.close();}});
-test('S10 plan response only clears its submitted version and preserves edits made while approval is pending',async()=>{const p=await page();try{await p.evaluate(()=>{window.__plans=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command'&&p.action==='plan.review'){window.__plans.push(p);await new Promise(r=>setTimeout(r,800));}return original(a,p);};});const title=await review(p);await title.fill('提交的版本');await p.getByRole('button',{name:'批准计划，执行尚未分发的任务',exact:true}).click();await title.fill('等待批准回应期间继续修改');await p.getByRole('dialog',{name:'审阅执行计划',exact:true}).waitFor({state:'hidden'});await review(p);assert.equal(await title.inputValue(),'等待批准回应期间继续修改');assert.equal(await title.isDisabled(),true);const result=await p.evaluate(async()=>({plans:window.__plans,view:(await window.vibeMeet.collaboration.request('status')).value}));assert.equal(result.plans.length,1);assert.equal(result.plans[0].payload.tasks[0].title,'提交的版本');assert.equal(result.view.snapshot.entities.task[0].title,'提交的版本');}finally{await p.close();}});
 test('H09 actual original message reconciliation shows recent cause, uses the same identity and preserves new edits',async()=>{const p=await page();try{
  await p.evaluate(async()=>{const api=window.vibeMeet.collaboration,original=api.request;window.__recovered=false;window.__reconciles=[];api.request=async(a,p)=>{if(a==='execution.reconcile'){window.__reconciles.push(p);window.__recovered=true;return {ok:true,value:{}};}const r=await original(a,p);if(a==='status'){const view=r.value;view.snapshot.entities.message=[{id:'original-expert',revision:1,meetingId:'ui-unified-meeting',route:'agent',sourceDeviceId:view.deviceId,targetDeviceId:view.deviceId,targetAgentId:'codex',text:'原消息核对测试',createdAt:1,stopRequested:true,executionStatus:window.__recovered?'completed':'reconcile',exitConfirmed:window.__recovered,turnOutcome:window.__recovered?'completed':undefined}];view.reconciliation={'input:original-expert':{reason:window.__recovered?'':'确定的原组件核对错误',history:['确定的原组件核对错误']}};}return r;};await (await import('/src/lib/unified-meeting-store.ts')).refreshShared();});
  const card=p.locator('.msg').filter({hasText:'原消息核对测试'});await card.getByText(/停止尚未确认/).waitFor();assert.match(await card.innerText(),/确定的原组件核对错误/);
@@ -94,3 +87,82 @@ test('H09 actual task card distinguishes normal end, stop intent and delivery pe
  await p.evaluate(async()=>{window.__controls=[];const api=window.vibeMeet.collaboration,original=api.request;api.request=async(a,p)=>{if(a==='command')window.__controls.push(p);const r=await original(a,p);if(a==='status')r.value.snapshot.entities.task=[{id:'normal-stopped',revision:1,meetingId:'ui-unified-meeting',title:'原正常轮次成果',objective:'original',attemptId:'original-attempt',targetDeviceId:r.value.deviceId,agentId:'codex',resource:'text',status:'delivery-pending',turnOutcome:'completed',stopRequested:true,exitConfirmed:true,pendingFollowups:[],dependencies:[],deliveryError:'推送回应待核对'}];return r;};await(await import('/src/lib/unified-meeting-store.ts')).refreshShared();});
  await p.getByRole('button',{name:'原正常轮次成果',exact:true}).first().click();const card=p.locator('.unified-inspector');await card.getByText('本轮正常结束；停止后尚未开始的补充与后续执行等待明确继续。',{exact:true}).waitFor();assert.match(await card.innerText(),/交付待处理.*推送回应待核对/s);await card.getByRole('button',{name:'补充／继续',exact:true}).click();assert.equal(await card.getByRole('button',{name:'核对后继续原任务',exact:true}).count(),1);assert.equal(await p.evaluate(()=>window.__controls.length),0);
 }finally{await p.close();}});
+
+async function commands(p){
+  await p.evaluate(()=>{window.__commands=[];const api=window.vibeMeet.collaboration,original=api.request;
+    api.request=async(a,p)=>{if(a==='command')window.__commands.push(p);return original(a,p);};});
+}
+async function status(p){return p.evaluate(async()=> (await window.vibeMeet.collaboration.request('status')).value);}
+async function noPlanApproval(p){
+  assert.equal(await p.locator('.plan-modal').count(),0);
+  assert.equal(await p.getByRole('button',{name:/审阅可读计划|批准计划|拒绝计划/}).count(),0);
+  assert.equal(await p.getByLabel('自动批准后续计划',{exact:true}).count(),0);
+}
+test('direct plan baseline wait survives identical refresh without changing the approved commit',async()=>{
+  const p=await page();try{
+    await commands(p);await p.getByRole('button',{name:'夹具：依赖基线',exact:true}).click();
+    await p.getByText(/计划 · 2 项 · 已开始 1 项 · 1 项等待新基线/).waitFor();
+    await p.getByRole('button',{name:'夹具：相同快照',exact:true}).click();
+    await p.locator('.user-tasks-panel').getByText('等待新基线后开始',{exact:true}).waitFor();
+    const view=await status(p);assert.equal(view.snapshot.entities.meeting[0].plan[1].baseCommit,'a'.repeat(40));
+    assert.equal(view.snapshot.entities.task.length,1);await noPlanApproval(p);
+    assert.deepEqual(await p.evaluate(()=>window.__commands),[]);
+  }finally{await p.close();}
+});
+test('read-only plan refresh and device changes preserve unsent conversation',async()=>{
+  const p=await page();try{
+    await commands(p);await p.locator('textarea').fill('用户尚未发送的要求');
+    for(const label of ['夹具：相同快照','夹具：设备改名','夹具：切换离线','夹具：普通进度'])
+      await p.getByRole('button',{name:label,exact:true}).click();
+    await p.locator('.user-tasks-panel').getByText(/改名后的中文电脑/).waitFor();
+    assert.equal(await p.locator('textarea').inputValue(),'用户尚未发送的要求');
+    await noPlanApproval(p);assert.deepEqual(await p.evaluate(()=>window.__commands),[]);
+  }finally{await p.close();}
+});
+test('new plan snapshot updates read-only progress without submitting an approval',async()=>{
+  const p=await page();try{
+    await commands(p);await p.getByRole('button',{name:'夹具：新计划',exact:true}).click();
+    await p.waitForFunction(async()=> (await window.vibeMeet.collaboration.request('status')).value.snapshot.entities.meeting[0].planVersion===2);
+    const view=await status(p);assert.match(view.snapshot.entities.meeting[0].plan[0].objective,/新版交付要求/);
+    await p.locator('.user-tasks-panel').getByText('升级前计划，未执行；明确说“继续执行”才安排',{exact:true}).waitFor();
+    assert.equal(view.snapshot.entities.task.length,0);await noPlanApproval(p);
+    assert.deepEqual(await p.evaluate(()=>window.__commands),[]);
+  }finally{await p.close();}
+});
+test('switching meetings preserves their separate plan and dispatched task identities',async()=>{
+  const p=await page();try{
+    await p.getByRole('button',{name:'夹具：第二会议',exact:true}).click();
+    await p.getByRole('button',{name:'夹具：依赖基线',exact:true}).click();await commands(p);
+    await p.evaluate(async()=> (await import('/src/lib/unified-meeting-store.ts')).selectSharedMeeting('ui-second-meeting'));
+    await p.getByText(/计划 · 1 项 · 已开始 0 项/).waitFor();await noPlanApproval(p);
+    await p.evaluate(async()=> (await import('/src/lib/unified-meeting-store.ts')).selectSharedMeeting('ui-unified-meeting'));
+    await p.getByText(/计划 · 2 项 · 已开始 1 项/).waitFor();
+    assert.equal((await status(p)).snapshot.entities.task[0].id,'task-first');
+    assert.deepEqual(await p.evaluate(()=>window.__commands),[]);
+  }finally{await p.close();}
+});
+test('dispatch replaces the planned row with the exact task and does not duplicate it on refresh',async()=>{
+  const p=await page();try{
+    await commands(p);
+    await p.locator('.user-tasks-panel').getByText('升级前计划，未执行；明确说“继续执行”才安排',{exact:true}).waitFor();
+    await p.getByRole('button',{name:'夹具：分发首项',exact:true}).click();
+    await p.getByText(/计划 · 1 项 · 已开始 1 项/).waitFor();
+    await p.getByRole('button',{name:'夹具：相同快照',exact:true}).click();
+    assert.equal(await p.locator('.user-tasks-panel tbody tr').count(),1);
+    assert.equal((await status(p)).snapshot.entities.task[0].id,'task-whole-api');
+    await noPlanApproval(p);assert.deepEqual(await p.evaluate(()=>window.__commands),[]);
+  }finally{await p.close();}
+});
+test('new plan arriving during a send preserves next input and sends no plan decision',async()=>{
+  const p=await page();try{
+    await commands(p);await delaySends(p);
+    await p.locator('textarea').fill('继续执行');
+    await p.locator('.drawer-send-icon').click();await p.locator('textarea').fill('下一条补充');
+    await p.getByRole('button',{name:'夹具：新计划',exact:true}).click();
+    await p.waitForFunction(()=>window.__commands.length===1&&document.querySelector('.drawer-send-icon')?.disabled===false);
+    assert.equal(await p.locator('textarea').inputValue(),'下一条补充');
+    const sent=await p.evaluate(()=>window.__commands);
+    assert.equal(sent[0].action,'message.send');assert.equal(sent[0].payload.text,'继续执行');
+    await noPlanApproval(p);
+  }finally{await p.close();}
+});

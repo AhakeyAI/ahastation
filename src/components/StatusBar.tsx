@@ -4,7 +4,7 @@ import { ElapsedTime } from './ElapsedTime';
 interface StatusBarProps {
   /** 已连接客户端数（host groups）。 */
   clientCount: number;
-  /** 活跃任务数（进行中 + 待批准 + 待验收）。 */
+  /** 活跃任务数（进行中 + 待验收）。 */
   activeTaskCount: number;
   /** 当前目录（单会议 = 一个项目）。 */
   cwd: string | null;

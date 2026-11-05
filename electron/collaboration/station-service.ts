@@ -586,7 +586,7 @@ export class StationService {
     const key=task.id+':'+String(task.attemptId);
     if(task.resource!=='native'&&!this.canLease(cwd,key)){await this.taskEvent(task,'waiting-slot');return;}
     let objective=String(task.objective)+(task.attemptInstructions?'\n'+String(task.attemptInstructions):'');
-    if(task.agentId==='codex'&&!task.freeConversation)objective='这是已经通过会议业务计划批准、由本设备持久接收的任务。按以下目标在本轮交付完整成果和必要核验。业务计划无需再次申请批准；工具、文件和权限审批仍严格遵守原有策略。若目标要求纯文字，直接交付完整正文。\n任务目标：\n'+objective;
+    if(task.agentId==='codex'&&!task.freeConversation)objective='这是已经记录在本会议计划中、由本设备持久接收的任务。按以下目标在本轮交付完整成果和必要核验。业务计划无需再次批准；工具、文件和权限审批仍严格遵守原有策略。若目标要求纯文字，直接交付完整正文。\n任务目标：\n'+objective;
     const inputs=task.inputs as GitFileReference[];
     let inputImages:string[]=[];
     if(task.resource==='text'&&inputs?.length){const prepared=await prepareMeetingInput({id:task.id,revision:task.revision,text:objective,attachments:inputs},state,join(cwd,'inputs',String(task.attemptId)),String(task.agentId));objective=prepared.text;inputImages=prepared.images;}
@@ -1349,7 +1349,7 @@ export class StationService {
     const binding=this.storage.read().bindings[String(task.projectId)];if(!binding?.confirmed)throw new Error('协调设备也需绑定主要代码项目');
     const meeting=String(task.meetingId);const existing=this.storage.read().meetingWorkspaces?.[meeting];
     const shared=this.rows('meeting').find(m=>m.id===meeting);
-    if((task.dependencies as unknown[]).length&&shared?.verifiedCommit&&task.baseCommit!==shared.verifiedCommit)throw new Error('前序成果已改变基线，请在计划中展示准确提交并重新批准');
+    if((task.dependencies as unknown[]).length&&shared?.verifiedCommit&&task.baseCommit!==shared.verifiedCommit)throw new Error('前序成果已改变基线，请在计划中展示准确提交并重新提交');
     if(existing)return;
     const cwd=await prepareMeetingBranch(binding.localRepoRoot,binding.taskWorkspaceRoot,meeting,String(task.baseCommit));
     await this.storage.update(s=>{(s.meetingWorkspaces??={})[meeting]=cwd;});

@@ -92,7 +92,7 @@ export class UnifiedMeetingHost {
             if(result.stopped&&!this.cancelled.has(current.id))throw new Error(result.summary||'Host 本轮失败，输入保留');
             if(!result.stopped&&result.contentComplete!==true)throw new Error('Host 历史结果没有完整正文证据；保留原输入和对话，等待人工核对');
             if(!this.cancelled.has(current.id))await this.dispatchCommands(result.summary);
-            const visible=result.summary.replace(/```meeting-command[\s\S]*?```/g,'').trim()||(this.current&&this.appliedPlans.has(this.current.id)?'计划已提交审阅。':'');
+            const visible=result.summary.replace(/```meeting-command[\s\S]*?```/g,'').trim()||(this.current&&this.appliedPlans.has(this.current.id)?'安排已提交并交给调度。':'');
             if(visible)options.emit({kind:'message',message:{type:'assistant',message:{role:'assistant',content:[{type:'text',text:visible}]}} as SDKMessage});
             options.emit({kind:'turn-status',status:'completed'});
           }catch(error){
@@ -127,7 +127,7 @@ export class UnifiedMeetingHost {
       }
       await this.planWrites;
       const visible=output.replace(/```meeting-command[\s\S]*?```/g,'').trim()
-        ||(this.appliedPlans.has(inputId)?'计划已提交审阅。':'');
+        ||(this.appliedPlans.has(inputId)?'安排已提交并交给调度。':'');
       if(visible)await this.hooks.reply(visible,inputId);
       await this.hooks.checkpoint(inputId,'completed');
     }catch(error){
@@ -144,7 +144,7 @@ export class UnifiedMeetingHost {
   private mapPlan(tasks:PlanMeetingTaskInput[]) {
     const members=this.snapshot().entities.meeting?.find(m=>m.id===this.meeting.id)?.participants as Array<{deviceId:string;agentId:string}>|undefined;
     return normalizeHostPlan(this.meeting.id,tasks.map(task=>{
-      if(!task.sharedTarget)throw new Error('每项计划必须明确 sharedTarget.deviceId 与 agentId；请修订后审阅');
+      if(!task.sharedTarget)throw new Error('每项计划必须明确 sharedTarget.deviceId 与 agentId；请修订后重新提交');
       const {deviceId,agentId,...target}=task.sharedTarget;
       if(members&&!members.some(m=>m.deviceId===deviceId&&m.agentId===agentId))throw new Error('目标尚未被选为执行候选');
       return {meetingId:this.meeting.id,planTaskId:task.id,title:task.title,objective:task.prompt,targetDeviceId:deviceId,agentId,...target,
@@ -174,12 +174,12 @@ export class UnifiedMeetingHost {
         if(this.images.length&&this.meeting.hostAgentId!=='codex')throw new Error('本轮共享图片输入需要 Codex Host；其他 Host 的本机图片能力仍可在原本机会议使用');
         if(this.cancelled.has(message.id))throw new Error('Host 本轮已在启动前停止');
         if(this.meeting.hostAgentId!=='codex'){await this.hooks.checkpoint(message.id,'starting');if(this.cancelled.has(message.id))throw new Error('Host 本轮已在启动前停止');input.invoked=true;}
-        await this.orch!.sendUserText('这是同一共享会议的当前状态。你是原会议唯一 Host；保留澄清、完整交付计划、独立批准、依赖、咨询与交付检查。不要在本机执行用户项目，不自动批准计划，不按电脑/文件/步骤拆任务。所有任务通过 propose-plan / plan_meeting，逐项填写 sharedTarget={deviceId,agentId,resource,permission,projectId?,baseCommit?,nativeSessionId?}；以快照的真实候选与授权为准。目标不可用须等待或提出可见修订。不要输出 station-plan。讨论直接答复，普通邀请不触发模型。\n'+context+'\n本次用户输入：\n'+(prepared?.text??String(message.text)),message.id);
+        await this.orch!.sendUserText('这是同一共享会议的当前状态。你是原会议唯一 Host；保留澄清、完整交付计划、依赖、咨询与交付检查。讨论、比较或“先别动手”直接答复；只有用户明确要求执行时才直接提交安排，不需要再次批准。不要在本机执行用户项目，不按电脑/文件/步骤拆任务。所有任务通过 propose-plan / plan_meeting，逐项填写 sharedTarget={deviceId,agentId,resource,permission,projectId?,baseCommit?,nativeSessionId?}；以快照的真实候选与授权为准。目标不可用须等待或提出可见修订。执行中追加要求优先进入原任务。不要输出 station-plan。讨论直接答复，普通邀请不触发模型。\n'+context+'\n本次用户输入：\n'+(prepared?.text??String(message.text)),message.id);
         await done;
         await this.planWrites;
         if(this.rejectedPlans.has(message.id))throw this.rejectedPlans.get(message.id)!;
         const session=this.orch!.hostSessionSnapshot();if(session)await this.hooks.session(session);
-        const visible=textSlice(input.output.replace(/```meeting-command[\s\S]*?```/g,'').trim(),-24000)||(this.current&&this.appliedPlans.has(this.current.id)?'计划已提交审阅。':'');if(visible)await this.hooks.reply(visible,message.id);
+        const visible=textSlice(input.output.replace(/```meeting-command[\s\S]*?```/g,'').trim(),-24000)||(this.current&&this.appliedPlans.has(this.current.id)?'安排已提交并交给调度。':'');if(visible)await this.hooks.reply(visible,message.id);
         await this.hooks.checkpoint(message.id,'completed');
       }catch(error){
         const invoked=this.current?.invoked===true;

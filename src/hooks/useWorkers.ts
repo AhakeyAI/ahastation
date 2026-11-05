@@ -6,8 +6,6 @@ import type {
   FinalMeetingDecision,
   MeetingDelivery,
   MeetingPlan,
-  MeetingPlanBrief,
-  PlanMeetingTaskInput,
   StagedAttachment,
   PocketVibeRemoteTarget,
 } from '../types';
@@ -18,9 +16,6 @@ export interface UseWorkersResult {
   hostGroups: Map<string, HostGroupState>;
   coordinatorHostId: string;
   plan: MeetingPlan | null;
-  pendingPlan: PlanMeetingTaskInput[] | null;
-  pendingPlanBrief: MeetingPlanBrief | null;
-  pendingProposal: { proposalId: string; proposalVersion: number } | null;
   running: boolean;
   cwd: string | null;
   lastError: string | null;
@@ -55,12 +50,6 @@ export interface UseWorkersResult {
   >;
   acceptFinalMeetingDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
   requestFinalMeetingRework: (reason: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  decidePendingPlan: (
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-    brief?:MeetingPlanBrief,
-    basis?: { proposalId: string; proposalVersion: number } | null,
-  ) => Promise<{ ok: boolean; error?: string }>;
   toggleHostGroupCollapsed: (hostId: string) => void;
   addHostGroup: (backendId: string, remoteTarget?: PocketVibeRemoteTarget) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
   removeHostGroup: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -121,11 +110,6 @@ export function useWorkers(): UseWorkersResult {
     (reason: string) => meetingStore.requestFinalMeetingRework(reason),
     [],
   );
-  const decidePendingPlan = useCallback(
-    (approved: boolean, tasks?: PlanMeetingTaskInput[], brief?: MeetingPlanBrief, basis?: UseWorkersResult['pendingProposal']) =>
-      meetingStore.decidePendingPlan(approved, tasks, brief, basis),
-    [],
-  );
   const toggleHostGroupCollapsed = useCallback(
     (hostId: string) => meetingStore.toggleHostGroupCollapsed(hostId),
     [],
@@ -151,9 +135,6 @@ export function useWorkers(): UseWorkersResult {
     hostGroups: state.hostGroups,
     coordinatorHostId: state.coordinatorHostId,
     plan: state.plan,
-    pendingPlan: state.pendingPlan,
-    pendingPlanBrief: state.pendingPlanBrief,
-    pendingProposal: state.pendingProposal,
     running: state.running,
     cwd,
     lastError: state.lastError,
@@ -177,7 +158,6 @@ export function useWorkers(): UseWorkersResult {
     reviseDelivery,
     acceptFinalMeetingDelivery,
     requestFinalMeetingRework,
-    decidePendingPlan,
     toggleHostGroupCollapsed,
     addHostGroup,
     removeHostGroup,
