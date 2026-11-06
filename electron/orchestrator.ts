@@ -199,6 +199,15 @@ export type {
 /** Default host group id. Always present in every meeting. */
 const DEFAULT_HOST_ID = 'default';
 const DEFAULT_BACKEND_ID = 'claude-code';
+const MAX_TEXT_COMMAND_REJECTION_NOTES = 3;
+/** Hosts that coordinate through fenced ```meeting-command text and never see
+ *  a tool result (MCP Hosts do). */
+const TEXT_PROTOCOL_HOST_BACKENDS = new Set(['codex', 'pocket-vibe']);
+/** "I've sent a Worker" / "the Worker confirmed …" in a Host reply. */
+const WORKER_CLAIM_PATTERN = /(已经?|刚刚?|刚才)(派|安排|交给)[^。！？\n]{0,16}?(Worker|子\s*Agent|子代理)|派了[^。！？\n]{0,16}?(Worker|子\s*Agent|子代理)|(Worker|子\s*Agent|子代理)[^。！？\n]{0,4}?(已经?|刚刚?)(确认|回报|报告|完成|发现)|\b(dispatched|sent|spawned)\s+(a\s+|the\s+)?worker|\bworker\s+(has\s+)?(confirmed|reported|found)/i;
+/** Worker events this recent still back a Host's claim about Worker work. */
+const WORKER_CLAIM_WINDOW_MS = 10 * 60_000;
+const WORKER_ACTIVITY_KINDS = new Set(['plan-proposed', 'plan-updated', 'delivery-status', 'coordinator-briefing']);
 
 interface OrchestratorOpts {
   /** Shared meetings retain this Orchestrator as their sole planning authority.
@@ -342,6 +351,15 @@ export class Orchestrator implements OrchestratorBridge {
    *  target host id (one outstanding ask per expert; a new ask replaces it and
    *  re-arms the timer). Cleared when the expert emits any talker message. */
   private pendingHostAsks = new Map<string, { question: string; timer: ReturnType<typeof setTimeout> }>();
+  /** Consecutive rejected ```meeting-command frames per Host; bounds how
+   *  often a rejection is fed back so a confused Host cannot loop forever. */
+  private textCommandRejections = new Map<string, number>();
+  /** Per Host: the first Worker claim in the current turn, and when the Host
+   *  last had Worker activity (events or an accepted command). */
+  private hostTurnWorkerClaims = new Map<string, string>();
+  private lastWorkerActivityAt = new Map<string, number>();
+  /** Hosts whose next turn answers a correction; it repeats the claim. */
+  private workerClaimCorrected = new Set<string>();
   private readonly hostAskTimeoutMs: number;
   /** Cross-host messages that arrived before the target Host talker was ready. */
   private pendingCrossHostMessages = new Map<string, Array<{ from: string; text: string }>>();
@@ -597,8 +615,10 @@ export class Orchestrator implements OrchestratorBridge {
       // Codex honors only the model from user settings. Every other source
       // (the talker's Claude-centric fallback, compiled task profiles) can
       // name a model the configured provider doesn't serve; with no override
-      // the CLI falls back to ~/.codex/config.toml's own `model`.
-      const model = backendId === 'codex'
+      // the CLI falls back to ~/.codex/config.toml's own `model`. The Codex
+      // terminal Worker follows the same rule: its compiled default (gpt-5.4)
+      // is rejected for ChatGPT-account logins (N5095 round 3, 2026-11-04).
+      const model = backendId === 'codex' || backendId === 'codex-terminal'
         ? auth.model
         : taskProfile
           ? taskProfile.model
@@ -648,7 +668,7 @@ export class Orchestrator implements OrchestratorBridge {
             ...(purpose === 'host' && isTerminalWorkerBackend(backendId)
               ? { workerId: hostTerminalWorkerId(this.ptyScopeId, actorHostId) }
               : {}),
-            meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw),
+            meetingCommandHandler: (raw: unknown) => this.executeTextMeetingCommand(actorHostId, raw),
           },
         },
         // BackendSessionEvent is structurally compatible with SessionEvent
@@ -1067,6 +1087,43 @@ export class Orchestrator implements OrchestratorBridge {
     });
   }
 
+  /** Text-protocol Hosts (Codex, pocket-vibe) emit fenced ```meeting-command
+   *  frames and, unlike MCP tools, never see the return value. Feed back
+   *  rejections (with the fields to fix) and decision results, so a wrong
+   *  request-decision is retried instead of silently dropped (N5095 D1,
+   *  2026-11-03). */
+  private async executeTextMeetingCommand(hostId: string, raw: unknown): Promise<MeetingCommandResult> {
+    const result = await this.executeMeetingCommand(hostId, raw);
+    const kind = typeof (raw as { kind?: unknown } | null)?.kind === 'string'
+      ? (raw as { kind: string }).kind : 'unknown';
+    const host = this.hostGroups.get(hostId)?.getHost();
+    if (!result.ok) {
+      const rejections = (this.textCommandRejections.get(hostId) ?? 0) + 1;
+      this.textCommandRejections.set(hostId, rejections);
+      if (rejections <= MAX_TEXT_COMMAND_REJECTION_NOTES) {
+        host?.sendUserText(
+          `(meeting-command result) ${kind} 被拒绝（${result.code}）：${result.error}\n`
+          + '按 AhaStation command protocol 修正字段后重发一次；修正前不要告诉用户已经完成。',
+          'normal',
+        );
+      }
+      return result;
+    }
+    this.textCommandRejections.delete(hostId);
+    if (kind !== 'speak' && kind !== 'request-decision' && kind !== 'save-memory') {
+      this.lastWorkerActivityAt.set(hostId, Date.now());
+    }
+    if (kind === 'request-decision' && result.value && typeof result.value === 'object') {
+      const created = result.value as Partial<DecisionCreationResult>;
+      host?.sendUserText(
+        `(meeting-command result) request-decision 已创建：${created.path ?? ''}（${created.sideChannelNote ?? ''}）。`
+        + `先按推荐选项「${created.recommendedTitle ?? ''}」推进；用户改选时你会收到系统消息。`,
+        'normal',
+      );
+    }
+    return result;
+  }
+
   async executeMeetingCommand(hostId: string, raw: unknown): Promise<MeetingCommandResult> {
     const actor = this.hostGroups.get(hostId);
     if (!actor) return { ok: false, code: 'forbidden', error: `host '${hostId}' not found` };
@@ -1225,6 +1282,7 @@ export class Orchestrator implements OrchestratorBridge {
   /** Handle events from a HostGroup, tagging with hostId before re-emitting. */
   private onHostGroupEvent(hostId: string, e: OrchestratorEvent) {
     this.safeEmit({ ...e, hostId });
+    this.checkWorkerClaims(hostId, e);
     if (e.source === 'system' && e.event.kind === 'coordinator-briefing') {
       this.forwardBriefingToOwner(e.event.briefing);
     }
@@ -1280,6 +1338,49 @@ export class Orchestrator implements OrchestratorBridge {
       });
       void this.repository.append('coordinator-failed', { hostId, candidateHostId: candidate });
     }
+  }
+
+  /** N5095 (2026-11-04): a Codex Host told the user it had sent a Worker,
+   *  then relayed what "the Worker" found. It never emitted a command and no
+   *  Worker existed. When a text-protocol Host's turn claims Worker work with
+   *  no Worker activity behind it, tell the Host so it corrects itself. */
+  private checkWorkerClaims(hostId: string, e: OrchestratorEvent): void {
+    const kind = e.event.kind;
+    if (kind.startsWith('worker-') || WORKER_ACTIVITY_KINDS.has(kind)) {
+      this.lastWorkerActivityAt.set(hostId, Date.now());
+      return;
+    }
+    if (e.source !== 'talker' || this.remoteTargets.has(hostId)) return;
+    const hg = this.hostGroups.get(hostId);
+    if (!hg || !TEXT_PROTOCOL_HOST_BACKENDS.has(hg.backendId)) return;
+    if (e.event.kind === 'message') {
+      if ((e.event.message as { type?: unknown } | undefined)?.type !== 'assistant') return;
+      if (this.hostTurnWorkerClaims.has(hostId)) return;
+      const text = extractText(e.event.message);
+      const match = text ? WORKER_CLAIM_PATTERN.exec(text) : null;
+      if (!match) return;
+      const sentence = text.slice(0, match.index + match[0].length).split(/[。！？\n]/).pop() ?? '';
+      const rest = text.slice(match.index + match[0].length).split(/[。！？\n]/)[0] ?? '';
+      this.hostTurnWorkerClaims.set(hostId, `${sentence}${rest}`.trim().slice(0, 80));
+      return;
+    }
+    if (e.event.kind !== 'turn-status' || e.event.status !== 'completed') return;
+    const claim = this.hostTurnWorkerClaims.get(hostId);
+    this.hostTurnWorkerClaims.delete(hostId);
+    if (this.workerClaimCorrected.delete(hostId) || !claim) return;
+    const lastActivity = this.lastWorkerActivityAt.get(hostId);
+    if (lastActivity !== undefined && Date.now() - lastActivity < WORKER_CLAIM_WINDOW_MS) return;
+    if (hg.getScheduler().activeWorkerIds().length > 0) return;
+    const notes = (this.textCommandRejections.get(hostId) ?? 0) + 1;
+    this.textCommandRejections.set(hostId, notes);
+    if (notes > MAX_TEXT_COMMAND_REJECTION_NOTES) return;
+    this.workerClaimCorrected.add(hostId);
+    hg.getHost()?.sendUserText(
+      `(meeting-command result) 这一轮没有派工：AhaStation 没收到 propose-plan，也没有 Worker 在运行或回报。`
+      + `你对用户说的「${claim}」不成立，先向用户更正。`
+      + '要派 Worker 就按 AhaStation command protocol 发 propose-plan；你自己的子代理和工具不是 AhaStation Worker，不能操作用户的桌面。',
+      'normal',
+    );
   }
 
   async restartHost(hostId: string): Promise<{ ok: true } | { ok: false; error: string }> {

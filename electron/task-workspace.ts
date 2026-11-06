@@ -168,7 +168,7 @@ export class TaskWorkspaceManager {
         truncated: false,
       };
     }
-    const revision = this.resolveCommit('HEAD');
+    const revision = this.currentRevision();
     const status = execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
       cwd: this.baseCwd,
       encoding: 'utf8',
@@ -263,14 +263,22 @@ export class TaskWorkspaceManager {
           'git-worktree mode requires a Git repository; choose shared-locked compatibility mode explicitly',
         );
       }
-      const sourceRevision = this.resolveCommit(input.sourceRevision ?? baseline.revision);
+      const unborn = baseline.revision.startsWith('unborn:');
+      if (unborn && input.sourceRevision && input.sourceRevision !== baseline.revision) {
+        throw new UnsupportedWorkspaceModeError('unborn branch cannot use another source revision');
+      }
+      const sourceRevision = unborn
+        ? baseline.revision
+        : this.resolveCommit(input.sourceRevision ?? baseline.revision);
       const root = this.options.worktreeRoot
         ?? join(app.getPath('userData'), 'worktrees', safeSegment(this.meetingId));
       const cwd = join(root, safeSegment(taskId));
       const branch = `ahastation/${safeSegment(this.meetingId).slice(0, 12)}/${safeSegment(taskId)}`;
       mkdirSync(root, { recursive: true, mode: 0o700 });
       if (!existsSync(cwd)) {
-        execFileSync('git', ['worktree', 'add', '-b', branch, cwd, sourceRevision], {
+        const args = ['worktree', 'add', '-b', branch, cwd];
+        if (!unborn) args.push(sourceRevision);
+        execFileSync('git', args, {
           cwd: this.baseCwd,
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 30_000,
@@ -344,6 +352,20 @@ export class TaskWorkspaceManager {
       }).trim() === 'true';
     } catch {
       return false;
+    }
+  }
+
+  private currentRevision(): string {
+    try {
+      return this.resolveCommit('HEAD');
+    } catch {
+      const branch = execFileSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], {
+        cwd: this.baseCwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5_000,
+      }).trim() || 'HEAD';
+      return `unborn:${branch}`;
     }
   }
 

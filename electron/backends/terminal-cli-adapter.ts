@@ -28,10 +28,12 @@ import {
   readFileSync,
   statSync,
   rmSync,
+  renameSync,
   watch,
   type FSWatcher,
 } from 'node:fs';
-import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
@@ -139,8 +141,27 @@ export function toMatchableText(data: string): string {
 
 /** "Do you trust this folder?" style first-run dialogs (Claude Code, Codex…).
  *  Pasting the prompt there answers the dialog — Claude's default is "No,
- *  exit" — so the prompt waits until the user has answered (#125). */
-export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created/i;
+ *  exit" — so the prompt waits until the user has answered (#125). Newer
+ *  Codex asks "Continue only if you trust these files … 1. Trust and
+ *  continue"; a paste into that dialog crashes the TUI with "timed out
+ *  discarding buffered terminal input" (N5095, 2026-11-03). */
+export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created|you\s*trust\s*these\s*files|trust\s*and\s*continue/i;
+/** Codex's startup update menu ("1. Update now … 3. Skip until next
+ *  version") swallows a paste the same way: both N5095 Workers crashed
+ *  there on 2026-11-04. The Codex profiles turn the startup check off; this
+ *  catches configs that still show it. Only the modal's own options match —
+ *  the one-line "Update available" banner does not block input. */
+export const UPDATE_PROMPT_PATTERN = /skip\s*until\s*next\s*version|update\s*now\s*\(runs/i;
+/** Codex asks before running a hook it has not trusted yet ("Hooks need
+ *  review … 2. Trust all and continue"), the AhaStation Stop hook included
+ *  (N5095 round 3, 2026-11-04). The answer is saved; with a stable hook
+ *  command it is asked once, not per Worker. */
+export const HOOK_REVIEW_PROMPT_PATTERN = /hooks?\s*need\s*review|trust\s*all\s*and\s*continue|continue\s*without\s*trusting/i;
+const STARTUP_DIALOGS: ReadonlyArray<{ pattern: RegExp; message: string }> = [
+  { pattern: TRUST_PROMPT_PATTERN, message: '等待你确认是否信任这个文件夹' },
+  { pattern: HOOK_REVIEW_PROMPT_PATTERN, message: '等待你在终端里确认 hooks：这是 AhaStation 用来知道任务做完的 Stop hook，确认一次后不再询问' },
+  { pattern: UPDATE_PROMPT_PATTERN, message: '等待你在终端里处理更新提示（选 Skip 即可）' },
+];
 const TRUST_SETTLE_MS = 800;
 
 export function stripAnsi(data: string): string {
@@ -185,13 +206,41 @@ export function parseTurnEventLines(
  *  `lastMessage`, …); anything unrecognized degrades to "no marker", which
  *  just means the generic turn-ended prompt shows instead of the
  *  task-complete one. */
-export function buildStopHookScript(eventsPath: string): string {
+/** Env var carrying a session's events file to the shared Stop hook. */
+export const TERMINAL_EVENTS_PATH_ENV = 'AHA_TERMINAL_EVENTS_PATH';
+
+/** Where shared Stop hook scripts live (stableTurnHook profiles). */
+export function defaultSharedHookDir(): string {
+  return join(homedir(), '.ahastation', 'terminal-hooks');
+}
+
+/** Write a file several sessions share: skip when unchanged, otherwise
+ *  write a sibling and rename, so a hook running concurrently never reads
+ *  a half-written script. */
+function writeSharedFile(path: string, content: string): void {
+  try {
+    if (readFileSync(path, 'utf8') === content) return;
+  } catch { /* missing - write it */ }
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, path);
+}
+
+export function buildStopHookScript(eventsPath: string | null): string {
+  // null: one shared script for every session; each session's events file
+  // comes from its environment (TERMINAL_EVENTS_PATH_ENV).
+  const eventsExpr = eventsPath === null
+    ? `process.env.${TERMINAL_EVENTS_PATH_ENV}`
+    : JSON.stringify(eventsPath);
   return [
     '// AhaStation terminal-worker Stop hook (auto-generated, safe to delete)',
     '// Reads stdin (Stop hook payload), checks the last assistant message for',
     '// the completion marker, and records marker+summary so the host app can',
     '// light up the confirm bar.',
     "const fs = require('fs');",
+    `const EVENTS = ${eventsExpr};`,
+    'if (!EVENTS) process.exit(0);',
     `const MARKER = ${JSON.stringify(TERMINAL_TASK_COMPLETE_MARKER)};`,
     "let last = '';",
     'try {',
@@ -200,7 +249,7 @@ export function buildStopHookScript(eventsPath: string): string {
     '  last = typeof m === "string" ? m : (m ? JSON.stringify(m) : "");',
     '} catch (e) { /* malformed stdin - treat as no marker */ }',
     'const hit = last.includes(MARKER);',
-    `fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({ kind: 'stop', at: Date.now(), marker: hit, summary: hit ? last.slice(0, 20000) : '' }) + '\\n');`,
+    `fs.appendFileSync(EVENTS, JSON.stringify({ kind: 'stop', at: Date.now(), marker: hit, summary: hit ? last.slice(0, 20000) : '' }) + '\\n');`,
     '',
   ].join('\n');
 }
@@ -284,6 +333,10 @@ export interface TerminalCliProfile {
     /** Shell-quoted hook command: `"<execPath>" "<hookScriptPath>"`. */
     hookCommand: string;
   }): TerminalCliHookRegistration;
+  /** Use one shared hook script for every session, so the hook command is
+   *  byte-identical across Workers. Codex keys hook trust on the command:
+   *  a per-session path would ask the user to trust it on every launch. */
+  stableTurnHook?: boolean;
   /** Progress message emitted right after spawn. */
   startupMessage: string;
   /** Failure message when the CLI binary is missing. */
@@ -353,6 +406,8 @@ export interface TerminalCliSessionDeps {
   resolveBinary: () => string | null;
   /** Test seam: skip the ready delays. */
   timersEnabled?: boolean;
+  /** Test seam: directory for shared hook scripts. */
+  sharedHookDir?: string;
 }
 
 export class TerminalCliSession implements BackendSession {
@@ -396,7 +451,7 @@ export class TerminalCliSession implements BackendSession {
   >();
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private firstOutputSeen = false;
-  /** A trust dialog is up: never paste until it is answered. */
+  /** A trust or update dialog is up: never paste until it is answered. */
   private trustGated = false;
   private trustBuffer = '';
   private lastTrustSeenAt = 0;
@@ -419,7 +474,9 @@ export class TerminalCliSession implements BackendSession {
       : `terminal-${randomUUID()}`;
     this.ahaDir = join(config.cwd, '.aha');
     this.suffix = this.workerId.replace(/[^a-zA-Z0-9._-]/g, '_');
-    this.hookScriptPath = join(this.ahaDir, `terminal-stop-hook-${this.suffix}.cjs`);
+    this.hookScriptPath = profile.stableTurnHook
+      ? join(deps.sharedHookDir ?? defaultSharedHookDir(), 'terminal-stop-hook.cjs')
+      : join(this.ahaDir, `terminal-stop-hook-${this.suffix}.cjs`);
     this.eventsPath = join(this.ahaDir, `terminal-turn-events-${this.suffix}.jsonl`);
   }
 
@@ -445,8 +502,13 @@ export class TerminalCliSession implements BackendSession {
     mkdirSync(this.ahaDir, { recursive: true });
     writeFileSync(this.eventsPath, '');
     this.eventsOffset = 0;
-    writeFileSync(this.hookScriptPath, buildStopHookScript(this.eventsPath));
-    this.profileCleanupPaths = [this.hookScriptPath, this.eventsPath];
+    if (this.profile.stableTurnHook) {
+      writeSharedFile(this.hookScriptPath, buildStopHookScript(null));
+      this.profileCleanupPaths = [this.eventsPath];
+    } else {
+      writeFileSync(this.hookScriptPath, buildStopHookScript(this.eventsPath));
+      this.profileCleanupPaths = [this.hookScriptPath, this.eventsPath];
+    }
     // process.execPath is Electron in the packaged app; ELECTRON_RUN_AS_NODE
     // (set on the pty env below) makes it act as plain node for the hook.
     const hookCommand = `"${process.execPath}" "${this.hookScriptPath}"`;
@@ -463,6 +525,7 @@ export class TerminalCliSession implements BackendSession {
     const env: NodeJS.ProcessEnv = {
       ...this.config.env,
       ELECTRON_RUN_AS_NODE: '1',
+      [TERMINAL_EVENTS_PATH_ENV]: this.eventsPath,
       ...hookReg?.env,
       ...this.profile.buildEnv?.(this.config),
     };
@@ -488,11 +551,12 @@ export class TerminalCliSession implements BackendSession {
       this.scanForAuthWall(data);
       if (this.closed || this.ready) return;
       this.trustBuffer = (this.trustBuffer + toMatchableText(data)).slice(-8_000);
-      if (TRUST_PROMPT_PATTERN.test(this.trustBuffer)) {
+      const dialog = STARTUP_DIALOGS.find(({ pattern }) => pattern.test(this.trustBuffer));
+      if (dialog) {
         if (!this.trustGated) {
           this.trustGated = true;
           if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
-          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: '等待你确认是否信任这个文件夹' } });
+          this.emit({ kind: 'worker-signal', signal: { kind: 'progress', message: dialog.message } });
         }
         this.trustBuffer = '';
         this.lastTrustSeenAt = Date.now();
@@ -877,6 +941,7 @@ export interface TerminalCliBackendDeps {
   resolveBinary?: () => string | null;
   host?: PtyHost;
   timersEnabled?: boolean;
+  sharedHookDir?: string;
 }
 
 export class TerminalCliBackend implements CliBackend {
@@ -926,6 +991,7 @@ export class TerminalCliBackend implements CliBackend {
       host: this.deps.host ?? getPtyHost(),
       resolveBinary: () => this.resolveBinary(),
       timersEnabled: this.deps.timersEnabled,
+      sharedHookDir: this.deps.sharedHookDir,
     });
   }
 

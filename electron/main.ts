@@ -991,6 +991,12 @@ app.on('before-quit', (event) => {
         if(choice.response!==1) {isQuitting=false;observeService.start();return;}
       }
       await Promise.race([shutdownAllSlots(), sleepMs(5000)]);
+      // SERVER_LIFECYCLE_MATRIX.appQuit: stop every `opencode serve`, including
+      // ones an OpenCode editor window still holds (window close keeps them).
+      // Without this they outlive the app as orphans.
+      await import('./ide/opencode/opencode-server-registry.js')
+        .then(({ peekOpencodeServerRegistry }) => peekOpencodeServerRegistry()?.handleLifecycle('appQuit'))
+        .catch((err) => console.warn('[main] opencode server shutdown failed:', err));
     } finally {
       if (!isQuitting) return;
       if (_flushOpenTabsNow) _flushOpenTabsNow(ipcCtx);

@@ -10,13 +10,20 @@ export interface MicrophoneAccessDeps {
   openSettings: () => Promise<void>;
 }
 
-/** Testable macOS microphone permission state machine. The OS only shows its
+/** Testable microphone permission state machine. macOS only shows its
  * consent sheet for `not-determined`; a previous denial must be recovered via
- * System Settings instead of repeatedly calling askForMediaAccess(). */
+ * System Settings instead of repeatedly calling askForMediaAccess(). Windows
+ * has no consent sheet — the privacy toggle is either on or off — so a denial
+ * goes straight to the settings help. Linux has no app-level permission. */
 export async function ensureMicrophoneAccess(
   deps: MicrophoneAccessDeps,
   offerSettings: boolean,
 ): Promise<boolean> {
+  if (deps.platform === 'win32') {
+    if (deps.getStatus() !== 'denied') return true;
+    if (offerSettings && await deps.showDeniedHelp()) await deps.openSettings();
+    return false;
+  }
   if (deps.platform !== 'darwin') return true;
   const status = deps.getStatus();
   if (status === 'granted') return true;
@@ -56,7 +63,9 @@ export function requestMicrophoneAccess(offerSettings = false): Promise<boolean>
         type: 'warning' as const,
         title: '需要麦克风权限',
         message: 'AhaStudio 无法访问麦克风',
-        detail: '请在“系统设置 → 隐私与安全性 → 麦克风”中允许 AhaStudio，然后重新开启语音。',
+        detail: process.platform === 'win32'
+          ? '请在“设置 → 隐私和安全性 → 麦克风”中打开“允许桌面应用访问麦克风”，然后重新开启语音。'
+          : '请在“系统设置 → 隐私与安全性 → 麦克风”中允许 AhaStudio，然后重新开启语音。',
         buttons: ['打开系统设置', '稍后'],
         defaultId: 0,
         cancelId: 1,
@@ -68,7 +77,9 @@ export function requestMicrophoneAccess(offerSettings = false): Promise<boolean>
       return result.response === 0;
     },
     openSettings: async () => {
-      await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+      await shell.openExternal(process.platform === 'win32'
+        ? 'ms-settings:privacy-microphone'
+        : 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
     },
   }, offerSettings).finally(() => {
     requestInFlight = null;
