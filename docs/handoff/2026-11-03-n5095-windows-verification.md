@@ -27,7 +27,7 @@
 **准备**
 
 1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #158 第二批修复的合并提交 `0362b9f`，`npm ci` 后可以从源码启动。
-2. 或者用新安装包：`gh run download 42139036261 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/42139036261)。
+2. 或者用新安装包，取这个分支最新一次 CI 的产物：`gh run download -R AhakeyAI/ahastation -n pkg-windows-latest $(gh run list -R AhakeyAI/ahastation --branch verify/n5095-2026-11-03 --workflow build-matrix.yml -L 1 --json databaseId --jq '.[0].databaseId')`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions?query=branch%3Averify%2Fn5095-2026-11-03)。分支每次推送都会重新打包，所以这里不写固定的运行编号。
 3. 讯飞 ASR 凭据同上一轮（Shawn 单独发），不要写进仓库、截图或日志。
 4. 第二轮恢复麦克风隐私设置的命令报过错。先到 设置 → 隐私和安全性 → 麦克风，确认「允许桌面应用访问麦克风」是打开的。
 5. 把布局固定成桌面：打开设置，在显示版本号的那一页把「掌机模式」从「自动」改成「桌面」。N5095 是触屏、屏幕窄，「自动」会切到掌机布局（底部工具栏、单列项目室），和 Mac 不一样；清单按桌面布局写。测完再改回「自动」。
