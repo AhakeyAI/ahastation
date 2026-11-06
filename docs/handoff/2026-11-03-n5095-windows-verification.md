@@ -4,41 +4,47 @@
 
 在 N5095（Windows x64）上用一个安装包验证 #154 和 #155，都通过后合并 #156 到 main。这周已合入 main 的会议流程顺带在 Windows 上走一遍，此前只在 Mac 真机上验证过。
 
-## 第三轮（11-04）：先测这一节
+## 第四轮（11-06）：先测这一节
 
-第二轮由 N5095 上的自动化代理跑完，没合。报告在 `docs/n5095-validation-2026-10-27` 分支的 `docs/c0/results/N5095-PR156-round2-2026-11-04.md`。复核后，真正的产品问题有两个，已在 [#158](https://github.com/AhakeyAI/ahastation/pull/158) 修好，并合进了验证分支。其余失败大多是测法问题，语音相关的几项这一轮要人在 N5095 上手动测。
+第三轮也由 N5095 上的自动化代理跑完，没合。报告在 `docs/n5095-validation-2026-10-27` 分支的 `docs/c0/results/N5095-PR156-round3-2026-11-04.md`。#158 的两个修复都生效了：Worker 没再被更新菜单挡住，Host 也没再虚报派工。但 Worker 又卡在两个新问题上，已在 [#158](https://github.com/AhakeyAI/ahastation/pull/158) 追加修复，并合进验证分支（`0362b9f`）。T6–T8 要人来测，第三轮自动化代理都跳过了。
 
-**前两轮结果**
+- **Worker 用了账号不支持的模型**：Worker 启动时固定传 `-m gpt-5.4`，ChatGPT 账号登录的 Codex 返回 `model_not_found`，记事本一次也没打开。现在和 Host 一样：设置里没填模型，就用 Codex 账号自己的默认模型。
+- **每个 Worker 都要确认一次 hooks**：新版 Codex 遇到没确认过的 hook 会弹「Hooks need review」。AhaStation 用来知道任务做完的 Stop hook，路径每个 Worker 都不一样，所以每次都问；选「Continue without trusting」则 AhaStation 收不到任务完成。现在所有 Codex Worker 共用同一个 hook 命令，确认一次以后不再问；弹出时 AhaStation 也先不粘贴任务。
+- **T5 不是代码问题**：第三轮用 PowerShell 打开 `.ics` 后什么都没弹，连「选择应用」都没有，说明 N5095 上 `.ics` 没有能用的默认应用。这一轮先在系统里设好默认日历再测（准备第 6 步）。
+
+**前三轮结果**
 
 | 结果 | 编号 | 原因和这一轮怎么处理 |
 | --- | --- | --- |
 | 通过 | B1、B2、M1、M5、V4、O1 | 第一轮通过，不用重测 |
-| 基本通过 | D1 | 第二轮 Host 第一次就写对了字段，生成了 `.md` 和 `.ics`，开始时间和提前 15 分钟提醒都对。只差有人看一眼默认日历的导入弹窗 |
+| 基本通过 | D1 | 第二轮生成的 `.md` 和 `.ics` 内容正确：开始时间是截止时间，提前 15 分钟提醒。第三轮打开 `.ics` 什么都没弹，是 N5095 没有可用的默认日历应用，见准备第 6 步 |
 | 不挡合并 | M2、M4、M6 | main 上同样失败，单独开 issue |
-| 失败，已修 | C1–C4 | 信任提示已经过去（#157 生效），但 Codex Worker 两次都在启动约 20 秒后崩溃，应是被 Codex 启动时的更新菜单挡住。#158 关掉了 Worker 的更新检查；菜单仍出现时，也等处理完再粘贴任务 |
-| 失败，已修 | C1 第二次 | Codex Host 对用户说「已经派出 Worker」，又转述了「Worker」的结论，实际没发命令，也没有 Worker。#158 让它在这种情况下收到更正提示 |
+| 失败，已修 | C1–C4 | 第二轮：Worker 被 Codex 启动时的更新菜单挡住，#158 已修，第三轮没再出现。第三轮：Worker 卡在「Hooks need review」，跳过后又因 `gpt-5.4` 不被账号支持而报 `model_not_found`，#158 追加修复 |
+| 失败，已修 | C1 第二次 | 第二轮 Codex Host 对用户说「已经派出 Worker」，又转述了「Worker」的结论，实际没发命令，也没有 Worker。#158 让它在这种情况下收到更正提示。第三轮三次都真的派了 Worker，没再出现 |
 | 测法不成立 | P1、P2、V1、V2 | V2 播放测试句时麦克风还是静音状态；P1 改的是注册表，没走设置里的开关；V1 采样时机器在装依赖 |
 | 没测 | V3、F1 | 自动化切不到后台；CPU 采样被并行任务干扰 |
 
 **准备**
 
-1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #158 的合并提交 `230eeca`，`npm ci` 后可以从源码启动。
-2. 或者用新安装包：`gh run download 41803899005 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/41803899005)。
+1. 拿新代码：`git fetch origin` 后 `git checkout verify/n5095-2026-11-03`，再 `git pull`。git log 里要有 #158 第二批修复的合并提交 `0362b9f`，`npm ci` 后可以从源码启动。
+2. 或者用新安装包：`gh run download 42139036261 -R AhakeyAI/ahastation -n pkg-windows-latest`。CI 打完才能下载，[打包进度](https://github.com/AhakeyAI/ahastation/actions/runs/42139036261)。
 3. 讯飞 ASR 凭据同上一轮（Shawn 单独发），不要写进仓库、截图或日志。
 4. 第二轮恢复麦克风隐私设置的命令报过错。先到 设置 → 隐私和安全性 → 麦克风，确认「允许桌面应用访问麦克风」是打开的。
 5. 把布局固定成桌面：打开设置，在显示版本号的那一页把「掌机模式」从「自动」改成「桌面」。N5095 是触屏、屏幕窄，「自动」会切到掌机布局（底部工具栏、单列项目室），和 Mac 不一样；清单按桌面布局写。测完再改回「自动」。
+6. 设好日历文件的默认应用：设置 → 应用 → 默认应用，搜「.ics」，选 Outlook 或「日历」。没有能用的日历应用就先装一个，否则 T5 测不了。
+7. 确认 Codex 账号本身能用：在 PowerShell 里直接运行 codex，问一句话，能正常回答再开始 T1。
 
-**第三轮清单**
+**第四轮清单**
 
 T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio 窗口；采样 CPU 时不要同时跑安装或构建。
 
 | 编号 | 操作 | 通过标准 | 结果 | 备注 |
 | --- | --- | --- | --- | --- |
-| T1（C1） | 会议里说：「帮我用鼠标打开记事本，输入：你好 AhaStudio」 | 任务看板出现这个任务；Worker 标签里不再出现 Codex 更新菜单；记事本打开，内容正好是「你好 AhaStudio」 | 未测 | 出现信任提示时，在那个终端里选 1 并回车。Host 说已派出但看板上没有任务，记为失败 |
-| T2（C2） | 系统缩放 125% 和 100% 各做一次 T1 | 两种缩放下点击位置都不偏 | 未测 |  |
+| T1（C1） | 会议里说：「帮我用鼠标打开记事本，输入：你好 AhaStudio」 | 任务看板出现这个任务；Worker 标签里没有更新菜单，也没有 `model_not_found`；记事本打开，内容正好是「你好 AhaStudio」 | 未测 | 出现信任提示时，在那个终端里选 1 并回车。第一次出现「Hooks need review」时选 2「Trust all and continue」（这是 AhaStation 的 Stop hook），之后的 Worker 不会再问。Host 说已派出但看板上没有任务，记为失败 |
+| T2（C2） | 系统缩放 125% 和 100% 各做一次 T1 | 两种缩放下点击位置都不偏 | 未测 | 这一项会再开新 Worker：不应再出现「Hooks need review」，出现了记在这里 |
 | T3（C3） | 让 Worker 在记事本里按 cmd+a、cmd+c | 实际触发 Ctrl+A、Ctrl+C | 未测 |  |
 | T4（C4） | 让 Worker 在一个长网页上向下滚动 3 格 | 方向向下，幅度正常 | 未测 |  |
-| T5（D1） | 双击 `文档\AhaStation\decisions` 里第二轮生成的 `.ics`，或让助理再出一份决策单 | 默认日历弹出导入，开始时间是截止时间，提前 15 分钟提醒 | 未测 |  |
+| T5（D1） | 先做准备第 6 步，再双击 `文档\AhaStation\decisions` 里第二轮生成的 `.ics`，或让助理再出一份决策单 | 默认日历弹出导入，开始时间是截止时间，提前 15 分钟提醒 | 未测 |  |
 | T6（P1、P2） | 在 设置 → 隐私和安全性 → 麦克风 里手动关掉「允许桌面应用访问麦克风」，按原清单做 P1；再打开，做 P2 | 同原清单 | 未测 | 不要改注册表 |
 | T7（V1、V2） | 确认麦克风按钮显示「静音」（也就是已开麦）后，对着麦克风说一句话；再点静音，等 30 秒看任务管理器 | 说的话被识别并发给助理；静音时 AhaStudio 各进程 CPU 接近 0，任务栏的麦克风图标消失 | 未测 |  |
 | T8（V3、F1） | 按原清单做 V3（用 DevTools 看 `document.documentElement.dataset.windowActive`），再填 F1 表 | V3 同原清单；静音时 CPU 明显低于开麦时 | 未测 | 第二轮 GPU 进程在静音和开麦时都在 20% 左右，记下这一轮的数值 |
@@ -47,7 +53,7 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 
 ## 验证范围
 
-验证分支 `verify/n5095-2026-11-03` = main（86a1466）+ #154 + #155，加上验证中修的 91476cd、#157、#158，对应 PR #156，拉这个分支就能拿到代码和本说明，验证通过后直接合并它。
+验证分支 `verify/n5095-2026-11-03` = main（86a1466）+ #154 + #155，加上验证中修的 91476cd、#157、#158（含第三轮后追加的两个修复），对应 PR #156，拉这个分支就能拿到代码和本说明，验证通过后直接合并它。
 
 | 内容 | 来源 | Windows 上此前的状态 |
 | --- | --- | --- |
@@ -84,7 +90,7 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 
 ## 验证清单
 
-第一轮清单，结果见「第三轮」一节。共 21 项，按顺序做：前面的步骤会为后面准备好会议。每项做完在「结果」列选通过或失败，失败的在「备注」写现象。
+第一轮清单，结果见「第四轮」一节。共 21 项，按顺序做：前面的步骤会为后面准备好会议。每项做完在「结果」列选通过或失败，失败的在「备注」写现象。
 
 | 编号 | 操作 | 通过标准 | 结果 | 备注 |
 | --- | --- | --- | --- | --- |
@@ -143,7 +149,7 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 
 验证通过后只合并 [#156](https://github.com/AhakeyAI/ahastation/pull/156)（验证分支本身）。它包含 #154 和 #155 的提交，用合并提交合入后，GitHub 会自动把 #154、#155 标为已合并。也可以把清单结果发给 Claude，由它按下面的步骤合并。
 
-1. 第三轮清单满足合并条件（见「第三轮」一节）；第一轮已通过的项不用重测。「失败」的先在验证分支上修，重新打包再测。
+1. 第四轮清单满足合并条件（见「第四轮」一节）；第一轮已通过的项不用重测。「失败」的先在验证分支上修，重新打包再测。
    - #154 的部分：B2、C1–C4、D1、P1–P2。
    - #155 的部分：V1–V4、O1，F1 里静音时 CPU 明显低于打开时。
 2. 确认 #156 的 CI 三个平台都是绿的。如果失败的是下面的已知偶发测试，只重跑失败项：`gh run rerun <run id> -R AhakeyAI/ahastation --failed`。如果是别的测试，不要合。
@@ -161,6 +167,9 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 | windows-latest | `two production Station receivers share real Hub state, persist receipt, execute once, stop and explicitly continue` |
 | macos-latest | `F3 actual React identical refresh preserves the exact baseline edit` |
 | windows-latest | `S05 actual attachment preparation failure preserves new edits and cannot generate a message` |
+| macos-latest | `v2 shared command fixtures have identical TypeScript and Python acceptance and reject incompatible output`：调用 Python 超过 60 秒（spawnSync python ETIMEDOUT） |
+| windows-latest | `H07 delayed B migration and old-identity submit cannot overwrite registered C or discard archived A`：测试里的 Hub 没启动起来 |
+| windows-latest | `F2 production HTTP/WSS lost response, durable Station and Hub restart reconcile the original submission once` |
 
 ## 已知限制和不在这次范围内的
 
@@ -175,3 +184,4 @@ T1–T5 可以用自动化跑，T6–T8 要人来测。截图要截 AhaStudio �
 - **libnut 底层脚本**：第一轮的 `pr156-computer-use-primitives.mjs` 停在脚本自己激活窗口的那一步（`Could not activate PID 10424`），libnut 没被调用。以 T1–T4 的 Worker 实测结果为准，脚本修好后可以再补跑。
 - **空仓库里的代码交付**：91476cd 让没有提交的仓库也能开会，但改代码的任务在定稿提交时会停住，等你手动退回；只读和只交报告的任务不受影响。这次不测，另开 PR 处理。
 - **Host 虚报派工的检测**：#158 按 Host 的说法匹配（「已经派出 Worker」「Worker 已确认」这类话），只在前后 10 分钟内没有任何 Worker 活动时提醒 Host 更正。会议里已经有 Worker 在跑时，这类虚报发现不了。
+- **Worker 在终端里报错时任务不会结束**：第三轮 Worker 的终端里已经显示 model_not_found，任务看板却一直是「执行中」。AhaStation 现在靠 Stop hook 和终端里的完成标记判断任务状态，认不出 Codex 在终端里打印的 API 错误。这次不修，另开 PR 处理。
