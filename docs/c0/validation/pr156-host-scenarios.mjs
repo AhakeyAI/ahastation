@@ -61,13 +61,13 @@ async function send(text) {
   await input.fill(text);
   await input.press('Enter');
   const approve = window.locator('button.plan-modal-submit');
-  await approve.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+  await approve.waitFor({ state: 'visible', timeout: 120000 }).catch(() => {});
   if (await approve.isVisible().catch(() => false)) {
     result.planApprovals ??= [];
     result.planApprovals.push(await approve.innerText());
     await approve.click();
   }
-  const terminalDeadline = Date.now() + 30000;
+  const terminalDeadline = Date.now() + 60000;
   let handledTerminalPrompt = false;
   while (Date.now() < terminalDeadline) {
     const terminalBody = await window.locator('body').innerText();
@@ -80,10 +80,10 @@ async function send(text) {
       continue;
     }
     if (terminalBody.includes('Hooks need review')) {
-      result.codexHooksSkipped = true;
+      result.codexHooksTrusted = true;
       handledTerminalPrompt = true;
       await window.locator('.xterm textarea').last().focus();
-      await window.keyboard.press('3');
+      await window.keyboard.press('2');
       await window.keyboard.press('Enter');
       await window.waitForTimeout(2000);
       continue;

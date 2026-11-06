@@ -1,0 +1,7 @@
+{
+  "command": "codex exec --skip-git-repo-check -c check_for_update_on_startup=false",
+  "result": "pass",
+  "model": "gpt-6-sol",
+  "response": "OK",
+  "note": "The account's own default model works; no model override was supplied. Credentials were not read or recorded."
+}
