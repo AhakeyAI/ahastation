@@ -54,6 +54,9 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
     }
     return args;
   },
+  // Codex asks the user to trust any hook whose command it has not seen;
+  // one shared script keeps that to a single first-run prompt.
+  stableTurnHook: true,
   registerTurnHook: ({ hookCommand }) => {
     // Inline-TOML injection: `codex -c hooks=true -c 'hooks.Stop=[...]'`.
     // The hook command is embedded as a TOML basic string (backslashes and
