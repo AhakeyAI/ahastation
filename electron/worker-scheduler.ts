@@ -53,6 +53,7 @@ import {
 } from './orchestrator-helpers.js';
 import type { SteerResult } from './meeting-mcp.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
+import { AUTO_APPROVAL_DECISION_ID, defaultApprovalMode, type ApprovalMode } from './approval-policy.js';
 import {
   DirtyWorkspaceWriteBlockedError,
   validateWorkspaceWritePaths,
@@ -111,10 +112,8 @@ import type {
   WorkerSpecialtyKind,
   WorkerStatusKind,
 } from './orchestrator-types.js';
-import { decideTaskPermission, DEFAULT_PERMISSION_TIMEOUT_MS } from './permission-broker.js';
+import { decideTaskPermission } from './permission-broker.js';
 import {
-  addendumSaturatedDimensions,
-  extendAuthorityAddendum,
   rebaseAuthorityAddendum,
 } from './task-authority.js';
 import {
@@ -151,6 +150,9 @@ export interface WorkerSchedulerOpts {
   cwd: string;
   /** Initial trust-mode scope. Live updates go through `setAutoApproveScope`. */
   autoApproveScope: AutoApproveScope;
+  /** `auto` (default): the native CLI owns tools and permissions; Host receives
+   * completion reports rather than per-tool approval requests. */
+  approvalMode?: ApprovalMode;
   /** Env override threaded into ClaudeSession (HOME redirect for the shadow
    *  ~/.claude merge + the env allowlist from settings-loader). */
   workerEnv?: NodeJS.ProcessEnv;
@@ -380,23 +382,6 @@ const TASK_HISTORY_MAX = 50;
 const TASK_MESSAGE_MAX_CHARS = 100_000;
 /** Identical authority denials before the scheduler fails the attempt closed. */
 const AUTHORITY_DENY_STREAK_LIMIT = 3;
-/** Approval cards a single attempt may have in flight before we stop tracking
- *  them for addendum promotion. Cards still work; they just keep asking. */
-const PENDING_AUTHORITY_ASK_MAX = 128;
-/** Bound on remembered ask fingerprints per attempt (mirrors the addendum
- *  entry bound): a runaway Worker cannot grow an unbounded allow-set. */
-const APPROVAL_FINGERPRINT_LIMIT = 64;
-/** Side effects whose asks are never fingerprint-memorized — the user must
- *  confirm each occurrence individually, even for an identical repeat. */
-const NEVER_MEMORIZED_SIDE_EFFECTS: ReadonlySet<string> = new Set([
-  'administrator',
-  'credential-access',
-  'delete-data',
-  'destructive-git',
-  'system-install',
-  'external-message',
-  'external-publish',
-]);
 
 function stableFingerprintValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableFingerprintValue);
@@ -414,26 +399,6 @@ function approvalFingerprint(toolName: string, input: Record<string, unknown>): 
   return createHash('sha256')
     .update(JSON.stringify(stableFingerprintValue({ toolName, input })))
     .digest('hex');
-}
-
-/** Asks the addendum cannot remember but a user approval should: opaque /
- *  unsupported native payloads, and the two high-risk classes whose repeats
- *  are byte-identical (opaque shell wrappers, external tools). High-risk
- *  requests carrying any never-memorized side effect stay per-occurrence. */
-function fingerprintMemorableAsk(
-  normalized: PermissionNormalizationResult,
-  reason: string,
-): boolean {
-  if (!normalized.ok) return true;
-  if (reason !== 'high-risk:opaque-shell' && reason !== 'high-risk:external-service') {
-    return false;
-  }
-  return !normalized.request.sideEffects.some((effect) => NEVER_MEMORIZED_SIDE_EFFECTS.has(effect));
-}
-
-function comparableWorkspaceRoot(root: string): string {
-  const resolved = pathResolve(root);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 function boundedTaskText(
@@ -546,16 +511,6 @@ export class WorkerScheduler {
   private readonly steeringMessageByWorker = new Map<string, string>();
   private readonly pendingMailboxAckByWorker = new Map<string, string>();
   private readonly mailboxAckInFlightByWorker = new Map<string, Promise<void>>();
-  /** Fail-closed timers for ask-user permission cards on backends without
-   *  their own broker (claude-code / codex / kimi / qoder). OpenCode is
-   *  excluded - its adapter owns PermissionBroker which already arms this
-   *  timeout. Keyed by native request id. */
-  private readonly permissionTimers = new Map<string, { handleId: string; timer: ReturnType<typeof setTimeout> }>();
-  /** #7: which worker handle(s) own an emitted ask-user card. Providers can
-   *  reuse short request ids across sessions, so a resolution must only land
-   *  on (and promote the addendum of) the owning handle. Requests without a
-   *  registration (e.g. OpenCode broker self-managed) keep the broadcast path. */
-  private readonly askOwnersByRequestId = new Map<string, Set<string>>();
   private readonly automaticReworkByAttempt = new Map<string, Promise<void>>();
   private readonly maxConcurrentWorkers: number;
 
@@ -1085,112 +1040,6 @@ export class WorkerScheduler {
 
   // ---------------------------------------------------------------------------
   // Broadcast operations to every worker session
-
-  /** Try to land a permission resolution on whichever worker session holds
-   *  the pending entry. Talker resolutions are handled separately by the
-   *  orchestrator. */
-  resolvePermissionInAny(
-    id: string,
-    decision: 'allow' | 'deny',
-    message?: string,
-    scope: 'worker' | 'task-wide' = 'worker',
-  ): void {
-    // #7: route to the owning handle(s) when the ask was registered; only
-    // fall back to the historical broadcast for unregistered requests.
-    const owners = this.askOwnersByRequestId.get(id);
-    let owner: WorkerHandle | null = null;
-    let approvedAsk: CanonicalExecutionRequest | null = null;
-    let approvedFingerprint: string | null = null;
-    for (const handle of this.workers.values()) {
-      if (owners && !owners.has(handle.id)) continue;
-      // The user answered (or the host resolved) - cancel the fail-closed timer.
-      this.clearPermissionTimeout(handle.id, id);
-      // Only a registered owner is known to have been suspended on this card;
-      // the broadcast fallback must not drive the counter negative.
-      if (owners?.has(handle.id)) this.settlePendingAsk(handle);
-      const asked = handle.pendingAuthorityAsks?.get(id);
-      if (asked) {
-        handle.pendingAuthorityAsks!.delete(id);
-        if (decision === 'allow' && handle.authorityGrant) {
-          handle.authorityAddendum = extendAuthorityAddendum(
-            handle.authorityGrant,
-            asked,
-            handle.authorityAddendum,
-          );
-          this.notifyAddendumSaturation(handle);
-          owner = handle;
-          approvedAsk = asked;
-        }
-      }
-      const fingerprint = handle.pendingAskFingerprints?.get(id);
-      if (fingerprint !== undefined) {
-        handle.pendingAskFingerprints!.delete(id);
-        // Only an explicit allow is remembered; deny/timeout never seeds the set.
-        if (decision === 'allow') {
-          this.rememberApprovedFingerprint(handle, fingerprint);
-          owner = handle;
-          approvedFingerprint = fingerprint;
-        }
-      }
-      handle.session?.resolvePermission(id, decision, message);
-    }
-    this.askOwnersByRequestId.delete(id);
-    if (scope === 'task-wide' && decision === 'allow' && owner) {
-      this.shareApprovalTaskWide(owner, approvedAsk, approvedFingerprint);
-    }
-  }
-
-  private rememberApprovedFingerprint(handle: WorkerHandle, fingerprint: string): void {
-    const approved = handle.approvedAskFingerprints ?? new Set<string>();
-    if (approved.size < APPROVAL_FINGERPRINT_LIMIT) approved.add(fingerprint);
-    handle.approvedAskFingerprints = approved;
-  }
-
-  /** "Allow for all workers": replay the approval onto every other handle whose
-   *  grant covers the same workspace root, so peers touching the same target
-   *  stop re-asking. Addendum entries stay bound to each peer's own grant. */
-  private shareApprovalTaskWide(
-    owner: WorkerHandle,
-    approvedAsk: CanonicalExecutionRequest | null,
-    approvedFingerprint: string | null,
-  ): void {
-    const ownerRoot = owner.authorityGrant
-      ? comparableWorkspaceRoot(owner.authorityGrant.workspaceRoot)
-      : null;
-    if (!ownerRoot) return;
-    for (const peer of this.workers.values()) {
-      if (peer === owner || !peer.authorityGrant) continue;
-      if (comparableWorkspaceRoot(peer.authorityGrant.workspaceRoot) !== ownerRoot) continue;
-      if (approvedAsk) {
-        peer.authorityAddendum = extendAuthorityAddendum(
-          peer.authorityGrant,
-          approvedAsk,
-          peer.authorityAddendum,
-        );
-        this.notifyAddendumSaturation(peer);
-      }
-      if (approvedFingerprint) this.rememberApprovedFingerprint(peer, approvedFingerprint);
-    }
-  }
-
-  /** One-shot briefing when a hand-approval dimension hits its bound — from
-   *  then on `addBounded` silently drops new entries and the same targets
-   *  keep asking, which the user should hear about once, not discover. */
-  private notifyAddendumSaturation(handle: WorkerHandle): void {
-    if (!handle.authorityAddendum || handle.addendumCapNotified) return;
-    const saturated = addendumSaturatedDimensions(handle.authorityAddendum);
-    if (saturated.length === 0) return;
-    handle.addendumCapNotified = true;
-    this.emitCoordinatorBriefing({
-      kind: 'stalled',
-      title: `${handle.title} 手工批准容量已满`,
-      summary: `任务 ${handle.id} 的手工批准记忆已达上限（${saturated.join('、')}），后续同类请求将持续询问。建议通过新计划版本扩充任务授权。`,
-      blockers: ['authority-addendum-saturated'],
-      recommendedAction: 'request-user-decision',
-      workerId: handle.id,
-      taskId: handle.currentTaskId,
-    });
-  }
 
   interruptAll(): Promise<void>[] {
     const tasks: Promise<void>[] = [];
@@ -2043,7 +1892,9 @@ export class WorkerScheduler {
     let anyActive = false;
     for (const handle of this.workers.values()) {
       if (handle.status === 'running' && handle.session) {
-        anyActive = true;
+        anyActive = true;        // Native agents own their running turn, including long tools and
+        // internal retries. Do not inject Host nudges or restart their turn.
+        if ((this.opts.approvalMode ?? defaultApprovalMode()) === 'auto') continue;
         // Terminal workers run an interactive TUI supervised by the human at
         // the stage terminal - a quiet TUI is normal (Claude is reading /
         // writing), so the whole stall chain (nudge -> stalled -> auto-restart)
@@ -2397,6 +2248,12 @@ export class WorkerScheduler {
     handle: WorkerHandle,
     event: Extract<BackendSessionEvent, { kind: 'permission-request' }>,
   ): Promise<void> {
+    if ((this.opts.approvalMode ?? defaultApprovalMode()) === 'auto') {
+      // The native CLI owns execution, tools and sandbox policy. Neither the
+      // Host nor the application adds another per-tool authority gate.
+      handle.session?.resolvePermission(event.id, 'allow', AUTO_APPROVAL_DECISION_ID);
+      return;
+    }
     const fallback: PermissionNormalizationResult = {
       ok: false,
       diagnostic: 'unsupported-native-tool',
@@ -2433,22 +2290,8 @@ export class WorkerScheduler {
       },
       handle.authorityAddendum,
     );
-    // Fingerprint memory: asks the addendum cannot remember (opaque native
-    // payloads, opaque-shell / external high-risk) auto-allow on a repeat the
-    // user already approved this attempt with byte-identical input.
-    let decisionKind = canonical.decision.kind;
-    let decisionReason = canonical.decision.reason;
-    let askFingerprint: string | null = null;
-    if (
-      decisionKind === 'ask-user'
-      && fingerprintMemorableAsk(normalized, decisionReason)
-    ) {
-      askFingerprint = approvalFingerprint(event.toolName, event.input);
-      if (handle.approvedAskFingerprints?.has(askFingerprint)) {
-        decisionKind = 'allow';
-        decisionReason = 'repeat-user-approved';
-      }
-    }
+    const decisionKind = canonical.decision.kind === 'ask-user' ? 'allow' : canonical.decision.kind;
+    const decisionReason = canonical.decision.kind === 'ask-user' ? AUTO_APPROVAL_DECISION_ID : canonical.decision.reason;
     const persist = this.opts.persistPermissionDecision;
     if (!persist && this.opts.taskAuthorityCompilerRequired) {
       handle.session?.resolvePermission(event.id, 'deny', 'permission journal unavailable');
@@ -2497,143 +2340,6 @@ export class WorkerScheduler {
       }
       return;
     }
-    handle.authorityDenyStreak = 0;
-    handle.lastAuthorityDenyFingerprint = undefined;
-    // Remember what this card is actually asking for: if the user allows it,
-    // the same target should not interrupt them again this attempt.
-    if (
-      normalized.ok
-      && handle.authorityGrant
-      && decisionReason.startsWith('authority-miss:')
-    ) {
-      const pending = handle.pendingAuthorityAsks ?? new Map();
-      if (pending.size < PENDING_AUTHORITY_ASK_MAX) {
-        pending.set(event.id, normalized.request);
-        handle.pendingAuthorityAsks = pending;
-      }
-    }
-    if (askFingerprint) {
-      const pendingFingerprints = handle.pendingAskFingerprints ?? new Map<string, string>();
-      if (pendingFingerprints.size < PENDING_AUTHORITY_ASK_MAX) {
-        pendingFingerprints.set(event.id, askFingerprint);
-        handle.pendingAskFingerprints = pendingFingerprints;
-      }
-    }
-    this.opts.emit({
-      source: handle.id,
-      event: {
-        ...event,
-        input: canonical.safeInput,
-      },
-    });
-    // #7: bind this ask-user card to its owning handle so a resolution for a
-    // reused request id cannot promote another worker's addendum.
-    const askOwners = this.askOwnersByRequestId.get(event.id) ?? new Set<string>();
-    askOwners.add(handle.id);
-    this.askOwnersByRequestId.set(event.id, askOwners);
-    // While the card is unanswered the worker's canUseTool promise hangs and
-    // it does no work - yield its concurrency slot so a waiting task can run.
-    // The session stays alive; after the resolve the running count may briefly
-    // exceed the cap (soft overrun, bounded by the fail-closed timeout below).
-    handle.pendingAskCount = (handle.pendingAskCount ?? 0) + 1;
-    this.spawnReadyWorkers();
-    // Fail-closed backstop: an unanswered ask-user card would otherwise hang
-    // the SDK's canUseTool forever (the stall watchdog alerts but cannot
-    // resolve it). Mirror PermissionBroker's timeout. OpenCode is excluded -
-    // its adapter owns the broker which already arms this timer.
-    if (handle.backendId !== 'opencode') {
-      this.armPermissionTimeout(handle, event.id);
-    }
-  }
-
-  /** Arm a fail-closed deny timer for an ask-user permission request. On fire
-   *  the SDK permission is denied and the meeting-UI card is withdrawn. */
-  private armPermissionTimeout(handle: WorkerHandle, requestId: string): void {
-    this.clearPermissionTimeout(handle.id, requestId);
-    const timerKey = `${handle.id}:${requestId}`;
-    const entry = {
-      handleId: handle.id,
-      timer: setTimeout(() => {
-        this.permissionTimers.delete(timerKey);
-        this.unregisterAskOwner(requestId, handle.id);
-        if (this.opts.isClosed()) return;
-        const target = this.workers.get(handle.id);
-        if (!target || !target.session) return;
-        this.settlePendingAsk(target);
-        if (
-          target.status === 'failed'
-          || target.status === 'accepted'
-          || target.status === 'interrupted'
-          || target.status === 'done'
-        ) {
-          return;
-        }
-        target.session.resolvePermission(requestId, 'deny', 'permission-timeout');
-        // A timed-out ask must not linger as promotable: a later stray allow
-        // for the same id must not silently widen the addendum or the
-        // fingerprint set.
-        target.pendingAuthorityAsks?.delete(requestId);
-        target.pendingAskFingerprints?.delete(requestId);
-        this.opts.emit({ source: handle.id, event: { kind: 'permission-cancelled', id: requestId } });
-        this.emitCoordinatorBriefing({
-          kind: 'stalled',
-          title: `${target.title} 权限请求超时`,
-          summary: `权限请求 ${Math.round(DEFAULT_PERMISSION_TIMEOUT_MS / 1000)}s 未响应，已自动拒绝。`,
-          blockers: ['permission-timeout'],
-          recommendedAction: 'request-user-decision',
-          workerId: target.id,
-          taskId: target.currentTaskId,
-        });
-      }, DEFAULT_PERMISSION_TIMEOUT_MS),
-    };
-    entry.timer.unref?.();
-    this.permissionTimers.set(timerKey, entry);
-  }
-
-  /** #7: timers are keyed per handle so two workers sharing a provider
-   *  request id never clear each other's fail-closed deadline. */
-  private clearPermissionTimeout(handleId: string, requestId: string): void {
-    const timerKey = `${handleId}:${requestId}`;
-    const entry = this.permissionTimers.get(timerKey);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    this.permissionTimers.delete(timerKey);
-  }
-
-  private unregisterAskOwner(requestId: string, handleId: string): void {
-    const owners = this.askOwnersByRequestId.get(requestId);
-    if (!owners) return;
-    owners.delete(handleId);
-    if (owners.size === 0) this.askOwnersByRequestId.delete(requestId);
-  }
-
-  /** One ask-user card settled (resolve or timeout): release its hold on the
-   *  handle's slot yield. Clamped at zero - clear paths may already have
-   *  reset the counter. */
-  private settlePendingAsk(handle: WorkerHandle): void {
-    const current = handle.pendingAskCount ?? 0;
-    if (current > 0) handle.pendingAskCount = current - 1;
-  }
-
-  /** Drop every fail-closed timer owned by a handle - used on dispose and on
-   *  rework attempt boundaries (beginFollowUpAttempt ends the session without
-   *  going through disposeWorker, so a stale timer would otherwise fire on the
-   *  reused handle's next session). */
-  private clearPermissionTimersForHandle(handleId: string): void {
-    for (const [timerKey, entry] of this.permissionTimers) {
-      if (entry.handleId === handleId) {
-        clearTimeout(entry.timer);
-        this.permissionTimers.delete(timerKey);
-      }
-    }
-    for (const [requestId, owners] of this.askOwnersByRequestId) {
-      owners.delete(handleId);
-      if (owners.size === 0) this.askOwnersByRequestId.delete(requestId);
-    }
-    // Every outstanding card is void with the session; the handle must not
-    // keep yielding its slot on a counter nothing will ever decrement.
-    const handle = this.workers.get(handleId);
-    if (handle) handle.pendingAskCount = 0;
   }
 
   private failAuthorityExhaustion(handle: WorkerHandle, reason: string): void {
@@ -2890,6 +2596,17 @@ export class WorkerScheduler {
     // flight — those are views of the same delivery. Only a reset deliveryId
     // (sweepParked fail-close, follow-up attempt) or a terminal status marks
     // this settle as stale.
+    if (
+      handle.deliveryId === settlingDeliveryId
+      && view.status === 'accepted'
+      && (handle.status as WorkerHandle['status']) !== 'failed'
+      && (handle.status as WorkerHandle['status']) !== 'interrupted'
+    ) {
+      // Approval mode auto: the harness accepted and integrated the report
+      // inside submitExternalReport. The delivery observer finalizes the handle.
+      this.recordSuccessfulBudgetAttempt(handle, view.attempt);
+      return;
+    }
     if (
       handle.deliveryId !== settlingDeliveryId
       || SETTLE_STALE_STATUSES.has(handle.status)
@@ -3209,6 +2926,14 @@ export class WorkerScheduler {
     if (!view || view.status !== 'reworking') {
       throw new Error('paused task has no recoverable rework delivery');
     }
+    // budget-paused is projected before its durable flush finishes. Wait for
+    // that attempt's operation to retire, otherwise the deduplication map
+    // would mistake this explicit resume for the old pause operation.
+    await this.automaticReworkByAttempt.get(`${view.id}:${view.attempt}`);
+    if (this.opts.isClosed() || this.workers.get(taskId) !== handle
+      || handle.status !== 'budget-paused' || this.planVersion !== expectedPlanVersion) {
+      throw new Error('paused task changed while its budget extension was being prepared');
+    }
     handle.budget = structuredClone(budget);
     handle.budgetPauseReason = undefined;
     this.planVersion += 1;
@@ -3455,12 +3180,9 @@ export class WorkerScheduler {
     }
     // The previous attempt's permission cards are void once its session ends;
     // drop their fail-closed timers so they can't fire on the reused handle.
-    this.clearPermissionTimersForHandle(handle.id);
     // Stale request-id maps are void with the session; the approved-fingerprint
     // set survives (same task) and the rebased addendum is rebuilt by
     // ensureTaskAuthority against the fresh grant.
-    handle.pendingAuthorityAsks = undefined;
-    handle.pendingAskFingerprints = undefined;
     handle.addendumCapNotified = false;
     handle.attempt += 1;
     // An explicit override wins over a recorded one-shot; either way the
@@ -3800,7 +3522,6 @@ export class WorkerScheduler {
       stallNotified: false,
       stallNudged: false,
       stallAutoRestarted: false,
-      pendingAskCount: 0,
       authorityDenyStreak: 0,
       lastAuthorityDenyFingerprint: undefined,
     };
@@ -3935,11 +3656,8 @@ export class WorkerScheduler {
     handle.effectiveProfile = undefined;
     handle.authorityGrant = undefined;
     handle.authorityAddendum = undefined;
-    handle.pendingAuthorityAsks = undefined;
     // A new task on the same handle is a different trust context: nothing the
     // user approved for the previous task carries over.
-    handle.approvedAskFingerprints = undefined;
-    handle.pendingAskFingerprints = undefined;
     handle.addendumCapNotified = false;
     handle.approvalDecisionId = undefined;
     handle.approvalRecordedAt = undefined;
@@ -3971,11 +3689,6 @@ export class WorkerScheduler {
       // Parked delivery statuses must not consume concurrency even if a
       // session pointer leaked; releaseWorkerSession is the primary free path.
       if (PARKED_SLOT_STATUSES.has(handle.status)) continue;
-      // A running worker suspended on an unanswered ask-user card does no work
-      // (its canUseTool promise hangs), so it yields its slot. On resolution
-      // the count may briefly exceed the cap - a deliberate soft overrun,
-      // never preempted, and bounded by the permission fail-closed timeout.
-      if (handle.status === 'running' && (handle.pendingAskCount ?? 0) > 0) continue;
       if (['accepted', 'failed', 'interrupted', 'done', 'budget-paused'].includes(handle.status)) {
         continue;
       }
@@ -3993,14 +3706,12 @@ export class WorkerScheduler {
   private releaseWorkerSession(handle: WorkerHandle): boolean {
     if (!handle.session) return false;
     const session = handle.session;
-    handle.backendSession = session.snapshot?.() ?? handle.backendSession;
-    handle.session = null;
+    handle.backendSession = session.snapshot?.() ?? handle.backendSession;    handle.session = null;
     handle.pendingDelegateAck = false;
     handle.live.busy = false;
     handle.live.currentTool = null;
     handle.live.currentToolInput = null;
     this.steeringMessageByWorker.delete(handle.id);
-    this.clearPermissionTimersForHandle(handle.id);
     try {
       session.end();
     } catch (err) {
@@ -4122,8 +3833,6 @@ export class WorkerScheduler {
       handle.authorityGrant,
       handle.authorityAddendum,
     );
-    handle.pendingAuthorityAsks = undefined;
-    handle.pendingAskFingerprints = undefined;
     handle.addendumCapNotified = false;
   }
 
@@ -4468,7 +4177,7 @@ export class WorkerScheduler {
           report: (report) => this.receiveTerminalReport(handle.id, sessionAttempt, report),
           ask: (question) => this.recordWorkerQuestion(handle.id, question, sessionAttempt),
           inbox: (after) => this.readTerminalInbox(handle.id, sessionAttempt, after),
-        });
+        }, { completionOnly: (this.opts.approvalMode ?? defaultApprovalMode()) === 'auto' });
         // Delivery observation can mark this launching attempt running during bind's I/O.
         if (this.opts.isClosed() || this.workers.get(handle.id) !== handle
           || handle.attempt !== sessionAttempt || !['pending', 'running'].includes(handle.status)) {
@@ -4489,6 +4198,8 @@ export class WorkerScheduler {
           sessionAttempt,
         ),
         sessionOptions: {
+          unattended: (this.opts.approvalMode ?? defaultApprovalMode()) === 'auto',
+          readOnlyWorkspace: handle.workspaceMode === 'read-only',
           systemPrompt: { type: 'preset', preset: 'claude_code', append: promptAppend },
           mcpServers,
           // Terminal-mode adapters key their pty on the worker id so the
@@ -4683,7 +4394,6 @@ export class WorkerScheduler {
     this.steeringMessageByWorker.delete(handle.id);
     this.pendingMailboxAckByWorker.delete(handle.id);
     this.mailboxAckInFlightByWorker.delete(handle.id);
-    this.clearPermissionTimersForHandle(handle.id);
     handle.live.busy = false;
     handle.live.currentTool = null;
     handle.live.currentToolInput = null;
@@ -4797,6 +4507,7 @@ export class WorkerScheduler {
   // plan updates) all take their own direct sendUserText paths, so dropping
   // queueWorkerUpdate doesn't blind the talker — it just stops the chatter.
   private queueWorkerUpdate(handle: WorkerHandle, line: string): void {
+    if ((this.opts.approvalMode ?? defaultApprovalMode()) === 'auto') return;
     if (this.opts.getSpeechFilterMode() === 'strict') return;
     handle.bufferedUpdates.push(line);
     if (handle.bufferedUpdates.length > QUEUED_UPDATE_MAX) {

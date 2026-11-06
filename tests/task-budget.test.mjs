@@ -1,3 +1,5 @@
+// These tests exercise the manual approval flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -140,6 +142,10 @@ test('verification failures create fresh bounded attempts and user extension pre
   const mailbox = new TaskMailbox(repository);
   const sessions = [];
   let verificationCalls = 0;
+  let pauseFlushHeld = false;
+  let releasePauseFlush;
+  const pauseFlush = new Promise((resolve) => { releasePauseFlush = resolve; });
+  t.after(() => releasePauseFlush());
   const harness = new DeliveryHarness({
     executionMode: 'external',
     verifier: {
@@ -166,7 +172,13 @@ test('verification failures create fresh bounded attempts and user extension pre
     deliveryHarness: harness,
     meetingId: 'budget-meeting',
     defaultBackendId: 'codex',
-    async flushEvents() { await repository.flush(); },
+    async flushEvents() {
+      await repository.flush();
+      if (!pauseFlushHeld && scheduler.snapshot().some((task) => task.status === 'budget-paused')) {
+        pauseFlushHeld = true;
+        await pauseFlush;
+      }
+    },
     sessionFactory(opts) {
       const session = {
         opts,
@@ -259,7 +271,8 @@ test('verification failures create fresh bounded attempts and user extension pre
   );
   assert.equal(sessions.length, 3);
 
-  const extended = await scheduler.extendTaskBudget(
+  await waitFor(() => pauseFlushHeld, 'pause did not reach its pending durable flush');
+  const extension = scheduler.extendTaskBudget(
     'task-a',
     scheduler.getPlanVersion(),
     {
@@ -269,6 +282,8 @@ test('verification failures create fresh bounded attempts and user extension pre
     },
     'user-budget-decision',
   );
+  releasePauseFlush();
+  const extended = await extension;
   assert.equal(extended.planVersion, 2);
   await waitFor(() => sessions.length === 4, 'user budget extension did not resume a fresh attempt');
   snapshot = scheduler.snapshot().find((task) => task.id === 'task-a');

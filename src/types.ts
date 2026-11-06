@@ -414,18 +414,6 @@ export interface TasksApi {
     planVersion?: number;
     budget?: TaskBudget;
   }>;
-  confirmReviewEvidence: (
-    sessionId: string,
-    taskId: string,
-    reviewId: string,
-    chunkId: string,
-    chunkHash: string,
-  ) => Promise<{ ok: boolean; error?: string; review?: unknown }>;
-  resumeReview: (
-    sessionId: string,
-    taskId: string,
-    reviewId: string,
-  ) => Promise<{ ok: boolean; error?: string; review?: unknown }>;
 }
 
 export interface TaskWorkspaceSnapshot {
@@ -878,14 +866,6 @@ export type RendererEvent =
   | { kind: 'meeting-delivery-updated'; delivery: MeetingDelivery | null; decision: FinalMeetingDecision | null; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'coordinator-briefing'; briefing: CoordinatorBriefing; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'plan-updated'; plan: MeetingPlan; source?: AgentSource; sessionId?: string; hostId?: string }
-  | {
-    kind: 'plan-proposed';
-    tasks: PlanMeetingTaskInput[];
-    brief?: MeetingPlanBrief;
-    source?: AgentSource;
-    sessionId?: string;
-    hostId?: string;
-  }
   | { kind: 'coordinator-failed'; hostId: string; candidateHostId: string | null; error?: string; source?: AgentSource; sessionId?: string }
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean; source?: AgentSource; sessionId?: string; hostId?: string }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string; source?: AgentSource; sessionId?: string; hostId?: string }
@@ -1260,48 +1240,13 @@ export interface VibeMeetApi {
     items: AttachmentSendWire[],
     caption: string,
   ) => Promise<{ ok: boolean; error?: string; inlinedCount?: number; workspaceCount?: number }>;
-  resolvePermission: (
-    sessionId: string | null,
-    id: string,
-    decision: 'allow' | 'deny',
-    message?: string,
-    scope?: 'worker' | 'task-wide',
-  ) => Promise<{ ok: boolean }>;
   interrupt: (sessionId: string | null) => Promise<{ ok: boolean }>;
   setPermissionMode: (sessionId: string | null, mode: string) => Promise<{ ok: boolean }>;
   setAutoApprove: (scope: AutoApproveScope) => Promise<{ ok: boolean; autoApproveScope?: AutoApproveScope }>;
-  setOrchestrationMode: (sessionId: string | null, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
-  approvePlan: (
-    sessionId: string | null,
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-  ) => Promise<{ ok: boolean; error?: string }>;
-  acceptDelivery: (
-    sessionId: string | null,
-    deliveryId: string,
-    candidateId: string,
-  ) => Promise<{ ok: true; delivery: DeliveryView } | { ok: false; error: string }>;
-  returnDelivery: (
-    sessionId: string | null,
-    deliveryId: string,
-    candidateId: string | undefined,
-    feedback: string,
-  ) => Promise<{ ok: true; delivery: DeliveryView } | { ok: false; error: string }>;
   meetingDelivery: {
     get: (
       sessionId: string | null,
     ) => Promise<{ ok: true; delivery: MeetingDelivery | null; decision: FinalMeetingDecision | null } | { ok: false; error: string }>;
-    accept: (
-      sessionId: string | null,
-      deliveryId: string,
-      contentHash: string,
-    ) => Promise<{ ok: true; delivery: MeetingDelivery } | { ok: false; error: string }>;
-    requestRework: (
-      sessionId: string | null,
-      deliveryId: string,
-      contentHash: string,
-      reason: string,
-    ) => Promise<{ ok: true; planVersion: number; taskIds: string[] } | { ok: false; error: string }>;
   };
   endSession: (sessionId: string | null) => Promise<{ ok: boolean }>;
   pickCwd: () => Promise<string | null>;

@@ -214,6 +214,7 @@ class ClaudeCodeSession implements BackendSession {
       },
       cwd: config.cwd,
       sessionOptions: buildClaudeSessionOptions(config),
+      nativeExecution: this.isWorker && config.unattended,
       autoApproveScope: config.autoApproveScope ?? 'off',
       envOverride: config.env,
       confirmDestructive,
@@ -286,6 +287,7 @@ class ClaudeCodeSession implements BackendSession {
 
 function buildClaudeSessionOptions(config: BackendSessionConfig): Record<string, unknown> {
   const extra = { ...(config.extra ?? {}) };
+  if (config.unattended && config.executionRole === 'worker') extra.permissionMode = 'bypassPermissions';
   delete extra.meetingCommandHandler;
   if (config.systemPrompt !== undefined && extra.systemPrompt === undefined) {
     extra.systemPrompt = config.systemPrompt;

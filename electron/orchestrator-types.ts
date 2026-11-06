@@ -157,17 +157,6 @@ export type OrchestratorOnlyEvent =
   | { kind: 'meeting-delivery-updated'; delivery: MeetingDelivery | null; decision: FinalMeetingDecision | null }
   | { kind: 'coordinator-briefing'; briefing: CoordinatorBriefing }
   | { kind: 'plan-updated'; plan: MeetingPlan }
-  | {
-    kind: 'plan-proposed';
-    tasks: PlanMeetingTask[];
-    brief?: {
-      goal: string;
-      approach?: string;
-      steps: Array<{ title: string; detail: string; taskId?: string }>;
-      risks: string[];
-      openQuestions: string[];
-    };
-  }
   | { kind: 'decision-pending'; decisionId: string; question: string; path: string; recommendedTitle: string; calendarOk: boolean; remindersOk: boolean }
   | { kind: 'decision-resolved'; decisionId: string; question: string; path: string; conclusion: string }
   | { kind: 'document-saved'; title: string; filename: string; path: string }

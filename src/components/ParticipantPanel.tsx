@@ -13,7 +13,6 @@ interface ParticipantPanelProps {
   mutedHostIds?: Set<string>;
   aiSpeaking: boolean;
   selfTile: React.ReactNode;
-  onResolvePermission: (id: string, decision: 'allow' | 'deny', scope?: 'worker' | 'task-wide') => void;
   onOpenParticipantsTab?: () => void;
   onToggleMuteHost?: (hostId: string) => void;
   onRemoveHost?: (hostId: string) => void;
@@ -35,7 +34,6 @@ export const ParticipantPanel = memo(function ParticipantPanel({
   mutedHostIds,
   aiSpeaking,
   selfTile,
-  onResolvePermission,
   onOpenParticipantsTab,
   onToggleMuteHost,
   onRemoveHost,
@@ -215,7 +213,6 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   selected={false}
                   speaking={aiSpeaking && !isMuted}
                   onSelect={onSelectParticipant ? () => onSelectParticipant(hostId) : undefined}
-                  onResolvePermission={onResolvePermission}
                   onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(talker.id) : undefined}
                   iconId={hg.iconId}
                   customAvatar={avatar}
@@ -236,7 +233,6 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                   selected={false}
                   speaking={false}
                   onSelect={onSelectParticipant ? () => onSelectParticipant(hostId) : undefined}
-                  onResolvePermission={onResolvePermission}
                   onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(hw[0].id) : undefined}
                   iconId={hg.iconId}
                   customAvatar={avatar}
@@ -277,7 +273,6 @@ export const ParticipantPanel = memo(function ParticipantPanel({
                 selected={false}
                 speaking={false}
                 onSelect={onSelectParticipant ? () => onSelectParticipant(worker.id) : undefined}
-                onResolvePermission={onResolvePermission}
                 onOpenTerminal={onOpenTerminal ? () => onOpenTerminal(worker.id) : undefined}
                 iconId={iconId}
                 customAvatar={customAvatars?.get(iconId) ?? null}

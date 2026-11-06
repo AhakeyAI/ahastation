@@ -46,7 +46,12 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
     // Approval tiers (docs/research/codex-cli-protocol.md): default = ask in
     // TUI; 'read' ≈ --full-auto (auto low-risk, still asks for high-risk);
     // 'all' = --dangerously-bypass-approvals-and-sandbox.
-    if (config.autoApproveScope === 'read') args.push('--full-auto');
+    if (config.unattended && config.executionRole === 'worker') {
+      args.push('--ask-for-approval', 'never', '--sandbox',
+        config.extra?.readOnlyWorkspace ? 'read-only' : 'workspace-write');
+      // The report/inbox bridge lives in this per-attempt runtime directory.
+      if (typeof config.extra?.workerRuntimeDir === 'string') args.push('--add-dir', config.extra.workerRuntimeDir);
+    } else if (config.autoApproveScope === 'read') args.push('--full-auto');
     else if (config.autoApproveScope === 'all') {
       args.push('--dangerously-bypass-approvals-and-sandbox');
     }

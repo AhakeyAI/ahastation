@@ -48,7 +48,6 @@ import {
   reduceTaskEvent,
   type TaskInspectorProjection,
 } from './task-event-reducer';
-import { isAffirmativeDeliveryFeedback } from './delivery-feedback';
 
 const MAX_TRANSCRIPT = 500;
 const MAX_ACTIVITY = 500;
@@ -200,8 +199,6 @@ export interface DeliverySnapshot {
 export interface MeetingState {
   workers: Map<AgentSource, WorkerState>;
   plan: MeetingPlan | null;
-  pendingPlan: PlanMeetingTaskInput[] | null;
-  pendingPlanBrief: MeetingPlanBrief | null;
   running: boolean;
   lastError: string | null;
   /** Most recent delivery awaiting user acceptance. Null when nothing is
@@ -318,20 +315,8 @@ export interface AggregatedTask {
   blockedReason: string | null;
 }
 
-/** A plan the coordinator proposed that the user hasn't approved yet. Surfaced
- *  on the board so the 待批准 column reflects meeting-level approvals too, not
- *  just per-task permission prompts. */
-export interface PendingPlanSummary {
-  sessionId: string;
-  cwd: string;
-  projectName: string;
-  taskCount: number;
-  goal?: string;
-}
-
 export interface CrossProjectTasks {
   tasks: AggregatedTask[];
-  pendingPlans: PendingPlanSummary[];
 }
 
 interface SlotInternal {
@@ -436,8 +421,6 @@ function emptyState(defaultBackendId: string = 'claude-code'): MeetingState {
   return {
     workers,
     plan: null,
-    pendingPlan: null,
-    pendingPlanBrief: null,
     running: false,
     lastError: null,
     currentDelivery: null,
@@ -805,21 +788,10 @@ class MeetingStore {
     if (this.cachedCrossProjectTasks) return this.cachedCrossProjectTasks;
 
     const tasks: AggregatedTask[] = [];
-    const pendingPlans: PendingPlanSummary[] = [];
 
     for (const slot of this.slots.values()) {
       if (slot.placeholder) continue;
       const projectName = projectNameFromCwd(slot.cwd);
-
-      if (slot.state.pendingPlan && slot.state.pendingPlan.length > 0) {
-        pendingPlans.push({
-          sessionId: slot.id,
-          cwd: slot.cwd,
-          projectName,
-          taskCount: slot.state.pendingPlan.length,
-          goal: slot.state.pendingPlanBrief?.goal,
-        });
-      }
 
       for (const node of slot.state.plan?.nodes ?? []) {
         const worker = slot.state.workers.get(node.id);
@@ -855,7 +827,7 @@ class MeetingStore {
       }
     }
 
-    this.cachedCrossProjectTasks = { tasks, pendingPlans };
+    this.cachedCrossProjectTasks = { tasks };
     return this.cachedCrossProjectTasks;
   };
 
@@ -1824,42 +1796,6 @@ class MeetingStore {
       this.mutateSlot(slot.id, (s) => ({ ...s, plan: e.plan }));
       return;
     }
-    if (e.kind === 'plan-proposed') {
-      this.mutateSlot(slot.id, (s) => ({
-        ...s,
-        pendingPlan: e.tasks.map((task) => ({
-          ...task,
-          deps: [...task.deps],
-          acceptanceCriteria: task.acceptanceCriteria?.map((criterion) => ({
-            ...criterion,
-            verification: criterion.verification.kind === 'command'
-              ? { ...criterion.verification, argv: [...criterion.verification.argv] }
-              : { kind: 'manual' },
-          })),
-        })),
-        pendingPlanBrief: e.brief
-          ? {
-            goal: e.brief.goal,
-            approach: e.brief.approach,
-            steps: e.brief.steps.map((step) => ({ ...step })),
-            risks: [...e.brief.risks],
-            openQuestions: [...e.brief.openQuestions],
-          }
-          : {
-            goal: e.tasks.length === 1
-              ? e.tasks[0]!.title
-              : `完成 ${e.tasks.length} 项协作任务`,
-            steps: e.tasks.map((task) => ({
-              title: task.title,
-              detail: task.prompt,
-              taskId: task.id,
-            })),
-            risks: [],
-            openQuestions: [],
-          },
-      }));
-      return;
-    }
     if (e.kind === 'auth-required') {
       this.updateWorker(slot, source, (w) => ({
         ...w,
@@ -2785,67 +2721,6 @@ class MeetingStore {
     return () => { this.droppedFileListeners.delete(cb); };
   }
 
-  async resolvePermission(
-    id: string,
-    decision: 'allow' | 'deny',
-    scope: 'worker' | 'task-wide' = 'worker',
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    const sessionId = this.effectiveSessionId();
-    if (!sessionId) return { ok: false, error: 'No active session' };
-    const slot = this.slots.get(sessionId);
-    if (!slot) return { ok: false, error: 'No active session' };
-
-    // Mark the permission as resolving so every permission card (WorkerCard
-    // inline, ApprovalCard in drawer/modal/inspector) disables its buttons
-    // for the same id atomically. Clear any stale error from a prior attempt.
-    this.mutateSlot(slot.id, (s) => {
-      const workers = new Map(s.workers);
-      for (const [key, w] of workers) {
-        if (w.pendingPermission?.id === id) {
-          workers.set(key, { ...w, resolvingPermissionId: id, permissionError: null });
-        }
-      }
-      return { ...s, workers };
-    });
-
-    try {
-      const res = await window.vibeMeet.resolvePermission(sessionId, id, decision, undefined, scope);
-      // A structured failure means the main process never delivered the reply
-      // (e.g. session slot not found) — treat it exactly like a thrown error.
-      if (!res.ok) throw new Error('主进程未找到待处理的权限请求');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[meeting-store] resolvePermission IPC failed:', err);
-      // Do NOT clear pendingPermission: the worker is still blocked waiting
-      // for a reply, and no permission-cancelled event will arrive. Surface
-      // the error so the user can retry instead of seeing the card vanish.
-      this.mutateSlot(slot.id, (s) => {
-        const workers = new Map(s.workers);
-        for (const [key, w] of workers) {
-          if (w.pendingPermission?.id === id) {
-            workers.set(key, { ...w, resolvingPermissionId: null, permissionError: `权限答复发送失败：${msg}` });
-          }
-        }
-        return { ...s, workers };
-      });
-      return { ok: false, error: msg };
-    }
-
-    // Success: clear the resolver flag. The pending card itself is cleared by
-    // the permission-cancelled event from the main process; clearing it here
-    // too gives snappy feedback and is idempotent when the event arrives.
-    this.mutateSlot(slot.id, (s) => {
-      const workers = new Map(s.workers);
-      for (const [key, w] of workers) {
-        if (w.pendingPermission?.id === id) {
-          workers.set(key, { ...w, pendingPermission: null, resolvingPermissionId: null, permissionError: null });
-        }
-      }
-      return { ...s, workers };
-    });
-    return { ok: true };
-  }
-
   async interrupt() {
     const id = this.effectiveSessionId();
     if (!id) return;
@@ -2879,138 +2754,6 @@ class MeetingStore {
       console.error('[meeting-store] endSession IPC failed:', err);
     }
     this.mutateSlot(slot.id, (s) => ({ ...s, running: false, lastError: null }));
-  }
-
-  // --- Delivery acceptance --------------------------------------------------
-
-  /** Submit an authoritative acceptance decision to main. The renderer does
-   *  not clear or mark anything locally; it waits for the journal-backed
-   *  delivery-status event emitted by the Orchestrator. */
-  async acceptDelivery(): Promise<{ ok: true } | { ok: false; error: string }> {
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const slot = this.slots.get(id);
-    const delivery = slot?.state.currentDelivery;
-    if (!delivery?.deliveryId) {
-      return { ok: false, error: 'Delivery is not ready for acceptance' };
-    }
-    // Awaiting acceptance uses the live candidate; reworking can revive the
-    // last report via a stable synthetic id the harness recognizes.
-    const candidateId = delivery.candidateId
-      ?? (delivery.status === 'reworking' && delivery.report
-        ? `accept-last-${delivery.deliveryId}`
-        : null);
-    if (!candidateId) {
-      return { ok: false, error: 'Delivery is not ready for acceptance' };
-    }
-    const result = await window.vibeMeet.acceptDelivery(
-      id,
-      delivery.deliveryId,
-      candidateId,
-    );
-    return result.ok ? { ok: true } : result;
-  }
-
-  /** Push revision feedback back into the meeting. Tries the worker's
-   *  session first via steerWorker; if the worker has already been disposed
-   *  (the usual case after markTaskDone), falls back to sending a synthetic
-   *  user message to the talker so it can re-delegate. */
-  async reviseDelivery(
-    feedback: string,
-  ): Promise<{ ok: true; route: 'worker' | 'talker'; queued?: boolean } | { ok: false; error: string }> {
-    const trimmed = feedback.trim();
-    if (!trimmed) return { ok: false, error: 'Empty feedback' };
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const slot = this.slots.get(id);
-    if (!slot || !slot.state.currentDelivery) {
-      return { ok: false, error: 'No delivery staged' };
-    }
-    const delivery = slot.state.currentDelivery;
-    if (!delivery.deliveryId) {
-      return { ok: false, error: 'Delivery is not ready to be returned' };
-    }
-    if (delivery.status !== 'awaiting-delivery-acceptance' && delivery.status !== 'reworking') {
-      return { ok: false, error: 'Delivery is not ready to be returned' };
-    }
-    // "可以了 / OK / LGTM" means Accept, not another rework loop.
-    if (isAffirmativeDeliveryFeedback(trimmed)) {
-      const accepted = await this.acceptDelivery();
-      return accepted.ok
-        ? { ok: true, route: 'talker' }
-        : { ok: false, error: accepted.error };
-    }
-    const result = await window.vibeMeet.returnDelivery(
-      id,
-      delivery.deliveryId,
-      delivery.candidateId ?? undefined,
-      trimmed,
-    );
-    return result.ok
-      ? { ok: true, route: 'worker' }
-      : { ok: false, error: result.error };
-  }
-
-  async acceptFinalMeetingDelivery(): Promise<{ ok: true } | { ok: false; error: string }> {
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const delivery = this.slots.get(id)?.state.finalMeetingDelivery;
-    if (!delivery || delivery.publicationState !== 'meeting-branch-only') {
-      return { ok: false, error: 'Final Meeting delivery is not ready' };
-    }
-    const result = await window.vibeMeet.meetingDelivery.accept(
-      id,
-      delivery.id,
-      delivery.contentHash,
-    );
-    if (!result.ok) return result;
-    this.mutateSlot(id, (state) => ({
-      ...state,
-      finalMeetingDelivery: result.delivery,
-    }));
-    return { ok: true };
-  }
-
-  async requestFinalMeetingRework(
-    reason: string,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const delivery = this.slots.get(id)?.state.finalMeetingDelivery;
-    const normalized = reason.trim();
-    if (!delivery) return { ok: false, error: 'Final Meeting delivery is not ready' };
-    if (!normalized) return { ok: false, error: 'Rework reason is required' };
-    const result = await window.vibeMeet.meetingDelivery.requestRework(
-      id,
-      delivery.id,
-      delivery.contentHash,
-      normalized,
-    );
-    return result.ok ? { ok: true } : result;
-  }
-
-  async decidePendingPlan(
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-  ): Promise<{ ok: boolean; error?: string }> {
-    const id = this.effectiveSessionId();
-    if (!id) return { ok: false, error: 'No active session' };
-    const slot = this.slots.get(id);
-    if (!slot?.state.pendingPlan) return { ok: false, error: 'No pending plan' };
-    const result = await window.vibeMeet.approvePlan(id, approved, tasks);
-    if (result.ok) {
-      this.mutateSlot(id, (state) => ({
-        ...state,
-        pendingPlan: null,
-        pendingPlanBrief: null,
-      }));
-    } else {
-      this.mutateSlot(id, (state) => ({
-        ...state,
-        lastError: result.error ?? 'Plan approval failed',
-      }));
-    }
-    return result;
   }
 
   // ===========================================================================

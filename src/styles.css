@@ -1325,7 +1325,7 @@ html.popout-view #root {
   transition: background var(--transition), border-color var(--transition);
 }
 .tasks-card:hover { background: var(--bg-hover); }
-.tasks-card.is-blocked, .tasks-card.is-plan { border-left-color: var(--warn); }
+.tasks-card.is-blocked { border-left-color: var(--warn); }
 .tasks-card.is-running, .tasks-card.is-integrating, .tasks-card.is-verifying {
   border-left-color: var(--accent);
 }

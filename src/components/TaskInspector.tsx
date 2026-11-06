@@ -25,7 +25,6 @@ import {
 } from '../lib/dependency-gate';
 import type { RendererTaskSnapshot } from '../types';
 import { BackendAvatar } from './BackendAvatar';
-import { ApprovalCard } from './ApprovalCard';
 import { TaskMailboxPanel } from './TaskMailboxPanel';
 import { TaskProfilePanel } from './TaskProfilePanel';
 import { TaskReviewPanel } from './TaskReviewPanel';
@@ -129,7 +128,6 @@ export function TaskInspector({
   openSeq = 0,
   worker,
   onClose,
-  onResolvePermission,
 }: {
   sessionId: string;
   taskId: string;
@@ -137,14 +135,10 @@ export function TaskInspector({
   openSeq?: number;
   worker?: WorkerState;
   onClose: () => void;
-  onResolvePermission: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
 }) {
   const [activeTab, setActiveTab] = useState<InspectorTab>('overview');
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [reviewConfirmationError, setReviewConfirmationError] = useState('');
-  const [confirmingChunkId, setConfirmingChunkId] = useState('');
-  const [resumingReview, setResumingReview] = useState(false);
   const [budgetExtensionError, setBudgetExtensionError] = useState('');
   const [extendingBudget, setExtendingBudget] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
@@ -183,56 +177,6 @@ export function TaskInspector({
   const activity = projection?.activity ?? [];
   const status = snapshot?.task.status ?? worker?.status ?? 'pending';
   const pendingPermission = worker?.pendingPermission ?? null;
-  const pendingReviewEvidence = snapshot?.reviewEvidence?.pending ?? [];
-  const stalledReview = snapshot?.reviewEvidence?.status === 'paused'
-    ? snapshot.reviewEvidence
-    : null;
-
-  const resumeReview = useCallback(async (reviewId: string) => {
-    setReviewConfirmationError('');
-    setResumingReview(true);
-    try {
-      const result = await window.vibeMeet.tasks.resumeReview(sessionId, taskId, reviewId);
-      if (!result.ok) {
-        setReviewConfirmationError(result.error ?? '恢复审查失败');
-        return;
-      }
-      const refreshed = await meetingStore.openTaskInspector(sessionId, taskId);
-      if (!refreshed.ok) setReviewConfirmationError(refreshed.error);
-    } catch (error) {
-      setReviewConfirmationError(error instanceof Error ? error.message : '恢复审查失败');
-    } finally {
-      setResumingReview(false);
-    }
-  }, [sessionId, taskId]);
-
-  const confirmReviewEvidence = useCallback(async (
-    reviewId: string,
-    chunkId: string,
-    chunkHash: string,
-  ) => {
-    setReviewConfirmationError('');
-    setConfirmingChunkId(chunkId);
-    try {
-      const result = await window.vibeMeet.tasks.confirmReviewEvidence(
-        sessionId,
-        taskId,
-        reviewId,
-        chunkId,
-        chunkHash,
-      );
-      if (!result.ok) {
-        setReviewConfirmationError(result.error ?? '确认失败');
-        return;
-      }
-      const refreshed = await meetingStore.openTaskInspector(sessionId, taskId);
-      if (!refreshed.ok) setReviewConfirmationError(refreshed.error);
-    } catch (error) {
-      setReviewConfirmationError(error instanceof Error ? error.message : '确认失败');
-    } finally {
-      setConfirmingChunkId('');
-    }
-  }, [sessionId, taskId]);
 
   const applyBudgetExtension = useCallback(async (next: {
     schemaVersion: 1;
@@ -386,7 +330,7 @@ export function TaskInspector({
           >
             <Icon size={14} />
             <span>{label}</span>
-            {id === 'permissions' && (pendingPermission || pendingReviewEvidence.length > 0) && (
+            {id === 'permissions' && pendingPermission && (
               <i aria-label="有待处理权限" />
             )}
           </button>
@@ -559,80 +503,11 @@ export function TaskInspector({
         )}
         {snapshot && activeTab === 'permissions' && (
           <div className="task-permission-stack">
-            {pendingPermission && (
-              <ApprovalCard
-                pending={pendingPermission}
-                owner={worker?.title ?? 'Worker'}
-                backendId={worker?.backendId}
-                project="当前项目"
-                onDecide={onResolvePermission}
-                resolving={worker?.resolvingPermissionId === pendingPermission.id}
-                error={worker?.permissionError ?? null}
-              />
-            )}
-            {stalledReview && (
-              <section className="task-review-evidence-confirmation">
-                <header>
-                  <ShieldAlert size={18} />
-                  <div>
-                    <strong>Coordinator 审查未完成</strong>
-                    <small>{stalledReview.pauseReason ?? 'user-required'}</small>
-                  </div>
-                </header>
-                <p>
-                  审查在覆盖全部分片前就停住了，交付没有通过，也不会自动通过。
-                  还有 {stalledReview.uncoveredChunkIds.length} 个分片没有结论：
-                  {stalledReview.uncoveredChunkIds.join('、') || '未知'}。
-                </p>
-                <button
-                  type="button"
-                  disabled={resumingReview}
-                  onClick={() => void resumeReview(stalledReview.reviewId)}
-                >
-                  {resumingReview ? '正在恢复…' : '让 Coordinator 继续审查'}
-                </button>
-              </section>
-            )}
-            {pendingReviewEvidence.map((evidence) => (
-              <section className="task-review-evidence-confirmation" key={evidence.chunkId}>
-                <header>
-                  <ShieldAlert size={18} />
-                  <div>
-                    <strong>需要人工检查的审查证据</strong>
-                    <small>{evidence.kind} · {evidence.byteLength.toLocaleString()} bytes</small>
-                  </div>
-                </header>
-                <code>{evidence.path}</code>
-                <p>
-                  该内容不会发送给 Coordinator 模型。请先在本机检查原始文件，
-                  再确认与哈希绑定的证据已人工验收。
-                </p>
-                <small className="task-review-evidence-hash">
-                  SHA-256 {evidence.chunkHash}
-                </small>
-                <button
-                  type="button"
-                  disabled={confirmingChunkId === evidence.chunkId}
-                  onClick={() => void confirmReviewEvidence(
-                    snapshot.reviewEvidence!.reviewId,
-                    evidence.chunkId,
-                    evidence.chunkHash,
-                  )}
-                >
-                  {confirmingChunkId === evidence.chunkId ? '正在记录…' : '确认已人工检查'}
-                </button>
-              </section>
-            ))}
-            {reviewConfirmationError && (
-              <div className="task-inspector-error" role="alert">{reviewConfirmationError}</div>
-            )}
-            {!pendingPermission && !stalledReview && pendingReviewEvidence.length === 0 && (
             <div className="task-permission-clear">
               <CheckCircle2 size={24} />
               <strong>没有待处理权限</strong>
-              <p>计划范围内的低风险操作由 Coordinator 自动批准；高风险操作始终在这里确认。</p>
+              <p>工作区边界内的操作已自动授权执行。</p>
             </div>
-            )}
           </div>
         )}
         {snapshot && activeTab === 'integration' && (

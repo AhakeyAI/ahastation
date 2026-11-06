@@ -19,11 +19,6 @@ import {
   taskMessageArgsSchema,
   interruptTaskArgsSchema,
   forwardTaskMessageArgsSchema,
-  inspectDeliveryReviewArgsSchema,
-  getDeliveryReviewChunkArgsSchema,
-  submitDeliveryChunkReviewArgsSchema,
-  completeDeliveryReviewArgsSchema,
-  requestDeliveryReworkArgsSchema,
   observedSessionActionArgsSchema,
   observedSessionSendTextArgsSchema,
   type AppliedTaskDefaults,
@@ -35,7 +30,6 @@ import type { WorkReport } from './worker-protocol.js';
 import type { CreateDecisionPayload } from './decisions.js';
 import type { MemoryCategory } from './memory.js';
 import type { WorkerSpecialtyKind } from './orchestrator-types.js';
-import type { CoordinatorReviewFinding } from './coordinator-review.js';
 import { listAssets } from './attachments/assets.js';
 import type {
   ObservedActionOutcome,
@@ -55,14 +49,6 @@ export interface SaveMemoryResult {
   ok: boolean;
   preview?: string;
   error?: string;
-}
-
-/** Pending Coordinator review that currently narrows the Coordinator tool surface. */
-export interface ActiveReviewGate {
-  reviewId: string;
-  deliveryId: string;
-  uncoveredChunkIds: string[];
-  remainingChunks: number;
 }
 
 /** Result of asking the orchestrator to steer a worker mid-flight. The Talker
@@ -93,7 +79,7 @@ export interface OrchestratorBridge {
         workerId: string;
         specialty: WorkerSpecialtyKind;
         reused: boolean;
-        status: 'spawned' | 'proposed' | 'installed';
+        status: 'spawned' | 'installed';
         /** Authority the runtime filled in, so the Talker can say it out loud. */
         appliedDefaults?: string[];
       }
@@ -104,7 +90,7 @@ export interface OrchestratorBridge {
     tasks: PlanMeetingTaskInput[],
     brief?: MeetingPlanBriefInput,
   ): Promise<
-    | { ok: true; appliedDefaults?: AppliedTaskDefaults[] }
+    | { ok: true; installed?: boolean; appliedDefaults?: AppliedTaskDefaults[] }
     | { ok: false; error: string }
   >;
   steerWorker(workerId: string, addendum: string): Promise<SteerResult>;
@@ -112,24 +98,6 @@ export interface OrchestratorBridge {
   queueTaskFollowUp(taskId: string, message: string, executorBackendId?: string): Promise<{ id: string; status: string }>;
   interruptWorker(workerId: string, reason?: string): Promise<{ ok: true } | { ok: false; error: string }>;
   forwardTaskMessage(fromTaskId: string, toTaskId: string, messageId: string): Promise<{ id: string; status: string }>;
-  inspectDeliveryReview(reviewId: string): unknown;
-  getDeliveryReviewChunk(reviewId: string, chunkId?: string): unknown;
-  submitDeliveryChunkReview(
-    reviewId: string,
-    input: {
-      chunkId: string;
-      chunkHash: string;
-      verdict: 'passed' | 'blocking';
-      findings: CoordinatorReviewFinding[];
-    },
-  ): Promise<unknown>;
-  completeDeliveryReview(reviewId: string): Promise<unknown>;
-  requestDeliveryRework(
-    reviewId: string,
-    findings: CoordinatorReviewFinding[],
-    executorBackendId?: string,
-  ): Promise<unknown>;
-  activeReviewGate(): ActiveReviewGate | null;
   hasWorker(workerId: string): boolean;
   activeWorkerIds(): string[];
   describeWorkers(workerId?: string): string;
@@ -161,14 +129,6 @@ export interface OrchestratorBridge {
     sourceAttempt?: number,
   ): Promise<{ id: string; status: string }>;
 }
-
-const REVIEW_MODE_TOOLS: ReadonlySet<string> = new Set<string>([
-  MEETING_TOOLS.INSPECT_DELIVERY_REVIEW,
-  MEETING_TOOLS.GET_DELIVERY_REVIEW_CHUNK,
-  MEETING_TOOLS.SUBMIT_DELIVERY_CHUNK_REVIEW,
-  MEETING_TOOLS.COMPLETE_DELIVERY_REVIEW,
-  MEETING_TOOLS.REQUEST_DELIVERY_REWORK,
-]);
 
 type ToolHandler = (...args: never[]) => Promise<unknown>;
 
@@ -238,37 +198,6 @@ export function formatObservedActionOutcome(
   return observedToolText(`error: ${why}`, true);
 }
 
-/**
- * A frozen candidate waiting on the Coordinator must not compete with new
- * planning, delegation or steering turns. While a review is active every
- * non-review tool is refused with the pending reviewId and the chunk ids still
- * owed a verdict, so the model is told exactly how to unblock itself instead of
- * silently wandering off and stalling the delivery.
- */
-export function gateDuringCoordinatorReview<T extends { name: string; handler: ToolHandler }>(
-  bridge: OrchestratorBridge,
-  tools: T[],
-): T[] {
-  return tools.map((definition) => {
-    if (REVIEW_MODE_TOOLS.has(definition.name)) return definition;
-    const inner = definition.handler as (...args: unknown[]) => Promise<unknown>;
-    return {
-      ...definition,
-      handler: async (...args: unknown[]) => {
-        const gate = bridge.activeReviewGate();
-        if (!gate) return inner(...args);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `error: ${definition.name} is unavailable while Coordinator review ${gate.reviewId} is open. ${gate.remainingChunks} chunk(s) still need a hash-bound verdict: ${gate.uncoveredChunkIds.join(', ') || 'none'}. Finish the review with get_delivery_review_chunk / submit_delivery_chunk_review / complete_delivery_review (or request_delivery_rework) first.`,
-          }],
-          isError: true,
-        };
-      },
-    } as unknown as T;
-  });
-}
-
 export function buildTalkerMcp(
   bridge: OrchestratorBridge,
   canCoordinate: () => boolean = () => true,
@@ -278,7 +207,7 @@ export function buildTalkerMcp(
   return createSdkMcpServer({
     name: 'meeting',
     version: '0.2.0',
-    tools: gateDuringCoordinatorReview(bridge, [
+    tools: [
       tool(
         MEETING_TOOLS.ASK_HOST,
         'Ask one expert host for an internal opinion. The expert reply is routed back to the coordinator and is not spoken directly to the user.',
@@ -333,11 +262,11 @@ export function buildTalkerMcp(
           const auto = r.appliedDefaults?.length
             ? ` — auto-authority: ${r.appliedDefaults.join('; ')}`
             : '';
-          if (r.status === 'proposed') {
+          if (r.status === 'installed') {
             return {
               content: [{
                 type: 'text',
-                text: `plan proposed as ${r.workerId} (${r.specialty}) — waiting for user approval${auto}`,
+                text: `delegated as ${r.workerId} (${r.specialty}) — started without approval${auto}`,
               }],
             };
           }
@@ -350,9 +279,9 @@ export function buildTalkerMcp(
       tool(
         MEETING_TOOLS.PLAN_MEETING,
         'Propose a detailed execution plan (goal, approach, steps, risks) plus a worker DAG. '
-        + 'Write a Cursor-style plan the host can read before approving — not a bare task list. '
+        + 'Explain the approach briefly, then install and execute without approval. '
         + 'Each task needs id/title and a full worker prompt; writePaths/workspaceMode/commands '
-        + 'are optional (runtime fills safe defaults). Dispatch via the tool; do not ask which test framework to use.',
+        + 'are optional (runtime fills safe defaults). Code tasks require command acceptanceCriteria; project test commands are detected when omitted. Dispatch via the tool; do not ask which test framework to use.',
         planMeetingArgsSchema,
         async ({ tasks, goal, approach, steps, risks, openQuestions }) => {
           if (!canCoordinate()) return denied();
@@ -377,7 +306,7 @@ export function buildTalkerMcp(
             content: [{
               type: 'text',
               text: `plan proposed: ${goal ? `"${goal}" · ` : ''}${tasks.length} workers `
-                + `(${spawned} can start now, ${queued} wait on deps) — waiting for host approval${auto}`,
+                + `(${spawned} can start now, ${queued} wait on deps) — installed, no approval needed${auto}`,
             }],
           };
         },
@@ -507,70 +436,6 @@ export function buildTalkerMcp(
         },
       ),
       tool(
-        MEETING_TOOLS.INSPECT_DELIVERY_REVIEW,
-        'Inspect one durable Coordinator review session. Returns bounded metadata and coverage, never arbitrary workspace files.',
-        inspectDeliveryReviewArgsSchema,
-        async ({ reviewId }) => {
-          if (!canCoordinate()) return denied();
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify(bridge.inspectDeliveryReview(reviewId)),
-            }],
-          };
-        },
-      ),
-      tool(
-        MEETING_TOOLS.GET_DELIVERY_REVIEW_CHUNK,
-        'Read one bounded, hash-bound diff chunk from the frozen candidate. Secret, binary and oversized evidence stays withheld for user confirmation.',
-        getDeliveryReviewChunkArgsSchema,
-        async ({ reviewId, chunkId }) => {
-          if (!canCoordinate()) return denied();
-          const chunk = bridge.getDeliveryReviewChunk(reviewId, chunkId);
-          return {
-            content: [{
-              type: 'text',
-              text: chunk ? JSON.stringify(chunk) : 'review coverage is complete',
-            }],
-          };
-        },
-      ),
-      tool(
-        MEETING_TOOLS.SUBMIT_DELIVERY_CHUNK_REVIEW,
-        'Submit a verdict bound to the exact chunk hash. Blocking findings create a structured rework request.',
-        submitDeliveryChunkReviewArgsSchema,
-        async ({ reviewId, chunkId, chunkHash, verdict, findings }) => {
-          if (!canCoordinate()) return denied();
-          const session = await bridge.submitDeliveryChunkReview(reviewId, {
-            chunkId,
-            chunkHash,
-            verdict,
-            findings,
-          });
-          return { content: [{ type: 'text', text: JSON.stringify(session) }] };
-        },
-      ),
-      tool(
-        MEETING_TOOLS.COMPLETE_DELIVERY_REVIEW,
-        'Complete review only after every frozen chunk has hash-bound Coordinator coverage or explicit user confirmation.',
-        completeDeliveryReviewArgsSchema,
-        async ({ reviewId }) => {
-          if (!canCoordinate()) return denied();
-          const session = await bridge.completeDeliveryReview(reviewId);
-          return { content: [{ type: 'text', text: JSON.stringify(session) }] };
-        },
-      ),
-      tool(
-        MEETING_TOOLS.REQUEST_DELIVERY_REWORK,
-        'Request another Worker attempt with bounded blocking findings. This never edits files from the Coordinator.',
-        requestDeliveryReworkArgsSchema,
-        async ({ reviewId, findings, executorBackendId }) => {
-          if (!canCoordinate()) return denied();
-          const session = await bridge.requestDeliveryRework(reviewId, findings, executorBackendId);
-          return { content: [{ type: 'text', text: JSON.stringify(session) }] };
-        },
-      ),
-      tool(
         MEETING_TOOLS.STATUS,
         'Get current state of one worker (pass workerId) or all workers (no args). Returns busy flag, current tool, and last spoken thought per worker. Use when the user asks "what are you doing?" or you need a status update unprompted.',
         { workerId: z.string().optional().describe('Optional worker id to query; omit to get all.') },
@@ -673,7 +538,7 @@ export function buildTalkerMcp(
           return { content: [{ type: 'text', text: `Document "${title}" saved (${r.filename}). Now reply with your spoken summary: ${spokenSummary}` }] };
         },
       ),
-    ]),
+    ],
   });
 }
 
@@ -682,12 +547,13 @@ export function buildWorkerMcp(
   workerId: string,
   cwd: string,
   sourceAttempt?: number,
+  options: { completionOnly?: boolean } = {},
 ) {
   return createSdkMcpServer({
     name: 'meeting-worker',
     version: '0.2.0',
     tools: [
-      tool(
+      ...(!options.completionOnly ? [tool(
         MEETING_TOOLS.ASK_COORDINATOR,
         'Ask the Coordinator a task question. The message is durable and never sent directly to another Worker.',
         { question: z.string().trim().min(1).max(100_000) },
@@ -700,7 +566,7 @@ export function buildWorkerMcp(
             }],
           };
         },
-      ),
+      )] : []),
       tool(
         MEETING_TOOLS.TASK_DONE,
         'Deprecated compatibility hint. This does not complete the task or release dependencies. Submit a full WorkReport with submit_work_report.',
@@ -712,7 +578,7 @@ export function buildWorkerMcp(
       ),
       tool(
         MEETING_TOOLS.SUBMIT_WORK_REPORT,
-        'Submit the authoritative WorkReport. The task will then be verified and reviewed; dependencies release only after user acceptance.',
+        'Submit the authoritative WorkReport after native execution finishes. Verification and integration then run automatically.',
         submitWorkReportArgsSchema,
         async ({ report }) => {
           bridge.submitWorkerReport(workerId, report, sourceAttempt);

@@ -28,7 +28,6 @@ interface TasksViewProps {
   /** Focus the owning project and drop the user into its meeting view. */
   onOpenTask: (sessionId: string, taskId: string) => void;
   /** Focus the owning project so its plan-approval modal comes up. */
-  onOpenPlan: (sessionId: string) => void;
 }
 
 const ALL = '__all__';
@@ -168,7 +167,7 @@ function ObservedTaskCard({ session }: { session: ObservedSession }) {
  *  single session, so the user sees one meeting's worth of work even though
  *  each project still runs its own Orchestrator underneath. Observed sessions
  *  (external CLI windows) mix into the same columns after orchestrated cards. */
-export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
+export function TasksView({ data, onOpenTask }: TasksViewProps) {
   const [projectFilter, setProjectFilter] = useState<string>(ALL);
   const [backendFilter, setBackendFilter] = useState<string>(ALL);
   const [noiseOpen, setNoiseOpen] = useState<Partial<Record<TaskColumnId, boolean>>>({});
@@ -190,7 +189,6 @@ export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
   const projects = useMemo(() => {
     const seen = new Map<string, string>();
     for (const t of data.tasks) seen.set(t.cwd, t.projectName);
-    for (const p of data.pendingPlans) seen.set(p.cwd, p.projectName);
     // Projects with ONLY observed sessions still get a filter chip.
     for (const { session } of boardableObserved) {
       if (!seen.has(session.cwd)) seen.set(session.cwd, session.projectName);
@@ -216,10 +214,6 @@ export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
     && (backendFilter === ALL || session.clientKind === backendFilter)
   )), [boardableObserved, projectFilter, backendFilter]);
 
-  const visiblePlans = data.pendingPlans.filter(
-    (p) => projectFilter === ALL || p.cwd === projectFilter,
-  );
-
   const byColumn = useMemo(() => {
     const map = new Map<TaskColumnId, AggregatedTask[]>(
       TASK_COLUMNS.map((c) => [c.id, [] as AggregatedTask[]]),
@@ -244,7 +238,7 @@ export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
     (sum, row) => sum + (row.session.isNoise ? 0 : 1),
     0,
   );
-  const total = visible.length + visiblePlans.length + observedNormalCount;
+  const total = visible.length + observedNormalCount;
 
   return (
     <main className="tasks-view">
@@ -278,9 +272,8 @@ export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
       <div className="tasks-board">
         {TASK_COLUMNS.map((column) => {
           const items = byColumn.get(column.id) ?? [];
-          const plans = column.id === 'attention' ? visiblePlans : [];
           const observedBucket = observedByColumn.get(column.id) ?? { normal: [], noise: [] };
-          const count = items.length + plans.length + observedBucket.normal.length;
+          const count = items.length + observedBucket.normal.length;
           const isNoiseOpen = Boolean(noiseOpen[column.id]);
           return (
             <section className={`tasks-column tasks-column-${column.id}`} key={column.id}>
@@ -292,22 +285,6 @@ export function TasksView({ data, onOpenTask, onOpenPlan }: TasksViewProps) {
                 <span className="tasks-column-count">{count}</span>
               </header>
               <div className="tasks-column-scroll">
-                {plans.map((plan) => (
-                  <button
-                    type="button"
-                    key={`plan:${plan.sessionId}`}
-                    className="tasks-card is-plan"
-                    onClick={() => onOpenPlan(plan.sessionId)}
-                    title={plan.cwd}
-                  >
-                    <span className="tasks-card-project">{plan.projectName}</span>
-                    <strong className="tasks-card-title">计划待批准</strong>
-                    <span className="tasks-card-meta">
-                      <ShieldAlert size={13} />
-                      {plan.taskCount} 个任务等待你确认
-                    </span>
-                  </button>
-                ))}
                 {items.map((task) => (
                   <TaskCard
                     key={task.key}

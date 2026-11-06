@@ -120,11 +120,13 @@ export class ClaudeSession {
   private sessionId: string | null = null;
   private readonly onModels: ((models: string[]) => void) | undefined;
   private settingsDir: string | null = null;
+  private readonly nativeExecution: boolean;
 
   constructor(opts: {
     emit: (e: SessionEvent) => void;
     cwd: string;
     sessionOptions?: SessionOptions;
+    nativeExecution?: boolean;
     autoApproveScope?: AutoApproveScope;
     /** Process env to feed into the worker subprocess. Overrides
      *  mergedSubprocessEnv() — used to redirect HOME at the merged
@@ -145,6 +147,7 @@ export class ClaudeSession {
     this.emit = opts.emit;
     this.cwd = opts.cwd;
     this.sessionOptions = opts.sessionOptions ?? {};
+    this.nativeExecution = opts.nativeExecution === true;
     this.autoApproveScope = opts.autoApproveScope ?? 'off';
     this.envOverride = opts.envOverride;
     this.confirmDestructive = opts.confirmDestructive;
@@ -163,6 +166,7 @@ export class ClaudeSession {
       if (this.closed) {
         return { behavior: 'deny', message: 'session ended', interrupt: true };
       }
+      if (this.nativeExecution) return { behavior: 'allow', updatedInput: input };
       if (this.autoApproveScope !== 'off') {
         // 'all' scope: most tools auto-approved, but ALWAYS_DESTRUCTIVE
         // tools (e.g. browser_evaluate) still require native OS confirmation.
@@ -202,13 +206,9 @@ export class ClaudeSession {
       });
     };
 
-    // A-17: hooks loaded from user/project settings must never become an
-    // authorization authority of their own — a PermissionRequest hook can
-    // approve tool calls without the host broker ever seeing them. Every
-    // session therefore runs with hooks disabled; permission decisions flow
-    // only through canUseTool → host broker. Login state, subagents and MCP
-    // servers from the user's settings tree are unaffected.
-    if (!this.sessionOptions.settingsPath) {
+    // Broker-managed sessions disable settings hooks (A-17). Native Workers
+    // deliberately retain their CLI's user/project hooks and tool behavior.
+    if (!this.nativeExecution && !this.sessionOptions.settingsPath) {
       this.settingsDir = mkdtempSync(join(tmpdir(), 'aha-claude-settings-'));
       writeFileSync(
         join(this.settingsDir, 'settings.json'),

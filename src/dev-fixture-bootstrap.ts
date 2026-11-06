@@ -248,26 +248,6 @@ function installFixture(fixture: string): void {
         },
       });
 
-      if (fixture === 'plan') {
-        emit({
-          kind: 'plan-proposed',
-          source: 'talker',
-          tasks: tasks.slice(0, 3).map(([id, title, executorBackendId], index) => ({
-            id,
-            title,
-            prompt: `${title}，保留统一协议与 journal-first 约束。`,
-            deps: index === 2 ? ['task-open'] : [],
-            executorBackendId,
-            requiresDecision: index === 2,
-            acceptanceCriteria: [{
-              id: `${id}-acceptance`,
-              description: '契约测试与类型检查通过',
-              verification: { kind: 'command', argv: ['npm', 'test'] },
-            }],
-          })),
-        });
-      }
-
       if (fixture === 'delivery') {
         const report = {
           status: 'completed',
@@ -626,8 +606,6 @@ function installFixture(fixture: string): void {
         planVersion: expectedPlanVersion + 1,
         budget,
       }),
-      confirmReviewEvidence: ok,
-      resumeReview: ok,
     },
     auth: {
       loginSubscription: ok,

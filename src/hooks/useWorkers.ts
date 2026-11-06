@@ -6,8 +6,6 @@ import type {
   FinalMeetingDecision,
   MeetingDelivery,
   MeetingPlan,
-  MeetingPlanBrief,
-  PlanMeetingTaskInput,
   StagedAttachment,
 } from '../types';
 
@@ -17,8 +15,6 @@ export interface UseWorkersResult {
   hostGroups: Map<string, HostGroupState>;
   coordinatorHostId: string;
   plan: MeetingPlan | null;
-  pendingPlan: PlanMeetingTaskInput[] | null;
-  pendingPlanBrief: MeetingPlanBrief | null;
   running: boolean;
   cwd: string | null;
   lastError: string | null;
@@ -38,25 +34,9 @@ export interface UseWorkersResult {
   ) => Promise<{ ok: boolean; error?: string }>;
   publishDroppedFiles: (files: File[]) => void;
   onDroppedFiles: (cb: (files: File[]) => void) => () => void;
-  resolvePermission: (
-    id: string,
-    decision: 'allow' | 'deny',
-    scope?: 'worker' | 'task-wide',
-  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   interrupt: () => Promise<void>;
   endSession: () => Promise<void>;
   setSpeakCallback: (cb: SpeakHandle | null) => void;
-  acceptDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  reviseDelivery: (feedback: string) => Promise<
-    | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
-    | { ok: false; error: string }
-  >;
-  acceptFinalMeetingDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  requestFinalMeetingRework: (reason: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  decidePendingPlan: (
-    approved: boolean,
-    tasks?: PlanMeetingTaskInput[],
-  ) => Promise<{ ok: boolean; error?: string }>;
   toggleHostGroupCollapsed: (hostId: string) => void;
   addHostGroup: (backendId: string) => Promise<{ ok: boolean; hostId?: string; error?: string }>;
   removeHostGroup: (hostId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -97,31 +77,8 @@ export function useWorkers(): UseWorkersResult {
     (cb: (files: File[]) => void) => meetingStore.onDroppedFiles(cb),
     [],
   );
-  const resolvePermission = useCallback(
-    (id: string, decision: 'allow' | 'deny', scope?: 'worker' | 'task-wide') =>
-      meetingStore.resolvePermission(id, decision, scope),
-    [],
-  );
   const interrupt = useCallback(() => meetingStore.interrupt(), []);
   const endSession = useCallback(() => meetingStore.endSession(), []);
-  const acceptDelivery = useCallback(() => meetingStore.acceptDelivery(), []);
-  const reviseDelivery = useCallback(
-    (feedback: string) => meetingStore.reviseDelivery(feedback),
-    [],
-  );
-  const acceptFinalMeetingDelivery = useCallback(
-    () => meetingStore.acceptFinalMeetingDelivery(),
-    [],
-  );
-  const requestFinalMeetingRework = useCallback(
-    (reason: string) => meetingStore.requestFinalMeetingRework(reason),
-    [],
-  );
-  const decidePendingPlan = useCallback(
-    (approved: boolean, tasks?: PlanMeetingTaskInput[]) =>
-      meetingStore.decidePendingPlan(approved, tasks),
-    [],
-  );
   const toggleHostGroupCollapsed = useCallback(
     (hostId: string) => meetingStore.toggleHostGroupCollapsed(hostId),
     [],
@@ -147,8 +104,6 @@ export function useWorkers(): UseWorkersResult {
     hostGroups: state.hostGroups,
     coordinatorHostId: state.coordinatorHostId,
     plan: state.plan,
-    pendingPlan: state.pendingPlan,
-    pendingPlanBrief: state.pendingPlanBrief,
     running: state.running,
     cwd,
     lastError: state.lastError,
@@ -164,15 +119,9 @@ export function useWorkers(): UseWorkersResult {
     sendAttachments,
     publishDroppedFiles,
     onDroppedFiles,
-    resolvePermission,
     interrupt,
     endSession,
     setSpeakCallback,
-    acceptDelivery,
-    reviseDelivery,
-    acceptFinalMeetingDelivery,
-    requestFinalMeetingRework,
-    decidePendingPlan,
     toggleHostGroupCollapsed,
     addHostGroup,
     removeHostGroup,

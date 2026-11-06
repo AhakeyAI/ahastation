@@ -301,6 +301,8 @@ test('Orchestrator persists final readiness before notifying the renderer', asyn
       getPlanVersion: () => 2,
     },
     integrationQueue: {
+      currentHead: () => sha('b'),
+      publicationBaseRevision: () => sha('a'),
       inspectState: async () => ({
         schemaVersion: 1,
         meetingId: 'meeting-a',
@@ -380,49 +382,7 @@ test('final acceptance journals intent before exact publication and acceptance a
   assert.equal(published.publicationState, 'published');
   assert.ok(order.indexOf('meeting-delivery-accept-intent') < order.indexOf('publish'));
   assert.ok(order.indexOf('publish') < order.indexOf('meeting-delivery-accepted'));
-  assert.ok(order.indexOf('meeting-delivery-accepted') < order.indexOf('cleanup'));
-});
-
-test('final rework creates versioned replacements and never mutates accepted evidence', async () => {
-  const delivery = buildMeetingDelivery({
-    meetingId: 'meeting-a',
-    planVersion: 2,
-    tasks: [acceptedTask()],
-    integrationHead: sha('b'),
-    expectedUserBaseRevision: sha('a'),
-  });
-  const original = structuredClone(delivery);
-  const events = [];
-  const fake = {
-    finalMeetingDelivery: delivery,
-    finalMeetingDecision: null,
-    requireCurrentMeetingDelivery: async () => delivery,
-    repository: {
-      async append(type, payload) { events.push({ type, payload }); },
-      async flush() {},
-    },
-    meetingScheduler: {
-      createFinalDeliveryRework(reason, contentHash) {
-        assert.equal(reason, '补充错误状态测试');
-        assert.equal(contentHash, delivery.contentHash);
-        return { planVersion: 3, taskIds: ['task-login-rework-v3'] };
-      },
-    },
-    safeEmit() {},
-    async snapshotActiveMeeting() {},
-  };
-
-  const result = await Orchestrator.prototype.requestMeetingDeliveryRework.call(
-    fake,
-    delivery.id,
-    delivery.contentHash,
-    '补充错误状态测试',
-  );
-  assert.deepEqual(result, { planVersion: 3, taskIds: ['task-login-rework-v3'] });
-  assert.deepEqual(delivery, original);
-  assert.equal(events.at(-1).type, 'meeting-delivery-rework-created');
-  assert.equal(events.at(-1).payload.operations[0].kind, 'add-rework-task');
-  assert.equal(events.at(-1).payload.operations[0].supersedesTaskId, 'task-login');
+  assert.equal(order.includes('cleanup'), false, 'a live meeting keeps its integration workspace');
 });
 
 test('final delivery and decision recover exactly and duplicate acceptance is idempotent', async () => {

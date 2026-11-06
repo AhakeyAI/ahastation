@@ -186,7 +186,6 @@ export class CompanionFeed {
     const sessionId = pending?.sessionId ?? this.activeSessionId;
     const orch = this.ctx.getOrchestrator(sessionId);
     if (!orch) return { ok: false, error: 'No active session' };
-    orch.resolvePermission(id, decision);
     this.pendingById.delete(id);
     this.push(Date.now());
     return { ok: true };

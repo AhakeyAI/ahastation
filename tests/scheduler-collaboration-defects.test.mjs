@@ -91,6 +91,7 @@ function makeScheduler(overrides = {}) {
     emit() {},
     cwd: process.cwd(),
     autoApproveScope: 'off',
+    approvalMode: 'manual',
     sessionFactory(opts) {
       const session = {
         opts,
@@ -371,39 +372,6 @@ test('error event is ignored for a parked worker without a session', async () =>
 
 // #7 (3a): a permission resolution routes only to the registered owner; the
 // same request id on another worker keeps its timer and pending fingerprint.
-test('permission resolution is namespaced to the owning worker', async () => {
-  const { scheduler, sessions } = makeScheduler();
-  assert.deepEqual(scheduler.installPlan([
-    { id: 'a', title: 'Worker A', prompt: 'do a', deps: [] },
-    { id: 'b', title: 'Worker B', prompt: 'do b', deps: [] },
-  ]), { ok: true });
-  await waitFor(() => sessions.length === 2, 'both workers were not spawned');
-  const hA = scheduler.workers.get('a');
-  const hB = scheduler.workers.get('b');
-
-  hA.pendingAskFingerprints = new Map([['req-1', 'fp-a']]);
-  hB.pendingAskFingerprints = new Map([['req-1', 'fp-b']]);
-  scheduler.askOwnersByRequestId.set('req-1', new Set(['a']));
-  scheduler.armPermissionTimeout(hA, 'req-1');
-  scheduler.armPermissionTimeout(hB, 'req-1');
-  assert.equal(scheduler.permissionTimers.has('a:req-1'), true);
-  assert.equal(scheduler.permissionTimers.has('b:req-1'), true);
-
-  scheduler.resolvePermissionInAny('req-1', 'allow');
-
-  assert.deepEqual(hA.session.permissionResolutions, [['req-1', 'allow']]);
-  assert.deepEqual(hB.session.permissionResolutions, [], 'non-owner session must not be resolved');
-  assert.equal(hA.approvedAskFingerprints?.has('fp-a'), true, 'owner fingerprint must be remembered');
-  assert.equal(hB.pendingAskFingerprints.has('req-1'), true, 'non-owner ask must stay pending');
-  assert.equal(scheduler.permissionTimers.has('a:req-1'), false, 'owner timer must be cleared');
-  assert.equal(scheduler.permissionTimers.has('b:req-1'), true, 'non-owner timer must survive');
-  assert.equal(scheduler.askOwnersByRequestId.has('req-1'), false, 'owner registration is consumed');
-  scheduler.endAll();
-  assert.equal(scheduler.permissionTimers.size, 0, 'endAll must drain remaining permission timers');
-});
-
-// #8 (3b): interruptAll clears an in-flight steer so the backend's
-// ended(interrupted) terminalizes the task instead of restarting the turn.
 test('interruptAll wins over an in-flight steer', async () => {
   let releaseSteerInterrupt;
   const { scheduler, sessions } = makeScheduler({

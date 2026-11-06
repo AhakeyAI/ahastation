@@ -146,6 +146,8 @@ export interface BackendSessionConfig {
   resumeSessionId?: string;
   /** Least-privilege execution profile selected by the meeting scheduler. */
   executionRole?: 'host' | 'worker';
+  /** Native CLI execution without application/Host permission intervention. */
+  unattended?: boolean;
   /** Native OS confirmer for destructive tool calls (PermissionBroker). When
    *  absent, destructive requests degrade to the meeting-UI approval card. */
   confirmDestructive?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;

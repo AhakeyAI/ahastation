@@ -74,30 +74,6 @@ test('Follow-up, Steering and Interrupt are distinct task controls', () => {
   assert.match(mailbox, /tasks\.interrupt/);
 });
 
-test('high-risk approval is visible and normal mode has no per-task accept action', () => {
-  const inspector = read('src/components/TaskInspector.tsx');
-  const approval = read('src/components/ApprovalCard.tsx');
-  const detail = read('src/components/ApprovalDetailModal.tsx');
-  const review = read('src/components/TaskReviewPanel.tsx');
-  assert.match(inspector, /高风险确认/);
-  assert.match(approval, /需进入详情/);
-  assert.match(detail, /高风险操作 · 需完整确认/);
-  assert.match(detail, /我已阅读/);
-  assert.match(inspector, /确认已人工检查/);
-  assert.match(inspector, /tasks\.confirmReviewEvidence/);
-  assert.match(inspector, /该内容不会发送给 Coordinator 模型/);
-  assert.match(review, /没有逐任务用户验收按钮/);
-  assert.doesNotMatch(inspector, /acceptDelivery|通过 · 验收/);
-});
-
-test('a stalled Coordinator review is surfaced as unfinished, never as a pass', () => {
-  const inspector = read('src/components/TaskInspector.tsx');
-  assert.match(inspector, /Coordinator 审查未完成/);
-  assert.match(inspector, /交付没有通过，也不会自动通过/);
-  assert.match(inspector, /让 Coordinator 继续审查/);
-  assert.match(inspector, /tasks\.resumeReview/);
-});
-
 test('task statuses include text and icon semantics rather than color alone', () => {
   const columns = read('src/lib/task-columns.ts');
   const board = read('src/components/TasksView.tsx');

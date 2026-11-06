@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
+import { detectSuggestedCommands } from './task-intent.js';
 import { isolatedSubprocessEnv } from './backends/backend-environment.js';
 import type {
   VerificationEvidence,
@@ -21,12 +22,31 @@ export interface VerificationCheck {
 }
 
 export class CommandDeliveryVerifier {
+  constructor(private readonly options: { automatic?: boolean } = {}) {}
+
   async verify(order: WorkOrder, report: WorkReport): Promise<VerificationEvidence> {
     const pathError = validateReportedPaths(order.workspace, report);
     if (pathError) return { passed: false, checks: [], error: pathError };
 
+    let criteria = order.acceptanceCriteria;
+    if (this.options.automatic && report.files.length > 0) {
+      criteria = criteria.filter((criterion) => criterion.verification.kind === 'command');
+      if (criteria.length === 0) {
+        let commands = detectSuggestedCommands(order.workspace, ['test']);
+        if (commands.length === 0) commands = detectSuggestedCommands(order.workspace, ['lint', 'build']);
+        criteria = commands.map((argv, index) => ({
+          id: `automatic-check-${index + 1}`,
+          description: `Run project check: ${argv.join(' ')}`,
+          verification: { kind: 'command' as const, argv },
+        }));
+      }
+      if (criteria.length === 0) return {
+        passed: false, checks: [],
+        error: 'No executable project check was found; code delivery cannot be automatically verified.',
+      };
+    }
     const checks: VerificationCheck[] = [];
-    for (const criterion of order.acceptanceCriteria) {
+    for (const criterion of criteria) {
       if (criterion.verification.kind === 'manual') {
         checks.push({
           criterionId: criterion.id,
@@ -85,9 +105,10 @@ function runCriterion(
   timeoutMs: number,
 ): Promise<VerificationCheck> {
   return new Promise((resolveCheck) => {
-    const child = spawn(argv[0], argv.slice(1), {
+    const command = verificationArgv(argv);
+    const child = spawn(command[0], command.slice(1), {
       cwd,
-      env: isolatedSubprocessEnv(),
+      env: { ...isolatedSubprocessEnv(), ELECTRON_RUN_AS_NODE: '1' },
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -132,6 +153,20 @@ function runCriterion(
       error: code === 0 ? undefined : `command exited ${code ?? signal ?? 'unknown'}`,
     }));
   });
+}
+
+/** npm's Windows shim cannot be spawned without a shell. Invoke its real
+ * Node entry point, keeping verification argv shell-free. */
+function verificationArgv(argv: string[]): string[] {
+  if (process.platform !== 'win32' || !/^npm(?:\.cmd)?$/i.test(basename(argv[0]))) return argv;
+  const candidates = [
+    process.env.npm_execpath,
+    join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
+    ...(process.env.PATH ?? process.env.Path ?? '').split(delimiter)
+      .map((directory) => join(directory, 'node_modules/npm/bin/npm-cli.js')),
+  ];
+  const entry = candidates.find((candidate) => candidate && basename(candidate) === 'npm-cli.js' && existsSync(candidate));
+  return entry ? [process.execPath, entry, ...argv.slice(1)] : argv;
 }
 
 function redact(value: string): string {

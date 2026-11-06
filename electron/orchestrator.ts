@@ -28,12 +28,11 @@ import {
   isTerminalWorkerBackend,
 } from './backends/terminal-cli-adapter.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
+import { defaultApprovalMode, type ApprovalMode } from './approval-policy.js';
 import {
   coerceWorkspaceModeForBaseline,
-  normalizeMeetingPlanBrief,
   normalizePlanMeetingTasks,
   type AppliedTaskDefaults,
-  type MeetingPlanBrief,
   type MeetingPlanBriefInput,
   type PlanMeetingTask,
   type PlanMeetingTaskInput,
@@ -58,7 +57,6 @@ import {
   titleFromDescription,
 } from './orchestrator-helpers.js';
 import {
-  type ActiveReviewGate,
   type DecisionCreationResult,
   type OrchestratorBridge,
   type SaveMemoryResult,
@@ -96,16 +94,8 @@ import {
   type MeetingDelivery,
 } from './meeting-delivery.js';
 import { prepareFrozenDeliveryCandidate } from './delivery-candidate.js';
-import {
-  CoordinatorReviewDriver,
-  type CoordinatorReviewBriefing,
-} from './coordinator-review-driver.js';
-import {
-  listUncoveredCoordinatorReviewChunkIds,
-  safeCoordinatorReviewProjection,
-  type CoordinatorReviewFinding,
-  type CoordinatorReviewSession,
-} from './coordinator-review.js';
+import { CoordinatorReviewDriver } from './coordinator-review-driver.js';
+import type { CoordinatorReviewSession } from './coordinator-review.js';
 import { authorizeMeetingCommand, type MeetingCommandResult } from './meeting-command.js';
 import { TaskWorkspaceManager } from './task-workspace.js';
 import { DiagnosticLogger } from './diagnostic-logger.js';
@@ -210,9 +200,8 @@ interface OrchestratorOpts {
    *  invited agents come back with the meeting; 'default' is always created
    *  by the constructor and must be skipped here. */
   recoveredHosts?: Array<{ id: string; backendId: string }>;
-  /** How long an active review may sit without Coordinator progress before the
-   * stall budget is charged. Set to 0 to disable the watchdog in tests. */
-  reviewStallTimeoutMs?: number;
+  /** `auto` (default) removes every approval gate; `manual` restores them. */
+  approvalMode?: ApprovalMode;
   /** How long a Coordinator -> expert `ask_host` may sit without any talker
    *  reply from the target before the Coordinator is nudged to decide whether
    *  to keep waiting or proceed. Host-to-host asks have no request/response
@@ -274,17 +263,10 @@ export class Orchestrator implements OrchestratorBridge {
   private recoveredHosts: Array<{ id: string; backendId: string }>;
   private recoveredPlanVersion: number;
   private saveMemoryCallsThisSession = 0;
-  private autoOrchestration = false;
-  private pendingPlan: PlanMeetingTask[] | null = null;
-  private pendingPlanBrief: MeetingPlanBrief | null = null;
-  /** True while the Coordinator host is mid-turn. A briefing queued during a live
-   *  turn is only read by the *next* turn, so the turn already in flight must not
-   *  be charged against the review stall budget. */
+  private approvalMode: ApprovalMode = 'auto';
+  private autoPublishing = false;
+  /** True while the Coordinator host is mid-turn (final delivery publishes between turns). */
   private coordinatorTurnActive = false;
-  /** Reviews whose briefing landed mid-turn; they skip exactly one turn boundary. */
-  private reviewsAwaitingFirstTurn = new Set<string>();
-  private reviewStallTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly reviewStallTimeoutMs: number;
   /** Coordinator -> expert asks still awaiting any talker reply. Keyed by the
    *  target host id (one outstanding ask per expert; a new ask replaces it and
    *  re-arms the timer). Cleared when the expert emits any talker message. */
@@ -340,6 +322,7 @@ export class Orchestrator implements OrchestratorBridge {
   }
 
   constructor(opts: OrchestratorOpts) {
+    this.approvalMode = opts.approvalMode ?? defaultApprovalMode();
     this.emit = opts.emit;
     this.cwd = opts.cwd;
     this.autoApproveScope = opts.autoApproveScope ?? 'off';
@@ -365,7 +348,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.getObservedSnapshot = opts.getObservedSnapshot
       ?? (() => ({ sessions: [], scannedAt: 0 }));
     const baseline = this.workspaceManager.inspectBaseline();
-    const deliveryVerifier = new CommandDeliveryVerifier();
+    const deliveryVerifier = new CommandDeliveryVerifier({ automatic: this.approvalMode === 'auto' });
     this.deliveryVerifier = deliveryVerifier;
     this.expectedUserBaseRevision = baseline.revision;
     this.integrationQueue = new IntegrationQueue({
@@ -400,7 +383,6 @@ export class Orchestrator implements OrchestratorBridge {
       },
       flush: () => this.repository.flush(),
     });
-    this.reviewStallTimeoutMs = opts.reviewStallTimeoutMs ?? 180_000;
     this.hostAskTimeoutMs = opts.hostAskTimeoutMs ?? 120_000;
     this.coordinatorReviewDriver = new CoordinatorReviewDriver({
       append: async (type, payload) => {
@@ -415,14 +397,9 @@ export class Orchestrator implements OrchestratorBridge {
         });
       },
       flush: () => this.repository.flush(),
-      notifyCoordinator: (briefing) => this.notifyCoordinatorReview(briefing),
       onCompleted: async (session) => {
         await this.deliveryHarness.completeCoordinatorReview(session.deliveryId, session);
       },
-      onReworkRequested: async (session) => {
-        await this.meetingScheduler.requestCoordinatorRework(session.deliveryId, session);
-      },
-      onPaused: (session) => this.escalateStalledReview(session),
     });
     for (const session of opts.recoveredReviewSessions ?? []) {
       try {
@@ -433,6 +410,7 @@ export class Orchestrator implements OrchestratorBridge {
     }
     this.deliveryHarness = new DeliveryHarness({
       executionMode: 'external',
+      approvalMode: this.approvalMode,
       verifier: deliveryVerifier,
       reviewer: new DeterministicDeliveryReviewer(),
       candidatePreparer: {
@@ -556,6 +534,7 @@ export class Orchestrator implements OrchestratorBridge {
               ? resumeSessionId
               : undefined,
           executionRole: purpose,
+          unattended: purpose === 'worker' && so.unattended === true,
           extra: {
             ...backendExtra,
             ...(backendId === 'codex' ? { codexTransport: 'app-server' } : {}),
@@ -598,6 +577,7 @@ export class Orchestrator implements OrchestratorBridge {
       cwd: this.cwd,
       projectId: this.projectId,
       autoApproveScope: this.autoApproveScope,
+      approvalMode: this.approvalMode,
       workerEnv: this.workerEnv,
       talkerModel: this.talkerModel,
       confirmDestructive: this.confirmDestructive,
@@ -854,9 +834,7 @@ export class Orchestrator implements OrchestratorBridge {
       + 'Do not schedule or speak for the meeting; answer only direct mentions or coordinator requests.',
       'high',
     );
-    // The incoming Coordinator inherits any review the previous one abandoned.
     this.coordinatorTurnActive = false;
-    this.resumeDisconnectedReviews();
     void this.meetingScheduler.redeliverPendingWorkerQuestions();
     return {
       ok: true,
@@ -1118,7 +1096,7 @@ export class Orchestrator implements OrchestratorBridge {
       const messageType = (e.event.message as { type?: unknown } | undefined)?.type;
       if (messageType === 'result') {
         this.coordinatorTurnActive = false;
-        void this.driveCoordinatorReviews();
+        void this.maybeAutoPublishFinalDelivery();
       } else if (messageType === 'assistant' || messageType === 'user') {
         this.coordinatorTurnActive = true;
       }
@@ -1151,7 +1129,6 @@ export class Orchestrator implements OrchestratorBridge {
       this.flushPendingCrossHostMessages(hostId);
       this.safeEmit({ source: 'system', hostId, event: { kind: 'session-ready' } });
       if (hostId === this.coordinatorHostId) {
-        this.resumeDisconnectedReviews();
         await this.meetingScheduler.redeliverPendingWorkerQuestions();
       }
       return { ok: true };
@@ -1208,7 +1185,9 @@ export class Orchestrator implements OrchestratorBridge {
         e.event.kind === 'delivery-status'
         && e.event.delivery.status === 'accepted'
       ) {
-        void this.prepareFinalMeetingDelivery().catch((error) => {
+        void this.prepareFinalMeetingDelivery().then(
+          () => this.maybeAutoPublishFinalDelivery(),
+        ).catch((error) => {
           console.error('[orchestrator] final Meeting delivery preparation failed', {
             error: error instanceof Error ? error.message : String(error),
           });
@@ -1478,7 +1457,6 @@ export class Orchestrator implements OrchestratorBridge {
       reviewSessions: this.coordinatorReviewDriver.snapshot(),
       integrationQueue: this.integrationQueue.snapshot(),
       planVersion: this.meetingScheduler.getPlanVersion(),
-      autoOrchestration: this.autoOrchestration,
       finalMeetingDelivery: this.finalMeetingDelivery
         ? structuredClone(this.finalMeetingDelivery)
         : null,
@@ -1535,19 +1513,6 @@ export class Orchestrator implements OrchestratorBridge {
 
   sendUserImage(content: SDKUserMessage['message']['content']) {
     this.defaultHost().sendUserImage(content);
-  }
-
-  resolvePermission(
-    id: string,
-    decision: 'allow' | 'deny',
-    message?: string,
-    scope: 'worker' | 'task-wide' = 'worker',
-  ) {
-    // Try every active host group; only the one that issued the permission
-    // request actually has a matching pending entry.
-    for (const hg of this.hostGroups.values()) {
-      hg.resolvePermission(id, decision, message, scope);
-    }
   }
 
   /** Live backend session of a meeting host (for IPC accessors that need
@@ -1639,7 +1604,6 @@ export class Orchestrator implements OrchestratorBridge {
     }
 
     this.closed = true;
-    this.stopReviewStallWatchdog();
     this.clearAllHostAsks();
 
     // End all host groups — wrap in try/finally so cleanup always runs.
@@ -1667,6 +1631,10 @@ export class Orchestrator implements OrchestratorBridge {
         workers: this.meetingScheduler.describeWorkers(),
       }).then(() => this.repository.flush()),
     ];
+    const publication = this.integrationQueue.snapshot().publication;
+    if (publication) {
+      cleanupPromises.push(this.integrationQueue.cleanupPublishedIntegration(publication.publishedHead));
+    }
     if (this.recapHandle) cleanupPromises.push(this.recapHandle.done);
 
     this.endPromise = Promise.all(cleanupPromises).then(() => undefined);
@@ -1759,8 +1727,8 @@ export class Orchestrator implements OrchestratorBridge {
 
   async proposePlan(
     tasks: PlanMeetingTaskInput[],
-    briefInput?: MeetingPlanBriefInput,
-  ): Promise<{ ok: true; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
+    _briefInput?: MeetingPlanBriefInput,
+  ): Promise<{ ok: true; installed?: boolean; appliedDefaults?: AppliedTaskDefaults[] } | { ok: false; error: string }> {
     let normalized: PlanMeetingTask[];
     let appliedDefaults: AppliedTaskDefaults[];
     try {
@@ -1777,20 +1745,10 @@ export class Orchestrator implements OrchestratorBridge {
     normalized = this.adaptPlanForWorkspaceBaseline(normalized);
     const backendError = await this.validateExecutionBackends(normalized);
     if (backendError) return { ok: false, error: backendError };
-    const brief = normalizeMeetingPlanBrief(briefInput, normalized);
     const applied = appliedDefaults.length > 0 ? { appliedDefaults } : {};
-    if (!this.autoOrchestration) {
-      this.pendingPlan = normalized.map((task) => ({ ...task, deps: [...(task.deps ?? [])] }));
-      this.pendingPlanBrief = brief;
-      this.safeEmit({
-        source: 'system',
-        event: { kind: 'plan-proposed', tasks: this.pendingPlan, brief },
-      });
-      void this.repository.append('plan-proposed', { tasks: this.pendingPlan, brief });
-      return { ok: true, ...applied };
-    }
+    // Plans are installed directly: native coding CLIs run what the host assigns.
     const installed = await this.installApprovedPlan(normalized, 'auto-orchestration');
-    return installed.ok ? { ok: true, ...applied } : installed;
+    return installed.ok ? { ok: true, installed: true, ...applied } : installed;
   }
 
   private adaptPlanForWorkspaceBaseline(tasks: PlanMeetingTask[]): PlanMeetingTask[] {
@@ -1802,40 +1760,9 @@ export class Orchestrator implements OrchestratorBridge {
     });
   }
 
-  setAutoOrchestration(enabled: boolean): void {
-    this.autoOrchestration = enabled;
-    void this.repository.append('orchestration-mode-changed', { enabled });
-  }
-
-  async approvePendingPlan(
-    approved: boolean,
-    revisedTasks?: PlanMeetingTaskInput[],
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
-    let tasks: PlanMeetingTask[] | null = this.pendingPlan;
-    if (revisedTasks) {
-      try {
-        tasks = normalizePlanMeetingTasks(
-          revisedTasks,
-          this.defaultWorkerBackendId(),
-          this.normalizePlanOptions(),
-        ).tasks;
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-      tasks = this.adaptPlanForWorkspaceBaseline(tasks);
-      const backendError = await this.validateExecutionBackends(tasks);
-      if (backendError) return { ok: false, error: backendError };
-    }
-    this.pendingPlan = null;
-    this.pendingPlanBrief = null;
-    if (!tasks) return { ok: false, error: 'no pending plan' };
-    if (!approved) return { ok: true };
-    return this.installApprovedPlan(tasks, 'plan-meeting-confirmation');
-  }
-
   private async installApprovedPlan(
     tasks: PlanMeetingTask[],
-    source: 'manual-install' | 'auto-orchestration' | 'plan-meeting-confirmation',
+    source: 'manual-install' | 'auto-orchestration',
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     const decisionId = randomUUID();
     const approvedAt = Date.now();
@@ -1918,7 +1845,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId: string;
         specialty: WorkerSpecialtyKind;
         reused: boolean;
-        status: 'spawned' | 'proposed' | 'installed';
+        status: 'spawned' | 'installed';
         appliedDefaults?: string[];
       }
     | { ok: false; error: string }
@@ -1976,7 +1903,7 @@ export class Orchestrator implements OrchestratorBridge {
         workerId,
         specialty,
         reused: false,
-        status: this.autoOrchestration ? 'installed' : 'proposed',
+        status: 'installed',
         ...(notes?.length ? { appliedDefaults: notes } : {}),
       };
     }
@@ -2098,6 +2025,9 @@ export class Orchestrator implements OrchestratorBridge {
     question: string,
     sourceAttempt?: number,
   ): Promise<{ id: string; status: string }> {
+    if (this.approvalMode === 'auto') {
+      throw new Error('Native Workers execute autonomously; report unresolved blockers in the final WorkReport.');
+    }
     const message = await this.meetingScheduler.recordWorkerQuestion(
       workerId,
       question,
@@ -2393,6 +2323,37 @@ export class Orchestrator implements OrchestratorBridge {
     return this.finalDeliveryBuild;
   }
 
+  /**
+   * Approval mode auto: publish the final Meeting delivery as soon as it is
+   * ready. Held back while the Coordinator is mid-turn so it can still queue
+   * follow-up tasks; the next turn boundary retries.
+   */
+  private async maybeAutoPublishFinalDelivery(): Promise<void> {
+    if (
+      this.approvalMode !== 'auto'
+      || this.closed
+      || this.autoPublishing
+      || this.coordinatorTurnActive
+    ) return;
+    this.autoPublishing = true;
+    try {
+      const delivery = await this.prepareFinalMeetingDelivery();
+      if (
+        !delivery
+        || this.closed
+        || this.coordinatorTurnActive
+        || delivery.publicationState === 'published'
+      ) return;
+      await this.acceptMeetingDelivery(delivery.id, delivery.contentHash);
+    } catch (error) {
+      console.error('[orchestrator] automatic final Meeting delivery publication failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.autoPublishing = false;
+    }
+  }
+
   getMeetingDelivery(): Promise<MeetingDelivery | null> {
     return this.prepareFinalMeetingDelivery();
   }
@@ -2457,81 +2418,13 @@ export class Orchestrator implements OrchestratorBridge {
       },
     });
     await this.snapshotActiveMeeting();
-    await this.integrationQueue.cleanupPublishedIntegration(publication.publishedHead);
+    // The Meeting stays open after automatic publication and can receive more tasks.
+    if (this.closed) await this.integrationQueue.cleanupPublishedIntegration(publication.publishedHead);
     return structuredClone(published);
   }
 
-  async requestMeetingDeliveryRework(
-    deliveryId: string,
-    contentHash: string,
-    reason: string,
-  ): Promise<{ planVersion: number; taskIds: string[] }> {
-    const delivery = await this.requireCurrentMeetingDelivery(deliveryId, contentHash);
-    const normalizedReason = reason.trim();
-    if (!normalizedReason || normalizedReason.length > 20_000) {
-      throw new Error('final Meeting rework reason must contain 1-20000 characters');
-    }
-    if (this.finalMeetingDecision) {
-      if (
-        this.finalMeetingDecision.kind === 'rework'
-        && this.finalMeetingDecision.deliveryId === deliveryId
-        && this.finalMeetingDecision.contentHash === contentHash
-        && this.finalMeetingDecision.reason === normalizedReason
-      ) {
-        return {
-          planVersion: this.finalMeetingDecision.planVersion,
-          taskIds: [...this.finalMeetingDecision.taskIds],
-        };
-      }
-      throw new Error('final Meeting delivery already has a conflicting decision');
-    }
-    await this.repository.append('meeting-delivery-rework-intent', {
-      schemaVersion: 1,
-      deliveryId,
-      contentHash,
-      integrationHead: delivery.integrationHead,
-      reason: normalizedReason,
-    });
-    await this.repository.flush();
-    const replacement = this.meetingScheduler.createFinalDeliveryRework(
-      normalizedReason,
-      contentHash,
-    );
-    const decision: FinalMeetingDecision = {
-      kind: 'rework',
-      deliveryId,
-      contentHash,
-      reason: normalizedReason,
-      planVersion: replacement.planVersion,
-      taskIds: [...replacement.taskIds],
-      decidedAt: Date.now(),
-    };
-    await this.repository.append('meeting-delivery-rework-created', {
-      schemaVersion: 1,
-      decision,
-      operations: replacement.taskIds.map((taskId, index) => ({
-        kind: 'add-rework-task',
-        taskId,
-        supersedesTaskId: delivery.tasks[index]?.taskId,
-        deliveryHash: contentHash,
-        reason: normalizedReason,
-      })),
-    });
-    await this.repository.flush();
-    this.finalMeetingDecision = decision;
-    this.safeEmit({
-      source: 'system',
-      event: {
-        kind: 'meeting-delivery-updated',
-        delivery: structuredClone(delivery),
-        decision: structuredClone(decision),
-      },
-    });
-    await this.snapshotActiveMeeting();
-    return replacement;
-  }
-
   private async buildFinalMeetingDelivery(): Promise<MeetingDelivery | null> {
+    const planVersion = this.meetingScheduler.getPlanVersion();
     const tasks = this.meetingScheduler.snapshot();
     const integration = await this.integrationQueue.inspectState();
     if (
@@ -2577,12 +2470,16 @@ export class Orchestrator implements OrchestratorBridge {
           summary: summaries.join('; ') || 'verification passed on final integration head',
         });
       }
+      if (
+        this.meetingScheduler.getPlanVersion() !== planVersion
+        || this.integrationQueue.currentHead() !== integration.durableHead
+      ) return null;
       const delivery = buildMeetingDelivery({
         meetingId: this.meetingId,
-        planVersion: this.meetingScheduler.getPlanVersion(),
+        planVersion,
         tasks,
         integrationHead: integration.durableHead,
-        expectedUserBaseRevision: this.expectedUserBaseRevision,
+        expectedUserBaseRevision: this.integrationQueue.publicationBaseRevision(),
         meetingVerification: {
           integrationHead: integration.durableHead,
           checks: meetingChecks,
@@ -2708,100 +2605,7 @@ export class Orchestrator implements OrchestratorBridge {
     this.finalMeetingDelivery = published;
     this.finalMeetingDecision = decision;
     await this.snapshotActiveMeeting();
-    await this.integrationQueue.cleanupPublishedIntegration(publication.publishedHead);
-  }
-
-  async acceptDelivery(deliveryId: string, candidateId: string) {
-    const view = await this.meetingScheduler.acceptDelivery(deliveryId, candidateId);
-    await this.repository.append('delivery-user-accepted', {
-      deliveryId,
-      candidateId,
-      attempt: view.attempt,
-    });
-    await this.snapshotActiveMeeting();
-    await this.repository.flush();
-    return view;
-  }
-
-  async returnDelivery(
-    deliveryId: string,
-    candidateId: string | undefined,
-    feedback: string,
-  ) {
-    const view = await this.meetingScheduler.returnDelivery(
-      deliveryId,
-      candidateId,
-      feedback,
-    );
-    await this.repository.append('delivery-user-returned', {
-      deliveryId,
-      candidateId: candidateId ?? null,
-      feedback,
-      attempt: view.attempt,
-    });
-    await this.snapshotActiveMeeting();
-    await this.repository.flush();
-    return view;
-  }
-
-  inspectDeliveryReview(reviewId: string) {
-    return safeCoordinatorReviewProjection(this.coordinatorReviewDriver.inspect(reviewId));
-  }
-
-  getDeliveryReviewChunk(reviewId: string, chunkId?: string) {
-    const chunk = this.coordinatorReviewDriver.getChunk(reviewId, chunkId);
-    if (!chunk) return null;
-    if (chunk.requiresUserConfirmation) {
-      const { content: _content, ...safe } = chunk;
-      return safe;
-    }
-    return chunk;
-  }
-
-  async submitDeliveryChunkReview(
-    reviewId: string,
-    input: {
-      chunkId: string;
-      chunkHash: string;
-      verdict: 'passed' | 'blocking';
-      findings: CoordinatorReviewFinding[];
-    },
-  ) {
-    const session = await this.coordinatorReviewDriver.submitChunkReview(reviewId, input);
-    return safeCoordinatorReviewProjection(session);
-  }
-
-  async completeDeliveryReview(reviewId: string) {
-    const session = await this.coordinatorReviewDriver.complete(reviewId);
-    return safeCoordinatorReviewProjection(session);
-  }
-
-  async requestDeliveryRework(
-    reviewId: string,
-    findings: CoordinatorReviewFinding[],
-    executorBackendId?: string,
-  ) {
-    // Record the one-shot backend override before the rework request lands:
-    // the scheduler consumes it at the fresh-attempt boundary the rework
-    // triggers. A silent drop would be worse than failing the tool call.
-    if (executorBackendId?.trim()) {
-      const target = this.coordinatorReviewDriver.inspect(reviewId);
-      if (!target.taskId) {
-        throw new Error(`review ${reviewId} has no bound task; cannot override its executor backend`);
-      }
-      const recorded = this.meetingScheduler.setNextAttemptBackend(target.taskId, executorBackendId);
-      if (!recorded.ok) throw new Error(recorded.error);
-    }
-    const session = await this.coordinatorReviewDriver.requestRework(reviewId, findings);
-    return safeCoordinatorReviewProjection(session);
-  }
-
-  async confirmDeliveryReviewEvidence(
-    reviewId: string,
-    input: { chunkId: string; chunkHash: string; decisionId: string },
-  ) {
-    const session = await this.coordinatorReviewDriver.confirmEvidence(reviewId, input);
-    return safeCoordinatorReviewProjection(session);
+    if (this.closed) await this.integrationQueue.cleanupPublishedIntegration(publication.publishedHead);
   }
 
   submitWorkerReport(workerId: string, report: import('./worker-protocol.js').WorkReport, sourceAttempt?: number): void {
@@ -2832,139 +2636,6 @@ export class Orchestrator implements OrchestratorBridge {
 
   submitWorkerDelivery(workerId: string, files: string[], sourceAttempt?: number): void {
     this.meetingScheduler.submitWorkerDelivery(workerId, files, sourceAttempt);
-  }
-
-  private notifyCoordinatorReview(briefing: CoordinatorReviewBriefing): void {
-    const host = this.hostGroups.get(this.coordinatorHostId)?.getHost();
-    if (!host) {
-      void this.coordinatorReviewDriver.pauseForDisconnect(briefing.reviewId);
-      return;
-    }
-    if (this.coordinatorTurnActive) this.reviewsAwaitingFirstTurn.add(briefing.reviewId);
-    else this.reviewsAwaitingFirstTurn.delete(briefing.reviewId);
-    this.ensureReviewStallWatchdog();
-    host.sendUserText(
-      `(coordinator review)\n${JSON.stringify(briefing)}`,
-      'high',
-    );
-    this.coordinatorTurnActive = true;
-  }
-
-  /**
-   * A frozen candidate only leaves `coordinator-reviewing` when the Coordinator
-   * itself covers every chunk. Without this the briefing was a single
-   * fire-and-forget message: a Coordinator that reviewed two chunks and moved on
-   * left the delivery — and every task depending on it — stalled forever.
-   */
-  private async driveCoordinatorReviews(): Promise<void> {
-    if (this.closed) return;
-    for (const session of this.coordinatorReviewDriver.activeSessions()) {
-      if (this.reviewsAwaitingFirstTurn.delete(session.id)) continue;
-      try {
-        await this.coordinatorReviewDriver.onCoordinatorTurnEnded(session.id);
-      } catch (err) {
-        this.diagnostics.log('coordinator-review-turn-failed', {
-          reviewId: session.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
-
-  /** A silent Coordinator never emits a turn boundary, so time also charges the budget. */
-  private ensureReviewStallWatchdog(): void {
-    if (this.reviewStallTimer || this.reviewStallTimeoutMs <= 0) return;
-    const timer = setInterval(
-      () => { void this.sweepStalledReviews(); },
-      Math.max(1_000, Math.floor(this.reviewStallTimeoutMs / 2)),
-    );
-    timer.unref?.();
-    this.reviewStallTimer = timer;
-  }
-
-  private stopReviewStallWatchdog(): void {
-    if (!this.reviewStallTimer) return;
-    clearInterval(this.reviewStallTimer);
-    this.reviewStallTimer = null;
-  }
-
-  private async sweepStalledReviews(): Promise<void> {
-    const active = this.closed ? [] : this.coordinatorReviewDriver.activeSessions();
-    if (active.length === 0) {
-      this.stopReviewStallWatchdog();
-      return;
-    }
-    const deadline = Date.now() - this.reviewStallTimeoutMs;
-    for (const session of active) {
-      if (session.updatedAt > deadline) continue;
-      this.reviewsAwaitingFirstTurn.delete(session.id);
-      try {
-        await this.coordinatorReviewDriver.onCoordinatorTurnEnded(session.id);
-      } catch (err) {
-        this.diagnostics.log('coordinator-review-stall-sweep-failed', {
-          reviewId: session.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
-
-  /**
-   * A paused review is never an implicit pass. Surface it to the user and tell
-   * the Coordinator to hand the decision over instead of guessing.
-   */
-  private async escalateStalledReview(session: CoordinatorReviewSession): Promise<void> {
-    const uncoveredChunkIds = listUncoveredCoordinatorReviewChunkIds(session);
-    const remainingChunks = session.coverage.totalChunks - session.coverage.reviewedChunks;
-    this.safeEmit({
-      source: 'system',
-      event: {
-        kind: 'coordinator-review-stalled',
-        reviewId: session.id,
-        deliveryId: session.deliveryId,
-        ...(session.taskId ? { taskId: session.taskId } : {}),
-        reason: session.pauseReason ?? 'user-required',
-        uncoveredChunkIds,
-        remainingChunks,
-      },
-    });
-    if (session.pauseReason === 'coordinator-disconnected') return;
-    this.hostGroups.get(this.coordinatorHostId)?.getHost()?.sendUserText(
-      `(coordinator review paused) 审查 ${session.id} 因为 ${session.pauseReason ?? 'user-required'} 已暂停，还有 ${remainingChunks} 个分片没有覆盖：${uncoveredChunkIds.join(', ') || 'none'}。请直接告诉用户审查没走完、卡在哪里，并让用户决定是继续审查还是自己接手。不要声称交付已通过。`,
-      'normal',
-    );
-  }
-
-  /** Resume a paused review. Exposed so the user can restart a stalled Coordinator. */
-  async resumeDeliveryReview(reviewId: string) {
-    const session = await this.coordinatorReviewDriver.resume(reviewId);
-    return safeCoordinatorReviewProjection(session);
-  }
-
-  /** After the Coordinator comes back, reviews parked on disconnect resume themselves. */
-  private resumeDisconnectedReviews(): void {
-    if (this.closed) return;
-    if (!this.hostGroups.get(this.coordinatorHostId)?.getHost()) return;
-    for (const session of this.coordinatorReviewDriver.pausedSessions()) {
-      if (session.pauseReason !== 'coordinator-disconnected') continue;
-      void this.coordinatorReviewDriver.resume(session.id).catch((err) => {
-        this.diagnostics.log('coordinator-review-resume-failed', {
-          reviewId: session.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
-  }
-
-  activeReviewGate(): ActiveReviewGate | null {
-    const [session] = this.coordinatorReviewDriver.activeSessions();
-    if (!session) return null;
-    return {
-      reviewId: session.id,
-      deliveryId: session.deliveryId,
-      uncoveredChunkIds: listUncoveredCoordinatorReviewChunkIds(session),
-      remainingChunks: session.coverage.totalChunks - session.coverage.reviewedChunks,
-    };
   }
 
   // ===========================================================================

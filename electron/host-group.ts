@@ -19,6 +19,7 @@ import type {
   PermissionNormalizationResult,
 } from './backends/canonical-execution.js';
 import type { AutoApproveScope } from './auto-approve-policy.js';
+import { defaultApprovalMode, type ApprovalMode } from './approval-policy.js';
 import type { BrowserTabManager } from './browser-tab-manager.js';
 import {
   buildTalkerMcp,
@@ -31,7 +32,6 @@ import { WorkerScheduler, type SessionFactory } from './worker-scheduler.js';
 import {
   TALKER_PROMPT,
   COORDINATOR_ROLE_PROMPT,
-  COORDINATOR_REVIEW_PROMPT,
   EXPERT_ROLE_PROMPT,
   REPORT_MODE_SUFFIX,
 } from './orchestrator-prompts.js';
@@ -79,6 +79,8 @@ export interface HostGroupOpts {
   /** Project ID for memory lookups. */
   projectId: string;
   autoApproveScope: AutoApproveScope;
+  /** Forwarded to the WorkerScheduler (permission cards). */
+  approvalMode?: ApprovalMode;
   workerEnv?: NodeJS.ProcessEnv;
   talkerModel?: string;
   confirmDestructive?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>;
@@ -213,6 +215,7 @@ export class HostGroup {
       emit: (e) => this.taggedEmit(e),
       cwd: this.cwd,
       autoApproveScope: this.autoApproveScope,
+      approvalMode: opts.approvalMode,
       workerEnv: this.workerEnv,
       confirmDestructive: this.confirmDestructive,
       sessionFactory: this.sessionFactory,
@@ -239,7 +242,9 @@ export class HostGroup {
       taskMailbox: opts.taskMailbox,
       maxConcurrentWorkers: opts.maxConcurrentWorkers,
       buildWorkerMcp: (workerId, attempt) => (
-        buildWorkerMcp(this.bridge, workerId, this.cwd, attempt)
+        buildWorkerMcp(this.bridge, workerId, this.cwd, attempt, {
+          completionOnly: (opts.approvalMode ?? defaultApprovalMode()) === 'auto',
+        })
       ),
       buildComputerUseMcp: process.platform === 'darwin'
         ? (workerId) => buildComputerUseMcp(cuBridge, workerId)
@@ -287,7 +292,7 @@ export class HostGroup {
     const meetingMcp = buildTalkerMcp(this.bridge, this.isCoordinator, this.id);
 
     const rolePrompt = this.isCoordinator()
-      ? `${COORDINATOR_ROLE_PROMPT}${COORDINATOR_REVIEW_PROMPT}`
+      ? COORDINATOR_ROLE_PROMPT
       : EXPERT_ROLE_PROMPT;
     let systemPrompt: string = TALKER_PROMPT + rolePrompt;
     try {
@@ -353,16 +358,6 @@ export class HostGroup {
     );
   }
 
-  resolvePermission(
-    id: string,
-    decision: 'allow' | 'deny',
-    message?: string,
-    scope: 'worker' | 'task-wide' = 'worker',
-  ) {
-    this.host?.resolvePermission(id, decision, message);
-    this.scheduler.resolvePermissionInAny(id, decision, message, scope);
-  }
-
   async interrupt() {
     const tasks: Promise<void>[] = [];
     if (this.host) tasks.push(this.host.interrupt());
@@ -421,6 +416,10 @@ export class HostGroup {
       this.host?.end();
       this.host = null;
       this.taggedEmit({ source: 'talker', event: e });
+      return;
+    }
+    if (e.kind === 'permission-request') {
+      this.host?.resolvePermission(e.id, 'allow', 'auto-approval');
       return;
     }
     if (e.kind === 'ended') {

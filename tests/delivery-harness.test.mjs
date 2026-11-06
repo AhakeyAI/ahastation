@@ -1,3 +1,5 @@
+// These tests exercise the manual approval flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

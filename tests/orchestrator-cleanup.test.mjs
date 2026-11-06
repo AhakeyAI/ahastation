@@ -41,9 +41,6 @@ function makeOrch(cwd = '/tmp', workspaceManager, meetingId) {
     cwd,
     workspaceManager,
     meetingId,
-    // No real Coordinator paces these tests, so wall-clock must never charge
-    // the review turn budget (same convention as coordinator-review-loop).
-    reviewStallTimeoutMs: 0,
     sessionFactory: (options) => {
       const s = new FakeSession(options);
       sessions.push(s);
@@ -97,7 +94,11 @@ test('legacy task_done cannot release a worker; reviewed WorkReport does', async
   await orch.start();
   assert.equal(sessions.length, 1, 'coordinator host session created');
   const result = await orch.installPlan([
-    { id: 'a', title: 'A', prompt: 'do A', deps: [], writePaths: ['result.txt'] },
+    { id: 'a', title: 'A', prompt: 'do A', deps: [], writePaths: ['result.txt'], acceptanceCriteria: [{
+      id: 'content', description: 'Check the delivered result', verification: {
+        kind: 'command', argv: [process.execPath, '-e', "require('node:assert/strict').equal(require('node:fs').readFileSync('result.txt','utf8'),'finished with evidence\\n')"],
+      },
+    }] },
   ]);
   assert.equal(result.ok, true);
   await waitUntil(() => sessions.length === 2, 'worker session was not created');
@@ -117,35 +118,8 @@ test('legacy task_done cannot release a worker; reviewed WorkReport does', async
     tests: [],
     unresolved: [],
   });
-  const review = await waitUntil(
-    async () => {
-      const journal = await MeetingRepository.replay(meetingId);
-      return journal
-        .filter((event) => event.type === 'coordinator-review-requested')
-        .map((event) => event.payload?.data?.session)
-        .at(-1);
-    },
-    'delivery did not reach Coordinator review',
-  );
-  // The scheduler releases the Backend session as soon as a WorkReport enters
-  // verification (freeing the concurrency slot during review/acceptance), so by
-  // the time Coordinator review opens the session is already ended. Legacy
-  // task_done above must NOT have ended it; the reviewed WorkReport did.
-  assert.equal(worker.ended, true, 'a reviewed WorkReport releases the Backend session for verification/review');
-  for (;;) {
-    if (orch.inspectDeliveryReview(review.id)?.status === 'paused') {
-      await orch.coordinatorReviewDriver.resume(review.id);
-    }
-    const chunk = orch.getDeliveryReviewChunk(review.id);
-    if (!chunk) break;
-    await orch.submitDeliveryChunkReview(review.id, {
-      chunkId: chunk.id,
-      chunkHash: chunk.hash,
-      verdict: 'passed',
-      findings: [],
-    });
-  }
-  await orch.completeDeliveryReview(review.id);
+  // Coordinator review is automatic: the delivery proceeds to acceptance on its own.
+  await waitUntil(() => worker.ended, 'a reviewed WorkReport releases the Backend session');
   await waitUntil(
     () => events.some((entry) => (
       entry.event?.kind === 'worker-ended'

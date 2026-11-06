@@ -1,3 +1,5 @@
+// These tests exercise the manual approval flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -502,123 +504,6 @@ test('secret-bearing commands cannot enter an authority grant', () => {
     }),
     /secret-bearing/,
   );
-});
-
-test('scheduler persists canonical allow before resolving the backend request', async () => {
-  const root = workspace();
-  const order = [];
-  const resolved = [];
-  const emitted = [];
-  const backend = new CodexBackend();
-  const session = {
-    async start() {},
-    sendUserText() {},
-    sendUserContent() {},
-    resolvePermission(id, decision) {
-      order.push(`resolve:${decision}`);
-      resolved.push({ id, decision });
-    },
-    async interrupt() {},
-    end() {},
-  };
-  const scheduler = new WorkerScheduler({
-    emit(event) { emitted.push(event); },
-    cwd: root,
-    autoApproveScope: 'all',
-    taskAuthorityCompilerRequired: true,
-    compileTaskAuthority(input) {
-      return compileTaskAuthority(
-        input.taskId,
-        input.attempt,
-        input.planVersion,
-        input.approvalDecisionId,
-        input.workspaceRoot,
-        input.authorityRequest,
-        input.approvedAt,
-      );
-    },
-    async persistTaskAuthority() { order.push('grant-persist'); },
-    normalizePermissionRequest(_backendId, nativeRequest) {
-      return backend.normalizePermissionRequest(nativeRequest);
-    },
-    async persistPermissionDecision(input) {
-      order.push(`decision-persist:${input.decision}`);
-    },
-    workspaceManager: {
-      canPrepare() { return true; },
-      prepare() {
-        return {
-          kind: 'git-worktree',
-          cwd: root,
-          branch: 'task/permission-task',
-          sourceRevision: 'abc123',
-          lockKeys: [],
-        };
-      },
-      release() {},
-    },
-    sessionFactory(options) {
-      assert.equal(options.autoApproveScope, 'off');
-      assert.equal(options.confirmDestructive, undefined);
-      return session;
-    },
-    buildWorkerMcp() { return {}; },
-    getTalker() { return null; },
-    isClosed() { return false; },
-    getSpeechFilterMode() { return 'strict'; },
-  });
-  scheduler.installPlan([{
-    id: 'permission-task',
-    title: 'Permission task',
-    prompt: 'Edit one file.',
-    deps: [],
-    executorBackendId: 'codex',
-    writePaths: ['src/auth'],
-    workspaceMode: 'git-worktree',
-    authorityRequest: authorityRequest({
-      toolKinds: ['read', 'write', 'command'],
-    }),
-  }], {
-    decisionId: 'approval-permission',
-    approvedAt: Date.now(),
-  });
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-
-  scheduler.onWorkerEvent('permission-task', {
-    kind: 'permission-request',
-    id: 'permission-write',
-    toolName: 'Edit',
-    input: { file_path: 'src/auth/login.ts' },
-    toolUseID: 'permission-write',
-  });
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-
-  assert.deepEqual(order.slice(-2), ['decision-persist:allow', 'resolve:allow']);
-  assert.deepEqual(resolved, [{ id: 'permission-write', decision: 'allow' }]);
-  assert.equal(
-    emitted.some((entry) => entry.event?.kind === 'permission-request'),
-    false,
-  );
-
-  scheduler.onWorkerEvent('permission-task', {
-    kind: 'permission-request',
-    id: 'permission-secret',
-    toolName: 'Bash',
-    input: {
-      executable: 'curl',
-      argv: ['--token', 'never-store-this'],
-    },
-    toolUseID: 'permission-secret',
-  });
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-
-  assert.equal(order.at(-1), 'decision-persist:ask-user');
-  const approvalCard = emitted
-    .map((entry) => entry.event)
-    .find((event) => event?.kind === 'permission-request');
-  assert.equal(approvalCard.id, 'permission-secret');
-  assert.equal(approvalCard.input.normalizationDiagnostic, 'secret-bearing-argument');
-  assert.doesNotMatch(JSON.stringify(approvalCard), /never-store-this/);
 });
 
 test('repeated identical authority denials fail the worker instead of burning budget', async () => {

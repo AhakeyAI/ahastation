@@ -45,7 +45,7 @@ export class WorkerCliBridge {
     });
   }
 
-  async bind(target: WorkerCliTarget): Promise<WorkerCliBinding> {
+  async bind(target: WorkerCliTarget, options: { completionOnly?: boolean } = {}): Promise<WorkerCliBinding> {
     const port = await this.listen();
     const token = randomBytes(32).toString('hex');
     const runtimeDir = await mkdtemp(join(tmpdir(), 'ahastation-worker-'));
@@ -60,7 +60,10 @@ export class WorkerCliBridge {
       await rm(runtimeDir, { recursive: true, force: true });
       throw error;
     }
-    this.targets.set(token, target);
+    this.targets.set(token, options.completionOnly ? {
+      ...target,
+      async ask() { throw new Error('Execute autonomously; include any remaining blocker in the final WorkReport. Host is notified only on completion.'); },
+    } : target);
     return {
       runtimeDir,
       env: {
@@ -73,15 +76,20 @@ export class WorkerCliBridge {
       },
       prompt: [
         '\nYou are an AhaStation terminal Worker. Use aha-worker to communicate with your coordinator.',
-        'Run `aha-worker inbox` at checkpoints and before reporting; replies and instructions appear there.',
-        'For questions write {"question":"..."} to a JSON file in the runtime directory below, then run `aha-worker ask --file <file>`.',
-        'Continue checking inbox for the reply. Do not paste questions only into this terminal.',
+        ...(options.completionOnly ? [
+          'Execute autonomously using all native CLI tools, skills, subagents and configured MCP servers.',
+          'Do not wait for Host guidance during execution. Include any unresolved blocker in your final WorkReport.',
+        ] : [
+          'Run `aha-worker inbox` at checkpoints and before reporting; replies and instructions appear there.',
+          'For questions write {"question":"..."} to a JSON file in the runtime directory below, then run `aha-worker ask --file <file>`.',
+          'Continue checking inbox for the reply. Do not paste questions only into this terminal.',
+        ]),
         `Runtime directory: ${runtimeDir}`,
         `Write your final WorkReport to: ${reportFile}, then run aha-worker report.`,
         'WorkReport JSON: {"status":"completed|partial|blocked","summary":"what changed and what remains","files":[{"path":"relative/path","action":"created|modified|deleted"}],"tests":[{"command":"actual command","status":"passed|failed|not-run"}],"unresolved":[{"code":"reason","message":"details","blocking":true}]}',
         'List every changed file, including deleted files. Do not commit changes; the coordinator freezes and reviews the worktree.',
         'Keep report/question files in the runtime directory, outside the project. Report actual test results only.',
-        'After the report is accepted, stop editing and wait for user review. If the command fails, read its error and correct the report; do not claim it was delivered.',
+        'After the report is accepted, stop editing and wait for another task. If the command fails, read its error and correct the report; do not claim it was delivered.',
       ].join('\n'),
       dispose: () => {
         this.targets.delete(token);

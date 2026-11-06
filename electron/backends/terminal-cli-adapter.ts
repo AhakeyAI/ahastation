@@ -424,23 +424,26 @@ export class TerminalCliSession implements BackendSession {
       return;
     }
 
-    // Stop hook plumbing: append-only events file + shared hook script.
-    mkdirSync(this.ahaDir, { recursive: true });
-    writeFileSync(this.eventsPath, '');
-    this.eventsOffset = 0;
-    writeFileSync(this.hookScriptPath, buildStopHookScript(this.eventsPath));
-    this.profileCleanupPaths = [this.hookScriptPath, this.eventsPath];
-    // process.execPath is Electron in the packaged app; ELECTRON_RUN_AS_NODE
-    // (set on the pty env below) makes it act as plain node for the hook.
-    const hookCommand = `"${process.execPath}" "${this.hookScriptPath}"`;
-    const hookReg = this.profile.registerTurnHook?.({
-      config: this.config,
-      ahaDir: this.ahaDir,
-      suffix: this.suffix,
-      eventsPath: this.eventsPath,
-      hookScriptPath: this.hookScriptPath,
-      hookCommand,
-    });
+    const nativeWorker = this.config.unattended && this.config.executionRole === 'worker';
+    let hookReg: TerminalCliHookRegistration | undefined;
+    if (!nativeWorker) {
+      // Legacy interactive sessions still use the turn hook. Automatic Workers
+      // report through aha-worker; keep their native hooks and config home intact.
+      mkdirSync(this.ahaDir, { recursive: true });
+      writeFileSync(this.eventsPath, '');
+      this.eventsOffset = 0;
+      writeFileSync(this.hookScriptPath, buildStopHookScript(this.eventsPath));
+      this.profileCleanupPaths = [this.hookScriptPath, this.eventsPath];
+      const hookCommand = `"${process.execPath}" "${this.hookScriptPath}"`;
+      hookReg = this.profile.registerTurnHook?.({
+        config: this.config,
+        ahaDir: this.ahaDir,
+        suffix: this.suffix,
+        eventsPath: this.eventsPath,
+        hookScriptPath: this.hookScriptPath,
+        hookCommand,
+      });
+    }
     if (hookReg) this.profileCleanupPaths.push(...hookReg.cleanupPaths);
 
     const env: NodeJS.ProcessEnv = {
@@ -490,11 +493,13 @@ export class TerminalCliSession implements BackendSession {
       true,
     );
 
-    this.startTurnEventWatcher();
+    if (!nativeWorker) this.startTurnEventWatcher();
     this.startTranscriptTailer(processId);
     this.emit({
       kind: 'worker-signal',
-      signal: { kind: 'progress', message: this.profile.startupMessage },
+      signal: { kind: 'progress', message: nativeWorker
+        ? `原生 ${this.profile.displayLabel} Worker 已启动，完成后自动回报。`
+        : this.profile.startupMessage },
     });
   }
 

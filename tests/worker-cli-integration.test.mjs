@@ -45,6 +45,7 @@ test('two terminal routes use a real CLI bridge, durable questions and exact cod
   });
   const harness = new DeliveryHarness({
     executionMode: 'external',
+    approvalMode: 'manual', // This fixture covers report transport, not automatic verification.
     verifier: { async verify(_order, report) { reports.push(report); return { passed: true, checks: [] }; } },
     reviewer: { async review() { return { passed: true, findings: [] }; } },
     candidatePreparer: { prepare: (order, report, verification) => prepareFrozenDeliveryCandidate({ order, report, verification }) },
@@ -53,6 +54,7 @@ test('two terminal routes use a real CLI bridge, durable questions and exact cod
   });
   const scheduler = new WorkerScheduler({
     cwd: repo, meetingId: 'cli-test', autoApproveScope: 'off',
+    approvalMode: 'manual', // The legacy question/reply protocol is tested explicitly here.
     taskMailbox: mailbox, deliveryHarness: harness,
     workspaceManager: new TaskWorkspaceManager('cli-test', repo, { worktreeRoot: join(root, 'worktrees') }),
     sessionFactory() { throw new Error('Must use the selected backend'); },
@@ -75,7 +77,7 @@ test('two terminal routes use a real CLI bridge, durable questions and exact cod
   t.after(async () => {
     scheduler.endAll();
     await repository.flush();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   assert.deepEqual(scheduler.installPlan([
     { id: 'a', title: 'Codex', prompt: 'implement a', deps: [], executorBackendId: 'codex-terminal', workspaceMode: 'git-worktree', writePaths: ['a 文件.txt'] },
@@ -112,6 +114,10 @@ test('two terminal routes use a real CLI bridge, durable questions and exact cod
   }
   await waitFor(() => reports.length === 2);
   await waitFor(() => reviewDriver.snapshot().length === 2);
+  // Finish the real asynchronous review writes before tearing down its Git
+  // worktrees; observing a requested session alone does not mean it settled.
+  await waitFor(() => reviewDriver.snapshot().every((review) => review.status === 'completed'));
+  await repository.flush();
   assert.ok(reviewDriver.snapshot().every((review) => review.candidate.manifest.files.length === 1));
   const journal = await readFile(join(root, 'journal', 'events.jsonl'), 'utf8');
   assert.equal(journal.split('\n').filter((line) => line.includes('"kind":"report"')).length, 2);

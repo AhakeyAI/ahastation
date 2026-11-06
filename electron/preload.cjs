@@ -32,36 +32,13 @@ const api = {
     ipcRenderer.invoke('session:user-image', { sessionId, dataUrl, caption }),
   sendUserAttachments: (sessionId, items, caption) =>
     ipcRenderer.invoke('session:user-attachments', { sessionId, items, caption }),
-  resolvePermission: (sessionId, id, decision, message, scope) =>
-    ipcRenderer.invoke('session:resolve-permission', { sessionId, id, decision, message, scope }),
   interrupt: (sessionId) => ipcRenderer.invoke('session:interrupt', { sessionId }),
   setPermissionMode: (sessionId, mode) =>
     ipcRenderer.invoke('session:set-permission-mode', { sessionId, mode }),
   setAutoApprove: (scope) => ipcRenderer.invoke('session:set-auto-approve', { scope }),
-  setOrchestrationMode: (sessionId, enabled) => ipcRenderer.invoke('session:set-orchestration-mode', { sessionId, enabled }),
-  approvePlan: (sessionId, approved, tasks) =>
-    ipcRenderer.invoke('session:approve-plan', { sessionId, approved, ...(tasks ? { tasks } : {}) }),
-  acceptDelivery: (sessionId, deliveryId, candidateId) =>
-    ipcRenderer.invoke('session:accept-delivery', { sessionId, deliveryId, candidateId }),
-  returnDelivery: (sessionId, deliveryId, candidateId, feedback) =>
-    ipcRenderer.invoke('session:return-delivery', {
-      sessionId,
-      deliveryId,
-      candidateId,
-      feedback,
-    }),
   meetingDelivery: {
     get: (sessionId) =>
       ipcRenderer.invoke('meeting-delivery:get', { sessionId }),
-    accept: (sessionId, deliveryId, contentHash) =>
-      ipcRenderer.invoke('meeting-delivery:accept', { sessionId, deliveryId, contentHash }),
-    requestRework: (sessionId, deliveryId, contentHash, reason) =>
-      ipcRenderer.invoke('meeting-delivery:request-rework', {
-        sessionId,
-        deliveryId,
-        contentHash,
-        reason,
-      }),
   },
   endSession: (sessionId) => ipcRenderer.invoke('session:end', { sessionId }),
   pickCwd: () => ipcRenderer.invoke('dialog:pick-cwd'),
@@ -212,16 +189,6 @@ const api = {
         expectedPlanVersion,
         budget,
       }),
-    confirmReviewEvidence: (sessionId, taskId, reviewId, chunkId, chunkHash) =>
-      ipcRenderer.invoke('tasks:confirm-review-evidence', {
-        sessionId,
-        taskId,
-        reviewId,
-        chunkId,
-        chunkHash,
-      }),
-    resumeReview: (sessionId, taskId, reviewId) =>
-      ipcRenderer.invoke('tasks:resume-review', { sessionId, taskId, reviewId }),
   },
   transcripts: {
     load: (cwd) => ipcRenderer.invoke('transcripts:load', { cwd }),

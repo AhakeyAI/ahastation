@@ -1,3 +1,5 @@
+// These tests exercise the manual approval flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -553,6 +555,8 @@ test('reviewed gate stays closed during coordinator-reviewing', async () => {
           status: 'active',
         };
       },
+      // Review stays open: the gate must remain closed meanwhile.
+      autoReview: () => new Promise(() => {}),
     },
   });
   const scheduler = new WorkerScheduler({

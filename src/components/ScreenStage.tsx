@@ -53,13 +53,6 @@ interface ScreenStageProps {
   /** Task the cross-project board asked us to open. `seq` changes on every
    *  request so re-picking the same task after closing the inspector works. */
   focusTask?: { taskId: string; seq: number } | null;
-  onAcceptDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onReviseDelivery: (feedback: string) => Promise<
-    | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
-    | { ok: false; error: string }
-  >;
-  onAcceptFinalMeetingDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onRequestFinalMeetingRework: (reason: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   viewingFile?: { relativePath: string } | null;
   onCloseFileView?: () => void;
   stageWindows: StageWindow[];
@@ -68,7 +61,6 @@ interface ScreenStageProps {
   onCloseWindow: (id: string) => void;
   onCreateWindow: (type: StageWindowType, opts?: { workerId?: string; title?: string }) => void;
   onPopOutWindow?: (id: string) => void;
-  onResolvePermission: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
   browserTabs?: BrowserTabInfo[];
   browserActiveTabId?: string | null;
   browserViewportRef?: RefObject<HTMLDivElement>;
@@ -102,10 +94,6 @@ export const ScreenStage = memo(function ScreenStage({
   finalMeetingDecision,
   sessionId,
   focusTask,
-  onAcceptDelivery,
-  onReviseDelivery,
-  onAcceptFinalMeetingDelivery,
-  onRequestFinalMeetingRework,
   viewingFile,
   onCloseFileView,
   stageWindows,
@@ -114,7 +102,6 @@ export const ScreenStage = memo(function ScreenStage({
   onCloseWindow,
   onCreateWindow,
   onPopOutWindow,
-  onResolvePermission,
   browserTabs = [],
   browserActiveTabId = null,
   browserViewportRef,
@@ -372,8 +359,6 @@ export const ScreenStage = memo(function ScreenStage({
               <FinalMeetingDelivery
                 delivery={finalMeetingDelivery}
                 decision={finalMeetingDecision}
-                onAccept={onAcceptFinalMeetingDelivery}
-                onRequestRework={onRequestFinalMeetingRework}
               />
             ) : stageDeliveryCovered ? (
               <div className="stage-delivery-content">
@@ -381,8 +366,6 @@ export const ScreenStage = memo(function ScreenStage({
                   delivery={delivery!}
                   sessionId={sessionId}
                   aiSpeaking={aiSpeaking}
-                  onAccept={onAcceptDelivery}
-                  onRevise={onReviseDelivery}
                 />
               </div>
             ) : isActivityTab && (
@@ -393,7 +376,6 @@ export const ScreenStage = memo(function ScreenStage({
                 coordinatorBriefings={coordinatorBriefings}
                 running={running}
                 aiSpeaking={aiSpeaking}
-                onResolvePermission={onResolvePermission}
                 selectedId={selectedParticipantId}
                 onOpenInTerminal={(workerId) => onCreateWindow('terminal', { workerId })}
                 customAvatars={customAvatars}
@@ -426,8 +408,6 @@ export const ScreenStage = memo(function ScreenStage({
                     workerId={terminalPtyWorker.id}
                     sessionId={sessionId!}
                     onOpenInspector={handleOpenInspectorFromWorkbench}
-                    onAcceptDelivery={onAcceptDelivery}
-                    onReviseDelivery={onReviseDelivery}
                   />
                 ) : (
                   <TerminalPanel commands={terminalCommands} />
@@ -502,7 +482,6 @@ export const ScreenStage = memo(function ScreenStage({
                 openSeq={inspectorOpenSeq}
                 worker={selectedTaskWorker}
                 onClose={() => setSelectedTaskId(null)}
-                onResolvePermission={onResolvePermission}
               />
             </div>
           )}

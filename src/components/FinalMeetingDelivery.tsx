@@ -1,44 +1,14 @@
-import { useState } from 'react';
 import type { FinalMeetingDecision, MeetingDelivery } from '../types';
 
 interface FinalMeetingDeliveryProps {
   delivery: MeetingDelivery;
   decision: FinalMeetingDecision | null;
-  onAccept: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onRequestRework: (reason: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export function FinalMeetingDelivery({
   delivery,
   decision,
-  onAccept,
-  onRequestRework,
 }: FinalMeetingDeliveryProps) {
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState<'accept' | 'rework' | null>(null);
-  const [error, setError] = useState('');
-  const decided = decision !== null || delivery.publicationState === 'published';
-
-  const accept = async () => {
-    setBusy('accept');
-    setError('');
-    const result = await onAccept();
-    if (!result.ok) setError(result.error);
-    setBusy(null);
-  };
-  const rework = async () => {
-    const normalized = reason.trim();
-    if (!normalized) {
-      setError('请说明需要返工的原因。');
-      return;
-    }
-    setBusy('rework');
-    setError('');
-    const result = await onRequestRework(normalized);
-    if (!result.ok) setError(result.error);
-    setBusy(null);
-  };
-
   return (
     <section className="final-meeting-delivery" aria-labelledby="final-meeting-delivery-title">
       <header>
@@ -91,40 +61,7 @@ export function FinalMeetingDelivery({
         </section>
       </div>
 
-      {decision?.kind === 'rework' && (
-        <p role="status">已创建计划 v{decision.planVersion} 的版本化返工任务；现有集成提交保持不变。</p>
-      )}
       {decision?.kind === 'accept' && <p role="status">最终交付已发布到主工作区。</p>}
-      {error && <p className="final-meeting-delivery-error" role="alert">{error}</p>}
-
-      {!decided && (
-        <footer>
-          <button type="button" disabled={busy !== null} onClick={() => void accept()}>
-            {busy === 'accept' ? '正在发布…' : '接受最终交付'}
-          </button>
-          <label>
-            <span>返工原因（必填）</span>
-            <textarea
-              value={reason}
-              maxLength={20_000}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="说明哪些结果需要调整；已进 Meeting 分支的提交不会被回滚。"
-            />
-          </label>
-          <button
-            type="button"
-            className="is-secondary"
-            disabled={busy !== null || !reason.trim()}
-            onClick={() => void rework()}
-          >
-            {busy === 'rework' ? '正在创建返工计划…' : '请求返工'}
-          </button>
-          <small>
-            任务「已进 Meeting 分支」不等于发布到你的工作区；点「接受最终交付」才会发布。
-            返工会创建新版本任务；已进 Meeting 分支的任务和集成提交保持终态、不会被重写。
-          </small>
-        </footer>
-      )}
     </section>
   );
 }

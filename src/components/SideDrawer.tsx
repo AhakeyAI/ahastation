@@ -16,23 +16,12 @@ import {
   DISPATCH_MODE_LABELS,
   type DispatchMode,
 } from '../lib/dispatch-mode';
-import { ApprovalCard } from './ApprovalCard';
 import { FileTree } from './FileTree';
 import { Modal } from './Modal';
 import { toast } from '../lib/toast';
 
 interface SideDrawerProps {
   open: boolean;
-  pending: PendingPermission | null;
-  /** Resolving flag for the legacy single permission card, sourced from the
-   *  worker that owns `pending.id`. Keeps the drawer card in lock-step with
-   *  WorkerCard and TaskInspector. */
-  pendingResolving?: boolean;
-  /** Permission IPC error for the legacy single permission card. */
-  pendingError?: string | null;
-  /** 批准卡片四要素上下文（04 BR-A2：项目/任务/客户端）。 */
-  approvalMeta?: { owner: string; backendId?: string; project: string };
-  onResolve: (id: string, decision: 'allow' | 'deny') => Promise<{ ok: true } | { ok: false; error: string }> | void;
   onSend: (text: string) => void;
   onSendAttachments?: (
     staged: StagedAttachment[],
@@ -205,11 +194,6 @@ function iconFor(kind: AttachmentKind) {
 
 export const SideDrawer = memo(function SideDrawer({
   open,
-  pending,
-  pendingResolving,
-  pendingError,
-  approvalMeta,
-  onResolve,
   onSend,
   onSendAttachments,
   onSubscribeDroppedFiles,
@@ -434,7 +418,7 @@ export const SideDrawer = memo(function SideDrawer({
   useEffect(() => {
     if (tab !== 'chat') return;
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [transcript.length, tab, pending, talkerResponding]);
+  }, [transcript.length, tab, talkerResponding]);
 
   const totalStagedBytes = useMemo(
     () => staged.reduce((acc, a) => acc + a.sizeBytes, 0),
@@ -685,17 +669,6 @@ export const SideDrawer = memo(function SideDrawer({
                   <span className="thinking-text">正在思考</span>
                 </div>
               </div>
-            )}
-            {pending && (
-              <ApprovalCard
-                pending={pending}
-                owner={approvalMeta?.owner ?? 'Coordinator'}
-                backendId={approvalMeta?.backendId}
-                project={approvalMeta?.project ?? '当前项目'}
-                onDecide={onResolve}
-                resolving={pendingResolving}
-                error={pendingError}
-              />
             )}
             <div ref={endRef} />
           </div>

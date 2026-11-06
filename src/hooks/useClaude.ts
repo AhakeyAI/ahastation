@@ -61,7 +61,6 @@ export function useClaude() {
     sendAttachments: w.sendAttachments,
     publishDroppedFiles: w.publishDroppedFiles,
     onDroppedFiles: w.onDroppedFiles,
-    resolvePermission: w.resolvePermission,
     interrupt: w.interrupt,
     endSession: w.endSession,
     setSpeakCallback: w.setSpeakCallback,

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkerDeliveryFile } from '../types';
 import type { DeliverySnapshot } from '../lib/meeting-store';
-import {
-  canHostAcceptDelivery,
-  hostAcceptancePrimaryLabel,
-  hostAcceptanceReason,
-} from '../lib/delivery-acceptance';
 import { FileContent, ViewState, basename } from './FileViewer';
 import { DeliveryDiffView } from './DeliveryDiffView';
 import { useAutoScroll } from '../hooks/useAutoScroll';
@@ -14,11 +9,6 @@ interface DeliveryViewerProps {
   delivery: DeliverySnapshot;
   sessionId: string | null;
   aiSpeaking: boolean;
-  onAccept: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onRevise: (feedback: string) => Promise<
-    | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
-    | { ok: false; error: string }
-  >;
 }
 
 function formatBytes(value: number): string {
@@ -42,18 +32,12 @@ export function DeliveryViewer({
   delivery,
   sessionId,
   aiSpeaking,
-  onAccept,
-  onRevise,
 }: DeliveryViewerProps) {
   const files = delivery.files;
   const [activePath, setActivePath] = useState<string>(
     files[0]?.snapshotPath ?? files[0]?.snapshotRelativePath ?? files[0]?.path ?? '',
   );
   const [state, setState] = useState<ViewState>({ phase: 'loading' });
-  const [feedback, setFeedback] = useState('');
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'summary' | 'diff' | 'files' | 'tests' | 'verification' | 'history'>('summary');
   const loadTokenRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -66,10 +50,6 @@ export function DeliveryViewer({
   useEffect(() => {
     const first = files[0]?.snapshotPath ?? files[0]?.snapshotRelativePath ?? files[0]?.path ?? '';
     setActivePath(first);
-    setFeedback('');
-    // Never auto-open the rework box — Accept must stay the obvious path.
-    setFeedbackOpen(false);
-    setToast(null);
     setActiveTab(
       delivery.status === 'reworking' || delivery.status === 'coordinator-reviewing'
         ? 'verification'
@@ -107,43 +87,6 @@ export function DeliveryViewer({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [activePath, state.phase]);
 
-  const canAccept = canHostAcceptDelivery(delivery);
-
-  const handleAccept = useCallback(async () => {
-    if (submitting || !canAccept) return;
-    setSubmitting(true);
-    setToast(null);
-    try {
-      const result = await onAccept();
-      if (!result.ok) setToast(`验收失败：${result.error}`);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [canAccept, onAccept, submitting]);
-
-  const handleSubmitFeedback = useCallback(async () => {
-    const trimmed = feedback.trim();
-    if (!trimmed || submitting) return;
-    setSubmitting(true);
-    setToast(null);
-    try {
-      const res = await onRevise(trimmed);
-      if (res.ok) {
-        setToast(
-          res.route === 'worker'
-            ? '修改意见已直接发回该 worker。'
-            : '该 worker 已收尾，修改意见已交给 talker 重新派活。',
-        );
-        setFeedback('');
-        setFeedbackOpen(false);
-      } else {
-        setToast(`发送失败：${res.error}`);
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }, [feedback, onRevise, submitting]);
-
   const headerMeta = useMemo(() => {
     return `${files.length} 个交付物 · 第 ${delivery.attempt} 次执行 · ${delivery.workerId}`;
   }, [delivery.attempt, files.length, delivery.workerId]);
@@ -151,8 +94,6 @@ export function DeliveryViewer({
   const activeFileName = basename(activePath);
   const report = delivery.report;
   const attempts = delivery.view?.attempts ?? [];
-  const acceptanceReason = useMemo(() => hostAcceptanceReason(delivery), [delivery]);
-  const acceptLabel = useMemo(() => hostAcceptancePrimaryLabel(delivery), [delivery]);
   const statusLabel: Record<string, string> = {
     verifying: '正在校验',
     reviewing: '正在评审',
@@ -165,8 +106,6 @@ export function DeliveryViewer({
     accepted: '已进 Meeting 分支',
     failed: '失败',
   };
-  const canReturn = delivery.status === 'awaiting-delivery-acceptance'
-    || delivery.status === 'reworking';
   const candidate = delivery.view?.candidate;
   const diffManifest = candidate?.frozen?.manifest;
   const tabs = [
@@ -193,12 +132,6 @@ export function DeliveryViewer({
         </div>
         {delivery.summary && (
           <p className="delivery-viewer-summary">{delivery.summary}</p>
-        )}
-        {acceptanceReason && (
-          <div className="delivery-risk-note delivery-host-accept-reason" role="note">
-            <strong>为什么要人手确认</strong>
-            <span>{acceptanceReason}</span>
-          </div>
         )}
       </header>
 
@@ -423,82 +356,15 @@ export function DeliveryViewer({
       </div>
 
       <footer className="delivery-viewer-footer">
-        {toast && <div className="delivery-viewer-toast">{toast}</div>}
-        {!feedbackOpen && canReturn ? (
-          <div className="delivery-viewer-actions">
-            <button
-              type="button"
-              className="delivery-viewer-btn delivery-viewer-btn-secondary"
-              onClick={() => setFeedbackOpen(true)}
-              disabled={submitting || !canReturn}
-            >
-              还要继续改
-            </button>
-            <button
-              type="button"
-              className="delivery-viewer-btn delivery-viewer-btn-primary"
-              onClick={() => { void handleAccept(); }}
-              disabled={submitting || !canAccept}
-            >
-              {submitting ? '处理中…' : acceptLabel}
-            </button>
-          </div>
-        ) : feedbackOpen ? (
-          <div className="delivery-viewer-feedback">
-            <textarea
-              className="delivery-viewer-feedback-input"
-              placeholder="说明哪里不对、希望怎么改。若已满意，直接点确认。"
-              rows={3}
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              disabled={submitting}
-              autoFocus
-            />
-            <div className="delivery-viewer-actions">
-              <button
-                type="button"
-                className="delivery-viewer-btn delivery-viewer-btn-secondary"
-                onClick={() => {
-                  setFeedbackOpen(false);
-                  setFeedback('');
-                }}
-                disabled={submitting}
-              >
-                取消
-              </button>
-              {canAccept && (
-                <button
-                  type="button"
-                  className="delivery-viewer-btn delivery-viewer-btn-secondary"
-                  onClick={() => { void handleAccept(); }}
-                  disabled={submitting}
-                >
-                  {acceptLabel}
-                </button>
-              )}
-              <button
-                type="button"
-                className="delivery-viewer-btn delivery-viewer-btn-primary"
-                onClick={handleSubmitFeedback}
-                disabled={submitting || feedback.trim().length === 0}
-              >
-                {submitting ? '发送中…' : '把意见发回去'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="delivery-viewer-actions" role="status">
-            <span className="delivery-viewer-toast">
-              {delivery.status === 'accepted'
-                ? '已进入 Meeting 集成分支（尚未发布到你的工作区；发布要等「接受最终交付」）。'
-                : delivery.status === 'integration-conflict'
-                  ? '自动集成发生冲突，任务将按证据返工；不会修改用户主分支。'
-                  : delivery.status === 'coordinator-reviewing'
-                    ? 'Coordinator 审查中，通过后会自动集成到 Meeting 分支（通常不必点确认）。'
-                    : 'Coordinator 正在审查或集成；冻结成功时单任务无需人手确认。'}
-            </span>
-          </div>
-        )}
+        <div className="delivery-viewer-actions" role="status">
+          <span className="delivery-viewer-toast">
+            {delivery.status === 'accepted'
+              ? '已自动集成到 Meeting 分支。'
+              : delivery.status === 'integration-conflict'
+                ? '自动集成发生冲突，任务将按证据返工；不会修改用户主分支。'
+                : '校验通过后将自动集成到 Meeting 分支。'}
+          </span>
+        </div>
       </footer>
     </div>
   );

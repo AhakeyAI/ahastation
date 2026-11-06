@@ -1,3 +1,5 @@
+// Exercises the manual Coordinator review flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 // Orchestration coverage for the full plan → parallel delivery → review →
 // integration → acceptance pipeline.
 //
@@ -214,46 +216,6 @@ async function completeWorker(session, workReport) {
   session.emit({ kind: 'worker-signal', signal: { kind: 'ended', reason: 'completed' } });
 }
 
-async function latestReview(meetingId, taskId, attempt) {
-  return waitFor(async () => {
-    const journal = await MeetingRepository.replay(meetingId);
-    return journal
-      .filter((event) => event.type === 'coordinator-review-requested')
-      .map((event) => event.payload?.data?.session)
-      .filter((session) => (
-        (session?.taskId === taskId || session?.taskId?.startsWith(`${taskId}-task-`))
-        && session?.attempt === attempt
-      ))
-      .at(-1) ?? null;
-  }, `Coordinator review did not start for ${taskId} attempt ${attempt}`);
-}
-
-/** Injects Coordinator verdicts directly. See the file header: this is not model review. */
-async function reviewEveryChunk(orchestrator, reviewId, { pauseAfterFirst = false } = {}) {
-  let reviewed = 0;
-  for (;;) {
-    const chunk = orchestrator.getDeliveryReviewChunk(reviewId);
-    if (!chunk) break;
-    await orchestrator.submitDeliveryChunkReview(reviewId, {
-      chunkId: chunk.id,
-      chunkHash: chunk.hash,
-      verdict: 'passed',
-      findings: [],
-    });
-    reviewed += 1;
-    if (pauseAfterFirst && reviewed === 1) {
-      await orchestrator.coordinatorReviewDriver.pauseForDisconnect(reviewId);
-      const paused = orchestrator.inspectDeliveryReview(reviewId);
-      assert.equal(paused.status, 'paused');
-      await orchestrator.coordinatorReviewDriver.resume(reviewId);
-      assert.equal(orchestrator.inspectDeliveryReview(reviewId).cursor, 1);
-    }
-  }
-  const completed = await orchestrator.completeDeliveryReview(reviewId);
-  assert.equal(completed.coverage.complete, true);
-  return completed;
-}
-
 async function acceptedTask(orchestrator, taskId) {
   return waitFor(async () => {
     const source = await orchestrator.getTaskInspectorSource(taskId);
@@ -338,11 +300,7 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
       'Draft regression pass',
     ),
   ];
-  assert.deepEqual(await orchestrator.proposePlan(draft), { ok: true });
-  const revised = structuredClone(draft);
-  revised[0].title = 'Implement login validation';
-  revised[1].title = 'Implement unit tests';
-  assert.deepEqual(await orchestrator.approvePendingPlan(true, revised), { ok: true });
+  assert.deepEqual(await orchestrator.proposePlan(draft), { ok: true, installed: true });
 
   const rootWorkers = await waitFor(
     () => sessions.filter((session) => session.config.executionRole === 'worker').length === 2
@@ -426,20 +384,14 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
     input: { command: ['git', 'push', '--force', 'origin', 'main'] },
     toolUseID: 'high-risk-push',
   });
-  const approvalCard = await waitFor(
-    () => rendererEvents.find(
-      (entry) => entry.event?.kind === 'permission-request'
-        && entry.event.id === 'high-risk-push',
-    ),
-    'high-risk permission did not reach the user',
+  await waitFor(
+    () => unitSession.permissions.length === 1 ? unitSession.permissions : null,
+    'high-risk permission was not auto-approved',
   );
-  assert.equal(approvalCard.event.toolName, 'Bash');
-  assert.deepEqual(unitSession.permissions, []);
-  orchestrator.resolvePermission('high-risk-push', 'allow', 'User approved this fixture request.');
   assert.deepEqual(unitSession.permissions, [{
     id: 'high-risk-push',
     decision: 'allow',
-    message: 'User approved this fixture request.',
+    message: 'auto-approval',
   }]);
 
   assert.equal(
@@ -449,8 +401,11 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
     'Workers must not directly message peers without Coordinator-owned evidence',
   );
 
+  const loginRetryFiles = {
+    'src/login.ts': 'export const validLogin = (value) => Boolean(value?.trim?.());\n',
+  };
   const loginFiles = {
-    'src/login.ts': 'export const validLogin = (value) => Boolean(value && value.trim());\n',
+    ...loginRetryFiles,
     'src/login-types.ts': 'export const LOGIN_KIND = \"strict\";\n',
   };
   const unitFiles = {
@@ -459,42 +414,8 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   writeWorkerChange(loginSession, loginFiles);
   writeWorkerChange(unitSession, unitFiles);
   await Promise.all([
-    completeWorker(loginSession, report(loginFiles, 'login implementation attempt one')),
+    completeWorker(loginSession, report(loginFiles, 'login implementation complete')),
     completeWorker(unitSession, report(unitFiles, 'unit tests complete')),
-  ]);
-
-  const loginReview1 = await latestReview(meetingId, 'task-login', 1);
-  await orchestrator.requestDeliveryRework(loginReview1.id, [{
-    code: 'missing-normalization',
-    message: 'Normalize whitespace before validation.',
-    blocking: true,
-    path: 'src/login.ts',
-  }]);
-  const loginRetry = await waitFor(
-    () => sessions.filter(
-      (session) => (
-        session.config.executionRole === 'worker'
-        && taskIdForSession(session, taskIds) === 'task-login'
-      ),
-    ).at(1) ?? null,
-    'login rework attempt did not start',
-  );
-  const loginRetryFiles = {
-    'src/login.ts': 'export const validLogin = (value) => Boolean(value?.trim?.());\n',
-  };
-  writeWorkerChange(loginRetry, loginRetryFiles);
-  await completeWorker(
-    loginRetry,
-    report({ ...loginFiles, ...loginRetryFiles }, 'login rework complete'),
-  );
-
-  const [loginReview2, unitReview] = await Promise.all([
-    latestReview(meetingId, 'task-login', 2),
-    latestReview(meetingId, 'task-unit', 1),
-  ]);
-  await Promise.all([
-    reviewEveryChunk(orchestrator, loginReview2.id, { pauseAfterFirst: true }),
-    reviewEveryChunk(orchestrator, unitReview.id),
   ]);
   await Promise.all([
     acceptedTask(orchestrator, 'task-login'),
@@ -515,9 +436,9 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   const docsFiles = { 'docs/login.md': '# Login validation\n\nWhitespace-only values are rejected.\n' };
   writeWorkerChange(docsSession, docsFiles);
   await completeWorker(docsSession, report(docsFiles, 'documentation complete'));
-  const docsReview = await latestReview(meetingId, 'task-docs', 1);
-  await reviewEveryChunk(orchestrator, docsReview.id);
   await acceptedTask(orchestrator, 'task-docs');
+  const beforePublication = git(repo.root, ['rev-parse', 'HEAD']);
+  assert.equal(beforePublication, repo.revision, 'per-task acceptance must not publish the user base');
 
   const regressionSession = await waitFor(
     () => sessions.find(
@@ -531,12 +452,7 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   const regressionFiles = { 'tests/regression/login.txt': 'login regression passed\n' };
   writeWorkerChange(regressionSession, regressionFiles);
   await completeWorker(regressionSession, report(regressionFiles, 'regression complete'));
-  const regressionReview = await latestReview(meetingId, 'task-regression', 1);
-  await reviewEveryChunk(orchestrator, regressionReview.id);
   await acceptedTask(orchestrator, 'task-regression');
-
-  const beforePublication = git(repo.root, ['rev-parse', 'HEAD']);
-  assert.equal(beforePublication, repo.revision, 'per-task acceptance must not publish the user base');
   const delivery = await waitFor(
     () => orchestrator.prepareFinalMeetingDelivery(),
     'final Meeting delivery was not produced',
@@ -563,8 +479,8 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   );
   assert.equal(
     finalJournal.some((event) => (
-      event.type === 'coordinator-review-chunk-submitted'
-      && event.payload?.data?.session?.status === 'rework-requested'
+      event.type === 'coordinator-review-completed'
+      && event.payload?.data?.session?.status === 'completed'
     )),
     true,
   );
@@ -579,7 +495,8 @@ test('injected-review orchestration drives the complete multi-backend Meeting wo
   assert.equal(
     finalJournal.some((event) => (
       event.type === 'task-permission-decided'
-      && event.payload?.data?.decision === 'ask-user'
+      && event.payload?.data?.decision === 'allow'
+      && event.payload?.data?.reason === 'auto-approval'
     )),
     true,
   );

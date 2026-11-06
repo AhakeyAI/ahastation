@@ -39,11 +39,9 @@ import { SideDrawer } from './components/SideDrawer';
 import { SettingsMenu } from './components/SettingsMenu';
 import { VoiceGuideModal } from './components/VoiceGuideModal';
 import { ParticipantPanel } from './components/ParticipantPanel';
-import { ApprovalCard } from './components/ApprovalCard';
 import { EditorOverlay } from './components/EditorOverlay';
 import { Modal } from './components/Modal';
 import { ToastViewport } from './components/ToastViewport';
-import { PlanMeetingModal } from './components/PlanMeetingModal';
 import {
   buildDirectAttachmentDirective,
   buildDirectDirective,
@@ -66,7 +64,7 @@ export function App() {
   const workers = useWorkers();
   const {
     restartSession, sendText, sendImage, sendAttachments, publishDroppedFiles,
-    onDroppedFiles, resolvePermission, interrupt, setSpeakCallback,
+    onDroppedFiles, interrupt, setSpeakCallback,
   } = workers;
   // Low-frequency slices subscribed individually. High-frequency streams
   // (transcript/activity) are subscribed inside SideDrawer; the mic level and
@@ -127,14 +125,8 @@ export function App() {
   const visualFixture = import.meta.env.DEV
     && new URLSearchParams(window.location.search).has('ui-fixture');
 
-  useEffect(() => {
-    if (!activeTab || activeTab.placeholder) return;
-    void window.vibeMeet.setOrchestrationMode(activeTab.id, multiAgent);
-  }, [activeTab?.id, activeTab?.placeholder, multiAgent]);
-
   const attentionCount = useMemo(
-    () => crossProjectTasks.tasks.filter((t) => t.column === 'attention').length
-      + crossProjectTasks.pendingPlans.length,
+    () => crossProjectTasks.tasks.filter((t) => t.column === 'attention').length,
     [crossProjectTasks],
   );
 
@@ -155,8 +147,8 @@ export function App() {
     const active = nodes.filter(
       (node) => !['accepted', 'done', 'failed', 'interrupted'].includes(node.status),
     ).length;
-    return active + (pendingPermission ? 1 : 0) + (workers.pendingPlan ? 1 : 0);
-  }, [workers.plan, pendingPermission, workers.pendingPlan]);
+    return active + (pendingPermission ? 1 : 0);
+  }, [workers.plan, pendingPermission]);
 
   // The embedded browser is a native WebContentsView painted above the
   // renderer, so no amount of CSS can tuck it behind the task board. Drop it
@@ -170,11 +162,6 @@ export function App() {
   const handleOpenTaskFromBoard = useCallback((sessionId: string, taskId: string) => {
     void meetingStore.setActive(sessionId);
     setTaskFocus((prev) => ({ taskId, seq: (prev?.seq ?? 0) + 1 }));
-    setView('meeting');
-  }, []);
-
-  const handleOpenPlanFromBoard = useCallback((sessionId: string) => {
-    void meetingStore.setActive(sessionId);
     setView('meeting');
   }, []);
 
@@ -242,36 +229,6 @@ export function App() {
     }
     return map;
   }, [backends]);
-
-  // SideDrawer renders the unified ApprovalCard for the first pending
-  // permission across all workers (state.pendingPermission). Thread the
-  // matching worker's resolving/error flags so that card stays in lock-step
-  // with WorkerCard and TaskInspector for the same permission id.
-  const drawerPermissionState = useMemo(() => {
-    const pending = pendingPermission;
-    if (!pending) return { resolving: false, error: null as string | null };
-    const owner = workers.workerList.find((w) => w.pendingPermission?.id === pending.id);
-    return {
-      resolving: owner?.resolvingPermissionId === pending.id,
-      error: owner?.permissionError ?? null,
-    };
-  }, [pendingPermission, workers.workerList]);
-
-  // 批准卡片四要素上下文（04 BR-A2：项目/任务/客户端/动作缺一不渲染）
-  const approvalMeta = useMemo(() => {
-    const pending = pendingPermission;
-    const ownerW = pending
-      ? workers.workerList.find((w) => w.pendingPermission?.id === pending.id)
-      : undefined;
-    const project = cwd
-      ? (cwd.split('/').filter(Boolean).pop() ?? cwd)
-      : '当前项目';
-    return {
-      owner: ownerW?.title ?? 'Coordinator',
-      backendId: ownerW?.backendId,
-      project,
-    };
-  }, [pendingPermission, workers.workerList, cwd]);
 
   const speakingRef = useRef(false);
   const sendWithModeRef = useRef<(text: string) => void>(sendText);
@@ -517,15 +474,6 @@ export function App() {
     })();
   }, [autoApproveScope, running]);
 
-  useEffect(() => {
-    // Auto-resolve pending cards only under 'all'. Under 'read', anything
-    // that reached the UI card was already classified as non-safe upstream
-    // (safe tools never become pending), so it must stay a manual decision.
-    if (autoApproveScope === 'all' && pendingPermission) {
-      void resolvePermission(pendingPermission.id, 'allow');
-    }
-  }, [autoApproveScope, pendingPermission, resolvePermission]);
-
   const leave = useCallback(async () => {
     // These pre-steps must never throw — a failure here used to skip closeTab
     // entirely, leaving the session alive main-side with no way back in.
@@ -575,7 +523,6 @@ export function App() {
   const toggleTts = useCallback(() => setTtsOn((v) => !v), []);
   const toggleChat = useCallback(() => setDrawerOpen((v) => !v), []);
   const toggleCompanion = useCallback(() => { void window.vibeMeet.companion?.toggle(); }, []);
-  const openPermissionModal = useCallback(() => setPermModalOpen(true), []);
   const toggleMultiAgent = useCallback(() => setMultiAgent((v) => !v), []);
   const openExplore = useCallback(() => setExploreOpen(true), []);
   const closeAgentPanel = useCallback(() => setAgentPanelId(null), []);
@@ -639,8 +586,6 @@ export function App() {
     handheldInitialDrawerApplied.current = true;
     setDrawerOpen(false);
   }, [handheld]);
-  const [permModalOpen, setPermModalOpen] = useState(false);
-  const permissionCount = workers.workerList.filter((w) => w.pendingPermission).length;
   // Pragmatic update notice (Phase 6b): shown only when the probe actually
   // found a newer release tag (no-op while the repo is private).
   const [updateInfo, setUpdateInfo] = useState<{ latest: string; url: string } | null>(null);
@@ -761,7 +706,6 @@ export function App() {
       customAvatars={customAvatars}
       mutedHostIds={mutedHostIds}
       aiSpeaking={aiSpeaking}
-      onResolvePermission={resolvePermission}
       onToggleMuteHost={handleToggleMuteHost}
       onRemoveHost={handleRemoveHost}
       coordinatorHostId={workers.coordinatorHostId}
@@ -774,7 +718,7 @@ export function App() {
     />
   ), [
     workers.workerList, workers.hostGroups, workers.coordinatorHostId,
-    customAvatars, mutedHostIds, aiSpeaking, resolvePermission,
+    customAvatars, mutedHostIds, aiSpeaking,
     handleToggleMuteHost, handleRemoveHost, handleSetCoordinator,
     handleRestartHost, openParticipantsTab, handleOpenEditor,
     handleSelectParticipant, selfTile,
@@ -870,10 +814,6 @@ export function App() {
             finalMeetingDecision={workers.finalMeetingDecision}
             sessionId={activeTab?.id ?? null}
             focusTask={taskFocus}
-            onAcceptDelivery={() => workers.acceptDelivery()}
-            onReviseDelivery={(fb: string) => workers.reviseDelivery(fb)}
-            onAcceptFinalMeetingDelivery={() => workers.acceptFinalMeetingDelivery()}
-            onRequestFinalMeetingRework={(reason: string) => workers.requestFinalMeetingRework(reason)}
             viewingFile={viewingFile}
             onCloseFileView={() => setViewingFile(null)}
             stageWindows={stageWindows.windows}
@@ -887,7 +827,6 @@ export function App() {
                 void window.vibeMeet.popoutStage(id, win?.type ?? 'activity');
               }
             }}
-            onResolvePermission={resolvePermission}
             browserTabs={browser.state.tabs}
             browserActiveTabId={browser.state.activeTabId}
             browserViewportRef={browser.viewportRef}
@@ -904,11 +843,6 @@ export function App() {
 
         <SideDrawer
           open={drawerOpen}
-          pending={pendingPermission}
-          pendingResolving={drawerPermissionState.resolving}
-          pendingError={drawerPermissionState.error}
-          approvalMeta={approvalMeta}
-          onResolve={resolvePermission}
           onSend={sendWithMode}
           onSendAttachments={sendAttachmentsWithMode}
           onSubscribeDroppedFiles={onDroppedFiles}
@@ -944,7 +878,6 @@ export function App() {
         <TasksView
           data={crossProjectTasks}
           onOpenTask={handleOpenTaskFromBoard}
-          onOpenPlan={handleOpenPlanFromBoard}
         />
       )}
 
@@ -969,8 +902,6 @@ export function App() {
         onLeave={leave}
         onToggleCompanion={toggleCompanion}
         handheld={handheld}
-        permissionCount={permissionCount}
-        onOpenPermission={openPermissionModal}
         controlsSlot={controlsSlot}
       />
 
@@ -982,28 +913,6 @@ export function App() {
           startedAt={activeOpenedAt}
           viewLabel={view === 'meeting' ? '会议模式' : '任务模式'}
         />
-      )}
-
-      {handheld && permModalOpen && pendingPermission && (
-        <Modal
-          open
-          backdropClassName="perm-modal-backdrop"
-          className="perm-modal"
-          ariaLabel="权限审批"
-          onClose={() => setPermModalOpen(false)}
-        >
-          <ApprovalCard
-            pending={pendingPermission}
-            owner={approvalMeta.owner}
-            backendId={approvalMeta.backendId}
-            project={approvalMeta.project}
-            onDecide={async (id, decision) => {
-              const res = await resolvePermission(id, decision);
-              if (res && res.ok) setPermModalOpen(false);
-              return res;
-            }}
-          />
-        </Modal>
       )}
 
       {overlayHostId && (
@@ -1034,15 +943,6 @@ export function App() {
       />
 
       <ToastViewport />
-
-      <PlanMeetingModal
-        open={Boolean(workers.pendingPlan)}
-        brief={workers.pendingPlanBrief}
-        tasks={workers.pendingPlan ?? []}
-        backends={backends}
-        onReject={() => workers.decidePendingPlan(false)}
-        onSubmit={(tasks) => workers.decidePendingPlan(true, tasks)}
-      />
 
       {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
       {onboardingMode && (

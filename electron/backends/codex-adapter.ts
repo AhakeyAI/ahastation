@@ -413,11 +413,11 @@ class CodexAppServerSession implements BackendSession {
       this.backendVersion = extractCodexRuntimeVersion(ready.userAgent) ?? undefined;
       const options: Record<string, unknown> = {
         cwd: this.config.cwd,
-        // Directory-scoped grants cannot be enforced inside workspace-write:
-        // Codex would edit denied sibling paths without asking the host.
-        // Read-only + on-request makes every write escalate with file paths.
-        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
-        sandbox: 'read-only',
+        // Automatic Workers use Codex's workspace sandbox and approval policy.
+        // The legacy broker transport remains read-only + on-request.
+        approvalPolicy: this.config.executionRole === 'worker' && !this.config.unattended ? 'on-request' : 'never',
+        sandbox: this.config.unattended && this.isWorker
+          ? (this.config.extra?.readOnlyWorkspace ? 'read-only' : 'workspace-write') : 'read-only',
         developerInstructions: this.config.systemPrompt,
         experimentalRawEvents: false,
       };
@@ -812,8 +812,9 @@ class CodexSession implements BackendSession {
         workingDirectory: this.config.cwd,
         ...(model ? { model } : {}),
         ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
-        approvalPolicy: this.config.executionRole === 'worker' ? 'on-request' : 'never',
-        sandboxMode: 'read-only',
+        approvalPolicy: this.config.executionRole === 'worker' && !this.config.unattended ? 'on-request' : 'never',
+        sandboxMode: this.config.unattended && this.config.executionRole === 'worker'
+          ? (this.config.extra?.readOnlyWorkspace ? 'read-only' : 'workspace-write') : 'read-only',
         skipGitRepoCheck: true,
       } as const;
       this.thread = this.config.resumeSessionId

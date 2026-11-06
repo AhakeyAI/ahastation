@@ -62,7 +62,8 @@ export const KIMI_TERMINAL_PROFILE: TerminalCliProfile = {
     // Approval tiers (docs/research/kimi-cli-protocol.md): default = ask in
     // TUI; 'read' ≈ -y (auto-approve routine tool calls, may still ask);
     // 'all' = --auto (fully automatic, never asks).
-    if (config.autoApproveScope === 'read') args.push('-y');
+    if (config.unattended && config.executionRole === 'worker') args.push('--auto');
+    else if (config.autoApproveScope === 'read') args.push('-y');
     else if (config.autoApproveScope === 'all') args.push('--auto');
     return args;
   },

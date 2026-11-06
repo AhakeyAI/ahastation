@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { acceptanceCriterionSchema, workReportSchema } from './worker-protocol.js';
 import { taskExecutionProfileSchema } from './task-collaboration.js';
 import { DEFAULT_TASK_BUDGET, taskBudgetSchema } from './task-budget.js';
-import { applyTaskDispatchDefaults, inferDefaultDependencyGate } from './task-intent.js';
+import { applyTaskDispatchDefaults, detectSuggestedCommands, inferDefaultDependencyGate } from './task-intent.js';
 
 export { MEETING_TOOLS, MEETING_TOOL_NAMES } from './meeting-tool-names.js';
 export type { MeetingToolName } from './meeting-tool-names.js';
@@ -40,7 +40,7 @@ const planMeetingTaskBaseShape = {
   executorBackendId: z.string().min(1).optional().describe('CLI backend that should execute this task. Defaults to the meeting coordinator backend.'),
   writePaths: z.array(z.string().min(1)).max(100).optional().describe('Expected output paths, used for non-Git workspace locking.'),
   acceptanceCriteria: z.array(acceptanceCriterionSchema).max(100).optional()
-    .describe('User-approved verification criteria. Legacy tasks without criteria receive one explicit manual criterion.'),
+    .describe('Executable acceptance checks for automatic code delivery. Omitted checks are detected from project test commands; manual-only criteria cannot publish code.'),
   dependencyGate: z.enum(['reviewed', 'accepted']).optional()
     .describe(
       'When dependents may start. "reviewed" releases after verification+review; '
@@ -343,6 +343,13 @@ export function normalizePlanMeetingTask(
     ?? legacy.workspaceMode
     ?? (writePaths.length > 0 ? 'git-worktree' : 'read-only');
   const inferredCommands = defaults.commands ?? declaredCommands;
+  const acceptanceCriteria = legacy.acceptanceCriteria ?? (writePaths.length > 0
+    ? detectSuggestedCommands(options.cwd).map((argv, index) => ({
+        id: `project-check-${index + 1}`,
+        description: `Run project check: ${argv.join(' ')}`,
+        verification: { kind: 'command' as const, argv },
+      }))
+    : undefined);
   const baseAuthority = legacy.authorityRequest
     ? {
         ...legacy.authorityRequest,
@@ -366,7 +373,7 @@ export function normalizePlanMeetingTask(
     workspaceMode,
     writePaths,
     baseAuthority,
-    legacy.acceptanceCriteria,
+    acceptanceCriteria,
   );
   const inferredGate = inferDefaultDependencyGate({
     workspaceMode,
@@ -384,6 +391,7 @@ export function normalizePlanMeetingTask(
   }
   const normalized = planMeetingTaskSchema.parse({
     ...legacy,
+    acceptanceCriteria,
     deps: legacy.deps ?? [],
     executorBackendId: backendId,
     writePaths: authorityRequest.writePaths,
@@ -489,41 +497,6 @@ export const forwardTaskMessageArgsSchema = {
   fromTaskId: z.string().trim().min(1).max(64),
   toTaskId: z.string().trim().min(1).max(64),
   messageId: z.string().trim().min(1).max(500),
-};
-
-const coordinatorReviewFindingSchema = z.object({
-  code: z.string().trim().min(1).max(200),
-  message: z.string().trim().min(1).max(4_000),
-  blocking: z.boolean(),
-  path: z.string().trim().min(1).max(4_096).optional(),
-}).strict();
-
-export const inspectDeliveryReviewArgsSchema = {
-  reviewId: z.string().trim().min(1).max(500),
-};
-
-export const getDeliveryReviewChunkArgsSchema = {
-  reviewId: z.string().trim().min(1).max(500),
-  chunkId: z.string().trim().min(1).max(500).optional(),
-};
-
-export const submitDeliveryChunkReviewArgsSchema = {
-  reviewId: z.string().trim().min(1).max(500),
-  chunkId: z.string().trim().min(1).max(500),
-  chunkHash: z.string().regex(/^[a-f0-9]{64}$/u),
-  verdict: z.enum(['passed', 'blocking']),
-  findings: z.array(coordinatorReviewFindingSchema).max(100),
-};
-
-export const completeDeliveryReviewArgsSchema = {
-  reviewId: z.string().trim().min(1).max(500),
-};
-
-export const requestDeliveryReworkArgsSchema = {
-  reviewId: z.string().trim().min(1).max(500),
-  findings: z.array(coordinatorReviewFindingSchema).min(1).max(100),
-  executorBackendId: z.string().trim().min(1).max(64).optional()
-    .describe('Optional backend override for the rework attempt. The provider session cannot be resumed across backends, so the new attempt starts fresh.'),
 };
 
 export const askHostArgsSchema = {

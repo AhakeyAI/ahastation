@@ -59,8 +59,10 @@ export const CLAUDE_TERMINAL_PROFILE: TerminalCliProfile = {
   capabilities: CLAUDE_TERMINAL_CAPABILITIES,
   displayLabel: 'Claude',
   resolveBinary: () => resolveClaudeBinaryForSource(),
-  buildCliArgs: (config: BackendSessionConfig) =>
-    config.model && config.model !== 'auto' ? ['--model', config.model] : [],
+  buildCliArgs: (config: BackendSessionConfig) => [
+    ...(config.model && config.model !== 'auto' ? ['--model', config.model] : []),
+    ...(config.unattended && config.executionRole === 'worker' ? ['--dangerously-skip-permissions'] : []),
+  ],
   registerTurnHook: ({ suffix, ahaDir, hookCommand }) => {
     // Claude Code accepts a per-session --settings file; the Stop hook lives
     // there so the user's own settings are never touched.

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { AUTO_APPROVAL_DECISION_ID, defaultApprovalMode, type ApprovalMode } from './approval-policy.js';
 import type { CoordinatorReviewDriver } from './coordinator-review-driver.js';
 import type { CoordinatorReviewSession } from './coordinator-review.js';
 import type { FrozenDeliveryCandidate } from './delivery-candidate.js';
@@ -152,6 +153,9 @@ export interface DeliveryHarnessDependencies {
     ): Promise<FrozenDeliveryCandidate>;
   };
   reviewDriver?: CoordinatorReviewDriver;
+  /** `auto` (default): Coordinator review and delivery accept are satisfied
+   * automatically once deterministic verification passed. */
+  approvalMode?: ApprovalMode;
   integrator: {
     integrate(view: DeliveryView, candidate: DeliveryCandidate): Promise<Record<string, unknown>>;
   };
@@ -530,7 +534,7 @@ export class DeliveryHarness {
     // Explore / verbal findings: hand partial reports to the host instead of
     // burning automatic rework — the Worker already said what it found.
     if (report.status !== 'completed') {
-      if (reportOnly && (report.status === 'partial' || report.status === 'blocked')) {
+      if (!this.autoApprove() && reportOnly && (report.status === 'partial' || report.status === 'blocked')) {
         this.handReportToHost(record, attempt, report, {
           passed: true,
           checks: [{
@@ -549,6 +553,7 @@ export class DeliveryHarness {
           reportOnly: true,
           error: `worker reported ${report.status}`,
         });
+        await this.autoAccept(record);
         return;
       }
       record.view.error = `worker reported ${report.status}`;
@@ -569,6 +574,29 @@ export class DeliveryHarness {
       record.view.error = error instanceof Error ? error.message : String(error);
       this.transition(record, 'failed', 'delivery.failed', record.view.error);
       return;
+    }
+    if (this.autoApprove() && !reportOnly) {
+      const commands = order.acceptanceCriteria.filter((criterion) => criterion.verification.kind === 'command');
+      const pending = verification.checks.some((check) => (
+        check !== null && typeof check === 'object'
+        && (check as { status?: unknown }).status === 'manual-pending'
+      ));
+      const missingCheck = commands.some((criterion) => !verification.checks.some((check) => (
+        check !== null && typeof check === 'object'
+        && (check as { criterionId?: unknown }).criterionId === criterion.id
+        && (check as { status?: unknown }).status === 'passed'
+        && (check as { exitCode?: unknown }).exitCode === 0
+      )));
+      const ranCommand = verification.checks.some((check) => check !== null && typeof check === 'object'
+        && (check as { status?: unknown }).status === 'passed'
+        && (check as { exitCode?: unknown }).exitCode === 0);
+      if (!ranCommand || pending || missingCheck) {
+        verification = {
+          ...verification,
+          passed: false,
+          error: verification.error ?? 'Automatic code delivery requires successful executable checks; manual-pending evidence cannot authorize publication.',
+        };
+      }
     }
     attempt.verification = structuredClone(verification);
     attempt.updatedAt = this.now();
@@ -609,6 +637,7 @@ export class DeliveryHarness {
       this.handReportToHost(record, attempt, report, verification, review, {
         reportOnly: true,
       });
+      await this.autoAccept(record);
       return;
     }
 
@@ -621,6 +650,16 @@ export class DeliveryHarness {
       try {
         frozen = await this.deps.candidatePreparer.prepare(order, report, verification);
       } catch (error) {
+        if (this.autoApprove()) {
+          record.view.error = `candidate freeze failed: ${error instanceof Error ? error.message : String(error)}`;
+          attempt.outcome = 'review-failed';
+          attempt.feedback = record.view.error;
+          attempt.updatedAt = this.now();
+          this.transition(record, 'reworking', 'delivery.status-changed', {
+            reason: record.view.error,
+          });
+          return;
+        }
         // Freeze is infrastructure (dirty unrelated files, HEAD drift). The
         // Worker already passed verification/review — auto-rework just burns
         // attempts. Park for host Return; Accept cannot mint Meeting acceptance
@@ -645,12 +684,46 @@ export class DeliveryHarness {
         commit: frozen.commit,
         diffHash: frozen.diffHash,
       });
+      // Coordinator review is evidence bookkeeping only: every chunk is covered
+      // automatically and the candidate proceeds to the Integration Queue.
+      try {
+        await this.deps.reviewDriver.autoReview(session.id, AUTO_APPROVAL_DECISION_ID);
+      } catch (error) {
+          // Integration failures already moved the delivery to
+          // integration-conflict / failed; the scheduler reacts to that status.
+          if (!['integration-conflict', 'failed', 'accepted'].includes(record.view.status)) {
+            throw error;
+          }
+      }
       return;
     }
 
     this.handReportToHost(record, attempt, report, verification, review, {
       reportOnly: false,
     });
+    await this.autoAccept(record);
+  }
+
+  private autoApprove(): boolean {
+    return (this.deps.approvalMode ?? defaultApprovalMode()) === 'auto';
+  }
+
+  /** Approval mode `auto`: a verified candidate parked for the host is
+   * accepted immediately. Freeze-deferred candidates cannot be staged and stay
+   * parked for an explicit return. */
+  private async autoAccept(record: DeliveryRecord): Promise<void> {
+    if (!this.autoApprove()) return;
+    const candidate = record.view.candidate;
+    if (
+      record.view.status !== 'awaiting-delivery-acceptance'
+      || !candidate
+      || candidate.freezeDeferred
+    ) return;
+    try {
+      await this.integrateCandidate(record);
+    } catch {
+      // integrateCandidate records integration-conflict / failed on the view.
+    }
   }
 
   /** Park a verified (or report-only) WorkReport for host Accept / return. */

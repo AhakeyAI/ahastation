@@ -863,76 +863,6 @@ export class TaskIpcService {
     }
   }
 
-  async confirmReviewEvidence(payload: unknown): Promise<unknown> {
-    const request = parseRequest(payload);
-    const value = objectValue(payload);
-    const reviewId = safeText(value.reviewId, 200);
-    const chunkId = safeText(value.chunkId, 500);
-    const chunkHash = safeText(value.chunkHash, 100);
-    if (
-      !request
-      || !reviewId
-      || !chunkId
-      || !chunkHash
-      || !ACTOR_ID_RE.test(reviewId)
-      || !/^[a-f0-9]{64}$/i.test(chunkHash)
-    ) {
-      return { ok: false, error: 'Invalid review evidence confirmation' };
-    }
-    const slot = this.ctx.registry.get(request.sessionId);
-    if (!slot) return { ok: false, error: 'Session not found' };
-    try {
-      const review = objectValue(slot.orchestrator.inspectDeliveryReview(reviewId));
-      if (review.taskId !== request.taskId) {
-        return { ok: false, error: 'Review does not belong to this task' };
-      }
-      const confirmed = await slot.orchestrator.confirmDeliveryReviewEvidence(reviewId, {
-        chunkId,
-        chunkHash,
-        decisionId: `user-${randomUUID()}`,
-      });
-      return { ok: true, review: redactRendererValue(confirmed) };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error
-          ? redactSecrets(error.message)
-          : 'Failed to confirm review evidence',
-      };
-    }
-  }
-
-  /**
-   * Restart a Coordinator review that stalled out of its turn budget. This never
-   * grants coverage — the Coordinator still has to submit every hash-bound
-   * verdict; it only hands the model another chance before the user takes over.
-   */
-  async resumeReview(payload: unknown): Promise<unknown> {
-    const request = parseRequest(payload);
-    const value = objectValue(payload);
-    const reviewId = safeText(value.reviewId, 200);
-    if (!request || !reviewId || !ACTOR_ID_RE.test(reviewId)) {
-      return { ok: false, error: 'Invalid review resume request' };
-    }
-    const slot = this.ctx.registry.get(request.sessionId);
-    if (!slot) return { ok: false, error: 'Session not found' };
-    try {
-      const review = objectValue(slot.orchestrator.inspectDeliveryReview(reviewId));
-      if (review.taskId !== request.taskId) {
-        return { ok: false, error: 'Review does not belong to this task' };
-      }
-      const resumed = await slot.orchestrator.resumeDeliveryReview(reviewId);
-      return { ok: true, review: redactRendererValue(resumed) };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error
-          ? redactSecrets(error.message)
-          : 'Failed to resume review',
-      };
-    }
-  }
-
   private sendTaskEvent(
     sender: WebContents,
     subscriptionId: string,
@@ -955,9 +885,4 @@ export function registerTasksIpc(ctx: IpcContext): void {
   ipcMain.handle('tasks:steer', (_event, payload) => service.steer(payload));
   ipcMain.handle('tasks:interrupt', (_event, payload) => service.interrupt(payload));
   ipcMain.handle('tasks:extend-budget', (_event, payload) => service.extendBudget(payload));
-  ipcMain.handle(
-    'tasks:confirm-review-evidence',
-    (_event, payload) => service.confirmReviewEvidence(payload),
-  );
-  ipcMain.handle('tasks:resume-review', (_event, payload) => service.resumeReview(payload));
 }

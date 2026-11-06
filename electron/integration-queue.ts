@@ -68,6 +68,12 @@ export class IntegrationQueue {
     return this.durableHead;
   }
 
+  /** Each publication must start at the last head we published, while the
+   * Meeting integration history remains rooted at the original base. */
+  publicationBaseRevision(): string {
+    return this.publication?.publishedHead ?? this.options.expectedUserBaseRevision;
+  }
+
   /** Restore only durable queue facts. The Git integration worktree remains
    * authoritative for staged-but-unaccepted commits; enqueue() reconciles it
    * against the last journaled durable head through commit trailers. */
@@ -204,8 +210,15 @@ export class IntegrationQueue {
   }
 
   async cleanupPublishedIntegration(publishedHead: string): Promise<void> {
-    const state = await this.state();
-    this.options.integrator.cleanupPublishedIntegration(state, publishedHead);
+    const operation = this.tail.then(async () => {
+      const state = await this.state();
+      // A later task may have integrated while shutdown was waiting on the queue.
+      if (state.durableHead !== publishedHead) return;
+      this.options.integrator.cleanupPublishedIntegration(state, publishedHead);
+      this.statePromise = undefined;
+    });
+    this.tail = operation.catch(() => undefined);
+    await operation;
   }
 
   private async process(

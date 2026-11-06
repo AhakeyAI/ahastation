@@ -43,19 +43,12 @@ interface WorkerWorkbenchProps {
   workerId: string;
   sessionId: string;
   onOpenInspector: (workerId: string) => void;
-  onAcceptDelivery: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onReviseDelivery: (feedback: string) => Promise<
-    | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
-    | { ok: false; error: string }
-  >;
 }
 
 export function WorkerWorkbench({
   workerId,
   sessionId,
   onOpenInspector,
-  onAcceptDelivery,
-  onReviseDelivery,
 }: WorkerWorkbenchProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -126,11 +119,7 @@ export function WorkerWorkbench({
           <TaskMailboxPanel sessionId={sessionId} taskId={workerId} snapshot={snapshot} />
         )}
 
-        <WorkbenchDeliverySummary
-          delivery={currentDelivery}
-          onAccept={onAcceptDelivery}
-          onRevise={onReviseDelivery}
-        />
+        <WorkbenchDeliverySummary delivery={currentDelivery} />
 
         <button
           type="button"
@@ -211,60 +200,11 @@ function WorkbenchTaskContext({
 
 function WorkbenchDeliverySummary({
   delivery,
-  onAccept,
-  onRevise,
 }: {
   delivery: DeliverySnapshot | null;
-  onAccept: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  onRevise: (feedback: string) => Promise<
-    | { ok: true; route: 'worker' | 'talker'; queued?: boolean }
-    | { ok: false; error: string }
-  >;
 }) {
-  const [feedback, setFeedback] = useState('');
-  const [pending, setPending] = useState<'' | 'accept' | 'revise'>('');
-  const [error, setError] = useState('');
-  const [note, setNote] = useState('');
-
   if (!delivery) return null;
-
-  const canDecide = delivery.status === 'awaiting-delivery-acceptance';
   const statusLabel = STATUS_LABEL[delivery.status] ?? delivery.status;
-
-  const accept = async () => {
-    setError('');
-    setNote('');
-    setPending('accept');
-    try {
-      const result = await onAccept();
-      if (!result.ok) setError(result.error);
-      else setNote('已接受交付。');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPending('');
-    }
-  };
-
-  const revise = async () => {
-    const text = feedback.trim();
-    if (!text) return;
-    setError('');
-    setNote('');
-    setPending('revise');
-    try {
-      const result = await onRevise(text);
-      if (!result.ok) setError(result.error);
-      else {
-        setNote(result.queued ? '返工已排队。' : '已请求返工。');
-        setFeedback('');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPending('');
-    }
-  };
 
   return (
     <section className="workbench-section workbench-delivery">
@@ -280,35 +220,6 @@ function WorkbenchDeliverySummary({
           {delivery.files.length} 个文件 · attempt {delivery.attempt}
         </p>
       )}
-      {canDecide && (
-        <div className="workbench-delivery-actions">
-          <button
-            type="button"
-            className="is-primary"
-            disabled={pending !== ''}
-            onClick={() => void accept()}
-          >
-            {pending === 'accept' ? '提交中…' : '接受交付'}
-          </button>
-          <textarea
-            value={feedback}
-            onChange={(event) => setFeedback(event.target.value)}
-            placeholder="返工反馈（必填）"
-            maxLength={100_000}
-            disabled={pending !== ''}
-          />
-          <button
-            type="button"
-            className="is-danger"
-            disabled={pending !== '' || !feedback.trim()}
-            onClick={() => void revise()}
-          >
-            {pending === 'revise' ? '提交中…' : '请求返工'}
-          </button>
-        </div>
-      )}
-      {note && <p className="workbench-note" role="status">{note}</p>}
-      {error && <p className="workbench-error" role="alert">{error}</p>}
     </section>
   );
 }

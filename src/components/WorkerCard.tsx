@@ -11,7 +11,6 @@ interface WorkerCardProps {
   selected?: boolean;
   speaking?: boolean;
   onSelect?: () => void;
-  onResolvePermission: (id: string, decision: 'allow' | 'deny', scope?: 'worker' | 'task-wide') => void;
   /** Open the high-fidelity CLI execution view for this worker. */
   onOpenTerminal?: () => void;
   /** Backend icon identifier for per-backend avatar rendering. */
@@ -62,7 +61,6 @@ export const WorkerCard = memo(function WorkerCard({
   selected,
   speaking,
   onSelect,
-  onResolvePermission,
   onOpenTerminal,
   iconId,
   customAvatar,
@@ -139,33 +137,6 @@ export const WorkerCard = memo(function WorkerCard({
             </div>
           </div>
         </button>
-
-        {/* Permission approval inline */}
-        {worker.pendingPermission && (
-          <div className="worker-card-perm">
-            <div className="worker-card-perm-text">
-              是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
-            </div>
-            {worker.permissionError && (
-              <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>
-            )}
-            <div className="worker-card-perm-actions">
-              <button type="button" className="worker-card-perm-allow"
-                disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-                onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'allow'); }}
-              >允许</button>
-              <button type="button" className="worker-card-perm-allow worker-card-perm-allow-all"
-                title="允许，并对本任务同工作区的所有 worker 记住这次批准"
-                disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-                onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'allow', 'task-wide'); }}
-              >允许（所有 worker）</button>
-              <button type="button" className="worker-card-perm-deny"
-                disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-                onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'deny'); }}
-              >拒绝</button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -197,32 +168,6 @@ export const WorkerCard = memo(function WorkerCard({
           </div>
         </div>
       </button>
-
-      {worker.pendingPermission && (
-        <div className="worker-card-perm">
-          <div className="worker-card-perm-text">
-            是否允许 <span className="worker-card-perm-tool">{worker.pendingPermission.toolName}</span>？
-          </div>
-          {worker.permissionError && (
-            <div className="worker-card-perm-error" role="alert">{worker.permissionError}</div>
-          )}
-          <div className="worker-card-perm-actions">
-            <button type="button" className="worker-card-perm-allow"
-              disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-              onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'allow'); }}
-            >允许</button>
-            <button type="button" className="worker-card-perm-allow worker-card-perm-allow-all"
-              title="允许，并对本任务同工作区的所有 worker 记住这次批准"
-              disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-              onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'allow', 'task-wide'); }}
-            >允许（所有 worker）</button>
-            <button type="button" className="worker-card-perm-deny"
-              disabled={worker.resolvingPermissionId === worker.pendingPermission.id}
-              onClick={(e) => { e.stopPropagation(); if (worker.pendingPermission) onResolvePermission(worker.pendingPermission.id, 'deny'); }}
-            >拒绝</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 });

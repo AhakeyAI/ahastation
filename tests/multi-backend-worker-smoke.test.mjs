@@ -1,3 +1,5 @@
+// These tests exercise the manual approval flow.
+process.env.AHASTATION_APPROVAL_MODE = 'manual';
 // Structural smoke proof: one meeting, four independent tasks, four Worker
 // implementations in parallel, canonical WorkerEvent v2 envelopes, and
 // journal/renderer eventId parity at the Orchestrator seam. This fixture does

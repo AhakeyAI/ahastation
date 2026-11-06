@@ -215,7 +215,9 @@ export const QODER_TERMINAL_PROFILE: TerminalCliProfile = {
     // Approval tiers (docs/research/qoder-cli-protocol.md): default = ask in
     // TUI; 'read' = read-only tool allowlist; 'all' = --yolo (skip all
     // permission checks).
-    if (config.autoApproveScope === 'read') {
+    if (config.unattended && config.executionRole === 'worker') {
+      args.push('--yolo');
+    } else if (config.autoApproveScope === 'read') {
       args.push('--allowed-tools', QODER_READ_ONLY_TOOLS);
     } else if (config.autoApproveScope === 'all') {
       args.push('--yolo');

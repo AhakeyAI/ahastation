@@ -172,6 +172,9 @@ test('canonical WorkerEvent and delivery state are journaled before renderer emi
       id: 'journal-task',
       title: 'Journal task',
       prompt: 'produce evidence',
+      acceptanceCriteria: [{ id: 'content', description: 'Check journal fixture output', verification: {
+        kind: 'command', argv: [process.execPath, '-e', "require('node:assert/strict').equal(require('node:fs').readFileSync('src/result.ts','utf8').trim(),'export const result = true;')"],
+      } }],
       deps: [],
       executorBackendId: 'claude-code',
       writePaths: ['src'],
@@ -225,39 +228,6 @@ test('canonical WorkerEvent and delivery state are journaled before renderer emi
         },
       },
     });
-    // Freezing and committing an exact delivery candidate can take several
-    // seconds on Windows worktrees. This is an integration timeout, not a
-    // scheduler polling budget.
-    const reviewDeadline = Date.now() + 15_000;
-    while (!events.some((event) => (
-      event.event.kind === 'delivery-status'
-      && event.event.delivery.status === 'coordinator-reviewing'
-    ))) {
-      if (Date.now() > reviewDeadline) {
-        const journal = await MeetingRepository.replay(meetingId);
-        const deliveryStatuses = events
-          .filter((event) => event.event.kind === 'delivery-status')
-          .map((event) => event.event.delivery);
-        assert.fail(
-          `Coordinator review event did not arrive; delivery=${JSON.stringify(deliveryStatuses)}`
-          + ` journal=${JSON.stringify(journal.map((event) => event.type))}`,
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    const reviewJournal = await MeetingRepository.replay(meetingId);
-    const requested = reviewJournal.find((event) => event.type === 'coordinator-review-requested');
-    assert.ok(requested);
-    const reviewId = requested.payload.data.session.id;
-    const chunk = orchestrator.getDeliveryReviewChunk(reviewId);
-    assert.ok(chunk);
-    await orchestrator.submitDeliveryChunkReview(reviewId, {
-      chunkId: chunk.id,
-      chunkHash: chunk.hash,
-      verdict: 'passed',
-      findings: [],
-    });
-    await orchestrator.completeDeliveryReview(reviewId);
     const acceptanceDeadline = Date.now() + 30_000;
     while (!events.some((event) => (
       event.event.kind === 'delivery-status'

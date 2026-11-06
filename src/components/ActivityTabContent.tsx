@@ -13,7 +13,6 @@ interface ActivityTabContentProps {
   coordinatorBriefings: CoordinatorBriefing[];
   running: boolean;
   aiSpeaking: boolean;
-  onResolvePermission: (id: string, decision: 'allow' | 'deny') => void;
   /** Currently selected participant: 'user', a worker id, or null (defaults to first talker). */
   selectedId?: string | null;
   /** Called when the workspace internally changes selection (unused for now). */
@@ -33,7 +32,6 @@ export function ActivityTabContent({
   coordinatorBriefings,
   running,
   aiSpeaking,
-  onResolvePermission,
   selectedId: externalSelectedId,
   onSelectId: _onSelectId,
   onOpenInTerminal,
