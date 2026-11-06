@@ -615,8 +615,10 @@ export class Orchestrator implements OrchestratorBridge {
       // Codex honors only the model from user settings. Every other source
       // (the talker's Claude-centric fallback, compiled task profiles) can
       // name a model the configured provider doesn't serve; with no override
-      // the CLI falls back to ~/.codex/config.toml's own `model`.
-      const model = backendId === 'codex'
+      // the CLI falls back to ~/.codex/config.toml's own `model`. The Codex
+      // terminal Worker follows the same rule: its compiled default (gpt-5.4)
+      // is rejected for ChatGPT-account logins (N5095 round 3, 2026-11-04).
+      const model = backendId === 'codex' || backendId === 'codex-terminal'
         ? auth.model
         : taskProfile
           ? taskProfile.model

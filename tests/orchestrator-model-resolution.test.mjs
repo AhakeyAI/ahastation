@@ -67,7 +67,7 @@ function effectiveProfile(model, backendId = 'codex') {
 
 function installFakeBackends(t) {
   const registry = getBackendRegistry();
-  const captured = { codex: [], 'claude-code': [] };
+  const captured = { codex: [], 'codex-terminal': [], 'claude-code': [] };
   const originals = new Map();
   for (const id of Object.keys(captured)) {
     originals.set(id, registry.get(id));
@@ -123,6 +123,28 @@ test('Codex honors the settings model above every other source', async (t) => {
     taskProfile: effectiveProfile('gpt-5.4'),
   });
   assert.equal(captured.codex[1].model, 'gpt-5.6-sol');
+});
+
+test('the Codex terminal Worker does not pin its compiled default model', async (t) => {
+  // N5095 round 3 (2026-11-04): `-m gpt-5.4` failed with model_not_found for
+  // a ChatGPT-account login, so no Worker ever reached the desktop.
+  preserveSettingsFile(t);
+  const captured = installFakeBackends(t);
+  await updateSettings({ backendAuth: [] });
+  const orch = new Orchestrator({ emit: () => {}, cwd: '/tmp' });
+
+  sessionModelFor(orch, 'codex-terminal', {
+    model: 'gpt-5.4',
+    taskProfile: effectiveProfile('gpt-5.4', 'codex-terminal'),
+  });
+  assert.equal(captured['codex-terminal'][0].model, undefined);
+
+  await setBackendAuth('codex-terminal', { authMode: 'none', model: 'gpt-5.6-sol' });
+  sessionModelFor(orch, 'codex-terminal', {
+    model: 'gpt-5.4',
+    taskProfile: effectiveProfile('gpt-5.4', 'codex-terminal'),
+  });
+  assert.equal(captured['codex-terminal'][1].model, 'gpt-5.6-sol');
 });
 
 test('Other backends keep their existing model resolution', async (t) => {
