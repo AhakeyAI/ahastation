@@ -426,6 +426,13 @@ function installFixture(fixture: string): void {
   startInstalledFixture = seed;
 
   const bridge = {
+    // Nested APIs must be explicit: the permissive top-level Proxy fallback
+    // is a function, not an API object with subscription methods.
+    rateLimits: {
+      get: async () => ({ ok: true, state: { providers: [], refreshing: false } }),
+      refresh: async () => ({ ok: true, state: { providers: [], refreshing: false } }),
+      onUpdate: noopSubscription,
+    },
     collaboration:unifiedFixture(fixture==='unified'),
     getDesktopSources:async()=>({ok:true,sources:[]}),
     remoteControl:{request:async()=>({ok:true,settings:{enabled:false,mode:'public',serviceUrl:'',loggedIn:false,securePersistence:true}}),onChanged:()=>()=>{}},

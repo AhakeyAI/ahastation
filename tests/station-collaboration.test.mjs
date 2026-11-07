@@ -117,8 +117,15 @@ test('two production Station receivers share real Hub state, persist receipt, ex
     assert.ok(!JSON.stringify(a.view()).includes(fixture.token));assert.ok(disk.tokenEnc&&!disk.controlToken);
     const waiting=await command(a,'task.create',{meetingId:meeting.id,title:'wait',objective:'[wait]',targetDeviceId:b.view().deviceId,agentId:'file-test',resource:'text',permission:'read-only',dependencies:[],inputs:[]});
     await until(()=>b.view().snapshot.entities.task?.find(t=>t.id===waiting.id)?.status==='running','Waiting adapter should occupy the one device slot');
+    // The running snapshot can precede the adapter's native identity callback.
+    // Capture a committed identity before asserting it survives a Hub restart.
+    let beforeRestart;
+    await until(async()=>{
+      const receipt=JSON.parse(await readFile(join(root,'B','station-v2.json'),'utf8')).receipts[waiting.id];
+      if(receipt?.attemptId===waiting.attemptId&&receipt.nativeThreadId){beforeRestart=receipt;return true;}
+      return false;
+    },'Waiting adapter must persist its native identity before restart');
     const originalGeneration=b.view().snapshot.entities.device.find(d=>d.id===b.view().deviceId).connectionGeneration;
-    const beforeRestart=JSON.parse(await readFile(join(root,'B','station-v2.json'),'utf8')).receipts[waiting.id];
     child.stdin.write('restart\n');
     await until(()=>a.view().connected&&b.view().connected&&b.view().snapshot.entities.device.find(d=>d.id===b.view().deviceId)?.connectionGeneration>originalGeneration,'Real Hub process restart must restore both WSS connections');
     const afterRestart=JSON.parse(await readFile(join(root,'B','station-v2.json'),'utf8')).receipts[waiting.id];

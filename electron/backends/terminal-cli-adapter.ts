@@ -33,6 +33,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { requireNativeHookWorkerAdmission } from '../global-hooks/protocol.js';
 import { getPtyHost, type PtyHost } from '../pty-host.js';
 import { mergedSubprocessEnv } from '../settings-loader.js';
 import { compileBackendTaskProfile, type BackendRuntime } from './task-profile.js';
@@ -425,6 +426,12 @@ export class TerminalCliSession implements BackendSession {
 
   async start(): Promise<void> {
     if (this.started || this.closed) return;
+    // An installed global hook is not an execution guard. Controlled native
+    // tasks stay closed until #86 proves launch binding and B04 S4-S6. Manual
+    // terminal/host sessions retain the CLI's own permission flow.
+    if (this.config.executionRole === 'worker' || this.config.taskProfile) {
+      requireNativeHookWorkerAdmission();
+    }
     this.started = true;
     const binary = this.deps.resolveBinary();
     if (!binary) {

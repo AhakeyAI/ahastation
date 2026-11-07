@@ -86,7 +86,7 @@ test('cleanup ends only tty sessions and never touches the main folder', async (
   const mutations = calls.filter(([, a]) => a === 'worktree' || a === 'branch').map((c) => c.slice(1).join(' '));
   assert.ok(mutations.includes(`worktree remove --force ${resolve('/repo/wt-clean')}`));
   assert.ok(mutations.includes('branch -D agent/clean'));
-  assert.ok(!mutations.some((m) => m.includes('branch -D main') || m.endsWith(` ${ROOT}`)));
+  assert.ok(!mutations.some((m) => m.includes('branch -D main') || m.endsWith(` ${resolve(ROOT)}`)));
 });
 
 test('a folder that is not the repository main folder is refused', async () => {

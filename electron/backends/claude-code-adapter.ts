@@ -449,6 +449,7 @@ export class ClaudeCodeBackend implements CliBackend {
       const run = this.deps.execFile ?? ((file: string, args: string[]) =>
         execFileSync(file, args, {
           env: mergedSubprocessEnv(), encoding: 'utf8', timeout: 10_000,
+          windowsHide: true,
         }));
       const output = run(binary, ['auth', 'status', '--json'], {
         encoding: 'utf8', timeout: 10_000,
