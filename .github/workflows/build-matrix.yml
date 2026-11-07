@@ -85,6 +85,10 @@ jobs:
           npm run build:electron
           node scripts/probe-windows-hook-files.mjs
 
+      - name: Windows guard pipe saturation and UTF-8 regression (no CLI or PTY)
+        if: matrix.os == 'windows-latest'
+        run: node --test --test-isolation=none tests/native-worker-transport.test.mjs
+
       - name: Install test browser
         run: npx playwright install --with-deps chromium
 
@@ -97,6 +101,10 @@ jobs:
 
       - name: Isolated global hook discovery and command-shell probe (no model)
         run: node scripts/probe-global-hooks.mjs --bundled
+
+      - name: Windows AppContainer broker boundary (no model, login or PTY)
+        if: matrix.os == 'windows-latest'
+        run: node scripts/accept-native-worker.mjs
 
       - name: Build renderer
         # `npm test` only builds dist-electron; without this the packages ship

@@ -19,7 +19,7 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build:renderer": "vite build",
     "clean:electron": "node scripts/clean-dist-electron.mjs",
-    "build:electron": "node scripts/clean-dist-electron.mjs && tsc -p tsconfig.electron.json && node scripts/copy-preloads.mjs",
+    "build:electron": "node scripts/clean-dist-electron.mjs && tsc -p tsconfig.electron.json && node scripts/copy-preloads.mjs && node scripts/build-worker-guard.mjs",
     "build": "npm run build:renderer && npm run build:electron && node scripts/write-station-build-manifest.mjs",
     "start": "npm run build && electron .",
     "test": "npm run build:electron && node --test --test-concurrency=1 --test-timeout=120000 --import \"data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));\" tests/*.test.mjs",

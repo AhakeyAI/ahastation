@@ -76,7 +76,17 @@
         ]
       }
     ],
-    "icon": "build/icon.ico"
+    "icon": "build/icon.ico",
+    "extraResources": [
+      {
+        "from": "build/worker-guard",
+        "to": "worker-guard",
+        "filter": [
+          "WindowsGuard.exe",
+          "manifest.json"
+        ]
+      }
+    ]
   },
   "nsis": {
     "oneClick": false,

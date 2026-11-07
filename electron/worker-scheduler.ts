@@ -19,6 +19,7 @@
 // SDK 'ended' event arrives after end() already disposed the same handle.
 
 import type { ClaudeSession } from './claude-session.js';
+import type { NativeAuthorityPorts } from './native-worker/profile-service.js';
 import type {
   BackendSession,
   BackendSessionEvent,
@@ -503,6 +504,44 @@ const ASSISTANT_CONDENSE_CHARS = 140;
 const ASSISTANT_DESCRIBE_MAX = 200;
 
 export class WorkerScheduler {
+  private readonly nativeApprovalReplies = new Map<string, { workerId: string; resolve: (answer: 'allow' | 'deny') => void }>();
+
+  /** Captured at the actual session factory, never reconstructed from a hook
+   * taskId/role/Hub account. Existing repository and candidate pipeline own the
+   * decisions and reports. This does not bypass native production admission. */
+  private nativeAuthorityPorts(handle: WorkerHandle, attempt: number): NativeAuthorityPorts {
+    const current = () => !this.opts.isClosed() && this.workers.get(handle.id) === handle
+      && handle.attempt === attempt && !['failed', 'interrupted', 'pending'].includes(handle.status);
+    return {
+      attempt, workspaceRoot: handle.workspace?.cwd ?? this.opts.cwd,
+      getGrant: () => handle.authorityGrant, isCurrentAttempt: current,
+      persistPermissionDecision: async input => {
+        if (!current() || handle.status !== 'running' || !this.opts.persistPermissionDecision) throw new Error('native-journal-unavailable');
+        await this.opts.persistPermissionDecision(input);
+        if (!current()) throw new Error('native-attempt-revoked');
+      },
+      askUser: (request, signal) => new Promise(resolve => {
+        if (!current() || handle.status !== 'running' || signal.aborted || this.nativeApprovalReplies.has(request.id)) { resolve('deny'); return; }
+        const settle = (answer: 'allow' | 'deny') => {
+          signal.removeEventListener('abort', abort); this.nativeApprovalReplies.delete(request.id);
+          resolve(current() && !signal.aborted ? answer : 'deny');
+        };
+        const abort = () => settle('deny');
+        signal.addEventListener('abort', abort, { once: true });
+        this.nativeApprovalReplies.set(request.id, { workerId: handle.id, resolve: settle });
+        this.opts.emit({ source: handle.id, event: { kind: 'permission-request', id: request.id,
+          toolName: request.call.toolName, toolUseID: request.call.invocationId,
+          input: { ...request.call.input, basis: request.basis, actionDigest: request.digest, approvalScope: 'once' } } });
+      }),
+      onReport: async report => {
+        if (!current() || handle.status !== 'running' || !this.opts.flushEvents
+          || !this.opts.deliveryHarness || !handle.deliveryId) throw new Error('native-report-unavailable');
+        await this.handleWorkerSignal(handle, { kind: 'delivery', report });
+        await this.opts.flushEvents();
+        if (!current()) throw new Error('native-report-rejected');
+      },
+    };
+  }
   private workers: Map<string, WorkerHandle> = new Map();
   private recentEdits: Map<string, RecentFileEdit> = new Map();
   private workerIdSeq = 0;
@@ -1065,6 +1104,8 @@ export class WorkerScheduler {
     message?: string,
     scope: 'worker' | 'task-wide' = 'worker',
   ): void {
+    const native = this.nativeApprovalReplies.get(id);
+    if (native) { native.resolve(decision); return; } // never share task-wide
     // #7: route to the owning handle(s) when the ask was registered; only
     // fall back to the historical broadcast for unregistered requests.
     const owners = this.askOwnersByRequestId.get(id);
@@ -4362,6 +4403,8 @@ export class WorkerScheduler {
           // renderer stage terminal can attach; SDK adapters ignore it.
           workerId: handle.id,
           ...(approvedCommandGuard ? { approvedCommandGuard } : {}),
+          ...(handle.authorityGrant && ['claude-code-terminal', 'codex-terminal'].includes(handle.backendId)
+            ? { nativeWorkerAuthority: this.nativeAuthorityPorts(handle, sessionAttempt) } : {}),
           ...(handle.backendSession?.sessionId
             ? { resumeSessionId: handle.backendSession.sessionId }
             : {}),
@@ -4525,6 +4568,7 @@ export class WorkerScheduler {
    *
    *  Idempotent: safe to call again on an already-disposed handle. */
   private disposeWorker(handle: WorkerHandle, finalStatus: WorkerStatusKind, summary?: string): void {
+    for (const pending of this.nativeApprovalReplies.values()) if (pending.workerId === handle.id) pending.resolve('deny');
     if (handle.flushTimer) {
       clearTimeout(handle.flushTimer);
       handle.flushTimer = null;

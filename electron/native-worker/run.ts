@@ -47,7 +47,7 @@ export interface NativeRunOptions {
     decision: 'allow' | 'ask-user' | 'deny'; reason: string; safeInput: Record<string, unknown>; grantHash?: string }) => Promise<void>;
   /** Hash checks cover a declared finite boundary. Confinement is independent. */
   checkBoundary: (stage: 'before' | 'after') => Promise<boolean>;
-  onReport: (report: WorkReport) => void;
+  onReport: (report: WorkReport, receiptId: string) => void | Promise<void>;
   onState?: (state: string) => void;
   approvalTimeoutMs?: number; stopTimeoutMs?: number;
   now?: () => number;
@@ -69,7 +69,7 @@ export class NativeWorkerRun {
   private readonly pending = new Set<AbortController>();
   private readonly permits = new Map<string, ExecutionPermit>();
   private readonly invocations = new Set<string>();
-  private reportReceipt?: { digest: string; id: string; delivered: boolean };
+  private reportReceipt?: { digest: string; id: string; delivery: Promise<string> };
   private grantHash?: string;
   private stopPromise?: Promise<boolean>;
   private stopTimer?: ReturnType<typeof setTimeout>;
@@ -214,7 +214,7 @@ export class NativeWorkerRun {
     return structuredClone(permit);
   }
   private canTool(peer: unknown, basis: RunBasis, call: NativeToolCall) {
-    return (this.state === 'automatic' || this.state === 'human') && this.sameBasis(basis)
+    return !this.reportReceipt && (this.state === 'automatic' || this.state === 'human') && this.sameBasis(basis)
       && this.bound() && this.peer(peer) && call.sessionId === this.launch?.sessionId;
   }
   /** Called by the independent guardian at the execution boundary, not by a
@@ -260,21 +260,24 @@ export class NativeWorkerRun {
     }
     this.transition('automatic'); return this.basis();
   }
-  report(peer: unknown, basis: RunBasis, value: unknown): string {
+  async report(peer: unknown, basis: RunBasis, value: unknown): Promise<string> {
     if (!this.peer(peer) || !this.sameBasis(basis) || !this.bound()
       || !['automatic', 'human'].includes(this.state)) throw new Error('report-rejected');
     const report = workReportSchema.parse(value), hash = digest(report);
     if (this.reportReceipt) {
       if (this.reportReceipt.digest !== hash) throw new Error('report-conflict');
-      if (!this.reportReceipt.delivered) throw new Error('report-delivery-unconfirmed');
-      return this.reportReceipt.id;
+      return this.reportReceipt.delivery;
     }
-    this.reportReceipt = { id: randomUUID(), digest: hash, delivered: false };
-    try {
-      this.options.onReport(report); // candidate only, never task success
-      this.reportReceipt.delivered = true;
-    } catch { void this.stop(); throw new Error('report-delivery-unconfirmed'); }
-    return this.reportReceipt.id;
+    const id = randomUUID();
+    // Claim before any callback/await. A Promise-returning scheduler/journal
+    // must finish before the peer receives a receipt; retries share it.
+    const delivery = Promise.resolve().then(async () => {
+      if (!this.peer(peer) || !this.sameBasis(basis) || !this.bound()) throw new Error('report-rejected');
+      await this.options.onReport(report, id); // candidate only, never task success
+      return id;
+    }).catch(() => { void this.stop(); throw new Error('report-delivery-unconfirmed'); });
+    this.reportReceipt = { id, digest: hash, delivery };
+    return delivery;
   }
   /** Root exit, hook Stop, EOF and reports deliberately have no stop-confirm API. */
   confirmTreeExit(evidence: unknown): boolean {

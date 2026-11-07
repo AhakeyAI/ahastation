@@ -122,7 +122,7 @@ test('binding requires trusted peer and current host/runtime/credential; first h
   assert.equal(f.run.input(f.run.basis(), 'host', 'now bound', f.peer), true);
   f.setCurrent(false);
   assert.equal(f.run.consume(f.peer, response.permit.id, response.call), false);
-  assert.throws(() => f.run.report(f.peer, f.run.basis(), report), /rejected/);
+  await assert.rejects(f.run.report(f.peer, f.run.basis(), report), /rejected/);
 });
 
 test('external writes approve each invocation, never reuse tool IDs or command fingerprints', async t => {
@@ -229,13 +229,36 @@ test('takeover cannot admit a human writer until old automatic execution is fenc
 
 test('reports are attempt-scoped idempotent candidates and cannot resurrect stop; boundary violations stop', async t => {
   const f = fixture(t); await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
-  const basis = f.run.basis(), receipt = f.run.report(f.peer, basis, report);
-  assert.equal(f.run.report(f.peer, basis, report), receipt); assert.equal(f.reports.length, 1);
-  assert.throws(() => f.run.report(f.peer, basis, { ...report, summary: 'different' }), /conflict/);
-  f.setBoundary(false);
+  const basis = f.run.basis(), receipt = await f.run.report(f.peer, basis, report);
+  assert.equal(await f.run.report(f.peer, basis, report), receipt); assert.equal(f.reports.length, 1);
+  await assert.rejects(f.run.report(f.peer, basis, { ...report, summary: 'different' }), /conflict/);
   assert.equal(await f.run.requestTool(f.peer, basis, call()), null);
-  assert.equal(f.states.at(-1), 'stopping'); assert.throws(() => f.run.report(f.peer, basis, report), /rejected/);
   await f.run.stop();
+  await assert.rejects(f.run.report(f.peer, basis, report), /rejected/);
+  const violation = fixture(t); await violation.run.start(); violation.run.bind(violation.peer, 'native-session', violation.run.basis());
+  violation.setBoundary(false);
+  assert.equal(await violation.run.requestTool(violation.peer, violation.run.basis(), call()), null);
+  assert.equal(violation.states.at(-1), 'stopping'); await violation.run.stop();
+});
+
+test('a WorkReport receipt waits for async delivery and shares one durable result', async t => {
+  let complete, deliveries = 0;
+  const f = fixture(t, { onReport: async () => { deliveries++; await new Promise(resolve => { complete = resolve; }); } });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  let acknowledged = false;
+  const first = f.run.report(f.peer, f.run.basis(), report).then(id => { acknowledged = true; return id; });
+  const retry = f.run.report(f.peer, f.run.basis(), report);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(acknowledged, false); assert.equal(deliveries, 1);
+  complete(); assert.equal(await first, await retry);
+  await f.run.stop();
+});
+
+test('failed asynchronous report persistence never gets an acknowledged receipt', async t => {
+  const f = fixture(t, { onReport: async () => { throw new Error('disk failure'); } });
+  await f.run.start(); f.run.bind(f.peer, 'native-session', f.run.basis());
+  await assert.rejects(f.run.report(f.peer, f.run.basis(), report), /unconfirmed/);
+  assert.equal(f.states.at(-1), 'stopping'); await f.run.stop();
 });
 
 test('G4 detects finite local boundary changes and refuses unbounded/unverifiable snapshots', t => {
