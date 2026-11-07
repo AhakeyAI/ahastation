@@ -1,0 +1,31 @@
+AhaStudio
+Copyright (c) 2026 AhakeyAI
+
+This product is licensed under the AhaStudio Community License (see LICENSE).
+It includes or uses the third-party components listed below. Each remains
+under its own license; the AhaStudio Community License and any commercial
+license from AhakeyAI grant no rights to them.
+
+Adapted source code
+- Orca (https://github.com/stablyai/orca), MIT License,
+  Copyright (c) 2026 Lovecast Inc. Portions of electron/projects.ts,
+  electron/rate-limits.ts, src/lib/rate-limits.ts,
+  src/lib/terminal-appearance.ts and src/components/TerminalBrandIcons.tsx
+  are adapted from Orca. Full license text:
+  src/assets/cli-icons/ORCA-LICENSE.txt
+
+Bundled runtime files
+- public/vad/: Silero VAD model and ONNX Runtime Web files, distributed with
+  @ricky0123/vad-web, each under its own license.
+
+Agent CLIs and SDKs
+- Claude Agent SDK (@anthropic-ai/claude-agent-sdk): subject to Anthropic's
+  terms; see the package README.
+- Codex SDK and CLI (@openai/codex-sdk, @openai/codex): Apache License 2.0.
+- OpenCode binaries (opencode-*): see the package license.
+These are used through their providers' own terms and accounts. A commercial
+license from AhakeyAI does not include any right to redistribute them.
+
+npm dependencies
+- All other dependencies listed in package.json and package-lock.json are
+  used under their respective licenses.

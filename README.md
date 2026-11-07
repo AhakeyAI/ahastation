@@ -75,4 +75,11 @@ npm run dist:dmg     # macOS arm64 DMG（未签名体验版）
 
 ## License
 
-待定（未定开源协议前，保留所有权利）。
+源码公开，采用 [AhaStudio Community License](LICENSE)（Apache License 2.0 + 附加条件）：
+
+- **免费**：个人使用，包括用它开发自己出售的产品，产出归你所有；组织内部使用，包括为自己的人员和设备自建 Hub。
+- **需要商业授权**：在硬件设备上预装或随设备分发（OEM）；把它作为托管服务提供给第三方；收费分发或作为商业产品的一部分分发。
+- 不授予 AhaStudio、AhaStation、AhaKey 名称和标识的使用权，分发修改版须改名。
+- 第三方组件按各自的许可证授权，见 [NOTICE](NOTICE)。
+
+商业授权联系：vincent@ahakey.cn
