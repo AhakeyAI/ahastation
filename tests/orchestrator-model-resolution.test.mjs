@@ -83,10 +83,12 @@ function installFakeBackends(t) {
   return captured;
 }
 
-function sessionModelFor(orch, backendId, sessionOptions) {
-  // buildSessionFactory is TS-private but a plain method at runtime.
+async function sessionModelFor(orch, backendId, sessionOptions) {
+  // Native creation now happens only after global admission in start().
   const factory = orch.buildSessionFactory(backendId);
-  factory({ cwd: '/tmp', autoApproveScope: 'off', sessionOptions, emit: () => {} });
+  const session = factory({ cwd: '/tmp', autoApproveScope: 'off', sessionOptions, emit: () => {} });
+  try { await session.start(); }
+  finally { session.end(); }
 }
 
 test('Codex gets no model override when settings have none (config.toml fallback)', async (t) => {
@@ -96,12 +98,12 @@ test('Codex gets no model override when settings have none (config.toml fallback
   const orch = new Orchestrator({ emit: () => {}, cwd: '/tmp' });
 
   // The talker's Claude-centric fallback must not reach the Codex session.
-  sessionModelFor(orch, 'codex', { model: 'claude-haiku-4-5' });
+  await sessionModelFor(orch, 'codex', { model: 'claude-haiku-4-5' });
   assert.equal(captured.codex.length, 1);
   assert.equal(captured.codex[0].model, undefined);
 
   // Neither may a compiled task profile's model.
-  sessionModelFor(orch, 'codex', {
+  await sessionModelFor(orch, 'codex', {
     model: 'claude-haiku-4-5',
     taskProfile: effectiveProfile('gpt-5.4'),
   });
@@ -115,10 +117,10 @@ test('Codex honors the settings model above every other source', async (t) => {
   await setBackendAuth('codex', { authMode: 'none', model: 'gpt-5.6-sol' });
   const orch = new Orchestrator({ emit: () => {}, cwd: '/tmp' });
 
-  sessionModelFor(orch, 'codex', { model: 'claude-haiku-4-5' });
+  await sessionModelFor(orch, 'codex', { model: 'claude-haiku-4-5' });
   assert.equal(captured.codex[0].model, 'gpt-5.6-sol');
 
-  sessionModelFor(orch, 'codex', {
+  await sessionModelFor(orch, 'codex', {
     model: 'claude-haiku-4-5',
     taskProfile: effectiveProfile('gpt-5.4'),
   });
@@ -132,11 +134,11 @@ test('Other backends keep their existing model resolution', async (t) => {
   const orch = new Orchestrator({ emit: () => {}, cwd: '/tmp' });
 
   // No settings model: the requested (talker) model passes through.
-  sessionModelFor(orch, 'claude-code', { model: 'claude-haiku-4-5' });
+  await sessionModelFor(orch, 'claude-code', { model: 'claude-haiku-4-5' });
   assert.equal(captured['claude-code'][0].model, 'claude-haiku-4-5');
 
   // A compiled task profile still wins for non-Codex backends.
-  sessionModelFor(orch, 'claude-code', {
+  await sessionModelFor(orch, 'claude-code', {
     model: 'claude-haiku-4-5',
     taskProfile: effectiveProfile('claude-sonnet-4-5', 'claude-code'),
   });

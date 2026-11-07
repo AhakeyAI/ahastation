@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { createInterface } from 'node:readline';
 import { terminateProcessTree } from './process-tree.js';
 
@@ -101,6 +102,8 @@ export class CodexAppServerTransport {
       ['app-server', '--stdio'],
       { env: this.options.env, stdio: ['pipe', 'pipe', 'pipe'] },
     );
+    const proc = this.process;
+    trackAgentProcess(proc.pid, (onExit) => { proc.on('exit', onExit); });
     const lines = createInterface({ input: this.process.stdout });
     lines.on('line', (line) => this.handleLine(line));
     this.process.stderr.on('data', (chunk: unknown) => this.options.onStderr?.(String(chunk)));

@@ -18,6 +18,19 @@ export interface ContinueSessionRequest {
   endOriginal?: boolean;
 }
 
+export interface AgentResourceDiagnostics {
+  limit: number;
+  resident: number;
+  draining: number;
+  waiting: number;
+  idleTimeoutMs: number;
+  sampledAt: number | null;
+  rssBytes: number | null;
+  cpuPercent: number | null;
+  processCount: number;
+  error?: string;
+}
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -1398,6 +1411,7 @@ export interface VibeMeetApi {
           };
           workspace: { git: boolean; worktree: boolean; version: string | null };
           capacity: { hosts: number; workers: number };
+          agentResources?: AgentResourceDiagnostics;
         };
       }
     | { ok: false; error: string }

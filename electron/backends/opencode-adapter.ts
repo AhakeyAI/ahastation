@@ -42,6 +42,7 @@ import {
   type OpencodeServerHandle,
 } from './opencode-server-process.js';
 import { parseUnifiedDiffCounts } from './opencode-editor-panel.js';
+import { trackAgentProcess } from '../agent-process-scope.js';
 
 /** Tools whose completion means a file was written/edited (derived diff). */
 const FILE_WRITE_TOOLS = new Set(['write', 'edit', 'multiedit', 'notebookedit']);
@@ -295,14 +296,22 @@ class OpenCodeSession implements BackendSession {
   }
 
   async start(): Promise<void> {
+    if (this.closed) return;
     try {
       const handle = await this.acquireServer();
+      trackAgentProcess(handle.pid ?? undefined, (onExit) => { handle.onExit(onExit); });
+      if (this.closed) {
+        // end() may have run before acquireServer stored the registry key.
+        this.releaseServer();
+        return;
+      }
       this.server = handle;
 
       const sdk = await loadOpencodeClientModule();
+      if (this.closed) return;
       if (!sdk) {
-        handle.kill();
         this.emitFailure('opencode-sdk-unavailable', 'OpenCode SDK client not available', false);
+        this.end();
         return;
       }
       this.client = sdk.createOpencodeClient({
@@ -330,6 +339,7 @@ class OpenCodeSession implements BackendSession {
       // Subscribe-before-create: wait for the event stream to be live
       // BEFORE creating the session (no server-side replay — spike §5).
       await this.firstStreamOpened;
+      if (this.closed) return;
 
       // Session resume (Phase 7): the journal snapshot carries the old
       // opencode sessionId. The server persists sessions per directory, so
@@ -340,6 +350,7 @@ class OpenCodeSession implements BackendSession {
         const listed = await this.client.session.list({
           query: { directory: this.config.cwd },
         }).catch(() => null);
+        if (this.closed) return;
         const plan = planSessionResume(
           resumeId,
           (listed?.data ?? []).map((s) => s.id),
@@ -357,6 +368,7 @@ class OpenCodeSession implements BackendSession {
           // activity) WITHOUT replaying history into the meeting chat —
           // the meeting transcript comes from the meeting's own journal.
           await this.resyncSnapshot(false);
+          if (this.closed) return;
           this.emitInformational('已恢复 OpenCode 会话（只读查看历史）。发送消息即可激活继续。');
           return;
         }
@@ -369,6 +381,7 @@ class OpenCodeSession implements BackendSession {
         query: { directory: this.config.cwd },
         body: { title: `AhaStation ${this.config.cwd}` },
       });
+      if (this.closed) return;
       if (!created.data) {
         throw new Error('Failed to create OpenCode session');
       }
@@ -382,7 +395,10 @@ class OpenCodeSession implements BackendSession {
 
       this.emitInformational('OpenCode 会话已启动');
     } catch (err) {
-      this.emitFailure('opencode-start-failed', `OpenCode start failed: ${String(err)}`, true);
+      if (!this.closed) {
+        this.emitFailure('opencode-start-failed', `OpenCode start failed: ${String(err)}`, true);
+        this.end();
+      }
     }
   }
 
@@ -439,6 +455,15 @@ class OpenCodeSession implements BackendSession {
     });
     this.acquiredServerKey = acquired.key;
     return acquired.handle;
+  }
+
+  private releaseServer(): void {
+    const key = this.acquiredServerKey;
+    this.acquiredServerKey = null;
+    this.server = null;
+    if (key) {
+      void getOpencodeServerRegistry().handleLifecycle('sessionEnd', key);
+    }
   }
 
   // ── Event stream with checkpoint-resync ─────────────────────────────────
@@ -891,6 +916,10 @@ class OpenCodeSession implements BackendSession {
   end(): void {
     if (this.closed) return;
     this.closed = true;
+    this.ready = false;
+    // Resolve rather than reject: start may still be awaiting acquire/SDK,
+    // with no rejection handler attached to readiness yet.
+    this.settleFirstStream(undefined, true);
     this.streamAbort?.abort();
     this.streamAbort = null;
     // fail-closed: deny everything still pending before tearing down (the
@@ -904,11 +933,7 @@ class OpenCodeSession implements BackendSession {
     // Release the shared server refcount (sessionEnd lifecycle) instead of
     // killing directly — the server dies only when the last session/window
     // in this (meetingId, cwd) lets go. Deliberately NO session.delete.
-    if (this.acquiredServerKey) {
-      void getOpencodeServerRegistry().handleLifecycle('sessionEnd', this.acquiredServerKey);
-      this.acquiredServerKey = null;
-    }
-    this.server = null;
+    this.releaseServer();
     this.client = null;
     this.emit({ kind: 'ended' });
     this.emit = () => {};

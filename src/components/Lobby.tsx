@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Activity, ChevronDown, Clock, DownloadCloud, FolderOpen, FolderPlus, KeyRound, LogIn, Mic, MonitorUp, Terminal } from 'lucide-react';
 import { meetingStore } from '../lib/meeting-store';
 import { toast } from '../lib/toast';
-import type { BackendInfo } from '../types';
+import type { AgentResourceDiagnostics, BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
 import {SharedMeetingEntry} from './SharedMeetingEntry';
 import { ProjectRooms } from './ProjectRooms';
@@ -49,6 +49,7 @@ interface DeviceSnapshot {
   };
   workspace: { git: boolean; worktree: boolean; version: string | null };
   capacity: { hosts: number; workers: number };
+  agentResources?: AgentResourceDiagnostics;
 }
 
 function formatRelative(ts: number): string {
@@ -694,6 +695,29 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
                       <strong>{diagnostics.workspace.worktree ? 'worktree 可用' : '需安装 Git'}</strong>
                       <small>{diagnostics.capacity.hosts} Host · {diagnostics.capacity.workers} Worker</small>
                     </div>
+                    {diagnostics.agentResources && (
+                      <div>
+                        <span>原生 Agent · 全局资源快照</span>
+                        <strong>
+                          驻留 {diagnostics.agentResources.resident + diagnostics.agentResources.draining}/{diagnostics.agentResources.limit}
+                          {' · '}排队 {diagnostics.agentResources.waiting}
+                        </strong>
+                        <small>
+                          退出中 {diagnostics.agentResources.draining}
+                          {' · '}进程树 {diagnostics.agentResources.processCount} 个进程
+                        </small>
+                        <small>
+                          {diagnostics.agentResources.error ? '资源采样不可用，仍保留退出额度' : (
+                            <>
+                              RSS {diagnostics.agentResources.rssBytes === null ? '待采样' : `${Math.round(diagnostics.agentResources.rssBytes / 1024 ** 2)} MiB`}
+                              {' · '}CPU {diagnostics.agentResources.cpuPercent === null ? '待二次采样' : `${diagnostics.agentResources.cpuPercent.toFixed(1)}%`}
+                              {'（单核口径）'}
+                            </>
+                          )}
+                        </small>
+                        <small>安全空闲回收：{Math.round(diagnostics.agentResources.idleTimeoutMs / 1000)} 秒</small>
+                      </div>
+                    )}
                   </div>
 
                   <div className="backend-readiness-list">

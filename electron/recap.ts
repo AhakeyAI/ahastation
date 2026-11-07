@@ -9,6 +9,7 @@
 // presses interrupt after `end()` was called.
 
 import { query } from './claude-cli/driver.js';
+import { getAgentResourcePool, type AgentLease } from './agent-resource-pool.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { appendEntry } from './memory.js';
@@ -52,15 +53,22 @@ export function startRecap(opts: RecapOpts): RecapHandle | null {
   let activeQuery: ReturnType<typeof query> | null = null;
   let aborted = false;
   let active = true;
+  const abortController = new AbortController();
+  const pool = getAgentResourcePool();
+  let lease: AgentLease | undefined;
 
   const done = (async () => {
     try {
-      await runRecap(opts, (q) => { activeQuery = q; }, () => aborted);
+      lease = await pool.acquire('claude-code', 'worker', abortController.signal);
+      if (aborted) return;
+      await lease.scope.run(() => runRecap(opts, (q) => { activeQuery = q; }, () => aborted));
     } catch (err) {
       console.error('[memory] recap failed:', err);
       // User won't see a recap file, but the error is logged for debugging.
       // Future: could emit an event to surface this in the UI.
     } finally {
+      try { (activeQuery as ReturnType<typeof query> | null)?.close(); } catch { /* best effort */ }
+      if (lease) pool.retire(lease);
       active = false;
       activeQuery = null;
     }
@@ -70,6 +78,7 @@ export function startRecap(opts: RecapOpts): RecapHandle | null {
     done,
     abort: async () => {
       aborted = true;
+      abortController.abort();
       const q = activeQuery;
       if (q) {
         try { await q.interrupt(); } catch { /* ignore */ }

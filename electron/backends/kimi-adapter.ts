@@ -3,6 +3,7 @@
 // the session id emitted in the stream's `session.resume_hint` meta event.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { trackAgentProcess } from '../agent-process-scope.js';
 import { accessSync, constants as fsConstants, readFileSync, realpathSync } from 'node:fs';
 import { lstat, readFile, realpath, writeFile as writeTextFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -432,6 +433,7 @@ class KimiSession implements BackendSession {
       const proc = spawn(this.binary, buildKimiCommandArgs({
         prompt, model: this.config.model, sessionId: this.sessionId,
       }), { cwd: this.config.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      trackAgentProcess(proc.pid, (onExit) => { proc.once('exit', onExit); });
       this.process = proc;
       let stdout = '';
       let stderr = '';

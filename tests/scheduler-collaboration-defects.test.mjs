@@ -647,3 +647,53 @@ test('an in-flight tool suspends the stall watchdog until the long leash', async
   assert.equal(stalledCount(), 1, 'the nudge phase must not escalate yet');
   scheduler.endAll();
 });
+
+test('admission waits do not nudge, escalate, or consume the auto-restart budget', async (t) => {
+  const { scheduler, sessions } = makeScheduler();
+  t.after(() => scheduler.endAll());
+  scheduler.installPlan([{ id: 'w1', title: 'Queued worker', prompt: 'work', deps: [] }]);
+  await waitFor(() => sessions.length === 1, 'worker was not spawned');
+  let now = 200_000;
+  t.mock.method(Date, 'now', () => now);
+  const handle = scheduler.workers.get('w1');
+  const session = sessions[0];
+  let waiting = true;
+  session.isWaitingForResources = () => waiting;
+  session.resourceWaitTimeSince = (since) => Math.max(0, 190_000 - Math.max(since, 100_000));
+  handle.live.lastUpdateTs = 100_000;
+  const inputs = session.inputs.length;
+  scheduler.sweepStalls();
+  assert.equal(session.inputs.length, inputs);
+  assert.equal(handle.live.lastUpdateTs, 100_000, 'keep the real activity timestamp');
+  waiting = false;
+  scheduler.sweepStalls();
+  assert.equal(session.inputs.length, inputs, 'completed queue time must also be discounted');
+  handle.stallNotified = true;
+  handle.stallNotifiedTs = 100_000;
+  let restarts = 0;
+  scheduler.autoRestartStalledWorker = async () => { restarts++; };
+  scheduler.sweepStalls();
+  assert.equal(restarts, 0);
+  now += 36_000;
+  scheduler.sweepStalls();
+  assert.equal(restarts, 1, 'restart still fires after 45s of actual silence');
+});
+
+test('attempt budgets retain queue credit after parking and replacing a native session', async (t) => {
+  const { scheduler, sessions } = makeScheduler();
+  t.after(() => scheduler.endAll());
+  scheduler.installPlan([{ id: 'w1', title: 'Budget worker', prompt: 'work', deps: [] }]);
+  await waitFor(() => sessions.length === 1, 'worker was not spawned');
+  t.mock.method(Date, 'now', () => 200_000);
+  const handle = scheduler.workers.get('w1');
+  handle.startedAt = 100_000;
+  sessions[0].resourceWaitTimeSince = () => 80_000;
+  assert.equal(scheduler.activeAttemptDuration(handle), 20_000);
+  scheduler.releaseWorkerSession(handle);
+  assert.equal(scheduler.activeAttemptDuration(handle), 20_000);
+  handle.session = { end() {}, resourceWaitTimeSince: () => 5_000 };
+  scheduler.recordSuccessfulBudgetAttempt(handle, handle.attempt);
+  assert.equal(handle.budgetAttempts[0].durationMs, 15_000);
+  handle.startedAt = 190_000;
+  assert.equal(scheduler.activeAttemptDuration(handle), 5_000, 'new attempts discard prior wait credit');
+});

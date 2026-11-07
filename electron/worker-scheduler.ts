@@ -533,6 +533,7 @@ export class WorkerScheduler {
   private workerIdSeq = 0;
   private autoApproveScope: AutoApproveScope;
   private stallTimer: NodeJS.Timeout | null = null;
+  private readonly retiredResourceWait = new WeakMap<WorkerHandle, { since: number; durationMs: number }>();
   private capacityNotified = false;
   private launching = new Set<string>();
   private planVersion: number;
@@ -1970,6 +1971,7 @@ export class WorkerScheduler {
     for (const handle of this.workers.values()) {
       if (handle.status === 'running' && handle.session) {
         anyActive = true;
+        if (handle.session.isWaitingForResources?.()) continue;
         // Terminal workers run an interactive TUI supervised by the human at
         // the stage terminal - a quiet TUI is normal (Claude is reading /
         // writing), so the whole stall chain (nudge -> stalled -> auto-restart)
@@ -1987,7 +1989,8 @@ export class WorkerScheduler {
           }
           continue;
         }
-        const idleMs = now - handle.live.lastUpdateTs;
+        const idleMs = now - handle.live.lastUpdateTs
+          - (handle.session.resourceWaitTimeSince?.(handle.live.lastUpdateTs) ?? 0);
         const toolInFlight = Boolean(handle.live.currentTool);
         if (idleMs < (toolInFlight ? TOOL_INFLIGHT_STALL_THRESHOLD_MS : STALL_THRESHOLD_MS)) continue;
 
@@ -2105,7 +2108,8 @@ export class WorkerScheduler {
     if (handle.stallAutoRestarted) return;
     if (handle.live.currentTool) return;
     const notifiedTs = handle.stallNotifiedTs;
-    if (!notifiedTs || now - notifiedTs < STALL_THRESHOLD_MS) return;
+    if (!notifiedTs || now - notifiedTs
+      - (handle.session?.resourceWaitTimeSince?.(notifiedTs) ?? 0) < STALL_THRESHOLD_MS) return;
     // Latch before the async journal write so overlapping sweep ticks cannot
     // double-restart. On failure the latch stays set: this attempt falls back
     // to the tier-2 user-decision path rather than retry-looping.
@@ -2139,7 +2143,8 @@ export class WorkerScheduler {
     // Re-validate after the awaits: the worker may have progressed, been
     // terminalized, or the scheduler may have closed while flushing.
     if (this.opts.isClosed()) return;
-    if (handle.status !== 'running' || !handle.session || !handle.stallNotified) return;
+    if (handle.status !== 'running' || !handle.session || !handle.stallNotified
+      || handle.session.isWaitingForResources?.()) return;
     this.emitCoordinatorBriefing({
       kind: 'stalled',
       title: `${handle.title} 已自动重启`,
@@ -3236,7 +3241,7 @@ export class WorkerScheduler {
           handle.executionProfile?.maxTokenBudget
             ?? Math.min(DEFAULT_TASK_BUDGET.maxTotalTokens, 200_000),
         ),
-        durationMs: Math.max(0, Date.now() - handle.startedAt),
+        durationMs: this.activeAttemptDuration(handle),
         failureFingerprint: buildFailureFingerprint({
           error: effectiveFindings.join('\n'),
           failingChecks: failedChecks,
@@ -3249,6 +3254,7 @@ export class WorkerScheduler {
     if (evaluation !== 'continue') {
       handle.backendSession = handle.session?.snapshot?.() ?? handle.backendSession;
       const previousSession = handle.session;
+      if (previousSession) this.captureResourceWait(handle, previousSession);
       handle.session = null;
       handle.status = 'budget-paused';
       previousSession?.end();
@@ -3308,6 +3314,7 @@ export class WorkerScheduler {
     handle.nextAttemptBackendId = undefined;
     if (backendOverride) this.applyBackendOverride(handle, backendOverride);
     const previousSession = handle.session;
+    if (previousSession) this.captureResourceWait(handle, previousSession);
     handle.session = null;
     handle.attempt = nextAttempt;
     handle.status = 'pending';
@@ -3341,7 +3348,7 @@ export class WorkerScheduler {
         handle.executionProfile?.maxTokenBudget
           ?? Math.min(DEFAULT_TASK_BUDGET.maxTotalTokens, 200_000),
       ),
-      durationMs: Math.max(0, Date.now() - handle.startedAt),
+      durationMs: this.activeAttemptDuration(handle),
       failureFingerprint: null,
       succeeded: true,
     });
@@ -3377,6 +3384,7 @@ export class WorkerScheduler {
     handle.backendSession = handle.session?.snapshot?.() ?? handle.backendSession;
     if (handle.session) {
       const session = handle.session;
+      this.captureResourceWait(handle, session);
       handle.session = null;
       session.end();
     }
@@ -3909,12 +3917,29 @@ export class WorkerScheduler {
     return active.size;
   }
 
-  /** End a Worker Backend session without terminalizing the handle. Returns
-   *  true when a live session was released (slot may now be free). */
+  /** Preserve admission credit when an attempt replaces or parks its session. */
+  private captureResourceWait(handle: WorkerHandle, session: BackendSession): void {
+    const previous = this.retiredResourceWait.get(handle);
+    this.retiredResourceWait.set(handle, {
+      since: handle.startedAt,
+      durationMs: (previous?.since === handle.startedAt ? previous.durationMs : 0)
+        + (session.resourceWaitTimeSince?.(handle.startedAt) ?? 0),
+    });
+  }
+
+  private activeAttemptDuration(handle: WorkerHandle): number {
+    const previous = this.retiredResourceWait.get(handle);
+    const retiredWait = previous?.since === handle.startedAt ? previous.durationMs : 0;
+    return Math.max(0, Date.now() - handle.startedAt - retiredWait
+      - (handle.session?.resourceWaitTimeSince?.(handle.startedAt) ?? 0));
+  }
+
+  /** End a Backend session without terminalizing its task. */
   private releaseWorkerSession(handle: WorkerHandle): boolean {
     if (!handle.session) return false;
     const session = handle.session;
     handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+    this.captureResourceWait(handle, session);
     handle.session = null;
     handle.pendingDelegateAck = false;
     handle.live.busy = false;
@@ -4579,6 +4604,7 @@ export class WorkerScheduler {
       // end repeatedly on the same session.
       const session = handle.session;
       handle.backendSession = session.snapshot?.() ?? handle.backendSession;
+      this.captureResourceWait(handle, session);
       handle.session = null;
       try {
         session.end();

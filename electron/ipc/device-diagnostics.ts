@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { arch, release, totalmem } from 'node:os';
 import { app, ipcMain, systemPreferences } from 'electron';
 import { getSettings } from '../store.js';
+import { getAgentResourcePool, type AgentResourceSnapshot } from '../agent-resource-pool.js';
 
 export interface DeviceDiagnostics {
   capturedAt: number;
@@ -26,6 +27,7 @@ export interface DeviceDiagnostics {
     version: string | null;
   };
   capacity: { hosts: number; workers: number };
+  agentResources: AgentResourceSnapshot;
 }
 
 function isXfyunAsrConfigured(): boolean {
@@ -82,6 +84,7 @@ export function collectDeviceDiagnostics(): DeviceDiagnostics {
       version: gitVersion,
     },
     capacity: { hosts: 3, workers: 4 },
+    agentResources: getAgentResourcePool().snapshot(),
   };
 }
 
@@ -102,6 +105,7 @@ function probeAlsa(binary: 'arecord' | 'aplay'): boolean {
 export function registerDeviceDiagnosticsIpc(): void {
   ipcMain.handle('device:diagnostics', async () => {
     try {
+      await getAgentResourcePool().sweep();
       return { ok: true, diagnostics: collectDeviceDiagnostics() };
     } catch (error) {
       return {
