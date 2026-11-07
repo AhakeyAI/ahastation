@@ -41,7 +41,9 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
   displayLabel: 'Codex',
   resolveBinary: () => resolveBinaryFromPath('codex'),
   buildCliArgs: (config) => {
-    const args: string[] = [];
+    // The startup update menu takes the pasted prompt as its answer and the
+    // TUI exits (N5095, 2026-11-04). Updating is the user's call, not a task's.
+    const args: string[] = ['-c', 'check_for_update_on_startup=false'];
     if (config.model) args.push('-m', config.model);
     // Approval tiers (docs/research/codex-cli-protocol.md): default = ask in
     // TUI; 'read' ≈ --full-auto (auto low-risk, still asks for high-risk);
@@ -52,6 +54,9 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
     }
     return args;
   },
+  // Codex asks the user to trust any hook whose command it has not seen;
+  // one shared script keeps that to a single first-run prompt.
+  stableTurnHook: true,
   registerTurnHook: ({ hookCommand }) => {
     // Inline-TOML injection: `codex -c hooks=true -c 'hooks.Stop=[...]'`.
     // The hook command is embedded as a TOML basic string (backslashes and
