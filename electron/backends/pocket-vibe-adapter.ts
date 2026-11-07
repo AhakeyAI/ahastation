@@ -571,7 +571,7 @@ class PocketVibeSession implements BackendSession {
           return;
         }
         if (task.status === 'done') {
-          this.finishDoneTurn(task);
+          await this.finishDoneTurn(task, abort.signal);
           return;
         }
         if (task.status === 'failed') {
@@ -620,7 +620,7 @@ class PocketVibeSession implements BackendSession {
     if (text) this.emitProgress(`Pocket Vibe：${text}`);
   }
 
-  private finishDoneTurn(task: HubTask): void {
+  private async finishDoneTurn(task: HubTask, signal: AbortSignal): Promise<void> {
     const text = extractPocketVibeResultText(task.result);
     if (this.isWorker) {
       const extracted = extractWorkReportFrame(text);
@@ -653,14 +653,15 @@ class PocketVibeSession implements BackendSession {
     // orchestrator exactly like the Codex host path (PORTABLE_MEETING_COMMAND_PROMPT
     // teaches the remote model the protocol), then emit whatever text
     // remains as the assistant message.
-    const { visibleText, hasSpeakCommand, hasNonSpeakCommand } =
+    const { visibleText, hasSpeakCommand, hasNonSpeakCommand, commandsSucceeded } =
       this.config.remoteTarget
-        ? { visibleText: visible, hasSpeakCommand: false, hasNonSpeakCommand: false }
-        : this.dispatchMeetingCommands(visible);
+        ? { visibleText: visible, hasSpeakCommand: false, hasNonSpeakCommand: false, commandsSucceeded: true }
+        : await this.dispatchMeetingCommands(visible, signal);
+    if (this.closed || signal.aborted) return;
     // `speak` is rendered by Orchestrator.narrateAssistantLine() — emitting
     // the agent message too would double the sentence in the transcript.
     if (!hasSpeakCommand) {
-      const chatText = visibleText || (hasNonSpeakCommand ? COMMAND_ONLY_ACK : '');
+      const chatText = visibleText || (commandsSucceeded && hasNonSpeakCommand ? COMMAND_ONLY_ACK : '');
       if (chatText) {
         this.emit({
           kind: 'message',
@@ -674,38 +675,50 @@ class PocketVibeSession implements BackendSession {
     this.emit({ kind: 'message', message: { type: 'result', raw: task } });
   }
 
-  /** Extract fenced ```meeting-command frames, hand each parsed command to
-   *  the orchestrator's handler (fire-and-forget; handler errors surface as
-   *  session error events) and return the remaining user-visible text.
-   *  Mirrors dispatchAppServerCommands in codex-adapter.ts. */
-  private dispatchMeetingCommands(text: string): {
-    visibleText: string; hasSpeakCommand: boolean; hasNonSpeakCommand: boolean;
-  } {
+  /** Execute portable commands in order and retain rejected outcomes before
+   * acknowledging the turn. */
+  private async dispatchMeetingCommands(text: string, signal: AbortSignal): Promise<{
+    visibleText: string; hasSpeakCommand: boolean; hasNonSpeakCommand: boolean; commandsSucceeded: boolean;
+  }> {
     const fenced = /```meeting-command\s*([\s\S]*?)```/gi;
     let hasSpeakCommand = false;
     let hasNonSpeakCommand = false;
+    let commandsSucceeded = true;
     for (const match of text.matchAll(fenced)) {
+      if (this.closed || signal.aborted) break;
+      let command;
       try {
-        const command = JSON.parse(match[1]);
+        command = JSON.parse(match[1]);
+      } catch (err) {
+        commandsSucceeded = false;
+        this.emit({ kind: 'error', error: `Invalid meeting-command JSON: ${String(err)}` });
+        continue;
+      }
+      try {
+        if (!this.meetingCommandHandler) throw new Error('会议命令处理器不可用');
+        const result = await waitForMeetingCommand(this.meetingCommandHandler(command), signal);
+        if (this.closed || signal.aborted) break;
+        if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+          const error = 'error' in result && typeof result.error === 'string' ? result.error : '会议命令被拒绝';
+          throw new Error(error);
+        }
         if (
           command?.kind === 'speak'
           && typeof command.text === 'string'
           && command.text.trim().length > 0
         ) hasSpeakCommand = true;
         else hasNonSpeakCommand = true;
-        if (this.meetingCommandHandler) {
-          void Promise.resolve(this.meetingCommandHandler(command)).catch((err) => {
-            this.emit({ kind: 'error', error: `Meeting command failed: ${String(err)}` });
-          });
-        }
       } catch (err) {
-        this.emit({ kind: 'error', error: `Invalid meeting-command JSON: ${String(err)}` });
+        if (this.closed || signal.aborted) break;
+        commandsSucceeded = false;
+        this.emit({ kind: 'error', error: `Meeting command failed: ${err instanceof Error ? err.message : String(err)}` });
       }
     }
     return {
       visibleText: text.replace(fenced, '').trim(),
       hasSpeakCommand,
       hasNonSpeakCommand,
+      commandsSucceeded,
     };
   }
 
@@ -883,6 +896,24 @@ class PocketVibeSession implements BackendSession {
     this.emit({ kind: 'ended' });
     this.emit = () => {};
   }
+}
+
+function waitForMeetingCommand(result: unknown, signal: AbortSignal): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(new TurnInterrupted());
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(result).then((value) => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    }, (error) => {
+      signal.removeEventListener('abort', onAbort);
+      reject(error);
+    });
+  });
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
