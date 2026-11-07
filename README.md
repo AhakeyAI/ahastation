@@ -82,4 +82,4 @@ npm run dist:dmg     # macOS arm64 DMG（未签名体验版）
 - 不授予 AhaStudio、AhaStation、AhaKey 名称和标识的使用权，分发修改版须改名。
 - 第三方组件按各自的许可证授权，见 [NOTICE](NOTICE)。
 
-商业授权联系：contact@ahastation.com
+商业授权联系：vincent@ahakey.cn
