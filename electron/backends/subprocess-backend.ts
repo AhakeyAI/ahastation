@@ -14,8 +14,8 @@
 //   • stderr ring buffer for error diagnostics
 
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { delimiter } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { delimiter, resolve } from 'node:path';
 import {
   type BackendSession,
   type BackendSessionConfig,
@@ -87,6 +87,7 @@ export abstract class SubprocessSession implements BackendSession {
       this.process = spawn(this.binaryPath, args, {
         cwd: this.config.cwd,
         env: spawnEnv,
+        windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err: unknown) {
@@ -305,6 +306,7 @@ function resolveNpmGlobalBin(): string | null {
     const lookupCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const result = execFileSync(lookupCmd, ['config', 'get', 'prefix'], {
       encoding: 'utf8',
+      windowsHide: true,
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'ignore'],
       env: { ...process.env, PATH: process.env.PATH },
@@ -335,12 +337,30 @@ export function resolveBinaryFromPath(binaryName: string): string | null {
     return null;
   }
 
+  // where.exe writes console-code-page text, which cannot represent all
+  // Unicode PATH entries on Windows runners. Inspect native paths before
+  // decoding a subprocess result; never select npm's extensionless sh shim.
+  if (process.platform === 'win32') {
+    const extensions = /\.(exe|com|cmd|bat)$/i.test(binaryName) ? ['']
+      : (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';')
+        .filter(extension => /^\.(exe|com|cmd|bat)$/i.test(extension)).map(extension => extension.toLowerCase());
+    for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+      const directory = entry.trim().replace(/^"(.*)"$/, '$1');
+      if (!directory) continue;
+      for (const extension of extensions) {
+        const candidate = resolve(directory, binaryName + extension);
+        try { if (statSync(candidate).isFile()) return candidate; } catch { /* try next native path */ }
+      }
+    }
+  }
+
   // 1. Check system PATH via execFileSync (no shell — prevents command injection)
   //    Windows uses `where`, Unix uses `which`.
   try {
     const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
     const result = execFileSync(lookupCmd, [binaryName], {
       encoding: 'utf8',
+      windowsHide: true,
       timeout: 3000,
       stdio: ['pipe', 'pipe', 'ignore'],
       env: { ...process.env, PATH: augmentedPath() },

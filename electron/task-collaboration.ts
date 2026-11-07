@@ -122,6 +122,7 @@ export const contextPackageSchema = z.object({
 export type ContextPackage = z.infer<typeof contextPackageSchema>;
 
 export const taskAuthorityGrantSchema = z.object({
+  permissionProfile: z.literal('read-only-network').optional(),
   schemaVersion: z.literal(1),
   taskId: idSchema,
   attempt: z.number().int().positive(),

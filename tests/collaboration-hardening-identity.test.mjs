@@ -1,10 +1,30 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {createInterface} from 'node:readline';import {mkdtemp,rm,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {randomUUID,createHash} from 'node:crypto';import {app,safeStorage} from 'electron';
 import {StationService} from '../dist-electron/collaboration/station-service.js';import {DurableState} from '../dist-electron/collaboration/durable-state.js';import {updateRemoteControlFields,flushSettingsWrites} from '../dist-electron/store.js';
 const gate=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};const until=async(fn)=>{for(let n=0;n<1000;n++){if(await fn())return;await new Promise(r=>setTimeout(r,10));}assert.fail('identity fixture did not connect');};
-test('H07 delayed B migration and old-identity submit cannot overwrite registered C or discard archived A', {timeout:60000},async()=>{
+test('H07 delayed B migration and old-identity submit cannot overwrite registered C or discard archived A', {timeout:120000},async()=>{
  const root=await mkdtemp(join(tmpdir(),'station-identity-race-'));const oldPath=app.getPath,oldAvailable=safeStorage.isEncryptionAvailable,oldEncrypt=safeStorage.encryptString,oldDecrypt=safeStorage.decryptString,oldLoad=DurableState.prototype.load,oldLoop=process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK;
  app.getPath=()=>root;safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=s=>Buffer.from('owned:'+s);safeStorage.decryptString=b=>b.toString().slice(6);process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';const children=[];let service,bPending;const g=gate(),entered=gate();
- async function hub(){const child=spawn(process.env.COLLABORATION_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{windowsHide:true,stdio:['pipe','pipe','pipe']});children.push(child);child.stderr.resume();const lines=createInterface({input:child.stdout});return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Owned Hub startup')),15000);lines.on('line',line=>{try{const r=JSON.parse(line);if(r.ready){clearTimeout(timer);resolve(r);}}catch{}});});}
+ async function hub(){
+  assert.ok(process.env.COLLABORATION_PYTHON,'COLLABORATION_PYTHON is required');
+  const child=spawn(process.env.COLLABORATION_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+  children.push(child);
+  let stderr='';
+  child.stderr.on('data',data=>{stderr=(stderr+data).slice(-8192);});
+  const lines=createInterface({input:child.stdout});
+  // Three hubs perform password hashing and schema setup concurrently. Keep
+  // readiness bounded without assuming an idle CI runner starts all in 15s.
+  return new Promise((resolve,reject)=>{
+   const timer=setTimeout(()=>finish(new Error('Owned Hub startup timed out: '+stderr)),45000);
+   const onError=error=>finish(error);
+   const onExit=(code,signal)=>finish(new Error('Owned Hub exited before readiness ('+code+'/'+signal+'): '+stderr));
+   const onLine=line=>{try{const r=JSON.parse(line);if(r.ready)finish(null,r);}catch{}};
+   function finish(error,value){
+    clearTimeout(timer);child.off('error',onError);child.off('exit',onExit);lines.off('line',onLine);lines.close();
+    if(error)reject(error);else resolve(value);
+   }
+   child.once('error',onError);child.once('exit',onExit);lines.on('line',onLine);
+  });
+ }
  const select=i=>updateRemoteControlFields(()=>({enabled:true,mode:'public',serviceUrl:i.url,ownerId:i.owner,controlToken:i.token}));
  try{
   const [A,B,C]=await Promise.all([hub(),hub(),hub()]);service=new StationService(join(root,'profile'));await service.storage.load();service.localReady=true;service.probe=async()=>{};await select(A);await service.connect();await until(()=>service.connected);await service.configQueue;await until(()=>service.storage.read().outbox.length===0);clearInterval(service.nativeTimer);clearInterval(service.recoveryTimer);service.nativeTimer=undefined;service.recoveryTimer=undefined;service.connection.stop();service.connected=false;

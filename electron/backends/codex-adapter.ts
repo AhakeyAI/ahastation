@@ -20,6 +20,7 @@
 //       Also supports `codex auth login` for ChatGPT Plus/Pro OAuth.
 
 import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { accessSync, constants as fsConstants, existsSync, realpathSync } from 'node:fs';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -364,7 +365,6 @@ class CodexAppServerSession implements BackendSession {
   private readonly isWorker: boolean;
   private workerText: string[] = [];
   private suppressedWorkerTurns = new Set<string>();
-  private permissionSequence = 0;
   private permissionResolvers = new Map<string, {
     request: CodexAppServerRequest;
     resolve: (value: unknown) => void;
@@ -469,7 +469,9 @@ class CodexAppServerSession implements BackendSession {
       // surfacing a request the host is already tearing down.
       return Promise.resolve(codexApprovalResponse(request, 'deny'));
     }
-    const id = `codex:${++this.permissionSequence}:${String(request.id)}`;
+    // Provider IDs and per-session counters can collide across Workers. The
+    // meeting approval must identify exactly one invocation across sessions.
+    const id = `codex:${randomUUID()}:${String(request.id)}`;
     return new Promise((resolve) => {
       this.permissionResolvers.set(id, { request, resolve });
       this.emit({
@@ -1435,7 +1437,8 @@ export class CodexBackend implements CliBackend {
     if (!binary) return { loggedIn: false };
     try {
       const run = this.deps.execFile ?? ((file: string, args: string[]) =>
-        execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000 }));
+        execFileSync(file, args, { env: isolatedSubprocessEnv(), encoding: 'utf8', timeout: 10_000,
+          windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }));
       // Codex CLI writes both success and failure status messages to stderr.
       // execFileSync returns stdout only, so the command's exit status is the
       // stable machine-readable contract: zero means authenticated; non-zero

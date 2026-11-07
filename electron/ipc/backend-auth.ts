@@ -33,6 +33,8 @@ import {
 } from '../claude-cli/resolve.js';
 import { getBackendRegistry, registerCustomBackends } from '../backends/registry.js';
 import type { CliBackend } from '../backends/cli-backend.js';
+import { isTerminalWorkerBackend } from '../backends/terminal-cli-adapter.js';
+import { nativeWorkerAdmission } from '../native-worker/admission.js';
 import { resolveDefaultWorkerBackendId } from '../worker-backend-default.js';
 import { augmentedPath } from '../backends/subprocess-backend.js';
 import { isolatedSubprocessEnv } from '../backends/backend-environment.js';
@@ -179,7 +181,7 @@ export function registerBackendAuthIpc(): void {
       const runtime = assessConfiguredWorkerRuntime({
         backendId: backend.id,
         installed: available,
-        implementationEnabled: backend.capabilities.executeTasks,
+        implementationEnabled: backend.capabilities.executeTasks && !isTerminalWorkerBackend(backend.id),
         authenticated: loggedIn || Boolean(auth?.apiKey) || (
           backend.id === 'opencode' && (auth?.authMode ?? 'none') === 'none'
         ),
@@ -207,9 +209,11 @@ export function registerBackendAuthIpc(): void {
         supportsPermissions: backend.capabilities.permissions,
         supportsCoordinator: backend.capabilities.coordinate && !(backend.id === 'pocket-vibe' && getRemoteControlSettings().mode === 'public'),
         supportsWorkers: runtime.state === 'available' && !(backend.id === 'pocket-vibe' && getRemoteControlSettings().mode === 'public'),
-        workerImplementation: backend.capabilities.executeTasks,
+        workerImplementation: backend.capabilities.executeTasks && !isTerminalWorkerBackend(backend.id),
         workerRuntimeState: runtime.state,
-        workerRuntimeReason: runtime.reason,
+        workerRuntimeReason: isTerminalWorkerBackend(backend.id)
+          ? nativeWorkerAdmission(backend.id === 'claude-code-terminal' ? 'claude' : backend.id === 'codex-terminal' ? 'codex' : backend.id, version).blockers.join(', ')
+          : runtime.reason,
         version: runtime.version,
         expectedVersion: runtime.expectedVersion,
         claudeCodeCliSource: backend.id === 'claude-code' ? claudeCodeCliSource : null,
@@ -222,7 +226,7 @@ export function registerBackendAuthIpc(): void {
         bundledClaudeAvailable: backend.id === 'claude-code' ? bundledClaudePath !== null : null,
         systemClaudeAvailable: backend.id === 'claude-code' ? systemClaudePath !== null : null,
         customAvatar: auth && 'customAvatar' in auth ? auth.customAvatar ?? null : null,
-        workerReleaseTier: backend.capabilities.executeTasks
+        workerReleaseTier: backend.capabilities.executeTasks && !isTerminalWorkerBackend(backend.id)
           ? (FIRST_RELEASE_STABLE_WORKERS.has(backend.id) ? 'stable' : 'experimental')
           : 'blocked',
       };
@@ -424,6 +428,7 @@ export function registerBackendAuthIpc(): void {
       return { ok: false, error: 'backendId must be a registered backend id string' };
     }
     const backend = getBackendRegistry().get(backendId);
+    if (isTerminalWorkerBackend(backendId)) return { ok: false, error: '原生 Worker 尚未通过独立守卫与 B04 验证，请使用 SDK Worker。' };
     if (!backend) {
       return { ok: false, error: `backend '${backendId}' is not registered` };
     }

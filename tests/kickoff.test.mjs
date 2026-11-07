@@ -25,10 +25,10 @@ test('an expert may message only the sub-agent tasks it owns (AME-D14), nothing 
   assert.equal(legacy.ok, false);
 });
 
-test('sub-agents run on the native-CLI twin of the expert backend', () => {
-  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code-terminal');
-  assert.equal(terminalWorkerBackendFor('codex'), 'codex-terminal');
-  assert.equal(terminalWorkerBackendFor('kimi'), 'kimi-code-terminal');
+test('sub-agents run on the expert SDK while native admission is closed', () => {
+  assert.equal(terminalWorkerBackendFor('claude-code'), 'claude-code');
+  assert.equal(terminalWorkerBackendFor('codex'), 'codex');
+  assert.equal(terminalWorkerBackendFor('kimi'), 'kimi');
   assert.equal(terminalWorkerBackendFor('unknown-backend'), 'unknown-backend');
   const profile = { title: '产品专家', name: '小禾' };
   assert.match(kickoffTaskPrompt('brainstorm', profile), /不要修改任何文件/);

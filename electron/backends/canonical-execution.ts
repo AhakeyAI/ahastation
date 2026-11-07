@@ -261,12 +261,37 @@ function exactCommand(
   return null;
 }
 
+/** These commands cannot inherit a reusable Bash/argv approval. Unknown gh/git
+ * forms (including aliases and global options) are deliberately conservative.
+ * This classifies the requested invocation, not the contents of arbitrary scripts. */
+export function commandApprovalRisk(executable: string, argv: readonly string[]): string | null {
+  const name = executable.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase().replace(/\.(exe|cmd|bat)$/u, '') ?? '';
+  if (name === 'gh') {
+    const [group, action] = argv;
+    const reads: Record<string, readonly string[]> = {
+      issue: ['list', 'view', 'status'], pr: ['list', 'view', 'status', 'diff', 'checks'],
+      repo: ['view', 'list'], run: ['list', 'view'], workflow: ['list', 'view'],
+    };
+    return group && action && reads[group]?.includes(action) ? null : 'external-write';
+  }
+  if (name === 'git') {
+    return ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'ls-remote', 'branch'].includes(argv[0] ?? '')
+      ? null : 'external-write';
+  }
+  if (/^(?:sh|bash|zsh|dash|fish|cmd|powershell|pwsh|env|sudo|doas|runas|node|python[\d.]*|perl|ruby|exec|command|nohup|xargs)$/u.test(name)) {
+    return 'opaque-shell';
+  }
+  return null;
+}
+
 function commandSideEffects(
   executable: string,
   argv: readonly string[],
   envKeys: readonly string[],
 ): string[] {
   const effects = new Set<string>(['process']);
+  const approvalRisk = commandApprovalRisk(executable, argv);
+  if (approvalRisk) effects.add(approvalRisk);
   const executableName = executable.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase() ?? '';
   const tokens = [executableName, ...argv.map((entry) => entry.toLowerCase())];
   if (['sh', 'bash', 'zsh', 'cmd', 'cmd.exe', 'powershell', 'pwsh'].includes(executableName)) {

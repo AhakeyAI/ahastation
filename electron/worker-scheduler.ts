@@ -384,17 +384,6 @@ const PENDING_AUTHORITY_ASK_MAX = 128;
 /** Bound on remembered ask fingerprints per attempt (mirrors the addendum
  *  entry bound): a runaway Worker cannot grow an unbounded allow-set. */
 const APPROVAL_FINGERPRINT_LIMIT = 64;
-/** Side effects whose asks are never fingerprint-memorized — the user must
- *  confirm each occurrence individually, even for an identical repeat. */
-const NEVER_MEMORIZED_SIDE_EFFECTS: ReadonlySet<string> = new Set([
-  'administrator',
-  'credential-access',
-  'delete-data',
-  'destructive-git',
-  'system-install',
-  'external-message',
-  'external-publish',
-]);
 
 function stableFingerprintValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableFingerprintValue);
@@ -414,20 +403,6 @@ function approvalFingerprint(toolName: string, input: Record<string, unknown>): 
     .digest('hex');
 }
 
-/** Asks the addendum cannot remember but a user approval should: opaque /
- *  unsupported native payloads, and the two high-risk classes whose repeats
- *  are byte-identical (opaque shell wrappers, external tools). High-risk
- *  requests carrying any never-memorized side effect stay per-occurrence. */
-function fingerprintMemorableAsk(
-  normalized: PermissionNormalizationResult,
-  reason: string,
-): boolean {
-  if (!normalized.ok) return true;
-  if (reason !== 'high-risk:opaque-shell' && reason !== 'high-risk:external-service') {
-    return false;
-  }
-  return !normalized.request.sideEffects.some((effect) => NEVER_MEMORIZED_SIDE_EFFECTS.has(effect));
-}
 
 function comparableWorkspaceRoot(root: string): string {
   const resolved = pathResolve(root);
@@ -2359,22 +2334,10 @@ export class WorkerScheduler {
       },
       handle.authorityAddendum,
     );
-    // Fingerprint memory: asks the addendum cannot remember (opaque native
-    // payloads, opaque-shell / external high-risk) auto-allow on a repeat the
-    // user already approved this attempt with byte-identical input.
-    let decisionKind = canonical.decision.kind;
-    let decisionReason = canonical.decision.reason;
-    let askFingerprint: string | null = null;
-    if (
-      decisionKind === 'ask-user'
-      && fingerprintMemorableAsk(normalized, decisionReason)
-    ) {
-      askFingerprint = approvalFingerprint(event.toolName, event.input);
-      if (handle.approvedAskFingerprints?.has(askFingerprint)) {
-        decisionKind = 'allow';
-        decisionReason = 'repeat-user-approved';
-      }
-    }
+    // Each ask is resolved independently; opaque/external calls must never
+    // inherit a prior invocation's approval, including task-wide approvals.
+    const decisionKind = canonical.decision.kind;
+    const decisionReason = canonical.decision.reason;
     const persist = this.opts.persistPermissionDecision;
     if (!persist && this.opts.taskAuthorityCompilerRequired) {
       handle.session?.resolvePermission(event.id, 'deny', 'permission journal unavailable');
@@ -2436,13 +2399,6 @@ export class WorkerScheduler {
       if (pending.size < PENDING_AUTHORITY_ASK_MAX) {
         pending.set(event.id, normalized.request);
         handle.pendingAuthorityAsks = pending;
-      }
-    }
-    if (askFingerprint) {
-      const pendingFingerprints = handle.pendingAskFingerprints ?? new Map<string, string>();
-      if (pendingFingerprints.size < PENDING_AUTHORITY_ASK_MAX) {
-        pendingFingerprints.set(event.id, askFingerprint);
-        handle.pendingAskFingerprints = pendingFingerprints;
       }
     }
     this.opts.emit({

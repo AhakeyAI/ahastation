@@ -60,7 +60,7 @@ export const CODEX_TERMINAL_PROFILE: TerminalCliProfile = {
     const tomlCommand = hookCommand.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     return {
       cliArgs: [
-        '-c', 'hooks=true',
+        '-c', 'features.hooks=true',
         '-c', `hooks.Stop=[{matcher="",hooks=[{type="command",command="${tomlCommand}",timeout=30}]}]`,
       ],
       cleanupPaths: [],

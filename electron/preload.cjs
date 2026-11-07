@@ -119,6 +119,10 @@ const api = {
     return () => ipcRenderer.removeListener('voiceconfig:changed', listener);
   },
   getVoicePref: () => ipcRenderer.invoke('settings:get-voice-pref'),
+  nativeWorkerPreferences: {
+    get: () => ipcRenderer.invoke('settings:native-worker-get'),
+    set: (patch) => ipcRenderer.invoke('settings:native-worker-set', patch),
+  },
   setVoicePref: (patch) => ipcRenderer.invoke('settings:set-voice-pref', patch),
   onVoicePrefChanged: (cb) => {
     const listener = () => cb();
@@ -357,6 +361,8 @@ const api = {
   // lifecycle belongs to the worker adapter; this only mirrors output and
   // forwards user keystrokes for the stage terminal.
   workerPty: {
+    trustStatus: (workerId) => ipcRenderer.invoke('worker-pty:trust-status', { workerId }),
+    confirmTrust: (workerId, generation) => ipcRenderer.invoke('worker-pty:confirm-trust', { workerId, generation }),
     attach: (workerId) => ipcRenderer.invoke('worker-pty:attach', { workerId }),
     input: (workerId, data) => ipcRenderer.invoke('worker-pty:input', { workerId, data }),
     resize: (workerId, rows, cols) =>

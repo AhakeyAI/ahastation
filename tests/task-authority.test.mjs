@@ -15,6 +15,29 @@ import {
 import { CodexBackend } from '../dist-electron/backends/codex-adapter.js';
 import { WorkerScheduler } from '../dist-electron/worker-scheduler.js';
 
+test('external writes bypass neither broad grants nor cached addenda, even without sideEffects', () => {
+  const root = workspace();
+  const authority = grant(root, { commands: [['gh', 'issue'], ['gh', 'pr'], ['git', 'push']] });
+  for (const [executable, ...argv] of [
+    ['gh', 'issue', 'edit', '68', '--body', 'changed'],
+    ['gh', 'pr', 'merge', '12'], ['git', 'push', 'origin', 'main'],
+    ['C:\\tools\\gh.exe', 'api', '-X', 'PATCH', 'repos/example/issues/68'],
+    ['git', '-c', 'alias.publish=push', 'publish'],
+    ['env', 'gh', 'issue', 'edit', '68'],
+    ['pwsh.exe', '-Command', 'git push'],
+  ]) {
+    const request = canonical(root, { kind: 'command', executable, argv, readPaths: [], sideEffects: [] });
+    const addendum = extendAuthorityAddendum(authority, request);
+    assert.deepEqual(addendum.commands, []);
+    assert.equal(evaluateTaskAuthority(authority, request, APPROVED_AT + 1, addendum).kind, 'ask-user');
+    assert.equal(evaluateTaskAuthority(authority, { ...request, nativeRequestId: 'next' }, APPROVED_AT + 1, addendum).kind, 'ask-user');
+  }
+  for (const [executable, ...argv] of [['gh', 'issue', 'view', '68'], ['gh', 'pr', 'list']]) {
+    const request = canonical(root, { kind: 'command', executable, argv, readPaths: [] });
+    assert.equal(evaluateTaskAuthority(authority, request, APPROVED_AT + 1).kind, 'allow');
+  }
+});
+
 const APPROVED_AT = 1_700_000_000_000;
 
 function workspace() {

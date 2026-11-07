@@ -29,9 +29,8 @@ function authorityRequest(overrides = {}) {
   };
 }
 
-/** Crafted high-risk command request: `OpaqueShell` carries only the
- *  memorizable opaque-shell effect; `DangerShell` adds destructive-git,
- *  which must never enter the fingerprint memory. */
+/** Crafted shell requests must ask per invocation, with or without an
+ * additional destructive side effect. */
 function craftedCommand(nativeRequest, sideEffects) {
   return {
     ok: true,
@@ -172,35 +171,17 @@ function makeScheduler({ root, taskIds }) {
   return { scheduler, emitted, journal, resolved, autoApproveCalls, tick, ask, cards };
 }
 
-test('an approved fingerprint auto-allows the byte-identical repeat', async () => {
+test('an approved opaque command still asks on every occurrence', async () => {
   const root = workspace();
   const h = makeScheduler({ root, taskIds: ['mem-task'] });
   await h.tick();
-
-  const opaque = { command: 'npm test && npm run build' };
-  await h.ask('mem-task', 'opq-1', 'Bash', opaque);
-  assert.equal(h.cards().length, 1);
-  assert.equal(h.journal.at(-1).decision, 'ask-user');
-
+  const input = { command: 'gh issue edit 68 --body changed && git push' };
+  await h.ask('mem-task', 'opq-1', 'Bash', input);
   h.scheduler.resolvePermissionInAny('opq-1', 'allow');
-
-  // Byte-identical repeat: no card, journalled + resolved as repeat-approved.
-  await h.ask('mem-task', 'opq-2', 'Bash', opaque);
-  assert.equal(h.cards().length, 1);
-  assert.deepEqual(h.journal.at(-1), {
-    taskId: 'mem-task',
-    nativeRequestId: 'opq-2',
-    decision: 'allow',
-    reason: 'repeat-user-approved',
-  });
-  assert.deepEqual(
-    h.resolved.find((entry) => entry.id === 'opq-2'),
-    { id: 'opq-2', decision: 'allow', reason: 'repeat-user-approved' },
-  );
-
-  // A different opaque command is a different fingerprint: card again.
-  await h.ask('mem-task', 'opq-3', 'Bash', { command: 'cat a | grep b' });
+  await h.ask('mem-task', 'opq-2', 'Bash', input);
   assert.equal(h.cards().length, 2);
+  assert.equal(h.journal.at(-1).decision, 'ask-user');
+  assert.equal(h.resolved.some(entry => entry.id === 'opq-2'), false);
 });
 
 test('deny never seeds the fingerprint memory', async () => {
@@ -223,49 +204,42 @@ test('never-memorized side effects stay per-occurrence even after an allow', asy
   const h = makeScheduler({ root, taskIds: ['mem-task'] });
   await h.tick();
 
-  // Pure opaque-shell high-risk is memorizable.
+  // Shell wrappers always require a fresh decision.
   await h.ask('mem-task', 'hr-1', 'OpaqueShell', {});
   assert.equal(h.cards().length, 1);
   h.scheduler.resolvePermissionInAny('hr-1', 'allow');
   await h.ask('mem-task', 'hr-2', 'OpaqueShell', {});
-  assert.equal(h.cards().length, 1);
-  assert.equal(h.journal.at(-1).reason, 'repeat-user-approved');
+  assert.equal(h.cards().length, 2);
+  assert.equal(h.journal.at(-1).decision, 'ask-user');
 
   // destructive-git in the side effects excludes the request from memory.
   await h.ask('mem-task', 'dg-1', 'DangerShell', {});
-  assert.equal(h.cards().length, 2);
+  assert.equal(h.cards().length, 3);
   h.scheduler.resolvePermissionInAny('dg-1', 'allow');
   await h.ask('mem-task', 'dg-2', 'DangerShell', {});
-  assert.equal(h.cards().length, 3);
+  assert.equal(h.cards().length, 4);
   assert.equal(h.journal.at(-1).decision, 'ask-user');
 });
 
-test('a task-wide allow extends addendum and fingerprints to same-root peers', async () => {
+test('task-wide approval shares local edit authority but never shell approvals', async () => {
   const root = workspace();
   const h = makeScheduler({ root, taskIds: ['mem-task', 'peer-task'] });
   await h.tick();
 
-  // Fingerprint sharing: peer's identical request stops asking.
   await h.ask('mem-task', 'tw-1', 'OpaqueShell', {});
-  assert.equal(h.cards().length, 1);
   h.scheduler.resolvePermissionInAny('tw-1', 'allow', undefined, 'task-wide');
   await h.ask('peer-task', 'tw-2', 'OpaqueShell', {});
-  assert.equal(h.cards().length, 1);
-  assert.deepEqual(h.journal.at(-1), {
-    taskId: 'peer-task',
-    nativeRequestId: 'tw-2',
-    decision: 'allow',
-    reason: 'repeat-user-approved',
-  });
+  assert.equal(h.cards().length, 2);
+  assert.equal(h.journal.at(-1).decision, 'ask-user');
 
   // Addendum sharing: an authority-miss write approved task-wide covers the
   // same target for the peer via its own grant-bound addendum.
   await h.ask('mem-task', 'aw-1', 'Edit', { filePath: 'docs/readme.md' });
-  assert.equal(h.cards().length, 2);
+  assert.equal(h.cards().length, 3);
   assert.equal(h.journal.at(-1).reason, 'authority-miss:write-path-not-granted');
   h.scheduler.resolvePermissionInAny('aw-1', 'allow', undefined, 'task-wide');
   await h.ask('peer-task', 'aw-2', 'Edit', { filePath: 'docs/readme.md' });
-  assert.equal(h.cards().length, 2);
+  assert.equal(h.cards().length, 3);
   assert.deepEqual(h.journal.at(-1), {
     taskId: 'peer-task',
     nativeRequestId: 'aw-2',
@@ -285,6 +259,37 @@ test('a worker-scoped allow does not leak to peers', async () => {
   await h.ask('peer-task', 'ws-2', 'OpaqueShell', {});
   // Default scope stays per-worker: the peer still asks.
   assert.equal(h.cards().length, 2);
+});
+
+test('external mutations need a fresh card after allow, deny and task-wide allow', async () => {
+  const root = workspace();
+  const h = makeScheduler({ root, taskIds: ['mem-task', 'peer-task'] });
+  await h.tick();
+  // First approve a legitimate read. It must not authorize its write sibling.
+  await h.ask('mem-task', 'read', 'Bash', { command: 'gh issue view 68' });
+  h.scheduler.resolvePermissionInAny('read', 'allow', undefined, 'task-wide');
+  let count = h.cards().length;
+  for (const command of [
+    'gh issue edit 68 --body changed', 'gh pr merge 12', 'git push origin main',
+    'gh api -X PATCH repos/example/issues/68', 'gh alias set publish pr',
+    'git -c alias.publish=push publish', 'sh -c "git push"',
+  ]) {
+    const input = { command };
+    await h.ask('mem-task', `first-${count}`, 'Bash', input);
+    assert.equal(h.cards().length, ++count);
+    assert.equal(h.journal.at(-1).decision, 'ask-user');
+    h.scheduler.resolvePermissionInAny(`first-${count - 1}`, 'allow', undefined, 'task-wide');
+    await h.ask('mem-task', `repeat-${count}`, 'Bash', input);
+    assert.equal(h.cards().length, ++count);
+    assert.equal(h.journal.at(-1).decision, 'ask-user');
+    h.scheduler.resolvePermissionInAny(`repeat-${count - 1}`, 'deny');
+    await h.ask('mem-task', `after-deny-${count}`, 'Bash', input);
+    assert.equal(h.cards().length, ++count);
+    assert.equal(h.journal.at(-1).decision, 'ask-user');
+    await h.ask('peer-task', `peer-${count}`, 'Bash', input);
+    assert.equal(h.cards().length, ++count);
+    assert.equal(h.journal.at(-1).decision, 'ask-user');
+  }
 });
 
 test('setAutoApproveScope never reaches grant-bound sessions', async () => {

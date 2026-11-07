@@ -56,10 +56,11 @@ export function decideTaskPermission(
   addendum?: TaskAuthorityAddendum,
 ): CanonicalPermissionDecision {
   if (!normalized.ok) {
+    const narrowReadOnly = grant?.permissionProfile === 'read-only-network';
     return {
       decision: {
-        kind: 'ask-user',
-        reason: `native-request:${normalized.diagnostic}`,
+        kind: narrowReadOnly ? 'deny' : 'ask-user',
+        reason: narrowReadOnly ? 'read-only-network-unverifiable' : `native-request:${normalized.diagnostic}`,
       },
       // Opaque / unsupported native payloads still escalate to the user, but the
       // durable decision must retain Backend identity so release gates can prove
@@ -73,7 +74,7 @@ export function decideTaskPermission(
           ...(identity.toolName ? { toolName: identity.toolName } : {}),
         } : {}),
         normalizationDiagnostic: normalized.diagnostic,
-        requiresUser: true,
+        requiresUser: !narrowReadOnly,
       },
     };
   }

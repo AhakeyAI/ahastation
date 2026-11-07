@@ -167,16 +167,10 @@ export const MAX_HOSTS = 3;
  *  brainstorm = read-only research; develop = code in a worktree. */
 export type KickoffMode = 'brainstorm' | 'develop';
 
-/** Native-CLI worker backend for an expert's backend, so the sub-agent shows
- *  its real terminal in the stage. Falls back to the expert's own backend. */
+/** Historical export name. New kickoff tasks keep the expert's SDK backend
+ * until the native execution guard and B04 admit its terminal counterpart. */
 export function terminalWorkerBackendFor(backendId: string): string {
-  const terminal: Record<string, string> = {
-    'claude-code': 'claude-code-terminal',
-    codex: 'codex-terminal',
-    kimi: 'kimi-code-terminal',
-    qoder: 'qoder-terminal',
-  };
-  return terminal[backendId] ?? backendId;
+  return backendId;
 }
 
 export function kickoffTaskPrompt(mode: KickoffMode, profile: HostProfile): string {

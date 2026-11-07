@@ -519,8 +519,15 @@ export function PlanMeetingModal({
                     <label>
                       <span>Workspace 模式</span>
                       <select
-                        value={task.workspaceMode}
+                        value={authority.permissionProfile ?? task.workspaceMode}
                         onChange={(event) => {
+                          if (event.target.value === 'read-only-network') {
+                            patchTask(taskIndex, { workspaceMode: 'read-only', writePaths: [], authorityRequest: {
+                              ...authority, permissionProfile: 'read-only-network', writePaths: [],
+                              toolKinds: ['read', 'command'], commands: [], environmentKeys: [], networkHosts: ['api.github.com'],
+                            } });
+                            return;
+                          }
                           const workspaceMode = event.target.value as NonNullable<
                             PlanMeetingTaskInput['workspaceMode']
                           >;
@@ -530,6 +537,7 @@ export function PlanMeetingModal({
                               writePaths: [],
                               authorityRequest: {
                                 ...authority,
+                                permissionProfile: undefined,
                                 writePaths: [],
                                 toolKinds: Array.from(new Set([
                                   ...authority.toolKinds.filter((kind) => (
@@ -553,6 +561,7 @@ export function PlanMeetingModal({
                             writePaths,
                             authorityRequest: {
                               ...authority,
+                              permissionProfile: undefined,
                               writePaths,
                               toolKinds: writePaths.length > 0
                                 ? Array.from(new Set([...authority.toolKinds, 'read', 'write']))
@@ -562,9 +571,11 @@ export function PlanMeetingModal({
                         }}
                       >
                         <option value="read-only">只读</option>
+                        <option value="read-only-network">只读命令 + 联网</option>
                         <option value="git-worktree">Git Worktree</option>
                         <option value="shared-locked">共享目录锁（兼容模式）</option>
                       </select>
+                      {authority.permissionProfile === 'read-only-network' && <small>仅允许指定仓库的 gh issue/pr list/view。请在命令栏填写完整 argv（含 --repo）；不允许脚本、写入或读取凭据。</small>}
                       {task.workspaceMode === 'shared-locked' && (
                         <small role="alert">
                           直接写入当前目录，仅提供进程内路径锁；不会防止用户或外部进程改动，

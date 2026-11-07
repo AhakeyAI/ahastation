@@ -1,24 +1,19 @@
 import { getBackendRegistry } from './backends/registry.js';
 import { getSettings } from './store.js';
+import { isTerminalWorkerBackend } from './backends/terminal-cli-adapter.js';
 
-/** Worker executor default when a plan task omits executorBackendId. Host
- *  backend (coordinator) stays separate — e.g. claude-code talker with
- *  claude-code-terminal workers. */
+/** Until native execution guards and B04 pass, defaults remain on SDK. */
 export function resolveDefaultWorkerBackendId(hostBackendId: string): string {
-  // Honor the user's configured worker backend when it is registered and can
-  // execute tasks (e.g. 'kimi-code-terminal' for Kimi TUI workers).
+  // Preserve the preference on disk; a disabled native route cannot run.
   const configured = getSettings().defaultWorkerBackendId;
   if (configured) {
     const backend = getBackendRegistry().get(configured);
-    if (backend?.capabilities.executeTasks) return configured;
+    if (backend?.capabilities.executeTasks && !isTerminalWorkerBackend(configured)) return configured;
   }
-  // Workers are otherwise forced to the interactive TUI backend when
-  // available. The headless claude-code path stays reserved for the
-  // host/coordinator (which needs coordinate:true); workers run as
-  // supervised TUIs. If the terminal backend is unavailable, fall back to
-  // the host backend so validateExecutionBackends can surface a clear error
-  // instead of silently running headless.
-  const terminal = getBackendRegistry().get('claude-code-terminal');
-  if (terminal?.capabilities.executeTasks) return 'claude-code-terminal';
+  // SDK remains the operational default while native admission is closed.
+  const host = getBackendRegistry().get(hostBackendId);
+  if (host?.capabilities.executeTasks && !isTerminalWorkerBackend(hostBackendId)) return hostBackendId;
+  const sdk = getBackendRegistry().get('claude-code');
+  if (sdk?.capabilities.executeTasks) return 'claude-code';
   return hostBackendId;
 }

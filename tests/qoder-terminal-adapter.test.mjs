@@ -75,7 +75,7 @@ test('terminal host PTY ids are isolated by meeting and host', () => {
 test('qoder backend id and capabilities are terminal-shaped', () => {
   const backend = new QoderTerminalBackend({ resolveBinary: () => '/x/qodercli' });
   assert.equal(backend.id, 'qoder-terminal');
-  assert.equal(backend.capabilities.executeTasks, true);
+  assert.equal(backend.capabilities.executeTasks, false, 'Qoder remains a manual terminal, not a native Worker');
   assert.equal(backend.capabilities.coordinate, false);
   assert.equal(backend.resolveBinary(), '/x/qodercli');
 });

@@ -7,6 +7,7 @@ import { acceptanceCriterionSchema, workReportSchema } from './worker-protocol.j
 import { taskExecutionProfileSchema } from './task-collaboration.js';
 import { DEFAULT_TASK_BUDGET, taskBudgetSchema } from './task-budget.js';
 import { applyTaskDispatchDefaults, inferDefaultDependencyGate } from './task-intent.js';
+import { isReadOnlyNetworkEnvelope } from './read-only-network.js';
 
 export { MEETING_TOOLS, MEETING_TOOL_NAMES } from './meeting-tool-names.js';
 export type { MeetingToolName } from './meeting-tool-names.js';
@@ -20,6 +21,8 @@ const taskContextSelectionSchema = z.object({
 }).strict();
 
 const taskAuthorityRequestSchema = z.object({
+  permissionProfile: z.literal('read-only-network').optional()
+    .describe('只读命令 + 联网：仅明确仓库的 gh issue/pr list/view 精确 argv 与 api.github.com；不授予写入、环境读取或脚本执行。'),
   writePaths: z.array(z.string().trim().min(1).max(4_096)).max(100),
   toolKinds: z.array(z.string().trim().min(1).max(200)).max(100),
   workingDirectories: z.array(z.string().trim().min(1).max(4_096)).max(100),
@@ -166,8 +169,13 @@ export const planMeetingTaskSchema = z.object({
       path: ['contextSelection', 'mode'],
     });
   }
+  if (value.authorityRequest.permissionProfile === 'read-only-network'
+    && (value.workspaceMode !== 'read-only' || !isReadOnlyNetworkEnvelope(value.authorityRequest))) {
+    ctx.addIssue({ code: 'custom', path: ['authorityRequest'], message: 'invalid read-only-network authority' });
+  }
   if (
     value.workspaceMode === 'read-only'
+    && value.authorityRequest.permissionProfile !== 'read-only-network'
     && (
       value.authorityRequest.writePaths.length > 0
       || value.authorityRequest.commands.length > 0
@@ -231,6 +239,7 @@ function coerceTaskAuthority(
   workspaceMode: 'read-only' | 'git-worktree' | 'shared-locked',
   writePaths: string[],
   authority: {
+    permissionProfile?: 'read-only-network';
     writePaths: string[];
     toolKinds: string[];
     workingDirectories: string[];
@@ -243,6 +252,12 @@ function coerceTaskAuthority(
     verification: { kind: 'manual' } | { kind: 'command'; argv: string[] };
   }> | undefined,
 ): typeof authority {
+  if (authority.permissionProfile === 'read-only-network') {
+    if (workspaceMode !== 'read-only' || writePaths.length || !isReadOnlyNetworkEnvelope(authority)) {
+      throw new Error('invalid read-only-network authority');
+    }
+    return authority;
+  }
   const isWriter = workspaceMode === 'git-worktree' || workspaceMode === 'shared-locked';
   const paths = writePaths.length > 0 ? writePaths : authority.writePaths;
   if (isWriter && paths.length === 0) {
