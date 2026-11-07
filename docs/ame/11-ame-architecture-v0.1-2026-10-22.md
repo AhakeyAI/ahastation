@@ -29,7 +29,7 @@
 
 最新[2026-10-22 证据](../c0/handoff-2026-10-22/docs/ahastudio/evidence/2026-10-22-baseline-audit.json)：在 Darwin arm64、Node v26.12.1／npm 11.20.0 上再次使用 tracked HEAD archive 和现有 node_modules，类型检查、构建通过；默认测试仍 871 通过、16 失败、1 跳过，16 个失败位置与历史一致。本轮未复制缺失 fixture、未做 npm ci 或修复。已取得缓存 Node v22.23.4，但未用它重跑，CI 的 Node 22 验证仍待进行；未调用付费真实 Worker、Windows/N5095 或双机语音测试。C0 尚未通过。
 
-语音现状核查：ASR 为讯飞 IAT，TTS 使用系统 speechSynthesis，音色注册按 locale 和单一选择缓存，未证明角色级多音色。用户确认樱桃 SDK 不支持 N5095；替代实现须先做目标硬件 PoC。全局 CLI 实际版本与固定兼容版本也有差异，见新证据及交接文档，不据安装成功推定可控执行已验收。
+语音现状核查：ASR 为讯飞 IAT，TTS 使用系统 speechSynthesis，音色注册按 locale 和单一选择缓存，未证明角色级多音色。替代实现须先做目标硬件 PoC。全局 CLI 实际版本与固定兼容版本也有差异，见新证据及交接文档，不据安装成功推定可控执行已验收。
 
 ## 分层与权威状态
 

@@ -3,7 +3,7 @@
 # thermal-log.sh —— RK3588/RK3588S 散热/频率压测采集脚本（S1 Bring-up 正式版）
 #
 # 用途：
-#   对应 docs/checklist-s1-bringup.md §4「满栈 30 分钟散热压测（P0）」。
+#   对应 S1「满栈 30 分钟散热压测（P0）」。
 #   以 1Hz 采集 SoC 各 thermal_zone 温度、大核簇（Cortex-A76）频率、CPU 负载，
 #   结束后自动按红线判定并生成 Markdown 报告（可选 PNG 曲线图）。
 #
@@ -17,7 +17,7 @@
 #   bash scripts/thermal-log.sh -d 1800 -o ~/thermal-run1
 #   BIG_CORE_POLICY=policy6 bash scripts/thermal-log.sh   # 手动指定大核簇
 #
-# 环境：ARM64 Ubuntu 22.04/24.04（RK3588/RK3588S，如辰想 CX10A、Firefly ROC-RK3588S-PC）。
+# 环境：ARM64 Ubuntu 22.04/24.04（RK3588/RK3588S，如 10.1" RK3588 平板、Firefly ROC-RK3588S-PC）。
 # 依赖：仅 coreutils/awk/grep/sort（bash 自带能力之外不强制额外包）；无需 root。
 # Ctrl-C 中断也会基于已采集数据生成报告。
 #
@@ -257,7 +257,7 @@ generate_report() {
     echo
     echo "- 表面温度最终判定（过/撞线）：______"
     echo
-    echo "## 附录：判定阈值（checklist-s1-bringup.md §4）"
+    echo "## 附录：判定阈值（S1 散热压测）"
     echo
     echo "- 大核频率红线：< ${FREQ_REDLINE_KHZ} kHz（1.8GHz）持续 ≥ ${FREQ_REDLINE_SAMPLES} 个 1Hz 采样点（5 分钟）"
     echo "- 表面温度红线：> 45°C（人工测量）"

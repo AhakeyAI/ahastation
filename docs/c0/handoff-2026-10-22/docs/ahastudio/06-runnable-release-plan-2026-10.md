@@ -8,7 +8,7 @@
 
 ## 输入和代码基线
 
-产品依据为 [竞品对标策略](../research/orca-paseo-multica-ahastudio-strategy-2026-10.md)、[共享产品语言](../../CONTEXT.md)、[现有技术方案](./05-technical-architecture.md) 和 [代码整合方案](./02-integration-plan.md)。竞品判断沿用提供的研究快照，本轮没有重新核实其最新版本、性能或市场数据。开发取舍以给定策略与当前源码为依据。
+产品依据为内部竞品对标策略、[共享产品语言](../../CONTEXT.md)、[现有技术方案](./05-technical-architecture.md) 和 [代码整合方案](./02-integration-plan.md)。竞品判断沿用提供的研究快照，本轮没有重新核实其最新版本、性能或市场数据。开发取舍以给定策略与当前源码为依据。
 
 | 位置 | 核查事实 | 本计划的处理 |
 | --- | --- | --- |

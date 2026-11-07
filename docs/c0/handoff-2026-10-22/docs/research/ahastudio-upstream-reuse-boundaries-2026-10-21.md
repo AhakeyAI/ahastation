@@ -1,6 +1,6 @@
 # AhaStudio 上游复用边界核对（2026-10-21）
 
-本轮为产品 grilling 的研究笔记，不是架构选型或实施批准。先阅读了既有 `paseo-multica-comparison-2026-10.md` 和 `orca-ade-v1.4.218-comparison.md`，随后核对官方当前 README、许可证、包声明和接口文档。写前检查目标目录及所有祖先，未发现 AGENTS.md。本轮没有安装、运行或修改任何上游项目；未验证 AhaStation N5095 真机性能、Windows/Linux 行为、中文语音、断网恢复或批准安全。GitHub commits API 返回 403 限流，未固定当前 main SHA；本文 main 链接是查阅日期的移动来源，不能当可复现锁定版本。既有报告固定的旧 SHA/标签只代表旧研究。
+本轮为产品 grilling 的研究笔记，不是架构选型或实施批准。先阅读了既有竞品研究，随后核对官方当前 README、许可证、包声明和接口文档。写前检查目标目录及所有祖先，未发现 AGENTS.md。本轮没有安装、运行或修改任何上游项目；未验证 AhaStation N5095 真机性能、Windows/Linux 行为、中文语音、断网恢复或批准安全。GitHub commits API 返回 403 限流，未固定当前 main SHA；本文 main 链接是查阅日期的移动来源，不能当可复现锁定版本。既有报告固定的旧 SHA/标签只代表旧研究。
 
 ## 判断
 
