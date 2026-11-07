@@ -33,7 +33,7 @@ const session = (overrides = {}) => ({
 // Visibility rule (mirror of the board's columnForObserved + noise exclusion)
 // ---------------------------------------------------------------------------
 
-test('waiting and active are always boardable', () => {
+test('recent resolved waiting and active are boardable', () => {
   assert.equal(isBoardableObserved(session({ state: 'waiting' }), NOW), true);
   assert.equal(isBoardableObserved(session({ state: 'active' }), NOW), true);
 });
@@ -47,7 +47,7 @@ test('done is boardable only inside the recent window', () => {
   assert.equal(isBoardableObserved(stale, NOW), false);
 });
 
-test('idle is boardable only when backed by a live process (pid set)', () => {
+test('live idle windows remain visible for the settled subgroup, not in-progress', () => {
   assert.equal(isBoardableObserved(session({ state: 'idle', pid: 4242 }), NOW), true);
   assert.equal(isBoardableObserved(session({ state: 'idle' }), NOW), false);
 });

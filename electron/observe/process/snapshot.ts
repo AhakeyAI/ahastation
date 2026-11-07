@@ -1,12 +1,10 @@
-// process/darwin.ts — macOS process scanning for the observation layer.
-//
-// One `ps -axo pid,ppid,tt,%cpu,rss,comm,args` per tick builds a snapshot
-// shared by every observer (no per-client respawns). A single batched
-// `lsof -Fn -p <pids>` resolves cwd / open files only for pids that matched
-// a client binary. All subprocess calls are async off-loop with timeout +
-// in-flight dedup (see util.defaultExec). Ports are out of scope for S0.
+// Shared process snapshot: persistent CIM on Windows, ps on macOS/Linux.
+// File metadata uses lsof on macOS, /proc readlink on Linux, no subprocess on Windows.
 
+import { promises as fs } from 'node:fs';
 import { defaultExec, type ExecImpl } from '../util.js';
+import { commandTokens } from './command-line.js';
+import { WindowsProcessReader } from './windows-reader.js';
 
 export interface ProcessInfo {
   pid: number;
@@ -29,6 +27,10 @@ export interface ProcessSnapshot {
 const PS_TIMEOUT_MS = 5_000;
 const LSOF_TIMEOUT_MS = 10_000;
 const PS_MAX_BUFFER = 16 * 1024 * 1024;
+const windowsReader = new WindowsProcessReader();
+
+/** Release the persistent helper when scanning stops or permission is revoked. */
+export function stopProcessSnapshotCapture(): void { windowsReader.dispose(); }
 
 /** Parse `ps -axo pid,ppid,tt,%cpu,rss,comm,args` output. The comm column is
  * truncated to a fixed width by ps, so the args column is located via the
@@ -72,16 +74,36 @@ export function parsePsOutput(text: string, capturedAt = Date.now()): ProcessSna
   return { byPid, childrenOf, capturedAt };
 }
 
-/** Capture the shared per-tick process snapshot (single ps invocation). */
+/** All consumers, including own-process-tree exclusion, use this same snapshot. */
 export async function captureProcessSnapshot(
   execImpl: ExecImpl = defaultExec,
 ): Promise<ProcessSnapshot> {
+  if (process.platform === 'win32') {
+    return parseWindowsProcesses(await windowsReader.capture());
+  }
   const { stdout } = await execImpl(
     'ps',
-    ['-axo', 'pid,ppid,tt,%cpu,rss,comm,args'],
+    // Linux otherwise truncates long command lines to the terminal width.
+    process.platform === 'linux' ? ['-ww', '-axo', 'pid,ppid,tt,%cpu,rss,comm,args'] : ['-axo', 'pid,ppid,tt,%cpu,rss,comm,args'],
     { timeoutMs: PS_TIMEOUT_MS, maxBuffer: PS_MAX_BUFFER },
   );
   return parsePsOutput(stdout);
+}
+
+/** Windows has no reliable per-process cwd/CPU percentage here. Never invent either. */
+export function parseWindowsProcesses(text: string): ProcessSnapshot {
+  const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
+  const rows = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  const byPid: ProcessSnapshot['byPid'] = new Map();
+  const childrenOf = new Map<number, number[]>();
+  for (const row of rows) {
+    if (!row || !Number.isSafeInteger(row.ProcessId) || row.ProcessId <= 0 || !Number.isSafeInteger(row.ParentProcessId)) continue;
+    const pid = row.ProcessId, ppid = row.ParentProcessId;
+    const command = typeof row.CommandLine === 'string' ? row.CommandLine : String(row.Name ?? '');
+    byPid.set(pid, { pid, ppid, command, comm: String(row.Name ?? ''), cpuPct: 0, rssKb: 0, tty: '??' });
+    childrenOf.set(ppid, [...(childrenOf.get(ppid) ?? []), pid]);
+  }
+  return { byPid, childrenOf, capturedAt: Date.now() };
 }
 
 const SCRIPT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
@@ -92,7 +114,7 @@ const SCRIPT_EXTENSIONS = ['.js', '.mjs', '.cjs'];
  * where the name only appears inside a path argument
  * (`code /home/me/.claude` → basename `.claude` ≠ `claude`). */
 export function cmdHasBinary(command: string, name: string): boolean {
-  const tokens = command.split(/\s+/);
+  const tokens = commandTokens(command);
   for (const rawToken of tokens) {
     const token = rawToken.replace(/^["']|["']$/g, '');
     if (!token) continue;
@@ -178,7 +200,7 @@ export function maxDescendantCpu(snapshot: ProcessSnapshot, pid: number): number
   return max;
 }
 
-export interface LsofProcessFiles {
+export interface ProcessFiles {
   cwd?: string;
   files: string[];
 }
@@ -187,8 +209,8 @@ export interface LsofProcessFiles {
  * `f<fd>` / `n<name>` lines; the cwd is the `n` line following `fcwd`.
  * Entries whose name carries a readlink permission error are dropped;
  * socket-style names (`->...`) are not files. */
-export function parseLsofFieldOutput(text: string): Map<number, LsofProcessFiles> {
-  const result = new Map<number, LsofProcessFiles>();
+export function parseLsofFieldOutput(text: string): Map<number, ProcessFiles> {
+  const result = new Map<number, ProcessFiles>();
   let currentPid: number | null = null;
   let expectCwd = false;
   for (const line of text.split('\n')) {
@@ -224,13 +246,15 @@ export function parseLsofFieldOutput(text: string): Map<number, LsofProcessFiles
   return result;
 }
 
-/** Batched lsof for a set of pids. Any failure degrades to "cwd unknown"
- * for every pid (the process still counts as existing). */
-export async function lsofOpenFiles(
+/** Platform file metadata for matched pids. Missing evidence stays unknown. */
+export async function openFilesFor(
   pids: number[],
   execImpl: ExecImpl = defaultExec,
-): Promise<Map<number, LsofProcessFiles>> {
-  if (pids.length === 0) return new Map();
+  platform: NodeJS.Platform = process.platform,
+): Promise<Map<number, ProcessFiles>> {
+  pids = [...new Set(pids)].filter((pid) => Number.isSafeInteger(pid) && pid > 0).slice(0, 512);
+  if (pids.length === 0 || platform === 'win32') return new Map();
+  if (platform === 'linux') return readLinuxProcessFiles(pids);
   try {
     const { stdout } = await execImpl(
       'lsof',
@@ -241,4 +265,35 @@ export async function lsofOpenFiles(
   } catch {
     return new Map();
   }
+}
+
+/** Bounded /proc traversal. Vanished processes, denied links and non-file fds stay unknown. */
+export async function readLinuxProcessFiles(pids: number[], procRoot = '/proc'): Promise<Map<number, ProcessFiles>> {
+  const result = new Map<number, ProcessFiles>();
+  const queue = [...new Set(pids)].filter((pid) => Number.isSafeInteger(pid) && pid > 0).slice(0, 512);
+  const deadline = Date.now() + 2_000;
+  await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
+    while (queue.length && Date.now() < deadline) {
+      const pid = queue.shift()!;
+      const entry: ProcessFiles = { files: [] };
+      try {
+        const cwd = await fs.readlink(`${procRoot}/${pid}/cwd`);
+        if (cwd.startsWith('/') && !cwd.endsWith(' (deleted)')) entry.cwd = cwd;
+      } catch { /* Permission denied or process exited. */ }
+      try {
+        const dir = await fs.opendir(`${procRoot}/${pid}/fd`);
+        let count = 0;
+        for await (const fd of dir) {
+          if (++count > 2_048 || Date.now() >= deadline) break;
+          if (!/^\d+$/.test(fd.name)) continue;
+          try {
+            const file = await fs.readlink(`${procRoot}/${pid}/fd/${fd.name}`);
+            if (file.startsWith('/') && !file.endsWith(' (deleted)')) entry.files.push(file);
+          } catch { /* An individual fd may close while it is being inspected. */ }
+        }
+      } catch { /* An unreadable fd directory does not invalidate a known cwd. */ }
+      result.set(pid, entry);
+    }
+  }));
+  return result;
 }

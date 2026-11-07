@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { correlate } from '../dist-electron/observe/correlate.js';
 import { associate, associationKey } from '../dist-electron/observe/mapping.js';
 import { ObserveService } from '../dist-electron/observe/observe-service.js';
-import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/darwin.js';
+import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/snapshot.js';
 import {
   analyzeKimiLogTail,
   listKimiSessions,
@@ -222,7 +222,7 @@ test('inferKimiState: dead drops, none is unknown, live follows cpu/in-flight', 
 // cwd-only association
 // ---------------------------------------------------------------------------
 
-test('kimi association: cwd-only, newest session in a shared workDir wins', () => {
+test('kimi association: multiple sessions in one directory remain unassociated', () => {
   const cwd = '/Users/test/work/project-alpha';
   // Signals arrive newest-first (listKimiSessions sorts by state.json mtime).
   const signals = [kimiSignal(KIMI_TITLED, cwd), kimiSignal(KIMI_ORPHAN, cwd)];
@@ -236,7 +236,7 @@ test('kimi association: cwd-only, newest session in a shared workDir wins', () =
     realpathOf: identity,
     selfExclusion: NO_SELF,
   });
-  assert.deepEqual(map.get(KIMI_TITLED), { pid: 5101, via: 'cwd' });
+  assert.equal(map.has(KIMI_TITLED), false);
   assert.equal(map.has(KIMI_ORPHAN), false);
 });
 
@@ -256,8 +256,7 @@ test('kimi association: live pids outnumbering sessions stay unassociated', () =
     realpathOf: identity,
     selfExclusion: NO_SELF,
   });
-  assert.equal(map.size, 1);
-  assert.deepEqual(map.get(KIMI_TITLED), { pid: 5101, via: 'cwd' });
+  assert.equal(map.size, 0);
 });
 
 test('kimi association: self-excluded pid never associates', () => {
@@ -372,54 +371,15 @@ test('correlate: kimi rows — titles, states, noise, unknown without pid', asyn
 // ObserveService end-to-end (tmp kimi home, fake ps + lsof)
 // ---------------------------------------------------------------------------
 
-test('ObserveService.tickOnce: kimi sessions with cwd-associated pids', async () => {
+test('S2 consent does not authorize the legacy Kimi source', async () => {
   const home = makeKimiHome();
   const published = [];
   const service = new ObserveService({
     homeDir: home,
+    getAccess: () => ({ enabled: true, roots: [home] }),
     publish: (snap) => published.push(snap),
-    now: () => Date.now(),
     snapshotProvider: async () => snapshot,
-    execImpl: async (cmd) => {
-      if (cmd === 'lsof') return { stdout: lsofText, stderr: '' };
-      throw new Error('no ps in tests');
-    },
-    realpathImpl: async (p) => p,
   });
   await service.tickOnce();
-  service.stop();
-  assert.equal(published.length, 1);
-  const bySid = new Map(published[0].sessions.map((s) => [s.nativeSessionId, s]));
-  assert.equal(bySid.size, 2);
-  assert.equal(bySid.get(KIMI_TITLED).pid, 5101);
-  assert.equal(bySid.get(KIMI_TITLED).state, 'waiting');
-  assert.equal(bySid.get(KIMI_PROMPT).pid, 5102);
-  assert.equal(bySid.get(KIMI_PROMPT).state, 'active');
-  assert.equal(bySid.get(KIMI_PROMPT).activity, 'thinking');
-  assert.equal(bySid.get(KIMI_TITLED).clientKind, 'kimi');
-});
-
-test('ObserveService: self-exclusion by pid degrades kimi to unknown', async () => {
-  const home = makeKimiHome();
-  const published = [];
-  const service = new ObserveService({
-    homeDir: home,
-    publish: (snap) => published.push(snap),
-    now: () => Date.now(),
-    snapshotProvider: async () => snapshot,
-    execImpl: async (cmd) => {
-      if (cmd === 'lsof') return { stdout: lsofText, stderr: '' };
-      throw new Error('no ps in tests');
-    },
-    realpathImpl: async (p) => p,
-    getSelfExclusion: () => ({ pids: new Set([5101]), sessionIds: new Set([KIMI_PROMPT]) }),
-  });
-  await service.tickOnce();
-  service.stop();
-  const bySid = new Map(published[0].sessions.map((s) => [s.nativeSessionId, s]));
-  // Own session id → gone entirely.
-  assert.equal(bySid.has(KIMI_PROMPT), false);
-  // Own pid → no association; file-only evidence degrades to unknown.
-  assert.equal(bySid.get(KIMI_TITLED).pid, undefined);
-  assert.equal(bySid.get(KIMI_TITLED).state, 'unknown');
+  assert.deepEqual(published[0].sessions, []);
 });

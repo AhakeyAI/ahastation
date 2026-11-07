@@ -1,0 +1,97 @@
+# S2 本机会话扫描：实现与验收边界
+
+对应 #72、#139，以及 #127 的状态归类部分。基线为官方 main 的 #135 整合提交 `8770207`。S2 不修改共享会议编排、执行器、收编流程或 Hub 协议；CI 另暴露一处预算恢复竞态，独立提交修复并保留可复现回归。
+
+## 本次行为
+
+- 首次启动在主窗口加载后询问扫描授权。默认关闭；取消后保持关闭并记住选择。任务看板可重新开启、添加目录，或停用并清空授权与已显示内容。
+- 扫描授权单独保存在当前 profile 的 `sessions/scan-access.json`。它仅允许读取，不能作为项目执行、收编、工具批准或跨设备分享授权。
+- 读取 Claude 的 `projects`、Codex 的 `sessions` 与 `archived_sessions`。支持 `CLAUDE_CONFIG_DIR` 和 `CODEX_HOME`。先在有界头部窗口提取原生 ID/cwd，再核对目录授权；未授权项目不进入标题/尾部解析或 UI。原生 JSONL 的头部可能混有消息，定位过程仍不可避免地读取这些字节；仅提取路由字段，不保留或输出消息内容。
+- 每个客户端每轮最多分析最近 500 个文件。保留 mtime/size 解析缓存，但撤权、目录变化与归属变化会重新校验，旧异步扫描不能恢复已清空内容。目录迁移、删除或符号链接不能扩大原授权。
+- 只读当前 profile 的 IF-2 `sessions/owned.json` schema v2。`worker/station` 排除；`user-adopted` 在历史列表单列；未绑定/未清理 launch、损坏或不支持版本的清单保持 `unknown/unresolved`。不写入、修复或迁移登记文件；并发登记变化时丢弃本轮结果。
+- 读取 `meetings/*/snapshot.json` 的任务摘要及内部 backend session ID，补充历史排除证据。不调用会清理/修复数据的恢复 API。历史读取限 500 个目录、单文件 16 MiB、每轮总计 32 MiB，单个坏文件不影响其他记录。
+- 排除当前 Station 的进程子树、已知 Host 原生 ID 及会议快照中的内部 ID。历史排除证据只用于分类，不能授予运行权限。
+- 活进程无执行证据时是空闲，不能推断为等待批准；`task_complete`、Stop、文件新旧均不能证明任务验收或进程树已退出。无可靠进程关联时显示未知。超过 24 小时无活动的运行/等待行不进入任务看板；main/AhaBar 同时排除这类行。
+- 保留最新 main 的看板泳道、空闲归入已完成下的独立子状态及“继续会话”入口。S2 自己只提供只读清单；不新增 S4 的纳入、忽略或关闭操作。
+- Windows 通过有超时与输出上限的 CIM 进程快照识别 PID/父进程/命令；不伪造 cwd、CPU 或终端信息，不运行 lsof。
+
+## 与 IF-1 / IF-2 的后续接线
+
+`ObserveService.getHookSnapshot` 是同进程可信完整快照的消费入口，每轮只取一次；不是 renderer IPC 或网络入口。验证 `aha.if1/schemaVersion=1` 的信封、身份、状态与重复行后，映射原生等待、运行、空闲、停止中、断线及退出。用户原生许可提示允许 `pendingApprovalCount=0`，因为这不是宿主审批请求。Stop/空闲不等于任务完成，stopping/stale 不升级为 ended。
+
+**当前 main 未接入实际 IF-1 生产者，也没有 IF-2 单写登记服务。** #142/#85 的生产者与 #83/#106 等登记实施合入后，需要明确传入授权范围和当前 profile，并复核实际字段映射、启动/登记竞态及撤权失效。此提交只交付消费端与测试，不声称已完成真实 hook 闭环；不复制这些模块的写入或执行职责。
+
+S2 的扫描许可只覆盖 Claude/Codex。旧 Kimi 与 Codex Desktop 全局索引解析器及独立测试仍保留，但不由此授权启用，以免全局索引携带其他项目的标题或提示词。若产品需要重新纳入，必须明确数据来源与授权范围。
+
+## 验证与待实测
+
+回归覆盖默认无扫描、目录授权/拒绝/撤销、首次选择记忆、异步扫描和目录选择竞态、符号链接越界、原始 JSONL/会议快照哈希不变、IF-2 内部会话排除/原生键隔离/清单失效、IF-1 状态消费、Windows 进程 JSON，以及 renderer 的旧快照覆盖撤权问题。真实 React/Chromium 检查启用、分组、停用和窗口缩放；原生授权对话框以 Electron stub 验证。
+
+本地 Windows CIM 冒烟确认可取得进程快照并包含当前 Node 进程，未输出命令或会话内容。最终两端 `npm run typecheck` 与 `npm run build` 通过；定向回归 157 项全过，全量 `npm test` 为 1319 项、1313 通过、6 跳过、0 失败（Windows / Node 24.19.0 / Python 3.12）。原生接收器用仓库固定版本依赖构建并通过自检。
+
+全量回归暴露了 main 中两个项目测试文件的 Windows 路径断言问题；另一个测试专用提交统一 fixture 的平台路径及 Git 输出的分隔符，保留脏工作树、主目录保护、分支与独立 clone 的原有校验，未更改项目清理或仓库识别的生产代码。
+
+前两轮 CI 中 Ubuntu 全量测试及打包通过。Windows runner 的 8.3 短路径断言改用 native realpath 后通过。macOS/Windows 夹具首屏超时通过新增诊断定位到缺少 `rateLimits.onUpdate`；已补齐开发夹具的 get/refresh/onUpdate，保留失败诊断，不重试或跳过业务断言。macOS 另暴露预算暂停持久化未结束时继续任务被旧操作合并的竞态；回归用例在旧代码稳定失败，修复为等待旧操作完成后重新校验并延长预算。修复后两端类型检查、36 项直接回归及 164 项任务/Worker/浏览器回归通过。最新全量 CI 结果以 PR 检查为准。
+
+尚需 Mac 与 N5095 上的真实 CLI/原生对话框验收，以及 IF-1 生产者、IF-2 写入者的联调。目录消失或证据不足时宁可显示未知，不能将其计入“进行中/待批准”。本地构建和 fixture 不代替实机验收，因此本 PR 使用 `Refs #72`，不自动关闭 Issue。
+
+## 2026-11-02 同步 main
+
+合入官方 main `86a1466`，保留 #144 的退出开场恢复、Windows 仓库路径和 UI 预热改动。
+唯一冲突在 `tests/project-cleanup.test.mjs`：双方修复相同的平台路径断言，保留本分支统一的
+原生路径常量和 `join` 导入；未更改清理生产逻辑。同步后两端类型检查与构建通过；
+全量 1320 项、1314 通过、6 跳过、0 失败。首次本机运行未配置测试要求的
+`COLLABORATION_PYTHON` / `POCKET_VIBE_TEST_PYTHON`，联调未能启动；补齐已有 Python 3.12
+环境后完整重跑得到上述结果，未放宽断言或跳过联调。新的三平台结果以推送后对应 head 的 CI 为准。
+
+同步后的 CI `41402643839`：macOS 测试与打包成功；Ubuntu 唯一失败在既有
+`station-process-recovery` 崩溃测试。Station 在持久化 executionInvoked、进入夹具 run
+之前就发布 running，测试仅等 Hub 状态就杀进程，会偶发落在尚未调用夹具的启动窗口。
+测试改为先确认本机持久化的 executionInvoked、原生 fixture 会话 ID 与接收器 PID，再制造崩溃。
+保留原来的身份、退出确认、禁止自动重跑与明确继续断言；未更改 Station/Hub 恢复生产逻辑。
+该定向测试在 Windows Node 24.19 和本机 WSL Ubuntu Node 22.22/Python 3.12 均通过，
+没有以重跑旧 head 或延长等待代替修正测试前置条件。新 head 的全量结果仍以 CI 为准。
+
+`fd2615e` 的 CI `41405049881` 与后续 PR #151 `3ed19ee` 的 CI `41405111736` 中，
+macOS/Ubuntu 均成功，Windows 唯一失败均是 `station-collaboration` 的运行中 Hub 重启用例。
+一份日志显示重启前 nativeThreadId 为 undefined，另一份显示启动消息投递时断线，夹具随后
+处于 reconcile/stop-unconfirmed。测试首次看到 running 就重启，但 running 事件早于夹具
+执行、原生身份落盘和启动 output 投递确认，不能证明已进入本用例要测试的运行中等待阶段。
+
+本次仅改测试：旁路观察执行设备真实 send 的成功返回（原调用、参数、返回和失败均保留），
+并核对 executionInvoked、原生身份和运行状态，再重启 Hub。额外断言原生身份不为空；
+原有重连代次、身份保持、实际停止、明确继续和凭据失效断言均保留，未加超时、跳过或重试。
+没有改变 Station/Hub 的生产状态机，也未声称已修复生产启动中断线的所有边界。
+最终定向验证：Windows 7/7；WSL Ubuntu 6/6、1 项 Windows 专用用例按原规则跳过；
+两端类型检查通过。最新三平台完整测试与打包等待对应新 head 的 CI。
+
+## 2026-11-04 三端采集补齐（回应 #145 的 11-03 复核）
+
+统一入口为 `electron/observe/process/snapshot.ts` 的 `captureProcessSnapshot()` 和
+`openFilesFor(pids)`。main 只注入自身 PID；ObserveService 用同一份新快照展开整个自身
+进程树，不再有独立的 Unix ps 排除路径。生产代码和现有观察层测试均迁移到新模块。
+
+- Windows：隐藏、常驻的 PowerShell CIM helper，stdin 只接受数字请求号，不执行会话
+  参数。并发采集合并；响应带请求号、UTF-8 分帧、5 秒超时及 16 MiB 字节上限。超时、
+  进程退出、管道异常或非法响应会终止 helper，下一次采集重建；停用/撤权/退出时释放。
+  不伪造 cwd/CPU/TTY，不调用 lsof；关联使用明确原生 ID、Claude PID 文件，或绝对
+  `-C` / `--cd` 与会话记录 cwd 的唯一匹配。带空格/中文路径的原生 Windows 夹具覆盖这些来源。
+- Linux：ps 使用宽输出；cwd 和 fd 只用 `/proc/<pid>/cwd`、`/proc/<pid>/fd/*` 的 readlink，
+  不依赖 lsof。最多 512 个 PID、8 并发、每 PID 2048 个 fd、整轮 2 秒调度预算；权限不足、
+  消失的 fd、socket 和 deleted 路径不作为证据。macOS 继续批量 lsof。
+- 关联：OS cwd 优先于命令行目录，因为 Unix ps 不能保留 argv 引号。明确 resume 到
+  未扫描 ID 的进程不能改配其他历史；Codex 打开的唯一 rollout 先于目录匹配。仅目录证据
+  出现多进程或多会话时保持未知，不按最新文件或 PID 顺序猜测；旧 Kimi 解析器遵守相同
+  歧义规则，但扫描许可仍不启用 Kimi。
+
+`tests/observe-process-platform.test.mjs` 已纳入现有三平台 CI 的全量 `tests/*.test.mjs`。
+它真实启动本机 Node 承载的 Claude 夹具，分别验证 resume、目录、PID 文件与自身进程树；
+没有调用模型、个人 Claude/Codex 或扫描个人会话。另覆盖 helper 复用、并发、超时重建、
+迟到响应、Unicode、错误和上限。Linux 真实 /proc 测试以及其他本地结果随最终提交记录；
+Mac 与 N5095 真实 CLI、hooks/归属生产者联调仍待验收，不能以夹具替代。
+
+本轮本地验证：Windows 全量 1333 项，1326 通过、7 项平台/条件跳过、0 失败；
+全量启动后补充的 helper 在途释放与 ObserveService 停止竞态另行定向 2/2 通过。
+WSL Ubuntu / Node 22.22 进程与关联回归 33/33，包含真实 /proc 与三种进程关联来源。
+renderer/Electron 两端 typecheck、renderer 与 Electron 构建均通过。新 head 的完整三平台
+结果仍以推送后的 CI 为准，不沿用旧 head 的绿色结果。

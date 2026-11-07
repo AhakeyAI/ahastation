@@ -107,6 +107,9 @@ export const RECENTLY_DONE_WINDOW_MS = 30 * 60_000;
  * Desktop threads) — never 进行中. `done` only while recent.
  */
 export function subStatusForObserved(session: ObservedSession, now: number): BoardSubStatus | null {
+  if (session.ownership === 'unresolved' || session.origin === 'unknown') return null;
+  if ((session.state === 'waiting' || session.state === 'active')
+    && now - session.lastActiveAt >= 24 * 60 * 60_000) return null;
   switch (session.state) {
     case 'waiting': return 'waiting-input';
     case 'active': return 'observed-active';

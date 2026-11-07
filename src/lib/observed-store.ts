@@ -18,7 +18,7 @@ export type ObservedTitleSource =
   | 'project-fallback';
 
 export interface ObservedSession {
-  /** sha1(clientKind + nativeSessionId + realpath(cwd)) — stable identity. */
+  /** sha1(clientKind + nativeSessionId), independent of project relocation. */
   id: string;
   clientKind: ObservedClientKind;
   nativeSessionId: string;
@@ -29,8 +29,12 @@ export interface ObservedSession {
   title: string;
   state: ObservedState;
   activity: ObservedActivity;
-  /** Always true: every state is inferred, never reported by the client. */
-  inferred: true;
+  /** False when projected from a validated local IF-1 host snapshot. */
+  inferred: boolean;
+  origin?: 'worker' | 'station' | 'user-adopted' | 'user' | 'unknown';
+  ownership?: 'owned' | 'unowned' | 'unresolved';
+  phase?: string;
+  connection?: string;
   model?: string;
   lastActiveAt: number;
   pid?: number;
@@ -42,6 +46,9 @@ export interface ObservedSession {
 export interface ObservedSnapshot {
   sessions: ObservedSession[];
   scannedAt: number;
+  access?: { enabled: boolean; roots: string[] };
+  studioTasks?: Array<{ meetingId: string; taskId: string; cwd: string; title: string; status: string }>;
+  diagnostics?: string[];
 }
 
 /** Preload surface for the observation layer. Optional on VibeMeetApi so a
@@ -49,6 +56,8 @@ export interface ObservedSnapshot {
 export interface ObserveApi {
   getSnapshot: () => Promise<ObservedSnapshot>;
   onEvent: (cb: (snapshot: ObservedSnapshot) => void) => () => void;
+  allowDirectory?: () => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+  disable?: () => Promise<{ ok: boolean; error?: string }>;
 }
 
 type Listener = () => void;
@@ -77,7 +86,10 @@ class ObservedStore {
     // observed; no crash, no retry (a reload picks up a newer preload).
     if (!api) return;
     this.subscribed = true;
+    let receivedEvent = false;
     api.onEvent((snapshot) => {
+      if (!snapshot || !Array.isArray(snapshot.sessions)) return;
+      receivedEvent = true;
       this.snapshot = snapshot;
       this.notify();
     });
@@ -85,7 +97,7 @@ class ObservedStore {
     // a board opened between ticks would otherwise sit empty for up to 10s.
     void api.getSnapshot()
       .then((snapshot) => {
-        if (!snapshot || snapshot.scannedAt <= this.snapshot.scannedAt) return;
+        if (receivedEvent || !snapshot || !Array.isArray(snapshot.sessions)) return;
         this.snapshot = snapshot;
         this.notify();
       })

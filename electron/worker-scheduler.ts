@@ -3105,6 +3105,16 @@ export class WorkerScheduler {
     rawBudget: TaskBudget,
     decisionId: string,
   ): Promise<{ planVersion: number; budget: TaskBudget }> {
+    // A pause is visible before its durable flush finishes. Let that attempt
+    // settle before validating/mutating the extension, otherwise scheduling
+    // coalesces into the still-pending pause and never starts a fresh attempt.
+    const pendingHandle = this.workers.get(taskId);
+    const pendingView = pendingHandle?.deliveryId
+      ? this.opts.deliveryHarness?.snapshot(pendingHandle.deliveryId)
+      : undefined;
+    if (pendingHandle?.status === 'budget-paused' && pendingView) {
+      await this.automaticReworkByAttempt.get(`${pendingView.id}:${pendingView.attempt}`);
+    }
     if (expectedPlanVersion !== this.planVersion) {
       throw new Error(
         `stale plan version: expected ${expectedPlanVersion}, current ${this.planVersion}`,

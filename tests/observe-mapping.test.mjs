@@ -8,10 +8,11 @@ import {
   associate,
   detectMcpServerPids,
   extractSessionIdFromCommand,
+  extractCwdFromCommand,
   loadClaudePidFiles,
   mcpHeldRolloutPaths,
 } from '../dist-electron/observe/mapping.js';
-import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/darwin.js';
+import { parseLsofFieldOutput, parsePsOutput } from '../dist-electron/observe/process/snapshot.js';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,9 +102,9 @@ test('fallback 2: PID file associates when cmd args do not', () => {
   const signals = [signal('claude-code', sid, '/x')];
   const map = associate({
     clientKind: 'claude-code',
-    pids: [4201], // cmd line carries a DIFFERENT, unknown session id
+    pids: [4201],
     signals,
-    snapshot,
+    snapshot: { ...snapshot, byPid: new Map([[4201, { ...snapshot.byPid.get(4201), command: 'claude' }]]) },
     lsofByPid: new Map(),
     pidFileMap: new Map([[4201, { sessionId: sid, cwd: '/x' }]]),
     realpathOf: identity,
@@ -118,9 +119,9 @@ test('fallback 3a: cwd match associates via lsof cwd', () => {
   const lsof = new Map([[4210, { cwd: '/Users/test/work/project-alpha', files: [] }]]);
   const map = associate({
     clientKind: 'claude-code',
-    pids: [4210], // --resume id unknown to us → falls through to cwd
+    pids: [4210],
     signals,
-    snapshot,
+    snapshot: { ...snapshot, byPid: new Map([[4210, { ...snapshot.byPid.get(4210), command: 'claude' }]]) },
     lsofByPid: lsof,
     realpathOf: identity,
     selfExclusion: NO_SELF,
@@ -174,4 +175,44 @@ test('self-exclusion: own session id never associates', () => {
     selfExclusion: { pids: new Set(), sessionIds: new Set([sid]) },
   });
   assert.equal(map.size, 0);
+});
+
+test('quoted CLI IDs and absolute -C/--cd directories survive spaces without reading prompt flags', () => {
+  const id = 'c1a0de00-0000-4000-8000-000000000001';
+  const cwd = join(tmpdir(), 'project with spaces');
+  assert.equal(extractSessionIdFromCommand(`"/tools with spaces/claude" --resume "${id}"`), id);
+  assert.equal(extractSessionIdFromCommand(`claude -p "please --resume ${id}"`), null);
+  assert.equal(extractSessionIdFromCommand(`claude --resume ${id}abc`), null);
+  for (const flag of ['-C', '--cd', '--cd=']) {
+    assert.equal(extractCwdFromCommand(`codex ${flag}${flag.endsWith('=') ? '' : ' '}"${cwd}"`), cwd);
+  }
+  assert.equal(extractCwdFromCommand('codex -C relative'), null);
+  assert.equal(extractCwdFromCommand(`codex -C "${cwd}" --cd "${join(tmpdir(), 'other')}"`), null);
+  assert.equal(extractCwdFromCommand('codex -C "unfinished'), null);
+});
+
+test('directory-only association requires exactly one process and one session', () => {
+  const cwd = join(tmpdir(), 'project with spaces');
+  const sid = 'c1a0de00-0000-4000-8000-000000000010';
+  const processRow = { pid: 42, command: `codex -C "${cwd}"` };
+  const input = { clientKind: 'codex', pids: [42], signals: [signal('codex', sid, cwd)],
+    snapshot: { byPid: new Map([[42, processRow]]) }, lsofByPid: new Map(), realpathOf: identity, selfExclusion: NO_SELF };
+  assert.deepEqual(associate(input).get(sid), { pid: 42, via: 'cwd' });
+  assert.equal(associate({ ...input, signals: [...input.signals, signal('codex', 'other', cwd)] }).size, 0);
+  assert.equal(associate({ ...input, pids: [42, 43], snapshot: { byPid: new Map([[42, processRow], [43, processRow]]) } }).size, 0);
+});
+
+test('open rollout identifies a Codex session before a different cwd match; multiple rollouts stay unknown', () => {
+  const signals = [signal('codex', 'cwd-session', '/project'), signal('codex', 'fd-session', '/elsewhere', '/rollout')];
+  const input = { clientKind: 'codex', pids: [42], signals, snapshot: { byPid: new Map() },
+    lsofByPid: new Map([[42, { cwd: '/project', files: ['/rollout'] }]]), realpathOf: identity, selfExclusion: NO_SELF };
+  assert.deepEqual([...associate(input)], [['fd-session', { pid: 42, via: 'fd' }]]);
+  assert.equal(associate({ ...input, lsofByPid: new Map([[42, { cwd: '/project', files: ['/rollout', '/unused'] }]]) }).size, 0);
+});
+
+test('an explicit unknown resume ID cannot be reassigned to a different cwd or PID-file session', () => {
+  const input = { clientKind: 'claude-code', pids: [4201], snapshot,
+    signals: [signal('claude-code', 'other', '/project')], lsofByPid: new Map([[4201, { cwd: '/project', files: [] }]]),
+    pidFileMap: new Map([[4201, { sessionId: 'other' }]]), realpathOf: identity, selfExclusion: NO_SELF };
+  assert.equal(associate(input).size, 0);
 });

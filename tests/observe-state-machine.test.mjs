@@ -57,22 +57,22 @@ test('claude: trailing real user without assistant reply → Thinking', () => {
   assert.deepEqual(state, { state: 'active', activity: 'thinking' });
 });
 
-test('claude: synthetic-only tail on a live process → Waiting (not Thinking)', () => {
+test('claude: synthetic-only tail on a live process → idle, never permission waiting', () => {
   const state = inferClaudeState({
     tail: claudeTail(),
     descendantCpuMax: 0,
     pidState: 'live',
   });
-  assert.deepEqual(state, { state: 'waiting', activity: 'waiting' });
+  assert.deepEqual(state, { state: 'idle', activity: 'unknown' });
 });
 
-test('claude: dead pid → session disappears (null)', () => {
+test('claude: known dead pid → historical ended session', () => {
   const state = inferClaudeState({
     tail: claudeTail({ unclosedToolUse: true, trailingRealUser: true }),
     descendantCpuMax: 50,
     pidState: 'dead',
   });
-  assert.equal(state, null);
+  assert.deepEqual(state, { state: 'done', activity: 'unknown' });
 });
 
 test('claude: file-only evidence → unknown, never active', () => {
@@ -88,7 +88,7 @@ test('claude: file-only evidence → unknown, never active', () => {
 // Codex
 // ---------------------------------------------------------------------------
 
-test('codex: exec session with task_complete → done', () => {
+test('codex: exec task_complete with a live process is only idle', () => {
   const state = inferCodexState({
     tail: codexTail({ isExec: true, sawTaskComplete: true }),
     descendantCpuMax: 0,
@@ -96,7 +96,7 @@ test('codex: exec session with task_complete → done', () => {
     mtimeMs: 1_000,
     now: 1_000,
   });
-  assert.deepEqual(state, { state: 'done', activity: 'unknown' });
+  assert.deepEqual(state, { state: 'idle', activity: 'unknown' });
 });
 
 test('codex: interactive task_complete is NOT done', () => {
@@ -107,10 +107,10 @@ test('codex: interactive task_complete is NOT done', () => {
     mtimeMs: 1_000,
     now: 1_000,
   });
-  assert.deepEqual(state, { state: 'waiting', activity: 'waiting' });
+  assert.deepEqual(state, { state: 'idle', activity: 'unknown' });
 });
 
-test('codex: unclaimed inside the done window → done; outside → idle', () => {
+test('codex: unclaimed recent and old files both remain unknown', () => {
   const now = 10_000_000;
   const fresh = inferCodexState({
     tail: codexTail(),
@@ -119,7 +119,7 @@ test('codex: unclaimed inside the done window → done; outside → idle', () =>
     mtimeMs: now - CODEX_DONE_WINDOW_MS + 1_000,
     now,
   });
-  assert.equal(fresh.state, 'done');
+  assert.equal(fresh.state, 'unknown');
   const stale = inferCodexState({
     tail: codexTail(),
     descendantCpuMax: 0,
@@ -127,7 +127,7 @@ test('codex: unclaimed inside the done window → done; outside → idle', () =>
     mtimeMs: now - CODEX_DONE_WINDOW_MS - 60_000,
     now,
   });
-  assert.equal(stale.state, 'idle');
+  assert.equal(stale.state, 'unknown');
 });
 
 test('codex: live process — cpu/pending → Executing, generating → Thinking', () => {

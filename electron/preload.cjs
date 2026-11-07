@@ -464,6 +464,8 @@ const api = {
   // sessions. Full snapshot per scan tick — no incremental diff.
   observe: {
     getSnapshot: () => ipcRenderer.invoke('observe:getSnapshot'),
+    allowDirectory: () => ipcRenderer.invoke('observe:allowDirectory'),
+    disable: () => ipcRenderer.invoke('observe:disable'),
     onEvent: (cb) => {
       const listener = (_, snapshot) => cb(snapshot);
       ipcRenderer.on('observe:event', listener);

@@ -15,7 +15,7 @@ import type {
 } from './types.js';
 import type { Association } from './mapping.js';
 import { associationKey } from './mapping.js';
-import { maxDescendantCpu, type ProcessSnapshot } from './process/darwin.js';
+import { maxDescendantCpu, type ProcessSnapshot } from './process/snapshot.js';
 import {
   inferClaudeState,
   inferCodexDesktopState,
@@ -44,7 +44,7 @@ export interface CorrelateInput {
 const NOISE_PATH_PREFIXES = ['/var/folders/', '/private/var/folders/', '/tmp/', '/private/tmp/'];
 
 function projectNameOf(cwd: string): string {
-  const segments = cwd.split('/').filter(Boolean);
+  const segments = cwd.split(/[\\/]/).filter(Boolean);
   return segments.length > 0 ? segments[segments.length - 1] : 'unknown-project';
 }
 
@@ -258,7 +258,7 @@ function correlateOne(input: CorrelateInput, signal: ObservedFileSignal): Observ
         && inferred.state !== 'active');
 
     return {
-      id: sha1(`${signal.clientKind}:${signal.nativeSessionId}:${realCwd}`),
+      id: sha1(`${signal.clientKind}:${signal.nativeSessionId}`),
       clientKind: signal.clientKind,
       nativeSessionId: signal.nativeSessionId,
       projectId: sha1(realCwd),
@@ -281,7 +281,7 @@ function correlateOne(input: CorrelateInput, signal: ObservedFileSignal): Observ
     const projectName = projectNameOf(signal.cwd);
     evidence.push(`correlate-error:${error instanceof Error ? error.message : String(error)}`);
     return {
-      id: sha1(`${signal.clientKind}:${signal.nativeSessionId}:${signal.cwd}`),
+      id: sha1(`${signal.clientKind}:${signal.nativeSessionId}`),
       clientKind: signal.clientKind,
       nativeSessionId: signal.nativeSessionId,
       projectId: sha1(signal.cwd),

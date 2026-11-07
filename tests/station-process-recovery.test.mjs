@@ -21,6 +21,10 @@ test('receiver process crash restores original device, proves in-process fixture
     const taskPayload={meetingId:meeting.id,title:'whole fixture',objective:'[wait]',targetDeviceId:first.deviceId,agentId:'file-test',resource:'text',permission:'read-only',dependencies:[],inputs:[]};
     const plan=await command('plan.propose',{meetingId:meeting.id,tasks:[taskPayload]});await command('plan.decide',{meetingId:meeting.id,expectedRevision:plan.revision,approved:true});const task=await command('task.create',taskPayload);
     await until(()=>a.view().snapshot.entities.task?.find(t=>t.id===task.id)?.status==='running','Original receiver should execute once');
+    // Station publishes running before persisting executionInvoked and entering
+    // FileTestExecution.run(). Crash only after its durable native identity: an
+    // earlier kill tests the startup window, not recovery of an invoked fixture.
+    await until(async()=>{const receipt=JSON.parse(await readFile(join(root,'B/station-v2.json'),'utf8')).receipts[task.id];return receipt?.executionInvoked===true&&receipt.executorPid===first.pid&&receipt.status==='running'&&typeof receipt.nativeThreadId==='string'&&receipt.nativeThreadId.startsWith('fixture-');},'Original fixture must be invoked and durably identified before crashing it');
     const before=JSON.parse(await readFile(join(root,'B/station-v2.json'),'utf8')).receipts[task.id];
     receiver.kill();await exited(receiver);receiver=launch();const second=await ready(receiver);assert.equal(second.deviceId,first.deviceId);
     await until(()=>a.view().snapshot.entities.task?.find(t=>t.id===task.id)?.status==='stopped','Restart must prove old fixture process exit, not rerun it');

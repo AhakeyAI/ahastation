@@ -4,10 +4,8 @@
 // imported). Used by the companion feed to pick the sessions worth surfacing
 // on the AhaBar; keep the two sides in sync when the rule changes.
 //
-// Rule: `waiting` and `active` always show; `idle` shows only when backed by
-// a live process (pid set); `done` shows only while recent; `unknown`
-// (file-only, no process) never shows. Noise rows are excluded outright —
-// the board buckets them under a collapsed toggle, the bar has no room.
+// Action surfaces show recent activity/exits and live idle windows. The board
+// puts idle in its settled subgroup; it is never in-progress or awaiting input.
 
 import type { ObservedSession } from './types.js';
 
@@ -18,6 +16,8 @@ export const OBSERVED_DONE_WINDOW_MS = 30 * 60_000;
 /** Whether an observed session should surface on action-oriented UI. */
 export function isBoardableObserved(session: ObservedSession, now: number): boolean {
   if (session.isNoise) return false;
+  if (session.ownership === 'unresolved' || session.origin === 'unknown') return false;
+  if (now - session.lastActiveAt >= 24 * 60 * 60_000 && (session.state === 'waiting' || session.state === 'active')) return false;
   switch (session.state) {
     case 'waiting':
     case 'active':

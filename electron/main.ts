@@ -24,7 +24,8 @@ import {
   type MinimizePromptKind,
 } from './minimize-prompt.js';
 import { ObserveService } from './observe/observe-service.js';
-import { captureProcessSnapshot, descendantsOf } from './observe/process/darwin.js';
+import { ScanAccessStore } from './observe/scan-access.js';
+import { registerScanIpc } from './observe/scan-ipc.js';
 import type { ObservedSnapshot } from './observe/types.js';
 import {
   buildRendererSecurityHeaders,
@@ -441,42 +442,18 @@ async function nativeConfirmDestructive(
 // and fault-isolated; started on app ready, stopped on quit.
 
 let lastObservedSnapshot: ObservedSnapshot = { sessions: [], scannedAt: 0 };
+const scanAccess = new ScanAccessStore(join(app.getPath('userData'), 'sessions', 'scan-access.json'));
 
-// Self-exclusion, PID side: app-spawned CLI backends are children of this
-// process (subprocess-backend spawn), so the whole descendant tree is hidden
-// from the observer. getSelfExclusion is sync, so the tree is refreshed
-// lazily on the service's own tick cadence — the previous tree is served
-// while a ps refresh is in flight.
-let selfPidTree: Set<number> = new Set([process.pid]);
-let selfPidTreeAt = 0;
-let selfPidTreeRefreshing = false;
-const SELF_PID_TREE_TTL_MS = 10_000;
-const SELF_PID_TREE_MAX_DEPTH = 8;
-
-function selfExclusionPids(): Set<number> {
-  if (!selfPidTreeRefreshing && Date.now() - selfPidTreeAt > SELF_PID_TREE_TTL_MS) {
-    selfPidTreeRefreshing = true;
-    void captureProcessSnapshot()
-      .then((snapshot) => {
-        const tree = descendantsOf(snapshot, process.pid, SELF_PID_TREE_MAX_DEPTH);
-        tree.add(process.pid);
-        selfPidTree = tree;
-        selfPidTreeAt = Date.now();
-      })
-      .catch(() => { /* ps failed — keep serving the previous tree */ })
-      .finally(() => { selfPidTreeRefreshing = false; });
-  }
-  return selfPidTree;
-}
-
-// Self-exclusion, session-id side.
-// TODO(S1): collect native session ids (Claude SDK session_id, Codex thread
-// id) from the live SessionRegistry orchestrators/workers so transcripts
-// written by app-spawned sessions are excluded too. The PID tree above hides
-// their live processes; the residual gap is a file-only row lingering after
-// an app worker's process exits.
+// Live Host IDs supplement IF-2 and durable meeting history. The scanner
+// expands our process.pid from its own fresh snapshot to exclude child CLIs.
 function selfExclusionSessionIds(): Set<string> {
-  return new Set();
+  const ids = new Set<string>();
+  for (const slot of registry.values()) {
+    for (const host of slot.orchestrator.listHosts()) {
+      if (host.backendSession?.sessionId) ids.add(host.backendSession.sessionId);
+    }
+  }
+  return ids;
 }
 
 // The fast tick produces a snapshot every ~2s; rebroadcasting identical
@@ -492,15 +469,18 @@ function observedSnapshotHash(snapshot: ObservedSnapshot): string {
   return JSON.stringify(
     snapshot.sessions.map((s) => [
       s.id, s.state, s.activity, s.title, s.lastActiveAt, s.pid ?? 0, s.isNoise ? 1 : 0,
+      s.origin, s.ownership, s.phase, s.connection,
     ]),
   );
 }
 
 const observeService = new ObserveService({
   homeDir: homedir(),
+  userData: app.getPath('userData'),
+  getAccess: () => scanAccess.get(),
   publish: (snapshot) => {
     lastObservedSnapshot = snapshot;
-    const hash = observedSnapshotHash(snapshot);
+    const hash = observedSnapshotHash(snapshot) + JSON.stringify([snapshot.access, snapshot.studioTasks, snapshot.diagnostics]);
     const force = Date.now() - lastObservedForceAt > OBSERVED_FORCE_REPUBLISH_MS;
     if (hash === lastObservedHash && !force) return;
     lastObservedHash = hash;
@@ -513,7 +493,7 @@ const observeService = new ObserveService({
     }
   },
   getSelfExclusion: () => ({
-    pids: selfExclusionPids(),
+    pids: new Set([process.pid]),
     sessionIds: selfExclusionSessionIds(),
   }),
 });
@@ -735,7 +715,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   await registerAllIpc(ipcCtx);
 
   // Observation layer: snapshot pull + start scanning (broadcasts via publish).
-  ipcMain.handle('observe:getSnapshot', () => lastObservedSnapshot);
+  await scanAccess.load();
+  const scanControls = registerScanIpc({ window: liveWindow, access: scanAccess, service: observeService, snapshot: () => lastObservedSnapshot });
   observeService.start();
 
   // Minimize/close → AhaBar prompt: the renderer's answer. 'ahabar' floats the
@@ -825,6 +806,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   });
 
   createWindow();
+  liveWindow()?.webContents.once('did-finish-load', () => {
+    void scanControls.promptFirstRun().catch(() => { /* Consent remains disabled; controls allow retry. */ });
+  });
   initializationComplete = true;
   if (focusRequested) { focusRequested = false; focusMainWindow(liveWindow, createWindow); }
 

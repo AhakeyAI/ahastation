@@ -139,6 +139,11 @@ test('verification failures create fresh bounded attempts and user extension pre
   });
   const mailbox = new TaskMailbox(repository);
   const sessions = [];
+  let releasePause;
+  const pausedFlush = new Promise((resolve) => { releasePause = resolve; });
+  let pauseFlushHeld = false;
+  // Persisting a pause can still be in flight when the user extends its budget.
+  t.after(() => releasePause());
   let verificationCalls = 0;
   const harness = new DeliveryHarness({
     executionMode: 'external',
@@ -166,7 +171,13 @@ test('verification failures create fresh bounded attempts and user extension pre
     deliveryHarness: harness,
     meetingId: 'budget-meeting',
     defaultBackendId: 'codex',
-    async flushEvents() { await repository.flush(); },
+    async flushEvents() {
+      await repository.flush();
+      if (!pauseFlushHeld && scheduler.snapshot().some((task) => task.status === 'budget-paused')) {
+        pauseFlushHeld = true;
+        await pausedFlush;
+      }
+    },
     sessionFactory(opts) {
       const session = {
         opts,
@@ -259,7 +270,7 @@ test('verification failures create fresh bounded attempts and user extension pre
   );
   assert.equal(sessions.length, 3);
 
-  const extended = await scheduler.extendTaskBudget(
+  const extending = scheduler.extendTaskBudget(
     'task-a',
     scheduler.getPlanVersion(),
     {
@@ -269,6 +280,9 @@ test('verification failures create fresh bounded attempts and user extension pre
     },
     'user-budget-decision',
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  releasePause();
+  const extended = await extending;
   assert.equal(extended.planVersion, 2);
   await waitFor(() => sessions.length === 4, 'user budget extension did not resume a fresh attempt');
   snapshot = scheduler.snapshot().find((task) => task.id === 'task-a');

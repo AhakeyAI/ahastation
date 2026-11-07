@@ -675,6 +675,11 @@ function installFixture(fixture: string): void {
       };
     },
     onUpdateAvailable: noopSubscription,
+    rateLimits: {
+      get: async () => ({ ok: true, state: { providers: [], refreshing: false } }),
+      refresh: async () => ({ ok: true, state: { providers: [], refreshing: false } }),
+      onUpdate: noopSubscription,
+    },
     onDisplayChanged: noopSubscription,
     onVoicePrefChanged: noopSubscription,
     onStageFileChanged: noopSubscription,
