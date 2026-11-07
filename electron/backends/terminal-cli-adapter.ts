@@ -139,8 +139,11 @@ export function toMatchableText(data: string): string {
 
 /** "Do you trust this folder?" style first-run dialogs (Claude Code, Codex…).
  *  Pasting the prompt there answers the dialog — Claude's default is "No,
- *  exit" — so the prompt waits until the user has answered (#125). */
-export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created/i;
+ *  exit" — so the prompt waits until the user has answered (#125). Newer
+ *  Codex asks "Continue only if you trust these files … 1. Trust and
+ *  continue"; a paste into that dialog crashes the TUI with "timed out
+ *  discarding buffered terminal input" (N5095, 2026-11-03). */
+export const TRUST_PROMPT_PATTERN = /trust\s*this\s*(folder|directory|workspace)|do\s*you\s*trust\s*the\s*(files|contents)|is\s*this\s*a\s*project\s*you\s*created|you\s*trust\s*these\s*files|trust\s*and\s*continue/i;
 const TRUST_SETTLE_MS = 800;
 
 export function stripAnsi(data: string): string {

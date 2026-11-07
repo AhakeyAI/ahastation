@@ -199,6 +199,7 @@ export type {
 /** Default host group id. Always present in every meeting. */
 const DEFAULT_HOST_ID = 'default';
 const DEFAULT_BACKEND_ID = 'claude-code';
+const MAX_TEXT_COMMAND_REJECTION_NOTES = 3;
 
 interface OrchestratorOpts {
   /** Shared meetings retain this Orchestrator as their sole planning authority.
@@ -342,6 +343,9 @@ export class Orchestrator implements OrchestratorBridge {
    *  target host id (one outstanding ask per expert; a new ask replaces it and
    *  re-arms the timer). Cleared when the expert emits any talker message. */
   private pendingHostAsks = new Map<string, { question: string; timer: ReturnType<typeof setTimeout> }>();
+  /** Consecutive rejected ```meeting-command frames per Host; bounds how
+   *  often a rejection is fed back so a confused Host cannot loop forever. */
+  private textCommandRejections = new Map<string, number>();
   private readonly hostAskTimeoutMs: number;
   /** Cross-host messages that arrived before the target Host talker was ready. */
   private pendingCrossHostMessages = new Map<string, Array<{ from: string; text: string }>>();
@@ -648,7 +652,7 @@ export class Orchestrator implements OrchestratorBridge {
             ...(purpose === 'host' && isTerminalWorkerBackend(backendId)
               ? { workerId: hostTerminalWorkerId(this.ptyScopeId, actorHostId) }
               : {}),
-            meetingCommandHandler: (raw: unknown) => this.executeMeetingCommand(actorHostId, raw),
+            meetingCommandHandler: (raw: unknown) => this.executeTextMeetingCommand(actorHostId, raw),
           },
         },
         // BackendSessionEvent is structurally compatible with SessionEvent
@@ -1065,6 +1069,40 @@ export class Orchestrator implements OrchestratorBridge {
       blockers: ['host-ask-timeout'],
       recommendedAction: 'request-user-decision',
     });
+  }
+
+  /** Text-protocol Hosts (Codex, pocket-vibe) emit fenced ```meeting-command
+   *  frames and, unlike MCP tools, never see the return value. Feed back
+   *  rejections (with the fields to fix) and decision results, so a wrong
+   *  request-decision is retried instead of silently dropped (N5095 D1,
+   *  2026-11-03). */
+  private async executeTextMeetingCommand(hostId: string, raw: unknown): Promise<MeetingCommandResult> {
+    const result = await this.executeMeetingCommand(hostId, raw);
+    const kind = typeof (raw as { kind?: unknown } | null)?.kind === 'string'
+      ? (raw as { kind: string }).kind : 'unknown';
+    const host = this.hostGroups.get(hostId)?.getHost();
+    if (!result.ok) {
+      const rejections = (this.textCommandRejections.get(hostId) ?? 0) + 1;
+      this.textCommandRejections.set(hostId, rejections);
+      if (rejections <= MAX_TEXT_COMMAND_REJECTION_NOTES) {
+        host?.sendUserText(
+          `(meeting-command result) ${kind} 被拒绝（${result.code}）：${result.error}\n`
+          + '按 AhaStation command protocol 修正字段后重发一次；修正前不要告诉用户已经完成。',
+          'normal',
+        );
+      }
+      return result;
+    }
+    this.textCommandRejections.delete(hostId);
+    if (kind === 'request-decision' && result.value && typeof result.value === 'object') {
+      const created = result.value as Partial<DecisionCreationResult>;
+      host?.sendUserText(
+        `(meeting-command result) request-decision 已创建：${created.path ?? ''}（${created.sideChannelNote ?? ''}）。`
+        + `先按推荐选项「${created.recommendedTitle ?? ''}」推进；用户改选时你会收到系统消息。`,
+        'normal',
+      );
+    }
+    return result;
   }
 
   async executeMeetingCommand(hostId: string, raw: unknown): Promise<MeetingCommandResult> {
