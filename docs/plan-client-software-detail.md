@@ -4,7 +4,7 @@
 > **v1.2 变更**：四路红队 grill（架构安全 / 产品 UX / 语音发布 / 硬件整机）结论落地——§2.2 安全规约六条扩为九条、事件归因表替代 sessionID 过滤、hostId 窗口主键、语音默认改流式 provider、Phase 6 拆分、陪伴屏补差异化判据与气泡规范、Phase 5 验收口径修正等 ~20 处。
 > **v1.1 变更**：修正决策登记冲突（新增 §0 映射表）、陪伴屏范围恢复多角色像素会议室、语音供应商口径合并、Electron 33→42、范围声明改写。
 > **依据文档**（事实来源，本文不复述其论证过程）：
-> - `docs/plan-ahastation-rk3588-overall.md`（下称「整体方案」，v1.1 已经硬件整机 grill 评审修订）
+> - 整体硬件方案（下称「整体方案」，内部维护，不在公开仓库）
 > - `docs/plan-phase2-ide-handheld.md`（下称「Phase2 方案」，v3 红队评审 + grilling 决策版，Phase 0–8，软件 D1–D10）
 > - `docs/orchestrator-v2-progress.md`（orchestrator v2 实施状态）
 >
@@ -26,7 +26,7 @@
 | 云端语音供应商 | D8：provider 可配置 | Q5：供应商未选，验收指标先行锁定 | **v1.2 用户裁决**：默认实现为**流式 ASR provider**（Deepgram/火山/讯飞类，满足流式/首字 <500ms/barge-in）；whisper-1 批量 API 仅作免费兜底 profile（标注达不到延迟与 barge-in 指标）；终选在 Phase 6c 真机验收前定（整机 Q5） |
 | Linux 包格式 | D9 | §4.1 | **v1.2 用户裁决**：**AppImage 为主**（SteamOS 装 FUSE2 可跑）；Flatpak 降为「后续评估」——其沙箱与 spawn agent CLI/PTY 的核心功能冲突（见 §3.5）；AhaStation 打系统镜像无此约束 |
 | 签名与更新 | D10：未签名 + electron-updater | §3.6/§9.1：系统侧 OTA 对齐 | **按平台拆分**：win/linux 未签名 + electron-updater；**mac 未签名包 Squirrel.Mac 拒装**——mac 短期只做版本检查 + 手动下载提示，签名公证并入 Phase 7 H 项后再开 mac updater（需 zip target + latest-mac.json）；AhaStation 整机走系统 OTA，两轨并存，**OTA 版本仲裁**：系统镜像内置应用版本 ≥ electron-updater 通道版本时以系统为准（防系统 OTA 回滚覆盖应用新版） |
-| 整机形态 | — | D2 vs S3 排期矛盾 | **v1.2 用户裁决**：双轨——Track A：v1 公模/中度定制 8" 平板先行；Track B：v2 全新 6.5–7" 手机 ID（T0+12–18 月）；Q11 商业门前移至 S2 样机验收（见整体方案 v1.1 §6/§10） |
+| 整机形态 | — | — | 硬件形态与路线另行维护，不在公开仓库 |
 | 范围声明（v1.2 补登） | Phase2 §五「不做 Linux ARM」 | AhaStation 即 ARM64 | **Phase2 的"不做 Linux ARM"被本方案推翻**（§3.5 linux-arm64 runner、CX10A 验收）；Phase2 文档该条仅适用于当时对外分发语境 |
 
 ---

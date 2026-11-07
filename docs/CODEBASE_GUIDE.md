@@ -740,14 +740,9 @@ public 中的模型、JS 和 WASM 是运行资源。尤其 public/vad 中的 JS/
 | research/kimi-cli-protocol.md | Kimi TUI 的输入、审批、hook 和状态文件协议速查。 |
 | research/qoder-cli-protocol.md | Qoder TUI 参数、权限、完成信号与运行状态速查。 |
 | research/linux-arm64-ai-tools-support.md | 当时 AI CLI/IDE 对 Linux ARM64 的支持调查。 |
-| plan-ahastation-rk3588-overall.md | RK3588 整体硬件、系统、应用栈和风险方案。 |
-| checklist-s1-bringup.md | 样机点亮、休眠唤醒、GPU、散热和满栈检查清单。 |
 | hackathon-luban-rk3588-bringup.md | LubanCat 黑客松点亮、环境、构建、冒烟与分工方案。 |
-| plan-hackathon-s0-concept-demo.md | 三天四人的概念验证 Demo 范围、人员和验收。 |
-| research-x86-handheld-devices.md | 首发验证用 x86 掌机和掌上电脑调查。 |
 | research/handheld-hackability-report.md | x86 掌机二次开发、Linux 生态和硬件开放度调查。 |
 | research/pinephone-pro-lessons.md | PinePhone Pro 的移动 Linux 实践与风险经验。 |
-| research/rk3588-odm-factories.md | RK3588/RK3576 手持终端的 ODM、样机及采购调查。 |
 
 ## .github/workflows 持续集成
 

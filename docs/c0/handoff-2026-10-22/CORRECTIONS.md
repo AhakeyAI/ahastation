@@ -10,4 +10,4 @@
 | 交接说明「源码里 package-lock.json 是用户修改」 | 需保留的用户改动 | 只是根 `version` 字段从 0.17.8 改为 0.18.1，没有依赖变化；仍不要去动那个检出 | `git diff package-lock.json` |
 | 交接说明「当前 Orca 工作区……空 initial commit」 | 用作「无项目文件」的依据 | 只适用于 `orca/workspaces/…-internal-2/-3`；`orca/projects/ahastudio` 就是 main 的检出 | `git log` |
 
-产品决定（D01–D64）、规格、架构对象、WBS 结构和语音约束（樱桃 SDK 不支持 N5095）均未更正，继续有效。
+产品决定（D01–D64）、规格、架构对象、WBS 结构和语音约束均未更正，继续有效。

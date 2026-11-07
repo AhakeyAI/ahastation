@@ -1,7 +1,7 @@
 # AhaStudio 首发纵切闭环 · 开发计划与 WBS
 
 版本：v1.0 · 2026-10-04
-地位：以 [竞品对标与首发策略](../../../../Documents/Codex/ahakey-studio-community/docs/research/orca-paseo-multica-ahastudio-strategy-2026-10.md) 为目标定义、[CONTEXT.md](../../../../Documents/Codex/ahakey-studio-community/CONTEXT.md) 为产品语言、[05-technical-architecture.md v1.7](../../../../Documents/Codex/ahakey-studio-community/docs/ahastudio/05-technical-architecture.md) 为技术基线，对当前代码（main @ 8f1506e，v0.18.4 + `He-0917` 分支 4 个未合并提交）盘点后制定的落地计划。本文管"把首发闭环做成可运行程序要做什么、按什么顺序做"。
+地位：以内部竞品对标与首发策略为目标定义、[CONTEXT.md](../../../../Documents/Codex/ahakey-studio-community/CONTEXT.md) 为产品语言、[05-technical-architecture.md v1.7](../../../../Documents/Codex/ahakey-studio-community/docs/ahastudio/05-technical-architecture.md) 为技术基线，对当前代码（main @ 8f1506e，v0.18.4 + `He-0917` 分支 4 个未合并提交）盘点后制定的落地计划。本文管"把首发闭环做成可运行程序要做什么、按什么顺序做"。
 
 ---
 
