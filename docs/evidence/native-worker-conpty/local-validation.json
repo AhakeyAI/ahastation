@@ -1,0 +1,122 @@
+{
+  "recordedAt": "2026-11-01T10:52:29.339Z",
+  "headAtRun": "8bbb7e07b9b3a375e6a8d28a3bf02c65e0a74008",
+  "dirtyAtRun": true,
+  "base": "8bbb7e07b9b3a375e6a8d28a3bf02c65e0a74008",
+  "platform": "win32-x64",
+  "node": "v26.12.1",
+  "sourceHashes": {
+    "electron/native-worker/windows-conpty.ts": "ec94f00c084981500c6e060a2c267c1fde4e7091f170f3de19faaa03cdae5bb2",
+    "native/worker-guard/WindowsConPty.cs": "29022246d59189530abaeb5fd20ad07579d6ad370f4c014a772e15e41730ef0d",
+    "native/worker-guard/WindowsGuard.cs": "8d6c4730aa1e3ef2811559dc1ba4bd2d784bd5406906de3c9380cf10b62d2de1",
+    "electron/pty-host.ts": "6d5993cac0d8696d53f72756a21120a8cd005fe5d5329c3c28b1cef05ce648ab",
+    "electron/native-worker/run.ts": "090fe830e13c58c1d07ec5d81fdd34e924433a858e736c5a7ee6122a3ae0f59f",
+    "electron/native-worker/admission.ts": "22c75ab6ee736e00f5c38a15bdcbb1c8cfc545633dff942363bc13d8da984ad5",
+    "electron/worker-scheduler.ts": "fd5fd83357d0bbe578b69b85d0a0f49dc057ab2831bc13da0bf76c541a13f081",
+    "scripts/build-worker-guard.mjs": "34dc6dc4374af8585a4801d138f4897c15729b83253799694d482e9c227268df",
+    "scripts/verify-native-conpty.mjs": "1178891b6a30acd1d6a9cf00494463dc39b7b4bc0025631d445a4c4d751ad6e2",
+    "tests/fixtures/native-conpty.cs": "5137bee16e0ffa795b70b0b9565b5e5a52e60e00a5df310e0d0ce2dcd0186bc8",
+    "tests/native-worker-conpty.test.mjs": "964392a325a9c93b6cafc2faff8667f73541c88619139c1ed1bdd82eba670cd2",
+    "tests/pty-host.test.mjs": "85c1eb96e3075e4dce4f510df437e743f30d217c544fc3a9b6240e74cbb1b5e9",
+    "tests/native-worker-bridge.test.mjs": "c73347a081eed2bbe2d5618d055cbbc07d4735f6c1c704bdb7f450b37ec82257",
+    "tests/native-worker-scheduler-ports.test.mjs": "56ea4f60fc9b417fba532be8339b358ccf90e51766b1adcb806fccba683d15a0",
+    ".github/workflows/build-matrix.yml": "01edf60aabccd437f5fa283b7aa0dd542a182f641eb27a5ce277937ec70ef554"
+  },
+  "dependencyLockSha256": "a3df1bbc02be91b14815d6add9613de6e600d6bc32af9cc76d8b8791a7dd18c8",
+  "helperSha256": "39a3b3d717206d5266dada36fca41cac35f1e7b1bd519c32217963e0e598da5d",
+  "results": [
+    {
+      "label": "renderer typecheck",
+      "exit": 0
+    },
+    {
+      "label": "electron typecheck",
+      "exit": 0
+    },
+    {
+      "label": "clean electron output",
+      "exit": 0
+    },
+    {
+      "label": "electron build",
+      "exit": 0
+    },
+    {
+      "label": "preloads",
+      "exit": 0
+    },
+    {
+      "label": "guard build",
+      "exit": 0
+    },
+    {
+      "label": "renderer build",
+      "exit": 0
+    },
+    {
+      "label": "native-worker-conpty",
+      "exit": 0,
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "label": "pty-host",
+      "exit": 0,
+      "tests": 18,
+      "pass": 18,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "label": "native-worker-bridge",
+      "exit": 0,
+      "tests": 18,
+      "pass": 18,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "label": "native-worker-scheduler-ports",
+      "exit": 0,
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "label": "global-hooks-admission",
+      "exit": 0,
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "label": "native-worker-transport",
+      "exit": 0,
+      "tests": 4,
+      "pass": 4,
+      "fail": 0,
+      "skipped": 0
+    }
+  ],
+  "osEvidence": [
+    {
+      "boundary": "windows-offline-conpty-v1",
+      "stopMs": 3,
+      "nativeFileWrite": true,
+      "deniedDirectAndDescendantWrite": true,
+      "deniedLoopbackConnections": 0,
+      "treeExit": "Job ActiveProcesses=0",
+      "cliEngine": "unknown; owned fixture only",
+      "defaultNativeAdmission": false
+    }
+  ],
+  "cliEngine": "unknown; not run",
+  "nativeSessionId": "unknown; not bound",
+  "stationOwner": "not wired",
+  "defaultNativeAdmission": false,
+  "scope": "owned hidden ConPTY and offline protocol evidence only; not P3 or B04"
+}

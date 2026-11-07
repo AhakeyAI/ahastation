@@ -147,8 +147,11 @@ test('pty exit notifies subscribers and disposes the session', () => {
   host.spawn('w1', SPAWN_OPTS);
   const exits = [];
   host.onExit('w1', (code) => exits.push(code));
+  const metadata = [];
+  host.onExit('w1', (_code, event) => metadata.push(event));
   spawned[0].pty.emitExit(3);
   assert.deepEqual(exits, [3]);
+  assert.deepEqual(metadata, [{ exitCode: 3 }]);
   assert.equal(host.has('w1'), false);
   assert.equal(host.replayBuffer('w1'), null);
 });
@@ -239,4 +242,22 @@ test('tree stop revokes raw keyboard writes and resize even if cleanup fails', a
   assert.equal(host.write('stopping', 'late keyboard input\r'), false);
   assert.deepEqual(spawned[0].pty.writes, []);
   host.killAll();
+});
+
+test('guarded PTY keeps its sealed owner after unconfirmed stop; never falls through to ordinary kill', async () => {
+  const pty = createFakePty(); let confirmed = false;
+  pty.terminateTree = async () => {
+    if (confirmed) pty.emitExit(1);
+    return { confirmed };
+  };
+  const host = new PtyHost({ spawn: () => { throw new Error('must adopt existing guarded process'); } });
+  host.adopt('guarded', pty);
+  const stop = host.terminateTree('guarded');
+  assert.equal(host.write('guarded', 'late approve'), false);
+  await assert.rejects(stop, /unconfirmed/);
+  assert.equal(host.has('guarded'), true); assert.equal(pty.killed, false);
+  host.kill('guarded'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(host.has('guarded'), true); assert.equal(pty.killed, false);
+  confirmed = true; await host.terminateTree('guarded');
+  assert.equal(host.has('guarded'), false);
 });

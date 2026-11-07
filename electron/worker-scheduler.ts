@@ -523,15 +523,23 @@ export class WorkerScheduler {
       askUser: (request, signal) => new Promise(resolve => {
         if (!current() || handle.status !== 'running' || signal.aborted || this.nativeApprovalReplies.has(request.id)) { resolve('deny'); return; }
         const settle = (answer: 'allow' | 'deny') => {
+          if (!this.nativeApprovalReplies.has(request.id)) return;
           signal.removeEventListener('abort', abort); this.nativeApprovalReplies.delete(request.id);
+          this.settlePendingAsk(handle);
+          this.opts.emit({ source: handle.id, event: { kind: 'permission-cancelled', id: request.id } });
+          this.emitPlanUpdate();
           resolve(current() && !signal.aborted ? answer : 'deny');
         };
         const abort = () => settle('deny');
         signal.addEventListener('abort', abort, { once: true });
         this.nativeApprovalReplies.set(request.id, { workerId: handle.id, resolve: settle });
+        // Reuse the scheduler's existing approval wait/capacity accounting;
+        // guard state never becomes a second business status source.
+        handle.pendingAskCount = (handle.pendingAskCount ?? 0) + 1;
         this.opts.emit({ source: handle.id, event: { kind: 'permission-request', id: request.id,
           toolName: request.call.toolName, toolUseID: request.call.invocationId,
           input: { ...request.call.input, basis: request.basis, actionDigest: request.digest, approvalScope: 'once' } } });
+        this.emitPlanUpdate(); this.spawnReadyWorkers();
       }),
       onReport: async report => {
         if (!current() || handle.status !== 'running' || !this.opts.flushEvents
@@ -2543,6 +2551,9 @@ export class WorkerScheduler {
    *  going through disposeWorker, so a stale timer would otherwise fire on the
    *  reused handle's next session). */
   private clearPermissionTimersForHandle(handleId: string): void {
+    for (const pending of [...this.nativeApprovalReplies.values()]) {
+      if (pending.workerId === handleId) pending.resolve('deny');
+    }
     for (const [timerKey, entry] of this.permissionTimers) {
       if (entry.handleId === handleId) {
         clearTimeout(entry.timer);

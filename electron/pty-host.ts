@@ -22,14 +22,27 @@ import { guardWindowsPtyStartup } from './windows-pty-startup.js';
 const require_ = createRequire(import.meta.url);
 
 /** Minimal surface of an IPty we rely on - matches @lydell/node-pty. */
+export interface PtyExitEvent {
+  /** Root process result, independently of why the guardian stopped the tree. */
+  exitCode: number | null;
+  signal?: number;
+  stopReason?: string;
+  rootExitedBeforeStop?: boolean;
+  /** Present only when a guarded owner supplied matching OS Job evidence. */
+  treeExit?: { confirmed: true; activeProcesses: 0; forcedTermination: boolean;
+    pid: number; startId: string; bootId: string };
+}
 export interface PtyProcess {
   onData(cb: (data: string) => void): { dispose(): void };
-  onExit(cb: (e: { exitCode: number; signal?: number }) => void): { dispose(): void };
+  onExit(cb: (e: PtyExitEvent) => void): { dispose(): void };
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(signal?: string): void;
   /** Release native handles after an externally confirmed owned-tree stop. */
   releaseAfterTreeExit?(): void;
+  /** Guarded implementations confirm their own Job/tree. Never taskkill a
+   * guarded root by PID or infer a receipt from the terminal stream. */
+  terminateTree?(): Promise<{ confirmed: boolean }>;
   readonly pid: number;
   readonly startupError?: Error;
 }
@@ -102,7 +115,7 @@ interface LivePty {
   pty: PtyProcess;
   buffer: PtyRingBuffer;
   dataListeners: Set<(data: string) => void>;
-  exitListeners: Set<(exitCode: number | null) => void>;
+  exitListeners: Set<(exitCode: number | null, event: PtyExitEvent) => void>;
   disposables: Array<{ dispose(): void }>;
   exited: boolean;
   stopping: boolean;
@@ -190,6 +203,14 @@ export class PtyHost {
       cwd: options.cwd,
       env,
     });
+    return this.adopt(id, pty);
+  }
+
+  /** Reuse buffering/renderer subscriptions with an already suspended guard
+   * launch. Adoption does not resume, trust or authorize task input. */
+  adopt(id: string, pty: PtyProcess): number {
+    if (this.sessions.has(id)) throw new Error(`pty '${id}' already has a live PTY`);
+    if (pty.startupError) throw pty.startupError;
     const live: LivePty = {
       pty,
       buffer: new PtyRingBuffer(),
@@ -205,10 +226,10 @@ export class PtyHost {
         try { cb(data); } catch { /* listener must not break the stream */ }
       }
     }));
-    live.disposables.push(pty.onExit(({ exitCode }) => {
+    live.disposables.push(pty.onExit((event) => {
       live.exited = true;
       for (const cb of live.exitListeners) {
-        try { cb(exitCode); } catch { /* ignore */ }
+        try { cb(event.exitCode, event); } catch { /* ignore */ }
       }
       this.dispose(id);
     }));
@@ -250,7 +271,7 @@ export class PtyHost {
   }
 
   /** Subscribe to pty exit. Returns an unsubscribe function. */
-  onExit(id: string, cb: (exitCode: number | null) => void): () => void {
+  onExit(id: string, cb: (exitCode: number | null, event: PtyExitEvent) => void): () => void {
     const live = this.sessions.get(id);
     if (!live) return () => undefined;
     live.exitListeners.add(cb);
@@ -260,6 +281,12 @@ export class PtyHost {
   kill(id: string, options?: { strict: boolean }): void {
     const live = this.sessions.get(id);
     if (!live) return;
+    if (live.pty.terminateTree && !live.exited) {
+      // Keep the guarded run registered and input sealed if OS confirmation
+      // is unavailable. A void disposal API cannot turn unknown into success.
+      void this.terminateTree(id).catch(() => {});
+      return;
+    }
     if (!live.exited) {
       try { live.pty.kill(); } catch (error) {
         if (options?.strict) throw error;
@@ -287,7 +314,10 @@ export class PtyHost {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await this.readyPid(id);
-      if (process.platform === 'win32') {
+      if (live.pty.terminateTree) {
+        const evidence = await live.pty.terminateTree();
+        if (!evidence.confirmed) throw new Error('Guarded PTY tree stop unconfirmed');
+      } else if (process.platform === 'win32') {
         await promisify(execFile)(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
           ['/pid', String(live.pty.pid), '/t', '/f'], { windowsHide: true, timeout: 10_000 });
         // taskkill confirms the owned OS tree; also release node-pty's ConPTY
