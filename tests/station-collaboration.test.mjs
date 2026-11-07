@@ -80,8 +80,8 @@ test('frozen worker keeps the local journal namespace across filtered launch, ex
 test('two production Station receivers share real Hub state, persist receipt, execute once, stop and explicitly continue',
  {timeout:90000,skip:!process.env.POCKET_VIBE_TEST_PYTHON||!macosTaskTestsEnabled},async()=>{
   const root=await mkdtemp(join(tmpdir(),'station-two-devices-'));const originalPath=app.getPath;
-  app.getPath=()=>root;safeStorage.isEncryptionAvailable=()=>true;
-  safeStorage.encryptString=value=>Buffer.from('fixture-cipher:'+value);safeStorage.decryptString=value=>value.toString().replace('fixture-cipher:','');
+  app.getPath=()=>root;safeStorage.isAsyncEncryptionAvailable=()=>true;
+  safeStorage.encryptStringAsync=value=>Buffer.from('fixture-cipher:'+value);safeStorage.decryptStringAsync=async value=>({result:value.toString().replace('fixture-cipher:',''),shouldReEncrypt:false});
   process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
   const child=spawn(process.env.POCKET_VIBE_TEST_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{stdio:['pipe','pipe','pipe'],windowsHide:true});
   let stderr='';child.stderr.on('data',v=>{stderr=(stderr+v).slice(-8000);});const lines=createInterface({input:child.stdout});

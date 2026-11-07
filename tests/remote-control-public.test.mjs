@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { app, safeStorage } from 'electron';
 import { remoteControlAction, remoteControlView, remotePendingKey, setRemotePending, getRemotePending } from '../dist-electron/remote-control.js';
@@ -13,9 +13,9 @@ import { getSettings, flushSettingsWrites } from '../dist-electron/store.js';
 import { PocketVibeBackend, fetchPocketVibeRemoteSessions } from '../dist-electron/backends/pocket-vibe-adapter.js';
 
 const root=await mkdtemp(join(tmpdir(),'station-public-control-')); app.getPath=()=>root;
-safeStorage.isEncryptionAvailable=()=>true;
-safeStorage.encryptString=(value)=>Buffer.from('test-encrypted:'+value);
-safeStorage.decryptString=(buffer)=>buffer.toString().replace('test-encrypted:','');
+safeStorage.isAsyncEncryptionAvailable=()=>true;
+safeStorage.encryptStringAsync=(value)=>Buffer.from('test-encrypted:'+value);
+safeStorage.decryptStringAsync=async (buffer)=>({result:buffer.toString().replace('test-encrypted:',''),shouldReEncrypt:false});
 test.after(async()=> { await flushSettingsWrites(); await rm(root,{recursive:true,force:true}); });
 const reply=(data,status=200)=>({ok:status<400,status,json:async()=>data,text:async()=>JSON.stringify(data)});
 const until=async(fn)=> { for(let i=0;i<1000;i++) { if(fn())return; await new Promise(resolve=>setTimeout(resolve,5)); } assert.fail('Timed out'); };
@@ -45,6 +45,19 @@ test('remote identity uses existing encrypted store and whitelisted IPC, atomic 
   const oversized=await fetchPocketVibeRemoteSessions({authMode:'apikey',apiKey:'test',publicMode:true,baseUrl:'https://fixture.example'},true,
     {fetchImpl:async()=>new Response('x'.repeat(600000))});
   assert.equal(oversized.ok,false); assert.match(oversized.error,/大小/);
+});
+
+test('the remote-control consumer restores async credentials in a fresh process and logout survives another restart', () => {
+  const profile = join(root, 'credential-processes');
+  const loader = "data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));";
+  for (const phase of ['login', 'restart', 'after-logout']) {
+    const output = execFileSync(process.execPath, ['--import', loader,
+      fileURLToPath(new URL('./fixtures/remote-credential-consumer.mjs', import.meta.url)), profile, phase], {
+      encoding: 'utf8', windowsHide: true, timeout: 15000,
+      env: { ...process.env, AHASTATION_USER_DATA_DIR: profile, AHASTATION_TEST_PROFILE: profile },
+    });
+    assert.equal(JSON.parse(output.trim()).passed, true, phase);
+  }
 });
 
 function publicHub() {

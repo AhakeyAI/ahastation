@@ -16,10 +16,11 @@ for(const pattern of [
   'test_collaboration_p1.py','test_ui_fixes_native.py','test_ui_fixes_hub.py',
   'test_collaboration_hardening.py','test_collaboration_stability.py','test_collaboration_review_fixes.py',
   'test_station_collaboration.py','test_unified_meeting.py','test_station_codex_guardian.py',
-  'test_codex_shared.py','test_probe_package.py',
+  'test_codex_shared.py','test_probe_package.py','test_codex_runtime.py',
 ])run(python,['-m','unittest','discover','-s','services/remote/tests','-p',pattern,'-v']);
 run(process.execPath, ['--test', '--test-concurrency=1', '--test-timeout=120000',
-  '--import',"data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./'));",
+  '--import',"data:text/javascript,import { register } from 'node:module'; import { pathToFileURL } from 'node:url'; register('./tests/electron-stub.mjs', pathToFileURL('./')); await import(pathToFileURL('./tests/fixtures/offline-backends.mjs').href);",
+  'tests/async-credentials.test.mjs','tests/codex-runtime.test.mjs','tests/codex-compatibility-update.test.mjs','tests/remote-control-public.test.mjs','tests/offline-test-isolation.test.mjs',
   'tests/collaboration-completion-evidence.test.mjs','tests/collaboration-p1-regression.test.mjs','tests/collaboration-ui-fixes.test.mjs',
   'tests/collaboration-ui-fixes-browser.test.mjs','tests/collaboration-ui-fixes-chain.test.mjs',
   'tests/collaboration-hardening.test.mjs','tests/collaboration-hardening-http.test.mjs',

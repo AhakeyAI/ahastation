@@ -181,7 +181,7 @@ test('R4 editor edits, replacement, pasted labels, duplicate names, email, multi
 test('R1–R4 two Station services with production Hub: terminal recovery, exact plan revision, valid-token reconnect and renamed mention',
  {timeout:90000,skip:!process.env.COLLABORATION_PYTHON},async()=>{
   const root=await mkdtemp(join(tmpdir(),'station-review-integration-'));const originalPath=app.getPath;const previousEnv={test:process.env.AHASTATION_ENABLE_TEST_AGENT,loop:process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK};
-  app.getPath=()=>root;safeStorage.isEncryptionAvailable=()=>true;safeStorage.encryptString=value=>Buffer.from('fixture:'+value);safeStorage.decryptString=value=>value.toString().replace(/^fixture:/,'');process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
+  app.getPath=()=>root;safeStorage.isAsyncEncryptionAvailable=()=>true;safeStorage.encryptStringAsync=value=>Buffer.from('fixture:'+value);safeStorage.decryptStringAsync=async value=>({result:value.toString().replace(/^fixture:/,''),shouldReEncrypt:false});process.env.AHASTATION_ENABLE_TEST_AGENT='1';process.env.AHASTATION_REMOTE_ALLOW_LOOPBACK='1';
   const child=spawn(process.env.COLLABORATION_PYTHON,['services/remote/tests/station_collaboration_fixture.py'],{stdio:['pipe','pipe','pipe'],windowsHide:true});const lines=createInterface({input:child.stdout});let stderr='';child.stderr.on('data',v=>{stderr=(stderr+v).slice(-4000);});let a,b;
   const until=async(check,why)=>{for(let n=0;n<600;n++){if(await check())return;await new Promise(r=>setTimeout(r,30));}assert.fail(why);};
   try{

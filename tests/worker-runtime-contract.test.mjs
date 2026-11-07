@@ -140,3 +140,15 @@ test('Worker version probes allow slow runtimes by default and honor an explicit
   assert.equal(probeWorkerRuntimeVersion('codex', SLOW_VERSION_FIXTURE, { timeoutMs: 25 }), null);
   assert.equal(await probeWorkerRuntimeVersionAsync('codex', SLOW_VERSION_FIXTURE, { timeoutMs: 25 }), null);
 });
+
+test('Codex Worker version gates share the transport interval and preserve prereleases for rejection', () => {
+  for (const [version, accepted] of [
+    ['0.156.0', false], ['0.156.1', true], ['0.156.2', true], ['0.157.0', false],
+    ['0.164.0', false], ['0.156.1-beta.1', false], ['0.156.1+build', false],
+  ]) {
+    assert.equal(extractRuntimeVersion('codex-cli ' + version), version);
+    const result = assessConfiguredWorkerRuntime({ backendId: 'codex', installed: true,
+      implementationEnabled: true, authenticated: true, version });
+    assert.equal(result.state, accepted ? 'available' : 'version-incompatible', version);
+  }
+});

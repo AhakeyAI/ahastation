@@ -165,10 +165,12 @@ export class StationService {
       await this.storage.update(state=>{if(selected())Object.assign(state,destination.read());});if(!selected())return;s=this.storage.read();this.nativeRows.clear();this.nativeCycle=undefined;this.hosts.clear();this.hostScheduled.clear();this.integrationScheduled.clear();await this.probe();
     }
     if(!selected())return;
-    if(!safeStorage.isEncryptionAvailable()) throw new Error('系统凭证安全存储不可用，无法接入设备');
+    if(!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('系统凭证安全存储不可用，无法接入设备');
+    if(!selected())return;
     let token:string|undefined;
-    try{token=s.tokenEnc?decryptDeviceCredential(s.tokenEnc,{ownerId:account.ownerId,serviceUrl:account.serviceUrl,deviceId:s.deviceId},s.deviceCredential):undefined;}
+    try{token=s.tokenEnc?await decryptDeviceCredential(s.tokenEnc,{ownerId:account.ownerId,serviceUrl:account.serviceUrl,deviceId:s.deviceId},s.deviceCredential):undefined;}
     catch(error){if(!selected())return;await this.storage.update(state=>{if(!selected())return;state.credentialFailure=error instanceof LocalCredentialError?{kind:error.kind,diagnostic:error.diagnostic}:{kind:'local-decryption-failed',diagnostic:{exceptionName:(error as Error).name}};});throw error;}
+    if(!selected())return;
     if(s.credentialInvalid&&!token)throw new Error('原设备凭证不可用，请正常登录并核对设备授权；原任务保留');
     if(!token) {
       const identity=s.registrationRequestId??randomUUID();const config=s.registrationConfig??s.config;await this.storage.update(state=>{if(selected()){state.registrationRequestId=identity;state.registrationConfig=config;}});if(!selected())return;
@@ -194,11 +196,50 @@ export class StationService {
     if(!current())return;
     this.connection=connection; connection.start();this.startTimers(); this.changed();
   }
-  private async saveDeviceCredential(token:string,ownerId:string,serviceUrl:string,current:()=>boolean,recovery=false){
-    const state=this.storage.read();const value=encryptDeviceCredential(token,{ownerId,serviceUrl,deviceId:state.deviceId});
-    await this.storage.update(s=>{if(!current())throw new Error('凭据响应属于旧账号或连接，原记录保留');if(recovery&&s.tokenEnc)(s.credentialHistory??=[]).push({cipher:s.tokenEnc,metadata:s.deviceCredential,reason:s.credentialFailure?.kind??'explicit-user-recovery'});s.ownerId=ownerId;s.serviceUrl=serviceUrl;s.tokenEnc=value.cipher;s.deviceCredential=value.metadata;s.credentialFailure=undefined;s.credentialInvalid=false;});
-    const disk=JSON.parse(await readFile(this.storage.file,'utf8')) as StationLocalState;if(!current())return;
-    if(disk.tokenEnc!==value.cipher||JSON.stringify(disk.deviceCredential)!==JSON.stringify(value.metadata)||decryptDeviceCredential(disk.tokenEnc,{ownerId,serviceUrl,deviceId:state.deviceId},disk.deviceCredential)!==token)throw new Error('设备凭据耐久落盘核对失败；不清理原记录、不启动新任务');
+  private async saveDeviceCredential(
+    token: string,
+    ownerId: string,
+    serviceUrl: string,
+    current: () => boolean,
+    recovery = false,
+  ) {
+    const state = this.storage.read();
+    const value = await encryptDeviceCredential(token, {
+      ownerId,
+      serviceUrl,
+      deviceId: state.deviceId,
+    });
+    await this.storage.update((s) => {
+      if (!current()) throw new Error('凭据响应属于旧账号或连接，原记录保留');
+      if (recovery && s.tokenEnc)
+        (s.credentialHistory ??= []).push({
+          cipher: s.tokenEnc,
+          metadata: s.deviceCredential,
+          reason: s.credentialFailure?.kind ?? 'explicit-user-recovery',
+        });
+      s.ownerId = ownerId;
+      s.serviceUrl = serviceUrl;
+      s.tokenEnc = value.cipher;
+      s.deviceCredential = value.metadata;
+      s.credentialFailure = undefined;
+      s.credentialInvalid = false;
+    });
+    const disk = JSON.parse(await readFile(this.storage.file, 'utf8')) as StationLocalState;
+    if (!current()) return;
+    const decrypted = disk.tokenEnc
+      ? await decryptDeviceCredential(
+          disk.tokenEnc,
+          { ownerId, serviceUrl, deviceId: state.deviceId },
+          disk.deviceCredential,
+        )
+      : undefined;
+    if (!current()) return;
+    if (
+      disk.tokenEnc !== value.cipher ||
+      JSON.stringify(disk.deviceCredential) !== JSON.stringify(value.metadata) ||
+      decrypted !== token
+    )
+      throw new Error('设备凭据耐久落盘核对失败；不清理原记录、不启动新任务');
   }
   private async event(event: SharedEvent,current=()=>true): Promise<void> {
     await this.storage.update(s=>{
