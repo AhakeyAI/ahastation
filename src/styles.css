@@ -14254,3 +14254,36 @@ html.ahabar-view #root {
   -webkit-app-region: drag;
 }
 .room-window-status button { -webkit-app-region: no-drag; }
+
+/* Background main window: pause every CSS animation (see
+   src/lib/window-activity.ts). They resume where they left off on focus. */
+:root[data-window-active="false"] *,
+:root[data-window-active="false"] *::before,
+:root[data-window-active="false"] *::after {
+  animation-play-state: paused !important;
+}
+
+/* Always-on meeting surfaces sit over live content (terminals, video, the
+   stage), so a backdrop blur is recomputed on every frame underneath. Light
+   mode already turns these off; in dark mode use a near-opaque fill instead.
+   Modals and popovers keep their blur — they are short-lived. */
+@media (prefers-color-scheme: dark) {
+  .mtg-header, .toolbar, .tab-strip, .stage-share-pill,
+  .workspace-now-card, .workspace-task-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--surface-1);
+  }
+  .tiles--overlay .tile, .tiles-bar, .tiles-detail, .dock-sidebar,
+  .dock-detail, .participant-tabs, .host-terminal-strip {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgba(20, 22, 30, 0.9);
+  }
+  .stage-banner, .tile-status, .tiles-gallery-actions,
+  .worker-card-status-badge, .worker-card-terminal-btn {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgba(0, 0, 0, 0.66);
+  }
+}

@@ -38,6 +38,12 @@ const MIN_SAMPLES_FOR_BARGE_IN = 3200;
 // around 0.3-0.4 after AEC).
 const MIN_AVG_PROB_FOR_BARGE_IN = 0.45;
 
+// The AudioContext each MicVAD runs on. We create it ourselves (instead of
+// letting the library own it) so muting can suspend it: pausing MicVAD only
+// disconnects the mic, and the worklet would keep being scheduled ~375x/s.
+// Since the library doesn't own it, it doesn't close it either — we do.
+const vadAudioContexts = new WeakMap<MicVAD, AudioContext>();
+
 async function releaseCapture(vad: MicVAD | null, stream: MediaStream | null): Promise<void> {
   try {
     await vad?.destroy();
@@ -49,6 +55,20 @@ async function releaseCapture(vad: MicVAD | null, stream: MediaStream | null): P
         try { track.stop(); } catch { /* ignore */ }
       }
     }
+    const context = vad ? vadAudioContexts.get(vad) : undefined;
+    if (context) void context.close().catch(() => { /* already closed */ });
+  }
+}
+
+/** Muted: stop the mic tracks and the audio thread. Unmuted: reopen both. */
+async function setVadPaused(vad: MicVAD, paused: boolean): Promise<void> {
+  const context = vadAudioContexts.get(vad);
+  if (paused) {
+    await vad.pause();
+    await context?.suspend();
+  } else {
+    await context?.resume();
+    await vad.start();
   }
 }
 
@@ -57,8 +77,10 @@ interface UseVoiceCaptureOptions {
   onTranscript: (text: string) => void;
   onBargeIn?: () => void;
   lang?: 'auto' | 'zh' | 'en';
-  // When true, VAD stays alive but all speech segments are silently dropped.
-  // Used for spacebar mute - avoids the 200-500ms VAD destroy/recreate cost.
+  // When true, the VAD is paused (mic tracks stopped, audio thread suspended)
+  // but not destroyed, and any in-flight segment is dropped. Used for
+  // spacebar mute - unmuting only reopens the mic, avoiding the 200-500ms
+  // VAD destroy/recreate cost.
   paused?: boolean;
   // When true, drop any speech segment that starts during this window. Used to
   // ignore the mic while TTS is playing back through the speakers - otherwise
@@ -190,6 +212,13 @@ export function useVoiceCapture({
   }, [tapSegment]);
   useEffect(() => {
     pausedRef.current = paused;
+    // Muted: stop the VAD (mic tracks, worklet, model) instead of running it
+    // and discarding every frame — the callbacks below ignore paused audio
+    // anyway. Unmuting reopens the mic through the same getStream settings.
+    const vad = vadRef.current;
+    if (!vad) return;
+    if (paused) setMicLevel(0);
+    void setVadPaused(vad, paused).catch(() => { /* already torn down */ });
   }, [paused]);
   useEffect(() => {
     // Remember when TTS playback last ended. A VAD segment that STARTED
@@ -257,6 +286,7 @@ export function useVoiceCapture({
 
     let cancelled = false;
     let createdVad: MicVAD | null = null;
+    let audioContext: AudioContext | null = null;
 
     const previousInitialization = initializationRef.current;
     const initialization = (async () => {
@@ -291,8 +321,29 @@ export function useVoiceCapture({
         const vadInitTimeout = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error('MicVAD init timed out after 45s')), 45000);
         });
+        // Explicit AEC/NS/AGC so the speaker->mic loop is dampened. Browsers
+        // default these on for `{audio: true}`, but the lib's default
+        // getStream doesn't pass them through, and without AEC the VAD
+        // trips on Claude's own TTS output coming back through the mic.
+        // Also used to reopen the mic after a mute (resumeStream).
+        const openMic = async () => {
+          const s = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          // Stash the stream so the effect cleanup can stop its tracks
+          // after vad.destroy() - MicVAD.destroy() doesn't always release
+          // the underlying mic device on its own.
+          micStreamRef.current = s;
+          return s;
+        };
+        audioContext = new AudioContext();
         const vad = await Promise.race([
           MicVAD.new({
+          audioContext,
           model: 'v5',
           baseAssetPath: VAD_ASSET_BASE,
           onnxWASMBasePath: VAD_ASSET_BASE,
@@ -309,24 +360,8 @@ export function useVoiceCapture({
           ortConfig: (ort) => {
             ort.env.wasm.numThreads = 1;
           },
-          // Explicit AEC/NS/AGC so the speaker->mic loop is dampened. Browsers
-          // default these on for `{audio: true}`, but the lib's default
-          // getStream doesn't pass them through, and without AEC the VAD
-          // trips on Claude's own TTS output coming back through the mic.
-          getStream: async () => {
-            const s = await navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-              },
-            });
-            // Stash the stream so the effect cleanup can stop its tracks
-            // after vad.destroy() - MicVAD.destroy() doesn't always release
-            // the underlying mic device on its own.
-            micStreamRef.current = s;
-            return s;
-          },
+          getStream: openMic,
+          resumeStream: openMic,
           positiveSpeechThreshold: 0.5,
           negativeSpeechThreshold: 0.35,
           redemptionMs: 1000,
@@ -671,6 +706,7 @@ export function useVoiceCapture({
           }),
           vadInitTimeout,
         ]);
+        vadAudioContexts.set(vad, audioContext);
         if (cancelled) {
           const stream = micStreamRef.current;
           micStreamRef.current = null;
@@ -679,7 +715,9 @@ export function useVoiceCapture({
         }
         createdVad = vad;
         vadRef.current = vad;
-        await vad.start();
+        // MicVAD.new already started it (startOnLoad). Muted before init
+        // finished: pause now — the paused effect ran while vadRef was empty.
+        if (pausedRef.current) await setVadPaused(vad, true);
         if (cancelled) return;
         setActive(true);
         setLastError(null);
@@ -692,6 +730,8 @@ export function useVoiceCapture({
         const stream = micStreamRef.current;
         micStreamRef.current = null;
         await queueRelease(createdVad, stream);
+        // No VAD came back to own the context (MicVAD.new threw or timed out).
+        if (!createdVad && audioContext) void audioContext.close().catch(() => { /* already closed */ });
         const msg = String((e as Error)?.message ?? e);
         // B18: detect permission denial so the UI can show a targeted guide
         // instead of a generic error string.
