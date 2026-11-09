@@ -127,6 +127,20 @@ test('directory redirect and disappeared pending candidates cannot grant access'
   await fs.symlink(f.root, row.path, process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal((await f.invoke('reviewDirectory', { key: row.key })).ok, false); assert.equal(f.prompts(), 0);
 });
+
+test('revocation during the final asynchronous directory check invalidates confirmed consent', async (t) => {
+  const f = await setup(t), row = await pending(f), original = fs.stat;
+  const prior = f.access.get(); let checks = 0;
+  t.after(() => { fs.stat = original; });
+  fs.stat = async (path, ...args) => {
+    if (path === row.path && ++checks === 4) {
+      await f.invoke('disable'); await f.access.set(prior);
+    }
+    return original(path, ...args);
+  };
+  assert.equal((await f.invoke('reviewDirectory', { key: row.key })).canceled, true);
+  assert.ok(!f.access.get().roots.includes(row.path));
+});
 test('ignore and restore persist only identifiers, enforce sender/ownership and never change directory grants', async (t) => {
   const f = await setup(t), row = await pending(f), access = f.access.get();
   const session = { id: 'a'.repeat(40), clientKind: 'claude-code', nativeSessionId: 'native', cwd: access.roots[0], origin: 'user', ownership: 'unowned' };
