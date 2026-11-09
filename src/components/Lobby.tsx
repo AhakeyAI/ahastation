@@ -6,6 +6,7 @@ import type { BackendInfo } from '../types';
 import { usePickCwd } from './DirPickerModal';
 import {SharedMeetingEntry} from './SharedMeetingEntry';
 import { ProjectRooms } from './ProjectRooms';
+import { ScanControls } from './ScanControls';
 import { useObservedTasks } from '../hooks/useObservedTasks';
 import { buildRooms, type ProjectRoom, type RepoInfo } from '../lib/project-rooms';
 import { partitionHiddenRooms, readHiddenRooms, roomHideKey, writeHiddenRooms } from '../lib/hidden-rooms';
@@ -26,6 +27,7 @@ interface LobbyProps {
   /** Never scanned on this machine: 项目室 leads with the scan guide. */
   firstLaunch?: boolean;
   onFirstScanDone?: () => void;
+  scanReviewRequest?: number;
 }
 
 interface RecoverableMeeting {
@@ -86,7 +88,7 @@ function microphoneLabel(status: DeviceSnapshot['audio']['microphone']): string 
   }
 }
 
-export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore, firstLaunch = false, onFirstScanDone }: LobbyProps) {
+export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting, onReplayOnboarding, onOpenExplore, firstLaunch = false, onFirstScanDone, scanReviewRequest }: LobbyProps) {
   const lobby = useSyncExternalStore(meetingStore.subscribeTabs, meetingStore.getLobbyData);
 
   const [backends, setBackends] = useState<BackendInfo[]>([]);
@@ -775,6 +777,8 @@ export function Lobby({ lastError, onEnterBoard, onOpenTerminal, onEnterMeeting,
           onCleanup={setCleanupRoom}
           onScanned={() => onFirstScanDone?.()}
         />
+
+        <ScanControls snapshot={observed} reviewRequest={scanReviewRequest} />
 
         {(lastError || openError) && (
           <div className="join-error">{openError ?? lastError}</div>

@@ -25,6 +25,8 @@ import {
 } from './minimize-prompt.js';
 import { ObserveService } from './observe/observe-service.js';
 import { ScanAccessStore } from './observe/scan-access.js';
+import { ScanPreferences } from './observe/scan-preferences.js';
+import { ScanNotifications } from './observe/scan-notifications.js';
 import { registerScanIpc } from './observe/scan-ipc.js';
 import type { ObservedSnapshot } from './observe/types.js';
 import {
@@ -443,6 +445,23 @@ async function nativeConfirmDestructive(
 
 let lastObservedSnapshot: ObservedSnapshot = { sessions: [], scannedAt: 0 };
 const scanAccess = new ScanAccessStore(join(app.getPath('userData'), 'sessions', 'scan-access.json'));
+const scanPreferences = new ScanPreferences(join(app.getPath('userData'), 'sessions', 'scan-preferences.json'));
+const scanNotifications = new ScanNotifications(() => {
+  if (!Notification.isSupported()) return undefined;
+  const notification = new Notification({ title: 'AhaStudio 发现待授权目录',
+    body: '发现其他目录中的本机会话。请在 Studio 的本机会话扫描中检查，只读授权后才读取会话标题和状态。' });
+  notification.on('click', () => {
+    focusMainWindow(liveWindow, createWindow);
+    const win = liveWindow();
+    if (!win || win.isDestroyed()) return;
+    const review = () => { if (!win.isDestroyed()) win.webContents.send('observe:reviewRequested'); };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', review);
+    else review();
+  });
+  notification.on('failed', () => {});
+  notification.show();
+  return () => notification.close();
+});
 
 // Live Host IDs supplement IF-2 and durable meeting history. The scanner
 // expands our process.pid from its own fresh snapshot to exclude child CLIs.
@@ -478,9 +497,12 @@ const observeService = new ObserveService({
   homeDir: homedir(),
   userData: app.getPath('userData'),
   getAccess: () => scanAccess.get(),
+  preferences: scanPreferences,
   publish: (snapshot) => {
     lastObservedSnapshot = snapshot;
-    const hash = observedSnapshotHash(snapshot) + JSON.stringify([snapshot.access, snapshot.studioTasks, snapshot.diagnostics, snapshot.localProjects]);
+    scanNotifications.update(snapshot);
+    const hash = observedSnapshotHash(snapshot) + JSON.stringify([snapshot.access, snapshot.studioTasks, snapshot.diagnostics,
+      snapshot.localProjects, snapshot.pendingDirectories, snapshot.hidden]);
     const force = Date.now() - lastObservedForceAt > OBSERVED_FORCE_REPUBLISH_MS;
     if (hash === lastObservedHash && !force) return;
     lastObservedHash = hash;
@@ -716,7 +738,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   // Observation layer: snapshot pull + start scanning (broadcasts via publish).
   await scanAccess.load();
-  const scanControls = registerScanIpc({ window: liveWindow, access: scanAccess, service: observeService, snapshot: () => lastObservedSnapshot });
+  await scanPreferences.load();
+  const scanControls = registerScanIpc({ window: liveWindow, access: scanAccess, service: observeService, snapshot: () => lastObservedSnapshot,
+    preferences: scanPreferences, ownershipPath: join(app.getPath('userData'), 'sessions', 'owned.json') });
   observeService.start();
 
   // Minimize/close → AhaBar prompt: the renderer's answer. 'ahabar' floats the

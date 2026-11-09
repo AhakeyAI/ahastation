@@ -59,6 +59,8 @@ export interface ObservedSnapshot {
   studioTasks?: Array<{ meetingId: string; taskId: string; cwd: string; title: string; status: string }>;
   diagnostics?: string[];
   localProjects?: ObservedProjectGroup[];
+  pendingDirectories?: Array<{ key: string; path: string; label: string; sessionCount: number }>;
+  hidden?: { sessions: number; directories: number };
 }
 
 /** Preload surface for the observation layer. Optional on VibeMeetApi so a
@@ -66,8 +68,13 @@ export interface ObservedSnapshot {
 export interface ObserveApi {
   getSnapshot: () => Promise<ObservedSnapshot>;
   onEvent: (cb: (snapshot: ObservedSnapshot) => void) => () => void;
+  onReviewRequested?: (cb: () => void) => () => void;
   allowDirectory?: () => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
   disable?: () => Promise<{ ok: boolean; error?: string }>;
+  reviewDirectory?: (key: string) => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+  ignoreDirectory?: (key: string) => Promise<{ ok: boolean; error?: string }>;
+  ignoreSession?: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  restoreHidden?: () => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
 }
 
 type Listener = () => void;

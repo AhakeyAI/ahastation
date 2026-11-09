@@ -466,6 +466,15 @@ const api = {
     getSnapshot: () => ipcRenderer.invoke('observe:getSnapshot'),
     allowDirectory: () => ipcRenderer.invoke('observe:allowDirectory'),
     disable: () => ipcRenderer.invoke('observe:disable'),
+    reviewDirectory: (key) => ipcRenderer.invoke('observe:reviewDirectory', { key }),
+    ignoreDirectory: (key) => ipcRenderer.invoke('observe:ignoreDirectory', { key }),
+    ignoreSession: (id) => ipcRenderer.invoke('observe:ignoreSession', { id }),
+    restoreHidden: () => ipcRenderer.invoke('observe:restoreHidden'),
+    onReviewRequested: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on('observe:reviewRequested', listener);
+      return () => ipcRenderer.removeListener('observe:reviewRequested', listener);
+    },
     onEvent: (cb) => {
       const listener = (_, snapshot) => cb(snapshot);
       ipcRenderer.on('observe:event', listener);

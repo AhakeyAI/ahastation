@@ -166,6 +166,7 @@ export function App() {
   const [boardOnly, setBoardOnly] = useState(false);
   const [localTerminalOpen, setLocalTerminalOpen] = useState(false);
   const [showLobby, setShowLobby] = useState(false);
+  const [scanReviewRequest, setScanReviewRequest] = useState(0);
   /** Never scanned on this machine → the lobby's 项目室 leads with the scan
    *  guide. The old scan overlay (4-step first launch / cold-start splash) is
    *  folded into the lobby; later launches rely on the observation layer's
@@ -703,6 +704,13 @@ export function App() {
     setShowLobby(true);
   }, []);
 
+  useEffect(() => window.vibeMeet.observe?.onReviewRequested?.(() => {
+    setLocalTerminalOpen(false);
+    setBoardOnly(false);
+    goHome();
+    setScanReviewRequest((request) => request + 1);
+  }), [goHome]);
+
   const handlePickSource = useCallback(async (src: DesktopSource) => {
     await startShare(src.id, src.name);
   }, [startShare]);
@@ -1028,6 +1036,7 @@ export function App() {
           onReplayOnboarding={() => setFirstLaunch(true)}
           firstLaunch={firstLaunch}
           onFirstScanDone={handleFirstScanDone}
+          scanReviewRequest={scanReviewRequest}
           onOpenExplore={openExplore}
         />
         {exploreOpen && <ExplorePage onClose={() => setExploreOpen(false)} />}
