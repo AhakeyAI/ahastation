@@ -187,6 +187,9 @@ export interface ObservedSnapshot {
   studioTasks?: import('./studio-history.js').StudioTaskSummary[];
   diagnostics?: string[];
   localProjects?: ObservedProjectGroup[];
+  /** Routing metadata only: no transcript title/status, Git identity or stable Hub ID. */
+  pendingDirectories?: Array<{ key: string; path: string; label: string; sessionCount: number }>;
+  hidden?: { sessions: number; directories: number };
 }
 
 /** Injected at service start; any match excludes a process/session. */

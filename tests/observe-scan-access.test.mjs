@@ -9,6 +9,7 @@ import { canReadProject, ScanAccessStore } from '../dist-electron/observe/scan-a
 import { readOwnership } from '../dist-electron/observe/ownership.js';
 import { readStudioHistory } from '../dist-electron/observe/studio-history.js';
 import { clientRoots } from '../dist-electron/observe/session-identity.js';
+import { ScanPreferences } from '../dist-electron/observe/scan-preferences.js';
 import { parseWindowsProcesses, findClientPids } from '../dist-electron/observe/process/snapshot.js';
 import { isBoardableObserved } from '../dist-electron/observe/board-visibility.js';
 
@@ -270,4 +271,72 @@ test('24-hour inactivity, idle and unresolved ownership cannot count as active o
   }
   // Current main displays a live idle window in settled, never active/attention.
   assert.equal(isBoardableObserved({ ...base, state: 'idle', pid: 22 }, now), true);
+});
+
+test('unauthorized directories expose only routing metadata, group sessions and start analysis only after read consent', async (t) => {
+  const f = await fixture(t); const source = await f.claude('pending-1', f.other, 'Never expose before consent');
+  await f.codex('pending-2', f.other); const hashBefore = await digest(source); const probed = [];
+  const s = f.service({ projectProbe: async (cwd) => { probed.push(cwd); return { status: 'non-git', reason: 'not-git' }; } });
+  const original = fs.open; let sourceReads = 0;
+  fs.open = async (path, ...args) => { if (path === source) sourceReads++; return original(path, ...args); };
+  t.after(() => { fs.open = original; });
+  await s.tickOnce(); const pending = f.published.at(-1);
+  assert.deepEqual(pending.sessions, []); assert.equal(pending.pendingDirectories.length, 1);
+  assert.equal(pending.pendingDirectories[0].path, f.other); assert.equal(pending.pendingDirectories[0].sessionCount, 2);
+  assert.match(pending.pendingDirectories[0].key, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(pending), /Never expose|pending-1|pending-2/);
+  assert.deepEqual(probed, []); assert.equal(sourceReads, 1, 'only bounded routing pass');
+  f.setAccess({ enabled: true, roots: [f.project, f.other] }); s.invalidate(); await s.tickOnce();
+  assert.equal(f.published.at(-1).sessions.length, 2); assert.deepEqual(f.published.at(-1).pendingDirectories, []);
+  assert.equal(await digest(source), hashBefore);
+});
+test('pending directory hints exclude internal/unknown ownership and disappear immediately on revoke', async (t) => {
+  const f = await fixture(t); await f.claude(SID, f.other);
+  for (const record of [registry([entry('worker')]), registry([entry('station')]), '{broken', registry([], [launch()])]) {
+    await write(f.owned, record); const s = f.service(); await s.tickOnce();
+    assert.deepEqual(f.published.at(-1).pendingDirectories, []);
+  }
+  await fs.rm(f.owned); const s = f.service(); await s.tickOnce(); assert.equal(f.published.at(-1).pendingDirectories.length, 1);
+  f.setAccess({ enabled: false, roots: [] }); s.invalidate(); await s.tickOnce();
+  assert.deepEqual(f.published.at(-1).pendingDirectories, []);
+});
+test('ignored user sessions stay off the board across restart and no longer receive content reads; restore respects access', async (t) => {
+  const f = await fixture(t); const source = await f.claude(); const before = await digest(source);
+  const file = join(f.userData, 'scan-preferences.json'), preferences = new ScanPreferences(file); await preferences.load();
+  const s = f.service({ preferences }); await s.tickOnce(); const id = s.sessions[0].id;
+  await preferences.hide('session', id); s.invalidate(); await s.tickOnce(); assert.deepEqual(s.sessions, []);
+  assert.equal(f.published.at(-1).hidden.sessions, 1);
+  const reloaded = new ScanPreferences(file); await reloaded.load();
+  const restarted = f.service({ preferences: reloaded });
+  const original = fs.open; let reads = 0;
+  fs.open = async (path, ...args) => { if (path === source) reads++; return original(path, ...args); };
+  t.after(() => { fs.open = original; });
+  await restarted.tickOnce(); assert.equal(reads, 1); assert.deepEqual(restarted.sessions, []);
+  await reloaded.restore(); await restarted.tickOnce(); assert.equal(restarted.sessions.length, 1);
+  f.setAccess({ enabled: false, roots: [] }); await restarted.tickOnce(); assert.deepEqual(restarted.sessions, []);
+  assert.equal(await digest(source), before);
+});
+test('ignored directory hints persist while authorized sibling sessions remain visible; corrupt preferences pause scans', async (t) => {
+  const f = await fixture(t); await f.claude(); await f.claude('other', f.other);
+  const file = join(f.userData, 'scan-preferences.json'), preferences = new ScanPreferences(file);
+  const s = f.service({ preferences }); await s.tickOnce(); const row = f.published.at(-1).pendingDirectories[0];
+  await preferences.hide('directory', row.key); s.invalidate(); await s.tickOnce();
+  assert.equal(s.sessions.length, 1); assert.deepEqual(f.published.at(-1).pendingDirectories, []);
+  const loaded = new ScanPreferences(file); await loaded.load(); const restarted = f.service({ preferences: loaded });
+  await restarted.tickOnce(); assert.deepEqual(f.published.at(-1).pendingDirectories, []);
+  await loaded.restore(); await restarted.tickOnce(); assert.equal(f.published.at(-1).pendingDirectories.length, 1);
+  await fs.writeFile(file, '{broken'); await loaded.load(); await restarted.tickOnce();
+  assert.deepEqual(restarted.sessions, []); assert.deepEqual(f.published.at(-1).diagnostics, ['scan-preferences-unavailable']);
+  f.setAccess({ enabled: false, roots: [] }); await restarted.tickOnce();
+  assert.deepEqual(f.published.at(-1).diagnostics, ['scan-preferences-unavailable'], 'reset remains reachable with scanning disabled');
+});
+
+test('relative session directories never resolve against the Station process working directory', async (t) => {
+  const f = await fixture(t); await f.claude('relative', '.'); let resolvedRelative = false;
+  const service = f.service({ realpathImpl: async (path) => {
+    if (path === '.') resolvedRelative = true;
+    return fs.realpath(path);
+  } });
+  await service.tickOnce(); assert.equal(resolvedRelative, false);
+  assert.deepEqual(service.sessions, []); assert.deepEqual(f.published.at(-1).pendingDirectories, []);
 });

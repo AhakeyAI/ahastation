@@ -1,13 +1,15 @@
 // Consent-gated, read-only Claude/Codex session discovery. Full snapshots are
 // volatile: native client files and the IF-2 registry are never modified.
 import { promises as fs } from 'node:fs';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { canReadProject, withinDirectory, NO_SCAN_ACCESS, type ScanAccess } from './scan-access.js';
 import { readOwnership, ownershipKey, type OwnershipIndex } from './ownership.js';
 import { clientRoots, readSessionIdentity } from './session-identity.js';
 import { readStudioHistory } from './studio-history.js';
 import { projectObservation } from './observation-projection.js';
 import { ProjectDiscoveryScheduler } from './project-scheduler.js';
+import { ScanPreferences } from './scan-preferences.js';
+import { createHash } from 'node:crypto';
 import type { ProjectDiscovery, ProjectDiscoveryOptions } from './project-discovery.js';
 import { correlate } from './correlate.js';
 import { associate, extractCwdFromCommand, extractSessionIdFromCommand, associationKey, detectMcpServerPids,
@@ -17,7 +19,7 @@ import { listClaudeTranscripts, parseClaudeTranscript } from './statefiles/claud
 import { listCodexRollouts, parseCodexRollout } from './statefiles/codex-sessions.js';
 import type { ClientKind, CodexDesktopTailSignals, CodexTailSignals, ObservedFileSignal,
   ObservedSession, ObservedSnapshot, SelfExclusion } from './types.js';
-import { defaultExec, type ExecImpl } from './util.js';
+import { defaultExec, sanitizeTitle, sha1, type ExecImpl } from './util.js';
 
 export interface ObserveServiceOptions {
   homeDir: string;
@@ -35,6 +37,7 @@ export interface ObserveServiceOptions {
   snapshotProvider?: () => Promise<ProcessSnapshot>;
   realpathImpl?: (path: string) => Promise<string>;
   projectProbe?: (cwd: string, options: ProjectDiscoveryOptions) => Promise<ProjectDiscovery>;
+  preferences?: ScanPreferences;
 }
 interface FileMarker { mtimeMs: number; sizeBytes: number; signal: ObservedFileSignal | null }
 
@@ -140,6 +143,7 @@ export class ObserveService {
   private timer: NodeJS.Timeout | null = null;
   private lastSessions: ObservedSession[] = [];
   private readonly projects: ProjectDiscoveryScheduler;
+  private readonly preferences: ScanPreferences;
 
   constructor(options: ObserveServiceOptions) {
     this.options = options;
@@ -148,6 +152,7 @@ export class ObserveService {
     this.now = options.now ?? Date.now;
     this.execImpl = options.execImpl ?? defaultExec;
     this.realpathImpl = options.realpathImpl ?? ((path) => fs.realpath(path));
+    this.preferences = options.preferences ?? new ScanPreferences();
     this.projects = new ProjectDiscoveryScheduler({ getAccess: this.getAccess, now: this.now,
       realpath: this.realpathImpl, probe: options.projectProbe });
   }
@@ -173,7 +178,8 @@ export class ObserveService {
     this.markers['claude-code'].clear(); this.markers.codex.clear();
     this.pidFileMap.clear(); this.lastPidRefresh = Number.NEGATIVE_INFINITY;
     this.lastSessions = [];
-    this.options.publish({ sessions: [], scannedAt: this.now(), access: this.getAccess(), studioTasks: [], localProjects: [] });
+    this.options.publish({ sessions: [], scannedAt: this.now(), access: this.getAccess(), studioTasks: [], localProjects: [],
+      pendingDirectories: [], hidden: this.preferences.summary() });
   }
   get sessions(): ObservedSession[] { return this.lastSessions; }
 
@@ -193,8 +199,16 @@ export class ObserveService {
     try {
       const access = this.getAccess();
       const generation = this.generation;
+      const preferencesRevision = this.preferences.revision;
       const accessToken = JSON.stringify(access);
-      const current = () => generation === this.generation && JSON.stringify(this.getAccess()) === accessToken;
+      const current = () => generation === this.generation && this.preferences.revision === preferencesRevision
+        && JSON.stringify(this.getAccess()) === accessToken;
+      if (!this.preferences.available) {
+        this.invalidate();
+        this.options.publish({ sessions: [], scannedAt: this.now(), access, localProjects: [], pendingDirectories: [],
+          hidden: this.preferences.summary(), diagnostics: ['scan-preferences-unavailable'] });
+        return;
+      }
       if (!access.enabled || !access.roots.length) {
         this.invalidate();
         return;
@@ -229,9 +243,10 @@ export class ObserveService {
         this.pidFileMap = await loadClaudePidFiles(this.options.homeDir, this.roots.claude);
         this.lastPidRefresh = now;
       }
+      const pending = new Map<string, { path: string; label: string; sessionIds: Set<string> }>();
       const signals = [
-        ...await this.scanObserver('claude-code', access, ownership, self.sessionIds, current),
-        ...await this.scanObserver('codex', access, ownership, self.sessionIds, current),
+        ...await this.scanObserver('claude-code', access, ownership, self.sessionIds, current, pending),
+        ...await this.scanObserver('codex', access, ownership, self.sessionIds, current, pending),
       ];
       if (!current()) return;
       const claudePids = findClientPids(snapshot, ['claude']);
@@ -291,12 +306,15 @@ export class ObserveService {
       this.lastSessions = next;
       this.options.publish({ sessions: next, scannedAt: this.now(), access, studioTasks: history.tasks,
         localProjects: this.projects.project(next),
+        pendingDirectories: [...pending].map(([key, row]) => ({ key, path: row.path, label: row.label, sessionCount: row.sessionIds.size })),
+        hidden: this.preferences.summary(),
         diagnostics: ownership.available ? [] : ['ownership-unavailable'] });
     } finally { this.ticking = false; }
   }
 
   private async scanObserver(kind: 'claude-code' | 'codex', access: ScanAccess,
-    ownership: OwnershipIndex, selfIds: Set<string>, current: () => boolean): Promise<ObservedFileSignal[]> {
+    ownership: OwnershipIndex, selfIds: Set<string>, current: () => boolean,
+    pending: Map<string, { path: string; label: string; sessionIds: Set<string> }>): Promise<ObservedFileSignal[]> {
     const markers = this.markers[kind];
     try {
       const config = kind === 'claude-code' ? this.roots.claude : this.roots.codex;
@@ -310,12 +328,30 @@ export class ObserveService {
         try {
           if (!withinDirectory(root, await fs.realpath(ref.filePath))) continue;
           const identity = await readSessionIdentity(ref.filePath, kind);
-          if (!identity || selfIds.has(identity.sessionId)
-            || !await canReadProject(identity.cwd, access, this.realpathImpl) || !current()) {
+          if (!identity || !isAbsolute(identity.cwd) || selfIds.has(identity.sessionId)
+            || this.preferences.hiddenSession(sha1(`${kind}:${identity.sessionId}`)) || !current()) {
             markers.delete(ref.filePath); continue;
           }
           const origin = ownership.origins.get(ownershipKey(kind === 'claude-code' ? 'claude' : 'codex', identity.sessionId));
           if (origin === 'worker' || origin === 'station') { markers.delete(ref.filePath); continue; }
+          if (!await canReadProject(identity.cwd, access, this.realpathImpl)) {
+            markers.delete(ref.filePath);
+            // Global discovery consent permits only bounded routing metadata
+            // here. Git, transcript analysis and process association wait for
+            // this exact local directory's read grant and resolved ownership.
+            if (ownership.available && (origin || !ownership.pending) && current()) {
+              const path = await this.realpathImpl(identity.cwd);
+              if (!current() || !await fs.stat(path).then((stat) => stat.isDirectory()).catch(() => false)) continue;
+              const key = createHash('sha256').update(path).digest('hex');
+              if (this.preferences.hiddenDirectory(key)) continue;
+              let row = pending.get(key);
+              if (!row && pending.size < 100) {
+                row = { path, label: sanitizeTitle(basename(path)), sessionIds: new Set() }; pending.set(key, row);
+              }
+              row?.sessionIds.add(sha1(`${kind}:${identity.sessionId}`));
+            }
+            continue;
+          }
           if (!ownership.available || (!origin && ownership.pending)) {
             // Do not read internal messages while launch/ownership is unresolved.
             markers.delete(ref.filePath);
