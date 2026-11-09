@@ -1,24 +1,24 @@
 # Workflow V1 模块详细设计
 
-日期 2026-11-08。状态为实现设计，尚未完成业务实现与真实 CLI 验收。
+初稿日期 2026-11-08。2026-11-09 补充工作身份、用户验收和 GitHub PR 交付。状态为实现设计，尚未完成业务实现与真实 CLI 验收。
 
-依据 [总体架构](../2026-11-08-workflow-host-architecture.md)。用户交互模型为 Host → Worker。Delegation、Execution、Turn 等是成员内部的运行记录。Host 自主分工，Worker 自主使用原生 CLI 和内部 subagent。
+依据 [总体架构](../2026-11-08-workflow-host-architecture.md)。用户交互模型为 Host → Worker。Host 自主分工，Worker 自主使用原生 CLI 和内部 subagent。服务用 workId 关联完整工作、委派记录及成果验收。
 
 ## 阅读与实现顺序
 
 | 文档 | 内容 |
 |---|---|
 | [01 原生执行与桥接](01-runtime-and-bridge.md) | 同一 CLI 会话、双通道、轮次、中断、修订接收 |
-| [02 存储与状态](02-store-and-state.md) | SQLite、对象约束、事务、事件、恢复与迁移 |
-| [03 Host 与消息](03-host-and-messaging.md) | 工具契约、唤醒、用户答复、等待条件及交接 |
+| [02 存储与状态](02-store-and-state.md) | SQLite、工作身份、队列、事务、恢复与迁移 |
+| [03 Host 与消息](03-host-and-messaging.md) | 工具契约、排队、返工、用户答复与交接 |
 | [04 原生终端](04-terminal.md) | 输出协议、快照、一致性、输入所有权及留存 |
-| [05 成果与交付](05-artifacts-and-delivery.md) | 文件版本、冻结、验收、授权、条件交付 |
+| [05 成果与交付](05-artifacts-and-delivery.md) | 候选冻结、成果验收、条件推送、真实 PR 与 Diff |
 | [06 界面与 IPC](06-ui-and-ipc.md) | 用户流程、状态投影、窗口权限及输入 |
 | [07 验证与落地](07-validation-and-rollout.md) | 垂直闭环、故障矩阵、迁移与实施顺序 |
 
 ## V1 边界
 
-单设备、本地存储、一个根目录一个逻辑 Host。Host 使用 Codex app-server。Worker 使用 Claude Code / Codex 原生终端，一个当前委派对应一个仓库。跨设备、强隔离、多仓库单委派及定时自动化留给后续版本。
+单设备、本地存储、一个根目录一个逻辑 Host。Host 使用 Codex app-server。Worker 使用 Claude Code / Codex 原生终端，一个工作对应一个仓库。GitHub PR 交付支持同仓库 head 与 base。跨设备、强隔离、多仓库单委派及定时自动化留给后续版本。
 
 关闭单个窗口只解除查看。关闭最后一个窗口时，没有运行中的 Host 或 Worker 则直接退出；有则询问“后台继续”或“停止并退出”，默认后台继续：Windows 与 Linux 常驻托盘，macOS 保留 Dock 图标，从托盘或 Dock 可重新打开窗口或执行受控停止。应用显式退出执行受控停止；崩溃后保留事实并核对仍存活的执行。V1 不承诺 Electron 崩溃后 PTY 仍可重新附着，取决于当前 PTY 所有者生命周期。
 
@@ -38,7 +38,9 @@
 | 能力证据按 CLI 版本匹配，执行期间关闭自更新 | 用户升级 CLI 后不会悄悄沿用旧版本的验证结论；未验证版本先快速探测，通过后暂停自动投递，提供验证、改用已验证版本和人工投递入口；自动降级也只使用已验证的能力 |
 | Worker 内容对 Host 是数据 | 仓库中的注入文本即使误导 Host，也只能变成申请，权限仍由服务和用户确认把关 |
 | 轮次停止、CLI 退出、业务完成分别记录 | 保留真实 TUI，避免进程退出被当成目标完成 |
+| 工作身份独立于 Worker，成果逐版验收 | 队列、交接和返工共用稳定 workId。封存成果后释放 Worker，接受或退回绑定一个版本，代价是服务维护独立的工作投影与成果索引 |
 | Git 操作通过结构化 argv 和 stdin | 适配 Windows，按明确文件清单处理修改，避免 shell 拼接 |
+| GitHub PR 使用平台返回的 Diff 快照，首次推送校验目标不存在 | 真实 PR 可能采用不同的比较基线。快照和接受前的核对增加网络开销，换取明确的可查版本。新分支用空预期值约束创建，已有分支沿用普通快进 |
 | 原生终端是主视图 | PTY 数据直接显示，旁路承担机器可读报告。序列化恢复能力需要与原生模式逐项对照 |
 | 防误操作级权限明确展示 | 当前用户运行的 CLI 仍可能主动绕过配置，产品不得承诺强隔离 |
 
@@ -72,24 +74,25 @@ ID 使用服务生成的 UUID，版本号为对象内递增整数。事件游标
 
 事件 seq、成员消息 messageSeq 和终端 recordSeq 属于不同序列，游标必须携带所属流身份，各自只确认连续已处理的前缀。它们不能相互比较或替代。
 
-错误至少包括 INVALID_INPUT、NOT_FOUND、STALE_REVISION、REQUEST_ID_CONFLICT、FORBIDDEN、CAPABILITY_UNAVAILABLE、INPUT_OWNED、WAITING_RESOURCE、EXECUTION_UNCONFIRMED、BASE_MOVED、STORAGE_UNAVAILABLE、REVISION_IN_FLIGHT、TARGET_IN_USE、RECOVERY_PENDING、VERSION_UNVERIFIED。queued 只证明请求已保存。原生投递结果从操作查询或事件订阅取得。
+错误至少包括 INVALID_INPUT、NOT_FOUND、STALE_REVISION、REQUEST_ID_CONFLICT、FORBIDDEN、CAPABILITY_UNAVAILABLE、INPUT_OWNED、WAITING_RESOURCE、EXECUTION_UNCONFIRMED、BASE_MOVED、STORAGE_UNAVAILABLE、REVISION_IN_FLIGHT、TARGET_IN_USE、RECOVERY_PENDING、VERSION_UNVERIFIED，以及 PR 版本变化 `PR_REVISION_CHANGED` 和差异无法核对 `PR_DIFF_UNAVAILABLE`。queued 只证明请求已保存。原生投递结果从操作查询或事件订阅取得。
 
 每个来源独立区分 accepted、delivered、consumed、completed。写入 PTY 成功只证明字节已交给终端。没有原生或桥接处理回执时，状态停在 delivered。
 
 ## 全局不变量
 
 1. 一个工作流同时只有一个有效 Host 运行代次。
-2. 一个 Worker 同时只有一个 currentDelegationVersion 和至多一个 pending 修订。
+2. 一个 Worker 同时至多持有一个当前委派及一个待生效委派版本。其余完整工作在 Work 队列里等待领取。
 3. 同一 Worker 默认至多一个活跃原生轮次。原生内部 subagent 归入该执行。
-4. 每个 Turn 固定版本，旧版本消息不能改变当前版本。
+4. 每个 Turn 固定委派版本和 workId，旧版本消息只进入原工作历史。
 5. 单个请求在事务内至多生成一次实体和副作用意图，外部执行结果不明时先核对。
-6. 业务完成以验收及必要交付为准。
+6. 必要验证和交付完成后才能封存 WorkResult，只有用户接受当前准确成果版本才完成 Work。
 7. 屏幕快照覆盖一个确定日志前缀，后续实时流严格延续该前缀。
 8. 用户决定绑定具体对象与版本，服务自行识别授权，Host 无权伪造用户身份。
 9. 会话按进程生命周期计量，自动轮次输入前原子预留执行及独占资源。阻断类条件（未答问题、缺少授权、冻结）必须全部解除；依赖成果类等待按 SetWaitCondition 声明的 all / any 组合计算，两者都满足后才恢复执行。
 10. 原生按键与外部副作用结果不明时先核对，持久化请求去重不等于对任意外部动作保证恰好执行一次。
 11. Worker 来源的文本（报告、问题、Artifact、终端输出）不能产生权限。扩大范围、交付、推送等动作只能由服务校验或用户结构化确认产生。
 12. 能力证据只对记录的 CLI 版本有效；同一 Execution 内 CLI 版本不变。
+13. PR 编号、仓库身份、实际 base/head 与 Diff 哈希在成果版本中固定。读取旧成果始终使用原快照，接受前核对当前 PR。
 
 ## 第二轮模块复核
 

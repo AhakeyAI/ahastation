@@ -2,11 +2,11 @@
 
 ## 所有权与接口
 
-ArtifactService 管理正文与版本；CandidateService 冻结文件；Verifier 执行检查；DeliveryService 执行用户授权的 Git 副作用。Host 决定分工和是否请求交付，Worker 提供内容与证据。
+ArtifactService 管理正文与版本，CandidateService 冻结文件，Verifier 执行检查，DeliveryService 执行用户授权的 Git 与 GitHub 动作。Host 决定分工和是否请求交付，Worker 提供内容与证据，用户对封存的成果版本做最终验收。
 
-复用 delivery-snapshot.ts、delivery-candidate.ts、delivery-verifier.ts、delivery-integrator.ts 和 integration-queue.ts 的已验证逻辑，写入统一事件与状态入口。新工作流以 Worker 和委派版本定位，旧任务接口只在迁移适配层使用。
+复用 delivery-snapshot.ts、delivery-candidate.ts、delivery-verifier.ts、delivery-integrator.ts 和 integration-queue.ts 的已验证逻辑，写入统一事件与状态入口。成果按 workId 归档，操作核对准确的 Worker 和委派版本。旧任务接口只在迁移适配层使用。
 
-接口为 publishArtifact、requestFreeze、getCandidate、runVerification、recordHostVerdict、requestDelivery、authorizeDelivery、executeDelivery、reconcileDelivery。每个接口均使用统一幂等信封。
+写入接口沿用统一幂等信封。成果决定使用 `AcceptWorkResult` 和 `ReturnWorkResult`，PR 核对使用 `RefreshPullRequest`。用户入口与只读差异查询见 06。
 
 ## 共享资料
 
@@ -14,7 +14,7 @@ ArtifactService 管理正文与版本；CandidateService 冻结文件；Verifier
 
 publishArtifact 先落正文再写可见元数据，见 02。原始编辑文件变动不会悄悄替换旧版本。允许路径使用规范化相对路径，拒绝越界、符号链接逃逸和系统保留名。正文大小与媒体类型有明确限制，超限返回错误及可用的分块途径。
 
-分析类委派可仅交付 Artifact。验证通过且 deliveryRequirement=none 时，服务直接把委派推进到 done。
+分析类委派可仅交付 Artifact。`deliveryRequirement=none` 时，技术验证通过后封存成果并提交用户验收。
 
 ## 候选冻结
 
@@ -42,33 +42,41 @@ Candidate 在独立检出目录验证，执行带 argv、cwd、envAllowlist、ti
 
 验证前后核对 Candidate 中的文件清单、内容、模式及子模块引用。测试或 formatter 修改了候选源文件时，本次结果标为 CHECK_MODIFIED_SOURCE，交给 Worker 形成新候选并重新验证。允许的构建产物记录在显式输出目录中，不能覆盖候选源文件。检查失败保留实际检出目录和差异证据。
 
-Verification 绑定 Worker、specHash、candidate tree/Artifact hash、检查定义 hash 与环境摘要。缺少检查、退出未知、日志不完整、必需产物缺失均不得记为通过。报告 passed 字样是 Worker 声明，服务验证另有身份。
+Verification 绑定 workId、委派版本、specHash、candidate tree/Artifact hash、检查定义 hash 与环境摘要。缺少检查、退出未知、日志不完整、必需产物缺失均不得记为通过。报告 passed 字样是 Worker 声明，服务验证另有身份。
 
 重型验证申请 exclusive 租约，实际开始前核对占用。验证期间超时先停止并确认检查进程退出，再释放租约。独立审查使用 Host 指定的另一个 Worker，结果绑定准确 Candidate；只有要求的所有机器与 Host 判定均通过才 verified。
 
 文件变化使对应验证失效。等待交付授权时若内容与依赖未变，保留有效验证并直接继续服务交付，不唤醒 Worker重复实现。
 
+## 成果封存与用户验收
+
+`deliveryRequirement` 取 `none`（仅成果）、`git`（指定 Git 交付）或 `github_pr`（指定远端分支交付并关联真实 PR）。所有要求通过后，服务为同一 workId 分配递增的 `resultVersion`。WorkResult 固定委派、候选及资料版本、验证记录、交付回执和所需 PR 快照。封存、结束本次委派和进入 `awaiting_acceptance` 在同一事务完成。
+
+用户界面提交 `AcceptWorkResult` 或 `ReturnWorkResult`，携带 `workId`、`resultVersion`、`expectedWorkRevision`，退回附原因。服务核对本机用户身份、权限、当前待验收版本和工作 revision，并在同一事务写入唯一的成果决定、工作状态和通知事件。命令重放复用原回执；同一版本已作决定或有新版时拒绝相反决定和过期操作。Host 判定与机器检查提供技术证据，用户结构化决定才推进 `completed`。接受动作只更改工作状态，提交、推送、创建 PR 和合并分别按动作授权。
+
+退回后保留已发生的 Git 和 PR 事实。Host 按同一 workId 重新排队，后续提交新成果版本。PR 交付的接受操作还须按本章“GitHub PR 绑定与差异快照”重新核对所阅快照。
+
 ## Delivery 数据与状态
 
-Delivery 保存 id、requestId、worker/version、candidateId、specHash、deliveryMode、targetRepository、targetRef、expectedTarget T、deliveryCommit N、提交信息、Grant IDs、localResult、remoteResult 和操作记录。
+Delivery 保存 id、requestId、workId、worker/version、candidateId、specHash、deliveryMode、targetRepository、targetRef、expectedTarget、deliveryCommit N、提交信息、Grant IDs、localResult、remoteResult 和操作记录。`expectedTarget` 是明确的 `present(T)` 或 `absent`。Candidate 的基线 `C` 单独保存。要求 PR 时还记录拟议 base ref 和 PR 绑定，Git 和 PR 两段分别核对。
 
 deliveryMode 有三种：
 
 | 模式 | 行为 | 典型用途 |
 |---|---|---|
-| remote-branch | 不更新本地引用，直接把 N 普通推送到远端分支；T 取自刚获取的远端分支 | 推送功能分支、走合并请求流程 |
+| remote-branch | 直接把 N 推送到远端分支，已存在时普通快进，首次推送时按 `absent` 条件创建 | 推送功能分支、GitHub PR 的 head 分支 |
 | local-ref | 只更新本地目标分支 | 本地集成，不推送 |
 | local-and-remote | 先更新本地目标分支，再推送 | 直接交付到共享分支 |
 
 状态为 requested → awaiting_grant → prepared → updating_local → local_applied → pushing → verified。remote-branch 模式从 prepared 直接进入 pushing；local-ref 模式在 local_applied 后直接进入 verified。分支包括 needs_reintegration、uncertain、failed、cancelled。每个外部操作前先写 intent，后写 receipt。取消只能取消尚未发生的操作，已经发生的提交或推送作为事实保留。
 
-提交和推送分别授权。普通模型消息不能产生 Grant。Grant 绑定准确 Candidate、目标 T、提交信息和动作。服务执行前及外部操作开始前检查撤销和过期。
+提交和推送分别授权。Grant 绑定准确 Candidate、目标引用与预期存在状态、提交信息和动作，推送还绑定 N。服务执行前及外部操作开始前检查撤销和过期。`Delivery.verified` 表示对应 Git 步骤已核对，要求 PR 时继续核对 PR 与差异快照。
 
 ## 条件交付
 
-1. 获取 T 并保存授权申请，校验 Candidate.baseCommit == T。
-2. 不相等时返回 needs_reintegration，由 Host 指定 Worker 在 T 上重新集成并生成新候选，重新验证与确认。
-3. 固定作者、提交者、时间与信息，生成以 T 为父提交、Candidate.tree 为树的 N。把全部元数据与 N 写入 intent，使重试可复现相同对象。
+1. 核对目标引用并保存授权申请。已存在时记 `present(T)` 并校验 `C == T`。仅 `remote-branch` 支持 `absent`，要求经认证的远端查询明确该 ref 不存在。网络错误和权限错误保留待核对。首次推送采用已核对的 Candidate 基线 `C`，PR 的目标 base 分支另行核对。
+2. 已存在目标与 `C` 不相等时返回 needs_reintegration，由 Host 指定 Worker 在 T 上重新集成并生成新候选，重新验证与确认。首次推送遇到另一方创建目标时按原预期 `absent` 处理冲突，改用已存在分支需要重新确认。
+3. 固定作者、提交者、时间与信息，生成以 `C` 为父提交、Candidate.tree 为树的 N。把全部元数据与 N 写入 intent，使重试可复现相同对象。
 4. 仅 local-ref 与 local-and-remote 模式执行第 4、5 步。更新引用之前，按仓库 git-common-dir 与目标 ref 获取应用内操作租约，检查所有 worktree 的检出占用。目标未被检出时进入第 5 步。目标正被某个 worktree W 检出时：
    - 授权包含“更新已检出的工作区”，且 W 满足下面全部条件时，在 W 中执行 `git merge --ff-only --no-overwrite-ignore N`。git 的 merge 默认会静默覆盖被忽略的文件，`--no-overwrite-ignore` 让它在这种情况下中止；git 默认也拒绝覆盖未跟踪文件。这两项都只是第二道防线，前置检查才是主要依据：
      - 分支等于 T；已跟踪文件无改动、无暂存（`git status --porcelain=v2 -z --untracked-files=no` 为空）。
@@ -79,10 +87,10 @@ deliveryMode 有三种：
    - W 有改动、分支不等于 T、前置检查发现冲突或授权不包含该动作时，返回 TARGET_IN_USE，引用保持原值，保存待处理交付，界面列出 W 的路径和改动摘要，并提供改用 remote-branch 或交付到未检出分支的途径。
    - 检查占用和实际更新之间不执行其他慢操作。
 5. 占用检查通过后，更新本地目标引用并比较旧值 T。若已为 N，核对本次 Delivery 的 intent 及提交内容后补成功回执；其他值返回 BASE_MOVED。操作完成后释放引用租约。
-6. 有独立推送授权后按准确 N:targetRef 普通推送，成功/拒绝/网络结果不明分别记录。推送在服务私有的裸仓库中执行，不在 Worker 可写的仓库中执行，规则见“服务端 Git 调用的加固”。
-7. 查询远端并核对 N 的存在。远端已为 N 或在确认包含 N 的后继提交时记录已交付及 observedHead；其他情况保留 uncertain，禁止直接重做 Worker 或盲目推送。
+6. 有独立推送授权后，在服务私有的裸仓库按准确 `N:refs/heads/<branch>` 推送，成功、拒绝、网络结果不明分别记录。`present(T)` 只做普通推送。`absent` 使用明确的空预期值 `--force-with-lease=refs/heads/<branch>:`，只允许创建此引用，目标被其他提交占用时返回 BASE_MOVED。
+7. 查询远端并核对结果。已存在分支的普通 Git 交付可以记录确认包含 N 的后继提交和 `observedHead`。首次推送只核对准确 N，结果不明后若目标仍不存在，仅按原 N 和空预期值重试。发现 N 已存在时记录实际观测，区分本次创建的回执与已到达目标的事实。要求 GitHub PR 时，只有 `observedHead == N` 才继续绑定 PR，后继提交保留为 Git 事实并提示重新核对。
 
-普通推送能拒绝远端已经前进产生的非快进覆盖。远端被其他人回退到 T 的祖先时，普通推送并不能保证“只在恰好 T 时更新”。V1 禁止服务 force，发布前复核且依赖远端分支管理约束；不能宣称任意外部 ref 变化都有严格 CAS。若产品要求严格远端 T 条件更新，应单独评审显式 lease 或服务端条件接口，其授权及后端支持不能悄悄替换普通推送语义。
+普通推送能拒绝远端已经前进产生的非快进覆盖。远端回退到 T 的祖先时，普通推送仍可能快进，既有分支依赖发布前核对和分支管理约束。首次创建的空预期值是唯一使用 lease 的路径。既有分支的严格条件更新需另行设计和授权。[Git push 的显式预期值](https://git-scm.com/docs/git-push)
 
 本地更新成功而推送失败时保留 local_applied，不退回原本地 ref。重新集成产生新 Delivery 记录，旧记录指向替代项。纯本地交付完成即可 verified；资料类不创建 Delivery。
 
@@ -91,6 +99,16 @@ deliveryMode 有三种：
 Grant 与 Delivery 的取消按 02 的 dispatching 边界处理。撤销时已经发生的外部操作记录为事实，后续推送或其他尚未开始的步骤立即停止。
 
 Git 的条件引用更新按 old-oid 核对。[Git update-ref](https://git-scm.com/docs/git-update-ref)
+
+## GitHub PR 绑定与差异快照
+
+V1 支持同一 GitHub 仓库内的 head 与 base。`remote-branch` 负责推送 head，PR 的 base 分支单独指定。交付服务复用基线 `electron/collaboration/github.ts` 的仓库认证和查找／创建入口，将只返回 URL 的契约扩为结构化回执。服务从用户登记的仓库和允许的 GitHub API 地址构造请求，API 凭据只在主进程使用。PR 正文、路径及 Diff 均作为不可信内容呈现。
+
+1. 推送核对准确 N 后，按仓库 ID、head ref、base ref 查找 PR，再以编号获取真实详情。只复用匹配仓库、分支及 `head.sha == N` 的开放 PR。一个 PR 归属一个 workId，同一工作返工时可复用。已经绑定的 PR 若在外部合并，保留该事实，并按同一身份核对其最后交付版本。遇到不匹配、已关闭未合并或归属冲突，保留 Git 交付并提示处理。
+2. 需要创建时由用户单独授权，Grant 绑定 workId、Candidate、N、仓库、head/base ref 与标题正文。按 PR 目标元组持久化占用，在 POST 前写入 intent、再次查找并核对远端 head。POST 成功或响应不明时先按原意图查 PR 编号及实际身份，匹配才补回执。查不到且无法确定 POST 未执行时保持 `uncertain` 和原目标占用，其他请求也须先核对。创建期间 head 变化时记录实际 PR 和冲突，由用户核对。
+3. 按编号读取真实 PR 的身份、URL、状态、base/head 的仓库 ID、ref、SHA 和变更统计。两次详情读取之间取一次 GitHub PR Diff 响应（`Accept: application/vnd.github.diff`），前后核对 PR 元数据、变更统计及更新时间一致。按文件拆分同一响应，核对文件数、增删行总数及每个补丁分块的完整性，保存观察时间、SHA 与正文哈希。界面从快照的文件索引分页。GitHub PR 与本地比较可能采用不同基线，Candidate Diff 作为独立证据展示。[读取 GitHub PR 与 Diff](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request) · [GitHub 的比较基线](https://docs.github.com/en/pull-requests/reference/pull-requests#differences-between-commits-on-compare-and-pull-request-pages)
+4. 快照的文件索引保留状态、新旧路径、统计及文本 patch，二进制或纯模式变化使用相应类型提示。API 截断、版本核对失败、权限不足或无法证明文件清单完整时，显示对应原因和真实 PR 链接，并保持 PR 交付待核对。原快照可查，最新读取的页按 snapshotId 分开缓存。
+5. 进入 PR 成果视图时可以刷新。用户接受前按步骤 3 重新获取 PR 和 Diff，计算摘要并与该 WorkResult 的快照身份、状态、base/head 和 Diff 哈希核对。外部读取在事务外进行，回写时再次核对 `workId + resultVersion + expectedWorkRevision`，接受决定记录本次观察时间和快照。服务核对到 PR 变更时，事务标记旧版过期并增加 Work revision，之前开始的接受请求和慢响应按旧 revision 拒绝。相同 head 且已核对新快照与受影响的验证时可封存新成果版本，head 不再等于 N 时由 Host 根据用户退回安排返工。已验收后出现的 PR 变化作为新事实显示，保留原验收依据。
 
 ## 凭据与隔离
 
@@ -111,4 +129,6 @@ V1 为 Worker 提供专用 Git 环境和常规命令防误操作入口。仓库�
 
 ## 验收
 
-DL-01 新增/删除/二进制快照准确；DL-02 冻结期间后台写入拒绝；DL-03 两 Worker 候选引用不冲突；DL-04 候选引用创建后崩溃可恢复；DL-05 验证失败不完成；DL-06 授权后内容改变拒绝交付；DL-07 目标前进需重新集成；DL-08 本地更新后断网不重复提交；DL-09 推送成功回执丢失可核对；DL-10 目标在有改动的 worktree 中检出时返回 TARGET_IN_USE；DL-11 无 Git 的报告可完成；DL-12 子模块脏内容明确处理；DL-13 目标在干净 worktree 中检出且已授权时快进成功，工作区文件同步更新；DL-14 remote-branch 模式不改本地引用，远端前进时推送被拒并进入 needs_reintegration；DL-15 冻结降级为结束进程后采集，记录静止证据类型；DL-16 目标路径上存在被忽略或未跟踪的本地文件时拒绝快进，文件保持不变；DL-17 目标路径带 assume-unchanged 或 skip-worktree 标记时拒绝快进；DL-18 Worker 在 .git/hooks 植入 pre-push 和 reference-transaction 钩子、在 .git/config 改写 pushurl 和 credential.helper 后，服务交付时钩子不执行，推送仍到达用户确认的远端，凭据不暴露给仓库配置指定的程序。
+DL-01 新增/删除/二进制快照准确；DL-02 冻结期间后台写入拒绝；DL-03 两 Worker 候选引用不冲突；DL-04 候选引用创建后崩溃可恢复；DL-05 验证失败不完成；DL-06 授权后内容改变拒绝交付；DL-07 目标前进需重新集成；DL-08 本地更新后断网不重复提交；DL-09 推送成功回执丢失可核对；DL-10 目标在有改动的 worktree 中检出时返回 TARGET_IN_USE；DL-11 无 Git 的报告等待并获得用户验收；DL-12 子模块脏内容明确处理；DL-13 目标在干净 worktree 中检出且已授权时快进成功，工作区文件同步更新；DL-14 remote-branch 模式不改本地引用，远端前进时推送被拒并进入 needs_reintegration；DL-15 冻结降级为结束进程后采集，记录静止证据类型；DL-16 目标路径上存在被忽略或未跟踪的本地文件时拒绝快进，文件保持不变；DL-17 目标路径带 assume-unchanged 或 skip-worktree 标记时拒绝快进；DL-18 Worker 在 .git/hooks 植入 pre-push 和 reference-transaction 钩子、在 .git/config 改写 pushurl 和 credential.helper 后，服务交付时钩子不执行，推送仍到达用户确认的远端，凭据不暴露给仓库配置指定的程序。
+
+DL-19 首推新分支、并发创建同名分支和回执丢失均按 `absent` 意图核对；DL-20 PR 创建回执丢失按原意图查到同一编号，无明确结果时不重发；DL-21 真实 PR 逐文件 Diff 与 Candidate 各自可查，Diff 缺失或变版时暂停验收；DL-22 退回或重复验收保留旧成果、用户决定及原有远端事实。

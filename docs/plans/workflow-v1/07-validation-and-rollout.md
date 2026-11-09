@@ -14,12 +14,12 @@
 |---|---|---|
 | electron/workflow/contracts.ts | 通用命令、事件、投影与错误 | cli-backend、worker-protocol 类型 |
 | electron/workflow/store.ts | SQLite、事务、投影、幂等 | meeting-repository 的历史导入 |
-| electron/workflow/service.ts | 命令校验及状态机 | orchestrator、host-group 的编排接线 |
+| electron/workflow/service.ts | 命令校验、Work 队列、成果决定及状态机 | orchestrator、host-group 的编排接线 |
 | electron/workflow/host-controller.ts | Host 会话与工具路由 | codex-app-server-transport、meeting-mcp |
 | electron/workflow/messaging.ts | 成员消息、问题、等待、outbox | task-mailbox、worker-cli-bridge |
 | electron/workflow/runtime.ts | 启动、恢复、轮次、资源 | 原生适配器、pty-host、agent-process-scope |
 | electron/workflow/terminal.ts | 镜像、日志、订阅与输入 | worker-pty IPC、RealTerminal |
-| electron/workflow/delivery.ts | 成果、验证、条件交付协调 | delivery-*、integration-queue |
+| electron/workflow/delivery.ts | 成果封存、验证、条件交付、真实 PR 核对及 Diff 快照 | delivery-*、integration-queue、基线 collaboration/github.ts |
 | electron/ipc/workflow.ts | 经认证的产品入口 | ipc/validators |
 | electron/main.ts（改造） | 关闭窗口后台继续、托盘或 Dock 入口、受控退出 | 现有 window-all-closed 与 before-quit 处理 |
 | src/lib/workflow-store.ts | 事件投影与 UI 订阅 | meeting-store 的界面模式 |
@@ -39,8 +39,9 @@
 | P0-F | 冻结与条件交付 | 并发写、目标前进、回执丢失均不覆盖其他成果；已检出目标的快进交付 | 返回可核对状态，停止后续自动交付 |
 | P0-G | Codex app-server 作为 Host | 编排工具注册方式（MCP 或动态工具）可用；崩溃后线程恢复；恢复后原生 callId 是否稳定；轮次中断 | 工具注入改用另一种方式；callId 不稳定且不能证明按原样重放时，批次进入待核对，按 03 恢复已记录的调用和结果，不用批内序号推导 |
 | P0-H | resume-with-instruction | 两种 CLI 按会话 ID 恢复并携带首条指令，上下文保留，接收有 hook 或轮次证据 | 该 CLI 的降级只能新建会话并附带历史摘要，界面标明上下文连续性受限 |
+| P0-I | 新分支首次推送、真实 PR 与逐文件差异 | 本地临时远端验证空预期值的创建条件；离线 HTTP fixture 核对授权、重放、分页与变版；在已授权测试仓库确认真实 PR 元数据和 Diff 契约 | 失败场景显示待核对，PR 交付保持未完成，本地和普通 Git 交付仍按各自结果处理 |
 
-P0 的结论按 CLI 版本保存。用户环境出现未验证的版本时，按 01“CLI 版本与能力漂移”先做快速探测；通过后暂停该版本的自动投递，由用户选择运行验证、改用已验证版本或人工投递。
+CLI 能力结论按版本保存。用户环境出现未验证的版本时，按 01“CLI 版本与能力漂移”先做快速探测；通过后暂停该版本的自动投递，由用户选择运行验证、改用已验证版本或人工投递。
 
 P0 的结论决定各路径的默认启用方式：P0-B 决定空闲注入还是重启降级，P0-C 决定冻结使用轮次级还是进程级证据，P0-G 决定 Host 工具接入方式。结论写回 01、03 对应章节后再开始实现批次 2。
 
@@ -48,10 +49,10 @@ P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络
 
 ## 实现批次
 
-1. **本地状态与骨架**。实现最小 schema、异步 store 接口、事务、命令信封、Worker 列表及显式版本迁移。接入 fake runtime，验证重复请求和重启恢复。
-2. **一名 Worker 的完整闭环**。接通 Host、原生终端、桥接、用户问题、按 P0-B 结论选定的答复投递路径、继续执行及报告；改造关闭窗口后台继续；先完成一份无需 Git 交付的 Artifact。
+1. **本地状态与骨架**。实现最小 schema、异步 store 接口、事务、命令信封、Work 队列、Worker 列表及显式版本迁移。接入 fake runtime，验证重复请求和重启恢复。
+2. **一名 Worker 的完整闭环**。接通 Host、原生终端、桥接、用户问题、按 P0-B 结论选定的答复投递路径、继续执行及报告；改造关闭窗口后台继续；先完成一份无需 Git 交付的 Artifact，核对接受、退回与返工路径。
 3. **原生一致性与控制**。补齐镜像回放、输入所有权、真实中断、进程退出及能力声明，分别跑两种 CLI。
-4. **候选与验证交付**。加入代码快照、机器验证、Host 判定、独立审查、准确授权及本地条件交付，再在获授权的测试远端验证推送。
+4. **候选与验证交付**。加入代码快照、机器验证、Host 判定、独立审查和准确授权。验证条件交付及首次推送，再按 P0-I 的证据接通真实 GitHub PR、差异快照和用户验收。
 5. **多成员协作**。加入复用、资源、等待条件、交接、集成负责人和并发回报。
 6. **兼容与发布验收**。历史映射、旧入口切换、真实 CLI 多轮、故障注入与各平台安装包验收。
 
@@ -62,15 +63,16 @@ P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络
 场景使用临时、专用仓库及共享目录。
 
 1. 用户打开根目录并提出一个分析目标。
-2. Host 调用 ListAgents 和 SpawnAgent，创建负责该完整目标的成员。
+2. Host 调用 ListAgents 和 SpawnAgent，创建负责该完整目标的成员，记录 workerId 和 workId。
 3. Worker 原生终端接收到完整委派，报告一个需要用户决定的问题并停止本轮。
 4. 用户答复经过服务直接送达，Host 收到抄送；Worker 在同一逻辑成员中继续。
 5. 用户切到 Worker 终端再回 Host，后台执行持续。
-6. Worker 发布 Artifact，Host 核对证据后结束委派。
-7. 用户追加相关目标，Host 复用同一 Worker。
-8. 应用重启，恢复成员、历史、决定及未处理消息。
-9. 另做代码目标，报告候选、独立审查、返工和授权交付。
-10. 每步检查实际会话身份、消息回执、事件游标、文件 hash 和原生状态。
+6. 同一 Worker 正忙时，Host 下发独立目标 B。B 获得不同 workId 并排队，原目标 A 的委派保持有效。
+7. Worker 发布 A 的 Artifact，Host 核对证据，服务封存 A 的第一版成果并提交用户验收，Worker 可领取 B。
+8. 用户打开旧链接退回 A，Host 为 A 安排返工或改派，服务保留同一 workId。应用重启后核对队列、旧成果及退回决定。A 的第二版通过用户验收，B 保持独立。
+9. 另做代码目标，完成候选、独立审查和分开授权的提交、首次推送与 PR 创建。用户对照真实 PR base/head 和逐文件 Diff 验收。
+10. 在用户看完 PR Diff 后、点击接受前更新 head 或 base。旧成果应提示过期，当前 PR 重新核对，旧差异仍可查看。
+11. 每步检查实际会话身份、消息回执、事件游标、工作与成果版本、文件 hash 和原生状态。
 
 稳定性检查应多次执行并保存失败目录。一次成功只能证明该组合和该路径。
 
@@ -91,7 +93,7 @@ P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络
 | 日志尾部截断/磁盘满 | 记录留存故障，停止入口仍可用 |
 | 两成员同时发布同逻辑文件 | 一个成功，另一个版本冲突并保留内容 |
 | 候选引用已创建但 DB 未确认 | 按预定 ID/hash 核对并补登记 |
-| 已验收后新增修改 | 验证与授权失效 |
+| 技术验证后新增修改 | 对应验证与授权失效，已封存的历史仍保留原内容 |
 | 交付目标已经前进 | needs_reintegration，不覆盖目标 |
 | 本地引用已更新但回执丢失 | 根据 N 和 T 核对并补回执 |
 | 推送成功但网络响应丢失 | 查询远端，记录事实，不重新执行 Worker |
@@ -134,6 +136,14 @@ P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络
 | RV-17 | 用户升级 CLI 后恢复成员 | 版本变化被记录，自动投递暂停，不使用未验证的 resume-with-instruction；用户可验证、改用已验证版本或人工投递 |
 | RV-18 | 第一轮开始证据迟到时用户已输入下一条草稿 | draftPossible 保持 true，Host 不注入 |
 | RV-19 | Worker 在 .git/hooks 与 .git/config 植入钩子、pushurl 和 credential.helper | 服务交付不执行这些钩子，推送到用户确认的远端，凭据不暴露 |
+| RV-20 | Worker 切换工作或整体交接后打开旧链接，旧轮次报告迟到 | 用户查看原 Work 和版本，迟到报告归原委派，接手者仍用同一 workId |
+| RV-21 | 工作领取后崩溃，或用户对同一成果并发接受与退回 | 核对原委派和投递意图，只有一条用户决定及对应状态成立 |
+| RV-22 | A 的成果退回后同一 Worker 正在做 B | A 独立排队，可由 Host 改派，后续成果版本递增，B 的执行保持原归属 |
+| RV-23 | 首次推送时发现同名 ref 已被创建，或本次创建回执丢失 | 非 N 的已存在引用保持原值，按准确 N 核对回执，权限或网络错误不当成 `absent` |
+| RV-24 | GitHub 已创建 PR 而响应丢失，或同 head/base 下的 PR 指向其他提交 | 匹配的真实 PR 补回原操作，找不到确定结果时保留 uncertain，冲突 PR 不自动绑定或覆盖 |
+| RV-25 | 读取 Diff 期间 PR 更新，或 API 截断、二进制和重命名 | 变版或不完整快照不能提交验收，支持的文件类型按真实 Diff 呈现，历史快照页保持同一身份 |
+| RV-26 | 点击接受时远端 PR 已更新，或外部核对期间另一窗口先退回 | 核对实际 PR 快照及 Work revision，拒绝已检测到的过期版本，原快照和决定可查 |
+| RV-27 | 没有 PR 创建授权，或只读窗口伪造结果接受 | PR 写入未启动，服务拒绝验收，必要交付和用户决定分别显示 |
 
 以上为设计要求，尚未作为运行测试执行。
 

@@ -23,14 +23,17 @@ Host 工具调用的 requestId 不由模型提供，由 ToolRouter 按 hostThrea
 
 | 工具 | 输入 | 返回 |
 |---|---|---|
-| ListAgents | includeArchived、cursor、limit、statusFilter | 成员、当前目标、pending 修订、状态、证据索引 |
+| ListAgents | includeArchived、cursor、limit、statusFilter | 成员、当前 workId、pending 修订、排队摘要、状态及证据索引 |
+| GetWork | workId、cursor、limit | 工作状态、负责人、委派历史、成果版本和用户决定 |
 | GetOperation | operationId | 已获授权操作的当前步骤、结果、等待或待核对原因 |
-| SpawnAgent | name、role、backend、repositoryId、delegationSpec | workerId、pendingVersion、启动操作 |
-| SendMessage | workerId、mode、expectedVersion、text、artifactRefs；revise/newGoal 时提供完整 spec | messageId、投递状态、是否触发执行、pendingVersion |
+| SpawnAgent | name、role、backend、repositoryId、delegationSpec | workerId、workId、排队或启动操作 |
+| SendMessage | workerId、mode、text、artifactRefs；continue/revise 另带 workId、expectedVersion，revise/newGoal 另带完整 spec，newGoal 指明仓库 | workId、消息或排队回执、是否触发执行，修订另返回 pendingVersion |
+| RequeueWork | workId、expectedWorkRevision、workerId，退回后返工另带完整 spec | 原 workId、排队回执 |
+| CancelWork | workId、expectedWorkRevision、reason | 取消结果或待核对的停止与交付操作 |
 | SetWaitCondition | workerId、expectedVersion、all/any、明确成果引用 | waitId、满足状态、循环检测结果。all/any 只组合依赖成果类条件；未答问题、缺少授权与冻结属于阻断条件，始终全部解除后才继续 |
 | WaitAgents | workerIds、afterCursor、eventKinds、timeoutMs | 有界事件页、nextCursor、超时标志 |
 | InterruptAgent | workerId、expectedRevision、scope turn/process、reason | 停止操作及证据状态，执行和轮次由服务准确解析 |
-| HandOffAgent | sourceWorker、sourceVersion、targetWorker、新范围、完整接手 spec | handoffId、冻结及接收进度 |
+| HandOffAgent | workId、sourceWorker、sourceVersion、targetWorker、新范围、完整接手 spec | 同一 workId、handoffId、冻结及接收进度 |
 | RenameAgent | workerId、expectedRevision、name、role | 新 revision |
 | ArchiveAgent | workerId、expectedRevision | 已归档或未结束工作清单 |
 | ReadAgentHistory | targetWorker、cursor、limit | 经 Grant 过滤后的消息与日志引用 |
@@ -38,20 +41,22 @@ Host 工具调用的 requestId 不由模型提供，由 ToolRouter 按 hostThrea
 | ReadArtifact | artifactId、version | 哈希、正文/流式下载引用 |
 | WriteArtifact | logicalPath、expectedVersion、contentRef | artifactId、新版本或冲突 |
 | AskUser | question、options、sourceQuestionId、workerId/version、requestedAction | questionId、等待目标 |
-| RecordVerdict | workerId/version、candidateId 或 artifactId/version、criterionId、pass/fail、evidenceRefs、reason | Host 判定 Verification，服务重新计算验收状态 |
-| RequestDelivery | workerId/version、candidateId、repositoryId、targetRef、expectedTarget、action | 申请及需要的用户授权绑定 |
+| RecordVerdict | workerId/version、candidateId 或 artifactId/version、criterionId、pass/fail、evidenceRefs、reason | Host 判定 Verification，服务重新计算技术验证状态 |
+| RequestDelivery | workId、workerId/version、candidateId、repositoryId、targetRef、action；要求 GitHub PR 时附 base ref 与 PR 标题、正文 | 申请、服务核对的目标引用状态、需要的用户授权绑定 |
 
 delegationSpec 含完整目标、允许路径、验收、交付、资料和决定引用。Host 传入路径必须映射到工作流已登记的仓库及授权目录，不能自授范围。GrantAccess 只在用户已允许的成员互读策略内操作。
 
-SendMessage.mode 为 note / continue / revise / newGoal。note 进入历史，不隐式唤醒；continue 推进当前目标；revise 产生 pending 版本；newGoal 只在原目标已终结或明确完成交接时接受。修订激活见 01。
+SendMessage.mode 为 note / continue / revise / newGoal。note 进入历史，有 workId 时归入对应工作；continue 推进当前目标；revise 在同一个 workId 下产生 pending 版本；newGoal 创建独立 workId 并入队。Worker 正忙时返回排队回执，由 02 的领取事务在安全轮次边界分配新委派。修订激活见 01。
 
-对 pending 修订返回 pendingVersion 给 UI 和 Host，具体执行 ID 由系统维护，模型不需要管理轮次。
+对 pending 修订返回 pendingVersion 给 UI 和 Host，具体执行 ID 由系统维护。RequeueWork 可改派尚未领取的 `queued` 工作，沿用原 spec。也可重新安排 `changes_requested` 的工作，由 Host 决定沿用原负责人或改派，返工引用原成果、仓库和最近的用户退回决定。两种操作都保留同一 workId。
 
-RecordVerdict 只写入委派预先声明的 Host 判定条件。机器检查结果由 Verifier 写入，Host 不能通过该工具覆盖失败的机器检查。需要改变验收要求时必须修订委派并重新核对范围与授权。归档、验收和交付分别处理，归档不能代替完成判定。
+CancelWork 按 02 的状态迁移取消明确的工作。已排队的工作在事务中移除领取资格。正在执行的工作先核对停止和交付操作，再记录取消。
+
+RecordVerdict 只写入委派预先声明的 Host 判定条件。机器检查结果由 Verifier 写入，Host 不能通过该工具覆盖失败的机器检查。需要改变验收要求时必须修订委派并重新核对范围与授权。服务通过用户 IPC 记录成果接受或退回，Host 只接收结果事件与准确版本。提交、推送和创建 PR 各自使用对应动作的 Grant，详见 05。
 
 ## Host 收件箱与事件合并
 
-Host 持久收件箱消费工作流事件，并持有单运行轮次锁。立即事件为提问、失败、候选、越界请求、授权变化、unknown、修订失败及交付目标变化。普通进度按 Worker 与当前版本聚合，原事件仍可审计。
+Host 持久收件箱消费工作流事件，并持有单运行轮次锁。立即事件为提问、失败、候选、成果退回、越界请求、授权变化、unknown、修订失败及交付目标变化。接受与退回事件带 workId、resultVersion 和决定引用。普通进度按 Worker 与当前版本聚合，原事件仍可审计。
 
 启动轮次前保存 inputBatchId 和精确事件范围。原生 thread/turn 与批次绑定。工具调用使用原生 callId 和业务 requestId 双重去重。模型轮次结束后持久化回复和已处理范围。响应丢失时恢复同一轮次结果，不能直接重派一批工作。
 
@@ -83,9 +88,9 @@ Worker question 先落库，Host 决定自行回答或 AskUser。问题绑定当
 
 等待条件引用 sourceWorker、delegationVersion、artifact/candidate ID 或 questionId。禁止“等它空闲”作为代码可用证据。服务依据已保存的精确成果满足条件，循环检测在新增等待边时执行。
 
-交接为持久操作。先冻结 source，再生成 Candidate 或 Artifact，准备接手目录及 spec，然后事务保存新委派和旧 handed_off。若接收前失败，保留 frozen/source 状态和操作进度，Host 可重试或明确取消；不能让新旧双方同时拥有同一写入目录。
+整体交接为持久操作。先冻结 source，再生成 Candidate 或 Artifact，准备接手目录及 spec。保存新委派的事务同时核对接手 Worker 有可用委派槽且没有在先排队项，记录原 workId 下的新委派、旧 handed_off 及当前负责人。若接收前失败，保留冻结及操作进度，Host 可重试或明确取消。同一工作目录的写入权只授予一方。
 
-V1 直接支持整体交接。部分交接由 Host 组合已有操作完成，先暂停源成员并冻结成果，缩小源成员的委派范围，再为目标成员建立独立 worktree 和完整委派。每步保存进度；源修订确认前目标不能取得相同范围的写入权，接手失败时保留源成员暂停及恢复入口。这样复用修订和整体交接能力，避免新增跨两个原生会话同时激活的事务协议。分割范围不明确时返回 SCOPE_OVERLAP。
+V1 直接支持整体交接。部分交接由 Host 组合已有操作完成，先暂停源成员并冻结成果，缩小源成员的委派范围，再为目标成员建立独立 worktree 和一个独立的完整工作，记录源成果引用。每步保存进度；源修订确认前目标不能取得相同范围的写入权，接手失败时保留源成员暂停及恢复入口。这样复用修订和整体交接能力，避免新增跨两个原生会话同时激活的事务协议。分割范围不明确时返回 SCOPE_OVERLAP。
 
 ## 关键时序
 
@@ -96,7 +101,7 @@ sequenceDiagram
   participant W as Worker CLI
   participant U as 用户
   H->>S: SpawnAgent(requestId,完整委派)
-  S-->>H: workerId,queued
+  S-->>H: workerId,workId,queued
   S->>W: 启动并投递
   W->>S: 原生接收与轮次证据
   W->>S: question(问题与版本)
@@ -108,9 +113,14 @@ sequenceDiagram
   S-->>H: 抄送原答复
   W->>S: 已处理并继续
   W->>S: 完成候选
-  S->>H: 验收结果与证据
+  S->>H: 验证结果与证据
+  S->>U: 成果版本待用户验收
+  U->>S: 接受或退回该成果版本
+  S->>H: 同一 workId 的用户决定
 ```
 
 ## 验收
 
 HM-01 重复工具调用只创建一个成员；HM-02 note 不意外触发模型；HM-03 多成员回报顺序及去重；HM-04 用户答复直达且 Host 可追溯；HM-05 用户答复不自动扩大授权；HM-06 原生恢复后不重放已有副作用；HM-07 等待环拒绝；HM-08 部分交接不会双写；HM-09 Host 无资源时用户仍可停止；HM-10 Host 可复用已空闲负责人；HM-11 Host 运行代次变化后重放同一工具调用不重复产生副作用；HM-14 恢复后调用 ID 不稳定且调用顺序改变时，批次进入待核对，修改类工具在 Host 确认恢复摘要前返回 RECOVERY_PENDING，不重复派发；HM-12 any 等待满足后，未答问题仍阻止继续；HM-13 仓库中埋有注入文本、Worker 照搬进报告和问题后，Host 未取得任何新权限，需要授权的动作仍等待用户，AskUser 显示原始来源。
+
+HM-15 同一 Worker 忙时收到第二个独立目标，保留不同 workId 和排队回执；HM-16 整体交接和用户退回后的改派保留同一工作与旧证据；HM-17 Host 自行判定、Worker 自报完成或把聊天文本当用户决定时，工作保持待验收。

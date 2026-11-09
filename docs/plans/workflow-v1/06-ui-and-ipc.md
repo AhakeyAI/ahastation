@@ -4,7 +4,7 @@
 
 左侧主区域在 Host 对话和选中 Worker 的真实终端之间切换，成员列表持续可见。工作流顶部显示名称、根目录、当前整体目标及运行摘要。
 
-Worker 卡片展示名称、职责、当前目标、状态、等待原因、后端、仓库和最近活动。成员详情展示原生终端、Host 来往消息、候选与验证、交付进度和历史。Delegation、Execution、Turn 的内部标识仅出现在诊断详情。
+Worker 卡片展示名称、职责、当前目标、状态、等待原因、后端、仓库和最近活动。成员详情展示原生终端、Host 来往消息、排队工作、候选与验证、交付进度和历史。工作入口放在成员历史和 Host 对话的成果链接里，定位参数为 workId 和可选 resultVersion。Delegation、Execution、Turn 的内部标识仅出现在诊断详情。
 
 优先复用 App.tsx、ParticipantPanel.tsx、WorkerWorkbench.tsx、RealTerminal.tsx、meeting-store.ts 和现有 IPC validators。新工作流 projection 与 legacy meeting projection 分开映射，旧 UI 不得误驱动新成员生命周期。
 
@@ -18,7 +18,10 @@ Worker 卡片展示名称、职责、当前目标、状态、等待原因、后�
 | 输入终端 | 明确取得人工输入控制权，Host 自动输入等待 |
 | 停止 | 默认停止当前轮次；更多操作可结束进程 |
 | 提交用户决定 | 展示具体问题和适用目标；问题源自 Worker 时同时展示来源 Worker、Worker 原文和 Host 改写后的措辞；原文投递并显示处理状态 |
-| 审阅交付申请 | 展示准确候选、差异、验证、目标分支及申请动作 |
+| 审阅交付申请 | 展示准确候选、候选差异、验证、目标分支及申请动作。提交、推送和创建 PR 分别确认，首推时显示“创建远端分支” |
+| 查看 PR 成果 | 展示实际 PR 编号、链接、状态、base/head 分支与 SHA、快照时间和逐文件差异。候选差异在独立区域呈现 |
+| 验收成果版本 | 展示“待用户验收”以及具体成果和证据，提供“接受”和“退回补充”。退回要求填写原因；版本已更新时提示切到新版 |
+| 取消指定工作 | 按 workId 取消排队项，或展示运行中工作的停止与交付核对进度 |
 | 查看归档成员 | 查询历史和终端留存，输入不可用 |
 | 关闭成员视图 | detach，原生执行由服务继续管理 |
 | 关闭最后一个窗口 | 无运行中的 Host 或 Worker 时直接退出；有则询问“后台继续”或“停止并退出”，默认后台继续 |
@@ -60,10 +63,14 @@ Worker 卡片展示名称、职责、当前目标、状态、等待原因、后�
 | terminal:resize | ownerToken、cols、rows → 已应用序号 |
 | terminal:detach | subscriptionId → detached |
 | artifact:read | artifactId、version → 经授权的正文或下载句柄 |
+| work:read | workflowId、workId、可选 resultVersion → 工作、委派索引、成果版本、用户决定和可用动作 |
+| pull-request:diff | workflowId、workId、snapshotId、可选游标或文件 ID → 固定快照的分页文件索引或单文件 patch |
 
-返回值中包含 workflowId、workerId 和 executionId，以便 renderer 丢弃已切换视图的迟到结果。请求中 supplied actor/Grant 身份不可信，服务从窗口与用户动作推导。所有主进程路径访问均验证实际目录边界。
+返回值按视图包含 workflowId、workerId、executionId、workId、resultVersion 或 snapshotId，以便 renderer 丢弃已切换视图的迟到结果。请求中 supplied actor/Grant 身份不可信，服务从窗口与用户动作推导。所有主进程路径访问均验证实际目录边界。
 
-主窗口、只读成员窗、人工终端窗分别声明能力。仅查看窗口不能批准推送、创建成员或写终端。跨成员会话读请求检查 Grant，界面隐藏入口不能替代服务校验。
+主窗口、只读成员窗、人工终端窗分别声明能力。仅查看窗口不能验收成果、批准交付、创建成员或写终端。跨成员会话读请求检查 Grant，界面隐藏入口不能替代服务校验。
+
+`AcceptWorkResult` 和 `ReturnWorkResult` 走 `workflow:command`，参数为 `workId`、`resultVersion` 和 `expectedWorkRevision`，退回另带原因。对 PR 成果，接受时展示“核对 PR 版本中”，通过操作回执获取最终状态。`RefreshPullRequest` 携带 workId、deliveryId 和 expectedWorkRevision，可用于初次绑定后的差异重读或已封存成果的更新核对。刷新只读取外部事实，每次封存的新成果使用新的 resultVersion。`CancelWork` 携带 workId、expectedWorkRevision 和原因。
 
 ## 投影与状态展示
 
@@ -72,6 +79,10 @@ renderer 只消费 WorkflowProjection 和事件。快照返回 throughSeq，订�
 展示优先级为停止待核对 / 执行异常 / 待用户决定 / 人工接管 / 验证或交付 / 运行 / 等待依赖或资源 / 空闲 / 归档。详情保留所有并行事实，例如 CLI 驻留同时委派等待提交确认。
 
 pending 修订展示“新要求待接收”，收到原生确认后更新当前目标。送达和已处理分别展示。Unknown 显示证据及可进行的核对/结束操作，不能渲染为完成。
+
+独立新目标展示为排队工作。Worker 交回成果后，原工作显示“待用户验收”，Worker 卡片可开始显示下一项。用户通过旧链接打开原成果时，按 workId 和版本查询，即使已改派或 Worker 归档也保留相同归属。`changes_requested` 显示“待补充”和退回意见，只有 `completed` 显示“已完成”。
+
+PR 差异读取使用固定 snapshotId。新版、已过期和无法核对分别显示，旧快照保留在成果历史中。二进制、仅模式变化和 GitHub 截断明确标记。版本变化或差异缺失时禁用该 PR 成果的接受操作，服务同步核对权限、成果版本和 PR 观测。用户可以打开服务验证过的 PR 链接或提交退回意见。
 
 同一成员可以同时有多个等待项，界面列出所有未解决条件。用户解决其中一项后，其他条件继续显示。原始终端输入回执不明时展示“输入结果待核对”，不自动补发字符。用户持有输入时，终端上方持续显示“你正持有输入”、释放按钮及被暂缓的 Host 消息数。已完成成员继续人工执行时显示“人工执行待归属”，由用户或 Host 明确后续完整目标。
 
@@ -86,3 +97,5 @@ pending 修订展示“新要求待接收”，收到原生确认后更新当前
 ## 验收
 
 UI-01 重复打开同目录定位原工作流；UI-02 切换成员不混流；UI-03 慢响应不覆盖当前视图；UI-04 只读窗口无法写终端/审批；UI-05 停止按钮立即请求中断并显示待确认；UI-06 pending 修订和当前目标分开；UI-07 断线重订阅无消息缺口；UI-08 阅览原始证据；UI-09 退出待核对；UI-10 原生终端与旁路状态一致；UI-11 关闭最后一个窗口时有运行中工作则询问，后台继续后执行不中断且可从托盘或 Dock 重新打开；UI-12 输入持有提示与自动释放；UI-13 放弃执行入口只在核对失败时出现并要求确认。
+
+UI-14 Worker 切到新工作后旧成果链接和接受/退回仍对应原工作；UI-15 旧成果窗口无法接受新版，未授权 sender 无法写决定；UI-16 真 PR 差异按快照分页，PR 更新后旧页不能覆盖新成果，缺失或过期时显示可核对原因。
