@@ -146,13 +146,17 @@ export async function startTerminalDaemon(dataDir: string, secureEndpoint = rest
   try {
     if (process.platform !== 'win32') await chmod(descriptor.endpoint, 0o600);
     await secureEndpoint(descriptor.endpoint);
-    await atomicJson(dataDir, 'daemon.json', descriptor);
     await persist();
+    // Discovery can be read as soon as rename publishes it, before the await
+    // resumes here. Accept hello first so that every published instance is ready.
+    ready = true;
+    await atomicJson(dataDir, 'daemon.json', descriptor);
   } catch (error) {
+    ready = false;
     server.close();
     throw error;
   }
-  ready = true; idle();
+  idle();
   server.on('close', () => {
     if (process.platform !== 'win32') void unlink(descriptor.endpoint).catch(() => {});
     // node-pty's Windows conout workers can outlive a naturally closed socket.
