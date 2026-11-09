@@ -42,7 +42,7 @@ Host 工具调用的 requestId 不由模型提供，由 ToolRouter 按 hostThrea
 | WriteArtifact | logicalPath、expectedVersion、contentRef | artifactId、新版本或冲突 |
 | AskUser | question、options、sourceQuestionId、workerId/version、requestedAction | questionId、等待目标 |
 | RecordVerdict | workerId/version、candidateId 或 artifactId/version、criterionId、pass/fail、evidenceRefs、reason | Host 判定 Verification，服务重新计算技术验证状态 |
-| RequestDelivery | workId、workerId/version、candidateId、repositoryId、targetRef、action；要求 GitHub PR 时附 base ref 与 PR 标题、正文 | 申请、服务核对的目标引用状态、需要的用户授权绑定 |
+| RequestDelivery | workId、workerId/version、candidateId、repositoryId、targetRef、action。要求 GitHub PR 时附 base ref 与 PR 标题、正文，选用既有 PR 时附编号。替换受阻交付时另带 replacesDeliveryId 和 expectedWorkRevision | 申请、服务核对的目标引用状态、需要的用户授权绑定 |
 
 delegationSpec 含完整目标、允许路径、验收、交付、资料和决定引用。Host 传入路径必须映射到工作流已登记的仓库及授权目录，不能自授范围。GrantAccess 只在用户已允许的成员互读策略内操作。
 
@@ -54,9 +54,11 @@ CancelWork 按 02 的状态迁移取消明确的工作。已排队的工作在�
 
 RecordVerdict 只写入委派预先声明的 Host 判定条件。机器检查结果由 Verifier 写入，Host 不能通过该工具覆盖失败的机器检查。需要改变验收要求时必须修订委派并重新核对范围与授权。服务通过用户 IPC 记录成果接受或退回，Host 只接收结果事件与准确版本。提交、推送和创建 PR 各自使用对应动作的 Grant，详见 05。
 
+首次 PR 交付受阻时，Host 接收当前 workId、deliveryId、已有回执与阻断原因。换分支使用同一工作的替换申请，由用户在推送授权中确认新目标。服务以当前 Delivery 及 Work revision 约束申请和回执，详见 05。
+
 ## Host 收件箱与事件合并
 
-Host 持久收件箱消费工作流事件，并持有单运行轮次锁。立即事件为提问、失败、候选、成果退回、越界请求、授权变化、unknown、修订失败及交付目标变化。接受与退回事件带 workId、resultVersion 和决定引用。普通进度按 Worker 与当前版本聚合，原事件仍可审计。
+Host 持久收件箱消费工作流事件，并持有单运行轮次锁。立即事件为提问、失败、候选、成果退回、越界请求、授权变化、unknown、修订失败、交付受阻及交付目标变化。接受与退回事件带 workId、resultVersion 和决定引用。普通进度按 Worker 与当前版本聚合，原事件仍可审计。
 
 启动轮次前保存 inputBatchId 和精确事件范围。原生 thread/turn 与批次绑定。工具调用使用原生 callId 和业务 requestId 双重去重。模型轮次结束后持久化回复和已处理范围。响应丢失时恢复同一轮次结果，不能直接重派一批工作。
 

@@ -24,7 +24,7 @@ synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事
 | workflows | id；canonicalRootKey 唯一；hostEpoch、revision、nextEventSeq |
 | repository_mounts | workflowId + repositoryId；真实路径及仓库身份 |
 | workers | id；workflowId；currentVersion、pendingVersion、profileState、revision |
-| work_items | workId；workflowId、repositoryId、指定 Worker、queueSeq、待领取 spec、当前委派引用、latestResultVersion、state、revision |
+| work_items | workId；workflowId、repositoryId、指定 Worker、queueSeq、待领取 spec、当前委派引用、currentPrDeliveryId、latestResultVersion、state、revision |
 | delegations | workerId + version；workId、specJson/specHash 不可变；state、waitReason 为可变投影 |
 | work_results | workId + resultVersion；精确委派、Candidate/Artifact、Verification、Delivery 和 PR 快照引用；发布后不可变 |
 | native_sessions | id；backend、nativeId、cwd、恢复证据 |
@@ -39,7 +39,8 @@ synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事
 | messages | id；recipientWorker、delegationVersion、messageSeq、state |
 | decisions / grants | id；问题答复绑定 question/version；成果决定按 workId + resultVersion 唯一；Grant 绑定准确动作和成果；撤销时间 |
 | artifacts / candidates | id；不可变正文身份与元数据；发布阶段 |
-| verifications / deliveries | id；workId、准确委派和成果、授权、目标版本与外部结果 |
+| verifications / deliveries | id；workId、准确委派和成果、授权、目标版本与外部结果。PR 交付记录阻断原因和替换关系 |
+| remote_head_owners | GitHub 实例 + head 仓库 ID + 规范分支引用唯一归属 workId，关联首次预留及外部写入或绑定证据 |
 | pull_requests / pull_request_bindings | PR 按 GitHub 实例、base 仓库 ID、PR 编号唯一归属 workId；每个 Delivery 至多绑定一个 PR |
 | pull_request_snapshots | snapshotId；PR 身份、实际 base/head、状态、观察时间、Diff 哈希和不可变正文引用，见 05 |
 | leases / wait_conditions | id；资源或等待条件；持有者、状态及引用版本；同一委派可有多个未解决阻断项 |
@@ -74,6 +75,8 @@ outbox runner 在单写事务中领取副作用步骤，保存 claimEpoch 和 pr
 
 Grant 的撤销与外部操作开始以事务中的 dispatching 记录为边界。撤销成功阻止尚未开始的操作；已进入 dispatching 的操作显示正在执行或结果待核对，继续尝试停止并保存实际结果。已经发生的提交和推送不能靠撤销记录回滚。
 
+GitHub head 的归属和推送租约按规范化远端引用在本机所有工作流间共用。PR 交付在推送授权事务中预留 head，外部写入开始事务重新核对归属和当前交付。换分支确认时以 Work revision 校验并切换 `currentPrDeliveryId`，同步撤销旧交付尚未开始的写入步骤。后续回执按原 Delivery ID 保存，封存只读取当前交付。具体规则见 05。
+
 进程、Git 和文件操作通过 operationId 执行。数据库与外部系统无法同事务，所有操作定义 reconcile。结果未知时置 uncertain，核对完成前停止重放该操作。
 
 ## 完整状态迁移规则
@@ -88,7 +91,8 @@ Grant 的撤销与外部操作开始以事务中的 dispatching 记录为边界�
 | Work | （新建）→ queued | Host 派发完整目标及指定 Worker |
 | Work | queued → queued | Host 显式改派，同一 workId 移入接手 Worker 的队尾，领取和改派按 Work revision 互斥 |
 | Work | queued → in_progress | 领取成功，创建首个或返工委派 |
-| Work | in_progress → awaiting_acceptance | 当前委派已验证，必要交付已核对，轮次及写入静止，无在途修订；事务封存新 WorkResult 并结束当前委派 |
+| Work | in_progress → in_progress | 当前 PR 交付受阻时可重新核对。用户确认替换目标的推送授权后，在事务中更新当前交付和 Work revision |
+| Work | in_progress → awaiting_acceptance | 当前委派已验证，必要交付已核对，轮次及写入静止，无在途修订。PR 快照须来自当前 Delivery。事务封存新 WorkResult 并结束当前委派 |
 | Work | awaiting_acceptance → awaiting_acceptance | 已绑定 PR 的 head 仍为原交付提交，服务核对新 PR 快照和受影响的验证，封存新成果版本并保留旧版 |
 | Work | awaiting_acceptance → completed | 用户对当前成果版本选择接受，版本和必要交付核对通过 |
 | Work | awaiting_acceptance → changes_requested | 用户针对当前成果版本选择退回并给出原因 |

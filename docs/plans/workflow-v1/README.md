@@ -12,7 +12,7 @@
 | [02 存储与状态](02-store-and-state.md) | SQLite、工作身份、队列、事务、恢复与迁移 |
 | [03 Host 与消息](03-host-and-messaging.md) | 工具契约、排队、返工、用户答复与交接 |
 | [04 原生终端](04-terminal.md) | 输出协议、快照、一致性、输入所有权及留存 |
-| [05 成果与交付](05-artifacts-and-delivery.md) | 候选冻结、成果验收、条件推送、真实 PR 与 Diff |
+| [05 成果与交付](05-artifacts-and-delivery.md) | 候选冻结、成果验收、分支归属、真实 PR 与交付恢复 |
 | [06 界面与 IPC](06-ui-and-ipc.md) | 用户流程、状态投影、窗口权限及输入 |
 | [07 验证与落地](07-validation-and-rollout.md) | 垂直闭环、故障矩阵、迁移与实施顺序 |
 
@@ -41,6 +41,7 @@
 | 工作身份独立于 Worker，成果逐版验收 | 队列、交接和返工共用稳定 workId。封存成果后释放 Worker，接受或退回绑定一个版本，代价是服务维护独立的工作投影与成果索引 |
 | Git 操作通过结构化 argv 和 stdin | 适配 Windows，按明确文件清单处理修改，避免 shell 拼接 |
 | GitHub PR 使用平台返回的 Diff 快照，首次推送校验目标不存在 | 真实 PR 可能采用不同的比较基线。快照和接受前的核对增加网络开销，换取明确的可查版本。新分支用空预期值约束创建，已有分支沿用普通快进 |
+| PR head 在推送前绑定工作 | 默认一项工作一条远端分支。换分支使用同一 workId 和新的交付授权，保留原回执，需要维护远端分支归属和当前交付指针 |
 | 原生终端是主视图 | PTY 数据直接显示，旁路承担机器可读报告。序列化恢复能力需要与原生模式逐项对照 |
 | 防误操作级权限明确展示 | 当前用户运行的 CLI 仍可能主动绕过配置，产品不得承诺强隔离 |
 
@@ -74,7 +75,7 @@ ID 使用服务生成的 UUID，版本号为对象内递增整数。事件游标
 
 事件 seq、成员消息 messageSeq 和终端 recordSeq 属于不同序列，游标必须携带所属流身份，各自只确认连续已处理的前缀。它们不能相互比较或替代。
 
-错误至少包括 INVALID_INPUT、NOT_FOUND、STALE_REVISION、REQUEST_ID_CONFLICT、FORBIDDEN、CAPABILITY_UNAVAILABLE、INPUT_OWNED、WAITING_RESOURCE、EXECUTION_UNCONFIRMED、BASE_MOVED、STORAGE_UNAVAILABLE、REVISION_IN_FLIGHT、TARGET_IN_USE、RECOVERY_PENDING、VERSION_UNVERIFIED，以及 PR 版本变化 `PR_REVISION_CHANGED` 和差异无法核对 `PR_DIFF_UNAVAILABLE`。queued 只证明请求已保存。原生投递结果从操作查询或事件订阅取得。
+错误至少包括 INVALID_INPUT、NOT_FOUND、STALE_REVISION、REQUEST_ID_CONFLICT、FORBIDDEN、CAPABILITY_UNAVAILABLE、INPUT_OWNED、WAITING_RESOURCE、EXECUTION_UNCONFIRMED、BASE_MOVED、STORAGE_UNAVAILABLE、REVISION_IN_FLIGHT、TARGET_IN_USE、RECOVERY_PENDING、VERSION_UNVERIFIED，以及远端 head 已归属其他工作的 `REMOTE_HEAD_OWNED`、PR 版本变化 `PR_REVISION_CHANGED` 和差异无法核对 `PR_DIFF_UNAVAILABLE`。queued 只证明请求已保存。原生投递结果从操作查询或事件订阅取得。
 
 每个来源独立区分 accepted、delivered、consumed、completed。写入 PTY 成功只证明字节已交给终端。没有原生或桥接处理回执时，状态停在 delivered。
 
@@ -92,7 +93,8 @@ ID 使用服务生成的 UUID，版本号为对象内递增整数。事件游标
 10. 原生按键与外部副作用结果不明时先核对，持久化请求去重不等于对任意外部动作保证恰好执行一次。
 11. Worker 来源的文本（报告、问题、Artifact、终端输出）不能产生权限。扩大范围、交付、推送等动作只能由服务校验或用户结构化确认产生。
 12. 能力证据只对记录的 CLI 版本有效；同一 Execution 内 CLI 版本不变。
-13. PR 编号、仓库身份、实际 base/head 与 Diff 哈希在成果版本中固定。读取旧成果始终使用原快照，接受前核对当前 PR。
+13. 服务推送前核对远端 head 归属。PR 编号、仓库身份、观察到的 base/head 与 Diff 哈希在成果版本中固定。接受前核对当前 PR，接受决定保存核对时间和所阅快照。
+14. 首次 PR 交付恢复沿用原 workId。换分支经授权切换当前 Delivery，只有当前交付可以封存成果。
 
 ## 第二轮模块复核
 
