@@ -12,7 +12,7 @@ synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事
 - P0-E 实测不达标时，先把 store 移出主线程，异步接口不变。
 - 移出主线程后仍不达标，才允许对不产生外部操作的事务（进度事件、合并摘要等）在同一连接上切换为 NORMAL。之后任何一次 FULL 提交都会把此前的 WAL 内容一并刷盘，顺序不会颠倒；断电时最多丢失最后一段进度事件，不影响副作用的核对依据。node:sqlite 在 Node 24 仍属实验性 API，随 Electron 版本锁定并在升级时回归。
 
-本机 Electron 的内存查询已通过，打包、WAL 与磁盘恢复尚待验证。DatabaseSync 是同步 API，禁止在事务内执行模型、Git、进程启动或等待文件上传。查询分页；主进程卡顿实测不达标时将相同接口移到单写线程。[Node 24 SQLite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)
+**P0-E 实测结论（Electron `42.11.18` / Node `v24.19.0` / SQLite `3.53.3`，2026-11-10）**：本机磁盘 `WAL` + `foreign_keys=ON` + `synchronous=FULL` 下 200 次完整单事务提交延迟为 `p50 = 0.45ms`、`p95 = 0.706ms`、`p99 = 1.319ms`、`max = 1.387ms`；`VACUUM INTO` 在线备份耗时 `5.32ms` 且 `integrity_check = ok`；`SIGKILL` 强杀崩溃恢复后已提交事务完整保留、未提交事务干净回滚。因此 V1 主进程直接启用 `WAL + synchronous=FULL`，无需在首版拆分独立写线程或降级为 `NORMAL`。`DatabaseSync` 是同步 API，仍禁止在事务内执行模型、Git、进程启动或等待文件上传，查询保持分页。[Node 24 SQLite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)
 
 路径为数据库所在的本机数据目录，工作流根目录只作为项目挂载。共享目录可位于选定根目录下，由显式配置定位，不能让 Worker 直接写 state.sqlite。
 

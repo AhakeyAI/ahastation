@@ -47,6 +47,22 @@ P0 的结论决定各路径的默认启用方式：P0-B 决定空闲注入还是
 
 P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络及费用动作按已有授权范围进行，需要额外成本时先给出具体预算和方案。此设计任务没有启动真实模型或外部推送。
 
+### P0 实测完成记录（2026-11-10，`win32-x64`）
+
+已在本地受控环境（Electron `42.11.18` / Node `v24.19.0` / SQLite `3.53.3` / Git `2.52.0.1` / `claude-code 2.1.318` / `codex-cli 0.167.0` + 本地回环 Mock HTTP 服务与临时 Git 远端，零外部 API 扣费）完成全部 P0-A..P0-I 验证，并将结论写回 `01`、`03`、`04`：
+
+| 编号 | 实测结论 | 关键指标 / 启用策略 |
+|---|---|---|
+| **P0-A** | **通过** | `claude-code 2.1.318` 与 `codex-cli 0.167.0` 的 `SessionStart`、`UserPromptSubmit`、`Stop` hooks 及 `--resume` / `resume` 会话恢复均通过；`nativeTurnId` 分别取 `prompt_id`（Claude）与 `turn_id`（Codex） |
+| **P0-B** | **通过（需修适配器参数）** | 两种 CLI 在交互式 ConPTY 空闲提示符下的 bracketed paste + `\r` 注入均触发 `UserPromptSubmit` 与 `Stop`（`idle-wake = verified`）；发现并定位了现有 `codex-terminal-adapter.ts` 的 `-c hooks=true` TOML 键冲突与 Windows PowerShell hook 启动语法问题 |
+| **P0-C** | **通过（默认 `scope=process` 冻结）** | 证实单靠轮次中断 (`\x03`) 无法杀死脱离轮次的后台写入子进程；修正 ConPTY 同步 `pid=0` 启动登记后，`taskkill /pid <pid> /t /f` + `Win32_Process` 进程树核对可 100% 清理进程树（`survivors = 0`），因此冻结、交接和版本切换默认采用 `scope=process` 或在无需重启时配合 `idle-wake` |
+| **P0-D** | **通过（采用安全检查点重放路径）** | 离线环境未安装 `@xterm/headless` / `@xterm/addon-serialize`，按规范启用 UTF-8 多字节与 ANSI CSI/OSC 安全检查点偏移 + 原始字节流重放（`tailReplayHasReplacementChar = false`）；`64KB / 16ms` 批量刷盘单次最大耗时 `0.265ms` |
+| **P0-E** | **通过（主进程直接启用 `WAL + synchronous=FULL`）** | Electron 内置 `node:sqlite` (`SQLite 3.53.3`) 在 `WAL` + `synchronous=FULL` 下 200 次完整命令事务提交延迟 `p50 = 0.45ms`、`p95 = 0.706ms`、`p99 = 1.319ms`、`max = 1.387ms`；`VACUUM INTO` 在线备份耗时 `5.32ms` 且 `integrity_check = ok`；`SIGKILL` 崩溃恢复后已提交事务完整保留、未提交事务干净回滚 |
+| **P0-F** | **通过** | 干净工作树快照冻结、脏工作树拒绝/自动提交、分支归属校验 (`RV-27`)、非检出分支 `update-ref` 原子 CAS、已检出干净工作树 `git merge --ff-only` (`RV-12a/b/c`) 及恶意 `.git/hooks` / `.git/config fsmonitor` 隔离全部通过 |
+| **P0-G** | **通过（选用 `app-server dynamicTools`）** | `codex app-server --stdio` (`0.167.0`) 在 `capabilities: { experimentalApi: true }` 下原生支持 `dynamicTools` (`item/tool/call`)、`turn/interrupt`（`345ms` 中断完成）以及进程重启后 `thread/resume` + `thread/turns/list` 保持原 `callId` 与参数逐项一致 |
+| **P0-H** | **通过** | `claude --resume <id> <prompt>` 与 `codex resume <id> <prompt>` 均验证通过，保持原 `session_id`、完整携带历史消息并触发 `SessionStart` → `UserPromptSubmit` → `Stop`，作为通用恢复与降级投递路径（注意剥离 Windows `\\?\` 路径前缀） |
+| **P0-I** | **通过** | 首次推送空预期值 `--force-with-lease=<ref>:` 在远端不存在时成功、已存在时拒绝覆盖 (`RV-23`/`RV-29`)；PR Diff 快照（`merge-base..head` + SHA-256 `diffHash`）与离线 GitHub PR HTTP fixture 鉴权/创建/核对全部通过 |
+
 ## 实现批次
 
 1. **本地状态与骨架**。实现最小 schema、异步 store 接口、事务、命令信封、Work 队列、Worker 列表及显式版本迁移。接入 fake runtime，验证重复请求和重启恢复。

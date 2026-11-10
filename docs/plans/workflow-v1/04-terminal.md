@@ -4,7 +4,12 @@
 
 RuntimeService 持有真实 CLI 和 PTY 生命周期。TerminalService 持有镜像、日志与订阅。Renderer 通过 RealTerminal 查看指定 executionId，视图卸载只 detach。
 
-现有 electron/pty-host.ts、electron/ipc/worker-pty.ts、src/components/RealTerminal.tsx 与 WorkerWorkbench.tsx 是改造入口。V1 使用 @xterm/headless 与 @xterm/addon-serialize，版本须和现有 xterm 兼容并锁定。原生终端协议兼容性实测后启用。[xterm API](https://xtermjs.org/docs/api/terminal/classes/terminal/)、[序列化插件](https://raw.githubusercontent.com/xtermjs/xterm.js/master/addons/addon-serialize/README.md)
+现有 electron/pty-host.ts、electron/ipc/worker-pty.ts、src/components/RealTerminal.tsx 与 WorkerWorkbench.tsx 是改造入口。
+
+**P0-D 实测结论（2026-11-10）**：
+1. **恢复路径选择**：当前离线工作区 `node_modules` 未安装 `@xterm/headless` 与 `@xterm/addon-serialize`（仅本地缓存了 `@xterm/headless` tarball，缺少 `@xterm/addon-serialize`），因此按 P0-D 降级规则，V1 默认采用**安全检查点偏移（UTF-8 多字节与 ANSI CSI/OSC/DCS 序列边界）+ 落盘原始字节流重放**恢复终端画面，不宣称使用未安装的 serialize 快照。后续在联网环境补齐并锁定 `@xterm/headless` + `@xterm/addon-serialize` 后，可按同一 `TerminalSnapshot` 协议开启增量快照优化。
+2. **解析边界实测**：UTF-8 3/4 字节中文字符跨块截断与 `\x1b[38;2;...m` CSI 序列跨块截断下，安全检查点计算均精确回退到序列起始字节（`tailReplayHasReplacementChar = false`），重放无 `U+FFFD` 乱码或吞序列现象。
+3. **刷盘批次参数**：实测 `64KB` 或 `16ms` 批次追加刷盘（2,000 条记录、共 `106KB`）总耗时 `0.545ms`、单次刷盘最大耗时 `0.265ms`，因此 `RuntimePolicy` 默认刷盘阈值定为 `batchBytes = 65536 (64KB)`、`batchIntervalMs = 16`。
 
 ## 输出与事件协议
 

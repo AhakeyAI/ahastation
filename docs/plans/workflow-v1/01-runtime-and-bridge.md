@@ -39,6 +39,28 @@ CapabilityEvidence 按后端、版本、平台、配置模式存储 verified / u
 | process-exit | 根进程和相关子进程退出证据 |
 | input-scope | 原生权限与工作流实际可实现的约束 |
 
+### P0 实测能力结论（win32-x64，2026-11-10）
+
+已在 Windows 11 (`win32-x64`) + ConPTY (`@lydell/node-pty`) + 本地回环 Mock 模型服务下对真实二进制完成 P0-A、P0-B、P0-C、P0-H 实测：
+
+| 能力 | `claude-code 2.1.318` (`win32-x64`) | `codex-cli 0.167.0` (`win32-x64`) | 实测证据与约束 |
+|---|---|---|---|
+| `ready` | **verified** | **verified** | 两者均触发 `SessionStart` hook，上报 `session_id`、`transcript_path`、`cwd`；交互式 TUI 还需结合输入框就绪与无模态弹窗（如 Claude 自定义 `ANTHROPIC_API_KEY` 确认框）后才允许注入 |
+| `resume` | **verified** | **verified** | `claude --resume <session_id>` 与 `codex resume <session_id>` 均保持原 `session_id` 不变，且向模型请求完整携带前序轮次历史 |
+| `instruction` | **verified** | **verified** | 首轮参数/粘贴提交与运行中 `aha-worker inbox` 均由 `UserPromptSubmit` hook 回传 `session_id` + 轮次标识（Claude 为 `prompt_id`，Codex 为 `turn_id`）及 `prompt` 原文确认 |
+| `idle-wake` | **verified** | **verified** | 交互式 ConPTY 在上一轮 `Stop` 到达且 `draftPossible=false` 时，通过 bracketed paste + `\r` 注入可稳定触发下一轮 `UserPromptSubmit` → `Stop`，并拿到新的 `prompt_id` / `turn_id` |
+| `resume-with-instruction` | **verified** | **verified** | `claude --resume <session_id> ... <prompt>` 与 `codex resume <session_id> ... <prompt>` 均在同一 `session_id` 下携带历史上下文直接启动新轮次，并依次触发 `SessionStart` → `UserPromptSubmit` → `Stop` |
+| `turn-start / turn-stop` | **verified** | **verified** | `UserPromptSubmit` 与 `Stop` 成对到达并携带同一 `session_id` 与轮次 ID（Claude `prompt_id` / Codex `turn_id`）及 `last_assistant_message` |
+| `subagents` | **unknown**（默认降级） | **unknown**（默认降级） | Claude `Stop` payload 虽含 `background_tasks` 字段，但两者均不能在通用进程/shell 派生下单独证明所有子写入已静止；按 P0-C 结论统一走 `scope=process` 冻结降级 |
+| `process-exit` | **verified** | **verified** | 修正 ConPTY 异步 `pid=0` 启动登记后，`taskkill /pid <rootPid> /t /f` + `Win32_Process` 进程树枚举可确认根进程、子 agent 与脱离轮次的后台写入进程全部退出 (`survivors=0`) |
+| `input-scope` | **verified** | **verified** | 工作流独立 worktree + 受保护运行时目录 + 轮次绑定凭据句柄 |
+
+**P0 实测暴露的关键实现约束（实现批次 2/3 必须遵守）**：
+1. **Windows ConPTY 异步 PID 登记（P0-C）**：`@lydell/node-pty` 在 Windows 下调用 `spawn()` 的同步瞬间 `pty.pid === 0`，真实 PID 在异步 `_completePtyConnection` 后才填入。`PtyHost` 与 `RuntimeService` 必须在异步拿到真实 `pid > 0` 后再调用 `trackAgentProcess`，否则进程作用域漏记根进程。
+2. **Codex Windows Hook 配置与命令语法（P0-B）**：`codex-cli 0.167.0` 中 `hooks` 是 TOML 表（`[hooks]`），开关位于 `[features] hooks = true`（0.167.0 默认开启），禁止再传 `-c hooks=true`（会报 `cannot extend value of type boolean with a dotted key`）。Windows 下 `codex.exe` 通过 `powershell.exe -Command` 执行 hook 且默认过滤环境变量，hook 命令必须使用 PowerShell 兼容调用（如 `$env:ELECTRON_RUN_AS_NODE='1'; & '<execPath>' '<hookScript>'`），并在隔离排除工作区不受信任 repo hooks 的前提下传入 `--dangerously-bypass-hook-trust`。
+3. **Windows 扩展路径前缀归一化（P0-B / P0-H）**：`codex resume` 触发的 hook 中 `transcript_path` 带有 `\\?\C:\...` 前缀，适配器比对路径前必须剥离 `^\\\\\?\\`。
+4. **原生轮次 ID 字段映射（P0-A / P0-B）**：Claude Code 在 `UserPromptSubmit` / `Stop` 中使用 `prompt_id` 作为原生轮次标识，Codex CLI 使用 `turn_id`；适配器统一归一化为 `nativeTurnId`。
+
 仅检测到输出或固定等待超时不足以判定可以注入。需要用户完成登录、信任配置或 hooks 时显示原生终端并等待能力就绪。缺少轮次停止证明的组合，冻结或交接自动降级为结束进程后执行（见“中断、冻结与后台执行”）；连进程树退出也无法确认时才返回 CAPABILITY_UNAVAILABLE。
 
 ## CLI 版本与能力漂移
@@ -162,5 +184,5 @@ Host 保留容量按实际会话及执行槽分别计算。闲置会话回收需
 
 RT-01 登录界面不被误注入；RT-02 原生会话恢复；RT-03 问题即时持久化且不阻塞收件；RT-04 旧版本在修订接收前可回报；RT-05 修订中崩溃不双启动；RT-06 中断保留 TUI；RT-07 子 agent 未停止时不做轮次级冻结，降级为结束进程后冻结；RT-08 用户输入与 Host 输入不混写；RT-09 进程 PID 重用不被误认；RT-10 空闲提示符注入在输入框有草稿时拒绝注入；RT-11 resume-with-instruction 投递答复与修订，会话上下文保留；RT-12 无法核对的执行经用户放弃后可创建替代执行，旧证据保留；RT-13 修订 pending 期间的人工轮次绑定旧版本；RT-14 未验证的 CLI 版本快速探测通过后，自动投递暂停，界面提供验证、改用已验证版本和人工投递三个入口，且不使用未验证的 resume-with-instruction；RT-15 执行期间 CLI 不自动更新，用户全局配置不被修改；RT-16 用户升级 CLI 后恢复成员，版本变化被记录并按新版本取能力。
 
-本机代码包含 hooks 和终端注入基础，但以上能力尚未真实 CLI 验收。官方文档仅作为适配器候选能力来源，实际版本证据决定启用。
+`win32-x64` 下的 `claude-code 2.1.318` 与 `codex-cli 0.167.0` 已完成 P0 真实 CLI 能力实测（见上表），其余平台或未验证版本仍须按實際版本证据决定启用。
 

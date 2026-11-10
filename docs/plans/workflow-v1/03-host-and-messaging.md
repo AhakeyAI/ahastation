@@ -6,7 +6,13 @@ HostController 驱动 Codex app-server 会话，ToolRouter 验证 Host 工具，
 
 现有入口包括 orchestrator.ts、host-group.ts、meeting-tools.ts、meeting-mcp.ts、task-mailbox.ts、ipc/tasks.ts。新工具应直接调用统一 WorkflowService，迁移到新模型的工作流禁用旧 scheduler 的重复派发。
 
-Host session 与工作流稳定绑定，连接重建使用原生线程恢复。Host 只能使用只读项目能力、共享计划写入及编排工具。派发通过结构化工具调用，聊天指令按下节规则绑定开工授权。MCP 或 app-server 动态工具的选择由 07 的 P0-G 验证后确定。P0-G 同时验证崩溃后线程恢复、恢复后 callId 是否稳定以及轮次中断，结论写回本节。
+Host session 与工作流稳定绑定，连接重建使用原生线程恢复。Host 只能使用只读项目能力、共享计划写入及编排工具。派发通过结构化工具调用，聊天指令按下节规则绑定开工授权。
+
+**P0-G 实测结论（`codex-cli 0.167.0 app-server --stdio`，2026-11-10）**：
+1. **工具接入方式**：采用 `codex app-server --stdio` 原生 `dynamicTools`（无需外部 MCP 进程）。握手 `initialize` 必须传入 `capabilities: { experimentalApi: true }`，并在 `thread/start` 的 `dynamicTools` 数组中注册编排工具（`name`、`description`、`inputSchema`）。同时需放宽 `codex-app-server-transport.ts` 的版本范围以覆盖 `0.167.0`。
+2. **工具调用与回执**：模型发起工具调用时，`app-server` 发送 JSON-RPC 请求 `item/tool/call`（携带 `threadId`、`turnId`、`callId`、`tool`、`arguments`），HostController 返回 `{ contentItems: [{ type: 'inputText', text: ... }], success }` 后，`app-server` 自动将 `function_call_output` 拼回同轮 `/v1/responses` 继续推理。
+3. **崩溃恢复与 `callId` 稳定性**：杀死 `app-server` 进程并在同一 `CODEX_HOME` 下重启后，调用 `thread/resume` 与 `thread/turns/list`（`itemsView: 'full'`）可原样恢复已持久化的 `dynamicToolCall` 条目，其 `id`（即原 `callId`，如 `call_p0g_001`）、`tool`、`arguments` 与 `contentItems` 逐项一致。因此已落盘完成的调用可按确定性推导的 `requestId = hash(hostThreadId, nativeTurnId, callId)` 精确去重；若崩溃发生在某个未完轮次中途且恢复后模型开启新轮次重新生成调用，则新轮次具有新的 `turnId`/`callId`，按第 34-39 行的 `RECOVERY_PENDING` 恢复摘要流程核对。
+4. **轮次中断**：对流式进行中的轮次调用 `turn/interrupt`（传入 `{ threadId, turnId }`），`app-server` 在约 `345ms` 内终止当前响应并推送 `turn/completed`（`status: 'interrupted'`），同一 `threadId` 保持可继续对话。
 
 ## 聊天开工与派发授权
 
