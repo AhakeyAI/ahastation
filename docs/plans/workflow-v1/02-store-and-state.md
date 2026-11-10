@@ -8,7 +8,7 @@ WorkflowStore 对外接口从第一版起为异步（返回 Promise），事务�
 
 synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事务，但在操作系统崩溃或断电时可能丢失最近的提交。如果丢失的是 outbox 意图或幂等记录，而对应的外部操作已经执行，恢复后就没有依据核对。因此：
 
-- 创建或推进 outbox 意图、启动或停止进程、授予或撤销 Grant、交付与冻结状态变化、工作排队与领取、委派版本切换、提交成果版本或写入 Decision 的事务，一律以 FULL 提交。outbox runner 只派发已在 FULL 事务中提交的意图。
+- 创建或推进 outbox 意图、启动或停止进程、授予或撤销开工许可与 Grant、保存或应用派发意图、交付与冻结状态变化、工作排队与领取、委派版本切换、提交成果版本或写入 Decision 的事务，一律以 FULL 提交。outbox runner 只派发已在 FULL 事务中提交的意图。
 - P0-E 实测不达标时，先把 store 移出主线程，异步接口不变。
 - 移出主线程后仍不达标，才允许对不产生外部操作的事务（进度事件、合并摘要等）在同一连接上切换为 NORMAL。之后任何一次 FULL 提交都会把此前的 WAL 内容一并刷盘，顺序不会颠倒；断电时最多丢失最后一段进度事件，不影响副作用的核对依据。node:sqlite 在 Node 24 仍属实验性 API，随 Electron 版本锁定并在升级时回归。
 
@@ -24,8 +24,8 @@ synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事
 | workflows | id；canonicalRootKey 唯一；hostEpoch、revision、nextEventSeq |
 | repository_mounts | workflowId + repositoryId；真实路径及仓库身份 |
 | workers | id；workflowId；currentVersion、pendingVersion、profileState、revision |
-| work_items | workId；workflowId、repositoryId、指定 Worker、queueSeq、待领取 spec、当前委派引用、currentPrDeliveryId、latestResultVersion、state、revision |
-| delegations | workerId + version；workId、specJson/specHash 不可变；state、waitReason 为可变投影 |
+| work_items | workId；workflowId、repositoryId、指定 Worker、queueSeq、待领取 spec、当前开工许可、当前委派引用、currentPrDeliveryId、latestResultVersion、state、revision |
+| delegations | workerId + version。workId、开工许可引用、specJson/specHash 不可变，state 和 waitReason 为可变投影 |
 | work_results | workId + resultVersion；精确委派、Candidate/Artifact、Verification、Delivery 和 PR 快照引用；发布后不可变 |
 | native_sessions | id；backend、nativeId、cwd、恢复证据 |
 | executions | id；workerId；processIdentity、nativeSessionId、state、revision |
@@ -37,6 +37,9 @@ synchronous 默认 FULL。WAL 下的 NORMAL 在应用崩溃时不丢已提交事
 | outbox | effectId 唯一；operationId + stepKey 唯一；effectType、payload、state、claimEpoch、receipt |
 | subscriptions | workflowId + consumerId；lastAckSeq。只持久化 Host 收件箱和 Worker 指令队列的游标；界面订阅只在内存中维护 |
 | messages | id；recipientWorker、delegationVersion、messageSeq、state |
+| user_messages | messageId、workflowId、已核对的用户来源、不可变原文及会话引用，关联待澄清记录和答复 |
+| dispatch_authorizations | authorizationId。workflowId + sourceUserMessageId 唯一，关联澄清答复（如有）、准确目标引用、范围、状态和版本 |
+| dispatch_intents | dispatchId。绑定 authorizationId 及版本、动作、参数哈希、Work 和操作回执 |
 | decisions / grants | id；问题答复绑定 question/version；成果决定按 workId + resultVersion 唯一；Grant 绑定准确动作和成果；撤销时间 |
 | artifacts / candidates | id；不可变正文身份与元数据；发布阶段 |
 | verifications / deliveries | id；workId、准确委派和成果、授权、目标版本与外部结果。PR 交付记录阻断原因和替换关系 |
@@ -70,6 +73,8 @@ Work 是 Host 派发的一个完整目标在服务里的记录。创建时生成
 5. COMMIT 后发送 UI 通知和启动 outbox runner。
 
 事件、投影、幂等回执和意图要么全部存在，要么全部不存在。原回执返回不代表重新授权外部副作用；runner 在实际执行前重新核对未撤销且版本匹配的 Grant。
+
+开工许可与绑定的用户消息及触发 Host 的事件在同一事务中关联保存，澄清后的许可仍以原开工消息为唯一键。Host 输入批次保存其授权来源。派发事务同时核对批次授权、有效许可、目标版本及 dispatchId，并原子保存 Work 或委派变更、队列、回执及 outbox。对同一 dispatchId 的不同 requestId 重试返回同一回执。领取工作、启动进程和实际投递前分别核对许可与委派版本。许可撤销阻止尚未开始的操作，已运行的轮次由显式停止命令处理。
 
 outbox runner 在单写事务中领取副作用步骤，保存 claimEpoch 和 processing 状态。同一 effectId 同时只有一个执行者；回执携带领取代次，旧代次不能覆盖新事实。多步骤操作保存相同 operationId，各步有稳定 stepKey，前一步结果持久化后才创建下一步意图。处理者失联或租约超时后，该步骤进入 uncertain 并先核对外部状态；仅在证明未执行或操作本身可安全幂等时重试。
 
@@ -149,6 +154,7 @@ GitHub head 的归属和推送租约按规范化远端引用在本机所有工�
 | Question | open → withdrawn | 提问方或 Host 撤回 |
 | Grant | active → consumed | 绑定的一次性动作已执行并有结果 |
 | Grant | active → revoked/expired | 用户撤销，或绑定的 Candidate、目标提交、委派版本失效 |
+| DispatchAuthorization | active → revoked/expired | 用户撤销，或绑定的执行目标结束、许可失效 |
 
 收到停止指令但执行未确认时，在操作进度显示 stopping，业务取消尚未完成。归档不得掩盖开放委派。V1 的归档为持久终态，历史可查，重新激活需后续明确产品动作。
 
@@ -179,3 +185,6 @@ Candidate 与 Delivery 保存 intent，创建 Git 对象和引用后再写完成
 ST-01 事务任意点崩溃后事件/投影一致；ST-02 同 request 并发调用只产生一个 Worker；ST-03 request 内容冲突拒绝；ST-04 外部操作成功但回执前崩溃可核对；ST-05 重启后 unknown 不重复启动；ST-06 重放投影与当前状态一致；ST-07 pending 修订取消不改变当前版本；ST-08 验证后授权等待能继续交付且不重跑 Worker；ST-09 磁盘满时新执行停止，已有进程与停止入口仍可核对；ST-10 Host 运行代次变化后重放同一工具调用命中原结果；ST-11 abandoned 执行释放唯一约束且证据可查；ST-12 辅助对象的表外迁移被拒绝；ST-13 目标平台上提交延迟和主进程卡顿满足 P0-E 要求。
 
 ST-14 队列领取与启动意图在重启后保持同一 workId，两个领取者不能重复分配；ST-15 封存成果、委派结束和待用户验收同事务恢复；ST-16 对同一成果并发接受与退回只写一个决定；ST-17 历史导入保留工作归属，无准确接受证据时保留待核对状态。
+
+ST-18 同一用户开工消息重试只生成一份许可，同一 dispatchId 仅应用一次。ST-19 开工许可撤销与领取或投递并发时，尚未开始的派发被拒绝，在途操作按原意图核对。
+

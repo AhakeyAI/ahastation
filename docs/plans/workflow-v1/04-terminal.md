@@ -89,3 +89,4 @@ draftPossible 为 true 时禁止空闲注入，避免把指令拼接到用户草
 TM-01 备用屏幕切换；TM-02 连续 resize；TM-03 UTF-8/ANSI 边界分片；TM-04 原始输出不含结束符；TM-05 快照期间高输出量；TM-06 慢 UI 追赶；TM-07 两窗口争抢输入；TM-08 磁盘满和截断尾部；TM-09 查询响应仅一次；TM-10 旧 Execution 订阅失效；TM-11 CLI 原生快捷键、菜单、粘贴和 subagent 视图对照；TM-12 输入所有权按切走视图、轮次结束和超时自动释放；TM-13 快照期间到达的终端查询在 CLI 容忍时间内得到唯一应答；TM-14 用户有草稿时 draftPossible 阻止注入；TM-15 第一轮开始证据迟到、用户已输入下一条草稿时，draftPossible 保持为 true，Host 不注入。
 
 优先采用录制字节 fixture 离线验证镜像一致性，再用两种真实 CLI 检查原生体验。
+

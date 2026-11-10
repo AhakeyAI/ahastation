@@ -2,7 +2,7 @@
 
 初稿日期 2026-11-08。2026-11-09 补充工作身份、用户验收和 GitHub PR 交付。状态为实现设计，尚未完成业务实现与真实 CLI 验收。
 
-依据 [总体架构](../2026-11-08-workflow-host-architecture.md)。用户交互模型为 Host → Worker。Host 自主分工，Worker 自主使用原生 CLI 和内部 subagent。服务用 workId 关联完整工作、委派记录及成果验收。
+依据 [总体架构](../2026-11-08-workflow-host-architecture.md)。用户交互模型为 Host → Worker。用户在聊天里明确要求执行后，服务按已绑定的目标与范围授权派发。Host 自主分工，Worker 自主使用原生 CLI 和内部 subagent。服务用 workId 关联完整工作、委派记录及成果验收。
 
 ## 阅读与实现顺序
 
@@ -10,7 +10,7 @@
 |---|---|
 | [01 原生执行与桥接](01-runtime-and-bridge.md) | 同一 CLI 会话、双通道、轮次、中断、修订接收 |
 | [02 存储与状态](02-store-and-state.md) | SQLite、工作身份、队列、事务、恢复与迁移 |
-| [03 Host 与消息](03-host-and-messaging.md) | 工具契约、排队、返工、用户答复与交接 |
+| [03 Host 与消息](03-host-and-messaging.md) | 聊天开工、派发授权、工具契约、排队、返工与交接 |
 | [04 原生终端](04-terminal.md) | 输出协议、快照、一致性、输入所有权及留存 |
 | [05 成果与交付](05-artifacts-and-delivery.md) | 候选冻结、成果验收、分支归属、真实 PR 与交付恢复 |
 | [06 界面与 IPC](06-ui-and-ipc.md) | 用户流程、状态投影、窗口权限及输入 |
@@ -95,6 +95,7 @@ ID 使用服务生成的 UUID，版本号为对象内递增整数。事件游标
 12. 能力证据只对记录的 CLI 版本有效；同一 Execution 内 CLI 版本不变。
 13. 服务推送前核对远端 head 归属。PR 编号、仓库身份、观察到的 base/head 与 Diff 哈希在成果版本中固定。接受前核对当前 PR，接受决定保存核对时间和所阅快照。
 14. 首次 PR 交付恢复沿用原 workId。换分支经授权切换当前 Delivery，只有当前交付可以封存成果。
+15. 服务从真实用户聊天生成开工许可，并绑定目标、版本和范围。讨论轮次只含讨论能力。派发应用按稳定 dispatchId 去重，后续执行核对原许可。
 
 ## 第二轮模块复核
 
@@ -126,3 +127,4 @@ ID 使用服务生成的 UUID，版本号为对象内递增整数。事件游标
 现有 terminal-cli-adapter 的 readiness 包含定时兜底，worker-cli-bridge 使用静态环境令牌，RealTerminal 依赖环形回放，main.ts 在关闭全部窗口时结束所有执行槽。这些是迁移入口，不能直接视为满足本设计。
 
 官方资料已用于核对 API 方向，文档当前版本不代表本机 CLI 已具备全部功能。[Node 24 SQLite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html)、[Codex hooks](https://learn.chatgpt.com/docs/hooks)、[Claude hooks](https://code.claude.com/docs/en/hooks)、[xterm write](https://xtermjs.org/docs/api/terminal/classes/terminal/)、[序列化插件](https://raw.githubusercontent.com/xtermjs/xterm.js/master/addons/addon-serialize/README.md)
+
