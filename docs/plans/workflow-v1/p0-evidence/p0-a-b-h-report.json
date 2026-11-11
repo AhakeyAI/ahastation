@@ -1,0 +1,615 @@
+{
+  "p0A_Claude": {
+    "binary": "<USER_HOME>\\.local\\bin\\claude.exe",
+    "version": "2.1.318",
+    "hookEventsRecorded": [
+      {
+        "recordedAt": 1794325248110,
+        "sourceTag": "claude",
+        "hookEventName": "SessionStart",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "source"
+        ]
+      },
+      {
+        "recordedAt": 1794325248261,
+        "sourceTag": "claude",
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": "Claude Turn 1 initial task",
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "prompt_id",
+          "permission_mode",
+          "hook_event_name",
+          "prompt"
+        ]
+      },
+      {
+        "recordedAt": 1794325248425,
+        "sourceTag": "claude",
+        "hookEventName": "Stop",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": "CLAUDE_REPLY_TURN_1 [terminal-task-complete]",
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "prompt_id",
+          "permission_mode",
+          "effort",
+          "hook_event_name",
+          "stop_hook_active",
+          "last_assistant_message",
+          "background_tasks",
+          "session_crons"
+        ]
+      },
+      {
+        "recordedAt": 1794325249367,
+        "sourceTag": "claude",
+        "hookEventName": "SessionStart",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "source",
+          "seconds_since_last_response",
+          "context_tokens",
+          "prompt_cache_likely_expired",
+          "estimated_cache_write_usd"
+        ]
+      },
+      {
+        "recordedAt": 1794325249541,
+        "sourceTag": "claude",
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": "Claude Turn 2 via resume-with-instruction",
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "prompt_id",
+          "permission_mode",
+          "hook_event_name",
+          "prompt"
+        ]
+      },
+      {
+        "recordedAt": 1794325249691,
+        "sourceTag": "claude",
+        "hookEventName": "Stop",
+        "sessionId": "ac362476-9ee1-4181-9cd9-ef3a3d166004",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\claude-config\\projects\\<SCRATCH_SLUG>-p0-abh-data-1794325247396-project\\ac362476-9ee1-4181-9cd9-ef3a3d166004.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": "CLAUDE_REPLY_TURN_2 [terminal-task-complete]",
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "prompt_id",
+          "permission_mode",
+          "effort",
+          "hook_event_name",
+          "stop_hook_active",
+          "last_assistant_message",
+          "background_tasks",
+          "session_crons"
+        ]
+      }
+    ],
+    "anthropicHttpRequests": [
+      {
+        "turnIndex": 1,
+        "url": "/v1/messages?beta=true",
+        "model": "claude-opus-5-5",
+        "messageCount": 2,
+        "messagesSummary": [
+          {
+            "role": "user",
+            "preview": "[{\"type\":\"text\",\"text\":\"<system-reminder>\\nCodebase and user instructions are shown below. Be sure to adhere to these in"
+          },
+          {
+            "role": "system",
+            "preview": "[{\"type\":\"text\",\"text\":\"# Environment\\nYou have been invoked in the following environment: \\n - Primary working director"
+          }
+        ]
+      },
+      {
+        "turnIndex": 2,
+        "url": "/v1/messages?beta=true",
+        "model": "claude-opus-5-5",
+        "messageCount": 4,
+        "messagesSummary": [
+          {
+            "role": "user",
+            "preview": "[{\"type\":\"text\",\"text\":\"<system-reminder>\\nCodebase and user instructions are shown below. Be sure to adhere to these in"
+          },
+          {
+            "role": "system",
+            "preview": "# Environment\nYou have been invoked in the following environment: \n - Primary working directory: <USER_HOME>\\.gemini\\an"
+          },
+          {
+            "role": "assistant",
+            "preview": "[{\"type\":\"text\",\"text\":\"CLAUDE_REPLY_TURN_1 [terminal-task-complete]\"}]"
+          },
+          {
+            "role": "user",
+            "preview": "[{\"type\":\"text\",\"text\":\"Claude Turn 2 via resume-with-instruction\",\"cache_control\":{\"type\":\"ephemeral\"}}]"
+          }
+        ]
+      }
+    ],
+    "turn1StopVerified": true,
+    "resumeWithInstructionVerified": true,
+    "resumeSameSessionId": true,
+    "resumePreservedContextInHttp": true,
+    "claudeTurn1OutputPreview": "CLAUDE_REPLY_TURN_1 [terminal-task-complete]",
+    "claudeResumeOutputPreview": "CLAUDE_REPLY_TURN_2 [terminal-task-complete]",
+    "claudeInteractiveStartupScreenPreview": "\u001b[>0q\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────DetectedacustomAPIkeyinyourenvironmentANTHROPIC_API_KEY:sk-ant-...sk-ant-mock-p0a-keyDoyouwanttousethisAPIkey?Yes>No(recommended)Entertoconfirm·Esctocancel\u001b[>4m"
+  },
+  "p0B_Codex": {
+    "binary": "<USER_HOME>\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+    "version": "0.167.0",
+    "hookEventsRecorded": [
+      {
+        "recordedAt": 1794325254909,
+        "sourceTag": "codex",
+        "hookEventName": "SessionStart",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": null,
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "source"
+        ]
+      },
+      {
+        "recordedAt": 1794325255345,
+        "sourceTag": "codex",
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-907f-79b3-85f8-a94a1c2e7a7b",
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": "Codex Turn 1 initial task",
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "prompt"
+        ]
+      },
+      {
+        "recordedAt": 1794325255925,
+        "sourceTag": "codex",
+        "hookEventName": "Stop",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-907f-79b3-85f8-a94a1c2e7a7b",
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": "CODEX_REPLY_TURN_1 [terminal-task-complete]",
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "stop_hook_active",
+          "last_assistant_message"
+        ]
+      },
+      {
+        "recordedAt": 1794325257708,
+        "sourceTag": "codex",
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-9c27-7502-b3ec-6b80ef88ab2d",
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": "Codex Turn 2 via idle-wake",
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "prompt"
+        ]
+      },
+      {
+        "recordedAt": 1794325258296,
+        "sourceTag": "codex",
+        "hookEventName": "Stop",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-9c27-7502-b3ec-6b80ef88ab2d",
+        "transcriptPath": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": "CODEX_REPLY_TURN_3 [terminal-task-complete]",
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "stop_hook_active",
+          "last_assistant_message"
+        ]
+      },
+      {
+        "recordedAt": 1794325259732,
+        "sourceTag": "codex",
+        "hookEventName": "SessionStart",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": null,
+        "transcriptPath": "\\\\?\\<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "source"
+        ]
+      },
+      {
+        "recordedAt": 1794325260174,
+        "sourceTag": "codex",
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-a3dd-7242-afd7-baebe1bf14a5",
+        "transcriptPath": "\\\\?\\<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": "Codex Turn 3 via resume-with-instruction",
+        "lastAssistantMessage": null,
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "prompt"
+        ]
+      },
+      {
+        "recordedAt": 1794325260750,
+        "sourceTag": "codex",
+        "hookEventName": "Stop",
+        "sessionId": "01a1c61e-8f3e-7083-adfe-43d5d293f6e0",
+        "turnId": "01a1c61e-a3dd-7242-afd7-baebe1bf14a5",
+        "transcriptPath": "\\\\?\\<SCRATCH_DIR>\\p0-abh-data-1794325247396\\codex-home\\sessions\\2026\\11\\10\\rollout-2026-11-10T23-40-53-01a1c61e-8f3e-7083-adfe-43d5d293f6e0.jsonl",
+        "cwd": "<SCRATCH_DIR>\\p0-abh-data-1794325247396\\project",
+        "prompt": null,
+        "lastAssistantMessage": "CODEX_REPLY_TURN_5 [terminal-task-complete]",
+        "keys": [
+          "session_id",
+          "turn_id",
+          "transcript_path",
+          "cwd",
+          "hook_event_name",
+          "model",
+          "permission_mode",
+          "stop_hook_active",
+          "last_assistant_message"
+        ]
+      }
+    ],
+    "openAiHttpRequests": [
+      {
+        "turnIndex": 1,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 4,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<skills_instructions>\\n## Skills\\nA skill is a set of local instructions to follow that is"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <cwd><SCRATCH_DIR>"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 1 initial task\"}]"
+          }
+        ]
+      },
+      {
+        "turnIndex": 2,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 4,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<permissions instructions>\\nFilesystem sandboxing defines which files can be read or writt"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <current_date>2026-11-10</current_date>\\n  <timezone>Asia/Taipei<"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Generate a concise, single-line task title of at most 36 characters and under five words w"
+          }
+        ]
+      },
+      {
+        "turnIndex": 3,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 6,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<skills_instructions>\\n## Skills\\nA skill is a set of local instructions to follow that is"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <cwd><SCRATCH_DIR>"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 1 initial task\"}]"
+          },
+          {
+            "type": "message",
+            "role": "assistant",
+            "preview": "[{\"type\":\"output_text\",\"text\":\"CODEX_REPLY_TURN_1 [terminal-task-complete]\",\"annotations\":[]}]"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 2 via idle-wake\"}]"
+          }
+        ]
+      },
+      {
+        "turnIndex": 4,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 4,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<permissions instructions>\\nFilesystem sandboxing defines which files can be read or writt"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <current_date>2026-11-10</current_date>\\n  <timezone>Asia/Taipei<"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Generate a concise, single-line task title of at most 36 characters and under five words w"
+          }
+        ]
+      },
+      {
+        "turnIndex": 5,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 8,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<skills_instructions>\\n## Skills\\nA skill is a set of local instructions to follow that is"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <cwd><SCRATCH_DIR>"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 1 initial task\"}]"
+          },
+          {
+            "type": "message",
+            "role": "assistant",
+            "preview": "[{\"type\":\"output_text\",\"text\":\"CODEX_REPLY_TURN_1 [terminal-task-complete]\",\"annotations\":[]}]"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 2 via idle-wake\"}]"
+          },
+          {
+            "type": "message",
+            "role": "assistant",
+            "preview": "[{\"type\":\"output_text\",\"text\":\"CODEX_REPLY_TURN_3 [terminal-task-complete]\",\"annotations\":[]}]"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Codex Turn 3 via resume-with-instruction\"}]"
+          }
+        ]
+      },
+      {
+        "turnIndex": 6,
+        "url": "/v1/responses",
+        "model": "gpt-5.4",
+        "inputCount": 4,
+        "inputSummary": [
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex "
+          },
+          {
+            "type": "message",
+            "role": "developer",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<permissions instructions>\\nFilesystem sandboxing defines which files can be read or writt"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <current_date>2026-11-10</current_date>\\n  <timezone>Asia/Taipei<"
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "preview": "[{\"type\":\"input_text\",\"text\":\"Generate a concise, single-line task title of at most 36 characters and under five words w"
+          }
+        ]
+      }
+    ],
+    "turn1StopVerified": true,
+    "idleWakePromptSubmitVerified": true,
+    "idleWakeStopVerified": true,
+    "resumeWithInstructionVerified": true,
+    "resumeSameSessionId": true,
+    "resumePreservedContextInHttp": true,
+    "codexPtyOutputPreview": "                                                           \n› Ask Codex to do anything                                                                                              \n                                                                                                                        \n  gpt-5.4 default · ~\<SCRATCH_DIR>…  ⚠ 2 warnings · f2 to view •\n  Worked for 1s • 11:41 PM\n\n\n› Ask Codex to do anything\n\n  gpt-5.4 default · ~\<SCRATCH_DIR>…  ⚠ 2 warnings · f2 to view"
+  },
+  "p0B_ClaudeInteractiveIdleWake": {
+    "verified": true,
+    "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+    "turn1PromptId": "b4ac3b9f-f1a6-4086-ab25-9f3447412511",
+    "turn2IdleWakePromptId": "631bef2c-a4e7-4dd0-ba8b-86a4a686e342",
+    "hookEventsRecorded": [
+      {
+        "at": 1794325373025,
+        "hookEventName": "SessionStart",
+        "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+        "promptId": null,
+        "prompt": null,
+        "lastAssistantMessage": null
+      },
+      {
+        "at": 1794325373464,
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+        "promptId": "b4ac3b9f-f1a6-4086-ab25-9f3447412511",
+        "prompt": "Interactive Turn 1",
+        "lastAssistantMessage": null
+      },
+      {
+        "at": 1794325373666,
+        "hookEventName": "Stop",
+        "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+        "promptId": "b4ac3b9f-f1a6-4086-ab25-9f3447412511",
+        "prompt": null,
+        "lastAssistantMessage": "CLAUDE_TUI_TURN_1 [terminal-task-complete]"
+      },
+      {
+        "at": 1794325375018,
+        "hookEventName": "UserPromptSubmit",
+        "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+        "promptId": "631bef2c-a4e7-4dd0-ba8b-86a4a686e342",
+        "prompt": "Interactive Turn 2 via idle-wake",
+        "lastAssistantMessage": null
+      },
+      {
+        "at": 1794325375147,
+        "hookEventName": "Stop",
+        "sessionId": "82f21ee8-174c-4ee2-aab6-a3e2b8707885",
+        "promptId": "631bef2c-a4e7-4dd0-ba8b-86a4a686e342",
+        "prompt": null,
+        "lastAssistantMessage": "CLAUDE_TUI_TURN_2 [terminal-task-complete]"
+      }
+    ]
+  }
+}

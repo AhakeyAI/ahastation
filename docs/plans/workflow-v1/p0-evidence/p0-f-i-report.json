@@ -1,0 +1,110 @@
+{
+  "p0F": {
+    "freezeCleanResult": {
+      "ok": true,
+      "wasDirtyBeforeFreeze": false,
+      "candidate": {
+        "commitSha": "03e8209a0022515cb73aafc24124d0c60be6015e",
+        "baseCommitSha": "c5dce2a4d835261a893415b1f4402fa7d3fc3292",
+        "parentShas": [
+          "c5dce2a4d835261a893415b1f4402fa7d3fc3292"
+        ],
+        "treeSha": "3cfd196129e67f281b4be4a5b7e724f80b38593e",
+        "diffStat": "1\t0\tapp.txt",
+        "patchHash": "1e29cedd66351076f26aaf684726d69fd05ad082b974a5267e6ff0544f5500a4"
+      }
+    },
+    "freezeDirtyRejected": {
+      "ok": false,
+      "errorCode": "CANDIDATE_FREEZE_DIRTY",
+      "detail": "Working tree has uncommitted changes and autoCommitDirty=false"
+    },
+    "freezeDirtyAutoCommitted": {
+      "ok": true,
+      "wasDirtyBeforeFreeze": true,
+      "candidate": {
+        "commitSha": "253505d07938b59ddfa6b7a3151e26cfebbbb0a0",
+        "baseCommitSha": "c5dce2a4d835261a893415b1f4402fa7d3fc3292",
+        "parentShas": [
+          "c5dce2a4d835261a893415b1f4402fa7d3fc3292"
+        ],
+        "treeSha": "bc87d33883688bd4eab0e9d12347d98418d0e2cf",
+        "diffStat": "1\t0\tapp.txt\n1\t0\tnew-file.txt",
+        "patchHash": "148bcbe5ad19df6ada6a97535b3945f48e6e2a451213453aaf840afc5fb154cd"
+      }
+    },
+    "unownedBranchRejected": {
+      "ok": false,
+      "errorCode": "BRANCH_OWNERSHIP_REJECTED",
+      "detail": "Branch 'main' is outside workflow namespace 'aha/wf-wf-1/*' and lacks explicit user approval binding"
+    },
+    "deliverNewOwnedBranch": {
+      "ok": true,
+      "mode": "update-ref-cas",
+      "deliveredCommitSha": "03e8209a0022515cb73aafc24124d0c60be6015e"
+    },
+    "deliverCasMismatch": {
+      "ok": false,
+      "errorCode": "CAS_TARGET_HEAD_MISMATCH",
+      "expectedTargetHeadSha": "0000000000000000000000000000000000000000",
+      "actualTargetHeadSha": "03e8209a0022515cb73aafc24124d0c60be6015e"
+    },
+    "deliverNonFastForward": {
+      "ok": false,
+      "errorCode": "NON_FAST_FORWARD_REJECTED",
+      "expectedTargetHeadSha": "03e8209a0022515cb73aafc24124d0c60be6015e",
+      "commitSha": "253505d07938b59ddfa6b7a3151e26cfebbbb0a0"
+    },
+    "deliverCheckedOutDirtyRejected": {
+      "ok": false,
+      "errorCode": "TARGET_WORKTREE_DIRTY",
+      "worktree": "<SCRATCH_DIR>/p0-f-i-git-data/workspace"
+    },
+    "deliverCheckedOutMergeHeadRejected": {
+      "ok": false,
+      "errorCode": "TARGET_WORKTREE_GIT_OP_IN_PROGRESS",
+      "marker": "MERGE_HEAD",
+      "worktree": "<SCRATCH_DIR>/p0-f-i-git-data/workspace"
+    },
+    "deliverCheckedOutCleanSuccess": {
+      "ok": true,
+      "mode": "checked-out-worktree-ff-only",
+      "worktree": "<SCRATCH_DIR>/p0-f-i-git-data/workspace",
+      "deliveredCommitSha": "03e8209a0022515cb73aafc24124d0c60be6015e",
+      "worktreeCleanAfterMerge": true
+    },
+    "mainWorkingTreeUpdatedCorrectly": true,
+    "fetchIntoServiceBareOk": true,
+    "firstPushEmptyLeaseSuccessOk": true,
+    "secondPushEmptyLeaseRejectedOk": true,
+    "secondPushEmptyLeaseStderr": "error: failed to push some refs to '<SCRATCH_DIR>\\p0-f-i-git-data\\upstream.git'",
+    "maliciousHookTriggered": false
+  },
+  "p0I": {
+    "approvalSnapshot": {
+      "commitSha": "03e8209a0022515cb73aafc24124d0c60be6015e",
+      "expectedTargetHeadSha": "c5dce2a4d835261a893415b1f4402fa7d3fc3292",
+      "diffHash": "1e29cedd66351076f26aaf684726d69fd05ad082b974a5267e6ff0544f5500a4",
+      "files": [
+        "M\tapp.txt"
+      ]
+    },
+    "unauthStatus": 401,
+    "authStatus": 201,
+    "createdPr": {
+      "number": 42,
+      "html_url": "http://127.0.0.1/ahastudio/demo/pull/42",
+      "state": "open",
+      "head": {
+        "ref": "aha/wf-wf-1/pr-1",
+        "sha": "03e8209a0022515cb73aafc24124d0c60be6015e"
+      },
+      "base": {
+        "ref": "main",
+        "sha": "c5dce2a4d835261a893415b1f4402fa7d3fc3292"
+      },
+      "title": "feat: clean worker change"
+    },
+    "recordedPrRequestsCount": 2
+  }
+}
