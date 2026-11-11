@@ -49,7 +49,7 @@ P0 阶段可以先做小型受控原型和离线 fixture。真实模型、网络
 
 ### P0 实测完成记录（2026-11-10，`win32-x64`）
 
-已在本地受控环境（Electron `42.11.18` / Node `v24.19.0` / SQLite `3.53.3` / Git `2.52.0.1` / `claude-code 2.1.318` / `codex-cli 0.167.0` + 本地回环 Mock HTTP 服务与临时 Git 远端，零外部 API 扣费）完成全部 P0-A..P0-I 验证，并将结论写回 `01`、`03`、`04`：
+已在本地受控环境（Electron `42.11.18` / Node `v24.19.0` / SQLite `3.53.3` / Git `2.52.0.1` / `claude-code 2.1.318` / `codex-cli 0.167.0` + 本地回环 Mock HTTP 服务与临时 Git 远端，零外部 API 扣费）完成全部 P0-A..P0-I 验证，并将结论写回 `01`、`02`、`03`、`04`。原始实测 JSON 报告与可复现脚本见 [p0-evidence/README.md](p0-evidence/README.md)：
 
 | 编号 | 实测结论 | 关键指标 / 启用策略 |
 |---|---|---|

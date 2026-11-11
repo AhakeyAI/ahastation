@@ -1,0 +1,42 @@
+{
+  "p0C": {
+    "syncSpawnPidAtCallTime": 0,
+    "connectedPidAfterStartup": 23844,
+    "spawnedPids": {
+      "workerPid": 23844,
+      "subagentPid": 33416,
+      "bgWriterPid": 3800
+    },
+    "treeCountBeforeStop": 3,
+    "treePidsBeforeStop": [
+      23844,
+      3800,
+      33416
+    ],
+    "bgWriterStillAliveAfterTurnStop": true,
+    "survivorsAfterTreeKillCount": 0,
+    "bgWriterStoppedWritingAfterTreeKill": true
+  },
+  "p0D": {
+    "boundarySafety": {
+      "idxChineseLead": 6,
+      "safeOffsetUtf8MatchesLeadBoundary": true,
+      "idxCsi": 19,
+      "safeOffsetCsiMatchesEscBoundary": true,
+      "tailReplayHasReplacementChar": false
+    },
+    "batchFlushBenchmark": {
+      "chunks": 2000,
+      "totalBytesWritten": 106000,
+      "flushCalls": 2,
+      "totalWriteDurationMs": 0.545,
+      "maxFlushMs": 0.265
+    },
+    "packagesInRepoNodeModules": {
+      "xtermHeadlessInstalledInRepo": false,
+      "xtermSerializeInstalledInRepo": false,
+      "fallbackRequiredByP0D": true,
+      "selectedRecoveryStrategy": "checkpoint + raw tail replay (safe UTF-8/CSI boundary offset)"
+    }
+  }
+}

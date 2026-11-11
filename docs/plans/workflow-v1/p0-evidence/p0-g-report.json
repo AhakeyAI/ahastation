@@ -1,0 +1,148 @@
+{
+  "initUserAgent": "ahastation-p0g/0.167.0 (Windows 10.0.26300; x86_64) unknown (ahastation-p0g; 0.19.0)",
+  "threadId": "01a1c60d-d0c6-7f83-8cb6-2be44c3f62d7",
+  "turn1": {
+    "turnId": "01a1c60d-d105-7cb2-8d6e-c173480738e6",
+    "completedStatus": "completed",
+    "interceptedToolCalls": [
+      {
+        "threadId": "01a1c60d-d0c6-7f83-8cb6-2be44c3f62d7",
+        "turnId": "01a1c60d-d105-7cb2-8d6e-c173480738e6",
+        "callId": "call_p0g_001",
+        "namespace": null,
+        "tool": "PrepareDispatch",
+        "arguments": {
+          "requestId": "req-p0g-1",
+          "targetAgentId": "worker-alpha",
+          "instruction": "Implement feature X"
+        }
+      }
+    ],
+    "secondOpenAiRequestReceivedToolOutput": true
+  },
+  "turn2Interrupt": {
+    "turnId": "01a1c60d-d2aa-7681-a5ac-25d3a844ef97",
+    "interruptResponse": {},
+    "completedStatus": "interrupted"
+  },
+  "crashResume": {
+    "resumedThreadId": "01a1c60d-d0c6-7f83-8cb6-2be44c3f62d7",
+    "resumedTurnCount": 2,
+    "resumedDynamicToolItems": [
+      {
+        "type": "dynamicToolCall",
+        "id": "call_p0g_001",
+        "namespace": null,
+        "tool": "PrepareDispatch",
+        "arguments": {
+          "requestId": "req-p0g-1",
+          "targetAgentId": "worker-alpha",
+          "instruction": "Implement feature X"
+        },
+        "status": "completed",
+        "contentItems": [
+          {
+            "type": "inputText",
+            "text": "{\"ok\":true,\"dispatchToken\":\"tok-p0g-verified\",\"source\":\"host_tool\",\"sourceId\":\"call_p0g_001\"}"
+          }
+        ],
+        "success": true,
+        "durationMs": 0,
+        "startedAtMs": 1794324156924,
+        "completedAtMs": 1794324156925
+      }
+    ],
+    "callIdPreservedAfterRestart": true,
+    "turnsListRes": {
+      "data": [
+        {
+          "id": "01a1c60d-d2aa-7681-a5ac-25d3a844ef97",
+          "rootTurnId": "01a1c60d-d2aa-7681-a5ac-25d3a844ef97",
+          "items": [
+            {
+              "type": "userMessage",
+              "id": "01a1c60d-d2d9-7660-9db4-23ca9beb0a63",
+              "clientId": null,
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Start a long running thought.",
+                  "text_elements": []
+                }
+              ],
+              "startedAtMs": 1794324157163,
+              "completedAtMs": 1794324157163
+            }
+          ],
+          "itemsView": "full",
+          "status": "interrupted",
+          "error": null,
+          "startedAt": 1794324157,
+          "completedAt": 1794324157,
+          "durationMs": 345
+        },
+        {
+          "id": "01a1c60d-d105-7cb2-8d6e-c173480738e6",
+          "rootTurnId": "01a1c60d-d105-7cb2-8d6e-c173480738e6",
+          "items": [
+            {
+              "type": "userMessage",
+              "id": "01a1c60d-d1a8-7f20-bc1b-d03feaa4c8c3",
+              "clientId": null,
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Please dispatch feature X to worker-alpha.",
+                  "text_elements": []
+                }
+              ],
+              "startedAtMs": 1794324156857,
+              "completedAtMs": 1794324156857
+            },
+            {
+              "type": "dynamicToolCall",
+              "id": "call_p0g_001",
+              "namespace": null,
+              "tool": "PrepareDispatch",
+              "arguments": {
+                "requestId": "req-p0g-1",
+                "targetAgentId": "worker-alpha",
+                "instruction": "Implement feature X"
+              },
+              "status": "completed",
+              "contentItems": [
+                {
+                  "type": "inputText",
+                  "text": "{\"ok\":true,\"dispatchToken\":\"tok-p0g-verified\",\"source\":\"host_tool\",\"sourceId\":\"call_p0g_001\"}"
+                }
+              ],
+              "success": true,
+              "durationMs": 0,
+              "startedAtMs": 1794324156924,
+              "completedAtMs": 1794324156925
+            },
+            {
+              "type": "agentMessage",
+              "id": "msg_p0g_1",
+              "text": "PrepareDispatch succeeded with token tok-p0g-verified.",
+              "phase": null,
+              "memoryCitation": null,
+              "delivery": null,
+              "questions": null,
+              "startedAtMs": 1794324156990,
+              "completedAtMs": 1794324156990
+            }
+          ],
+          "itemsView": "full",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1794324156,
+          "completedAt": 1794324157,
+          "durationMs": 383
+        }
+      ],
+      "nextCursor": null,
+      "backwardsCursor": "{\"requestedThreadId\":\"01a1c60d-d0c6-7f83-8cb6-2be44c3f62d7\",\"rolloutOrdinal\":19,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}"
+    }
+  }
+}

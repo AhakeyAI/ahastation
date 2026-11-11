@@ -1,0 +1,51 @@
+{
+  "runtimeInfo": {
+    "electronVersion": "42.11.18",
+    "nodeVersion": "v24.19.0",
+    "sqliteVersion": "3.53.3",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "benchmarks": {
+    "full": {
+      "syncMode": "FULL",
+      "iterations": 200,
+      "p50Ms": 0.45,
+      "p95Ms": 0.706,
+      "p99Ms": 1.319,
+      "maxMs": 1.387,
+      "meanMs": 0.495
+    },
+    "normal": {
+      "syncMode": "NORMAL",
+      "iterations": 200,
+      "p50Ms": 0.08,
+      "p95Ms": 0.163,
+      "p99Ms": 8.038,
+      "maxMs": 10.838,
+      "meanMs": 0.186
+    }
+  },
+  "onlineBackup": {
+    "method": "VACUUM INTO",
+    "backupDurationMs": 5.323,
+    "integrityCheck": {
+      "integrity_check": "ok"
+    },
+    "eventCount": 200
+  },
+  "crashRecovery": {
+    "childSignal": null,
+    "childStatus": 1,
+    "integrityCheck": {
+      "integrity_check": "ok"
+    },
+    "committedSurvivor": {
+      "event_id": "evt-crash-committed",
+      "seq": 201
+    },
+    "uncommittedEventRolledBack": true,
+    "uncommittedOutboxRolledBack": true,
+    "totalEventsAfterCrash": 201
+  }
+}
