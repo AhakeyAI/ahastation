@@ -28,6 +28,8 @@ import { ScanAccessStore } from './observe/scan-access.js';
 import { ScanPreferences } from './observe/scan-preferences.js';
 import { ScanNotifications } from './observe/scan-notifications.js';
 import { registerScanIpc } from './observe/scan-ipc.js';
+import { registerSessionCopyIpc } from './observe/session-copy-ipc.js';
+import { SessionCopyStorage } from './observe/session-copy-storage.js';
 import type { ObservedSnapshot } from './observe/types.js';
 import {
   buildRendererSecurityHeaders,
@@ -739,6 +741,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // Observation layer: snapshot pull + start scanning (broadcasts via publish).
   await scanAccess.load();
   await scanPreferences.load();
+  registerSessionCopyIpc({ window: liveWindow, storage: new SessionCopyStorage(app.getPath('userData')) });
   const scanControls = registerScanIpc({ window: liveWindow, access: scanAccess, service: observeService, snapshot: () => lastObservedSnapshot,
     preferences: scanPreferences, ownershipPath: join(app.getPath('userData'), 'sessions', 'owned.json') });
   observeService.start();

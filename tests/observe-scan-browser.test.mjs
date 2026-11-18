@@ -105,3 +105,40 @@ test('project-room onboarding uses consent, keeps cancellation pending and opens
   assert.equal(await page.evaluate(() => window.__scanTest.completed), 1);
   assert.deepEqual(errors, []);
 });
+
+test('backup management remains usable with scanning off, confirms deletion, handles failures and blocks double clicks', async t => {
+  const { page, errors } = await preview(t);
+  await page.getByText('本机会话备份', { exact: true }).click();
+  await page.getByRole('button', { name: '刷新备份列表' }).click();
+  const id = '019a6cf7-1200-7000-8000-000000000001';
+  const remove = page.getByRole('button', { name: `删除备份 ${id}` });
+  await remove.waitFor();
+  assert.ok(await page.getByText('本机会话扫描未启用', { exact: true }).isVisible());
+  await page.evaluate(() => { window.__scanTest.result = 'cancel'; });
+  await remove.click(); assert.ok(await remove.isVisible());
+  await page.evaluate(() => { window.__scanTest.result = 'error'; });
+  await remove.click(); await page.getByRole('alert').getByText('授权暂不可用').waitFor();
+  assert.ok(await remove.isVisible());
+  await page.evaluate(() => { window.__scanTest.result = 'deferred'; });
+  await remove.evaluate(button => { button.click(); button.click(); });
+  assert.equal(await page.evaluate(() => window.__scanTest.backupCalls), 3);
+  assert.ok(await remove.isDisabled());
+  assert.deepEqual(await page.evaluate(() => window.__scanTest.lastBackupRequest), { preparationId: id, revision: 'a'.repeat(64) });
+  await page.evaluate(() => { window.__scanTest.result = 'ok'; window.__scanTest.release(); });
+  await remove.waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: /^删除备份 / }).count(), 1);
+  await page.setViewportSize({ width: 800, height: 700 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (process.env.STATION_UI_EVIDENCE_DIR) {
+    await mkdir(process.env.STATION_UI_EVIDENCE_DIR, { recursive: true });
+    await page.screenshot({ path: join(process.env.STATION_UI_EVIDENCE_DIR, 's5-backup-management.png'), fullPage: true });
+  }
+  await page.evaluate(() => { window.__scanTest.backupListError = true; });
+  await page.getByRole('button', { name: '刷新备份列表' }).click();
+  await page.getByRole('alert').getByText('备份管理暂不可用，请重试').waitFor();
+  assert.equal(await page.getByRole('button', { name: /^删除备份 / }).count(), 0);
+  await page.evaluate(() => { window.__scanTest.backupListError = false; window.__scanTest.backups = []; });
+  await page.getByRole('button', { name: '刷新备份列表' }).click();
+  await page.getByText('没有已保存的会话备份。', { exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+});

@@ -347,11 +347,16 @@ test('a backend mention routes the user turn to the ready expert instead of the 
         message: { role: 'assistant', content: [{ type: 'text', text: 'ASR 依赖没有加载成功。' }] },
       },
     });
-    await waitFor(
-      () => emitted.some((event) => event.hostId === 'codex-expert' && event.event.kind === 'message'),
-      'the expert response should emit after its journal entry is durable',
+    // Drain the actual journal queue instead of requiring fsync to finish
+    // within one second on a busy Windows runner.
+    const journal = await orchestrator.replayMeetingJournal();
+    const response = emitted.find((event) => event.hostId === 'codex-expert' && event.event.kind === 'message');
+    assert.ok(response, 'the durable expert response should be emitted');
+    assert.deepEqual(
+      journal.find((entry) => entry.type === 'event:message' && entry.payload.hostId === 'codex-expert')?.payload,
+      response,
+      'the emitted expert response must match the durable journal',
     );
-    assert.ok(emitted.some((event) => event.hostId === 'codex-expert' && event.event.kind === 'message'));
     assert.match(sessions[0].inputs[0], /expert response from codex-expert.*ASR 依赖没有加载成功/s);
   } finally {
     await orchestrator.end();
@@ -385,9 +390,11 @@ test('narrating one assistant line does not feed a new turn back into the host',
   try {
     await orchestrator.start();
     orchestrator.narrateAssistantLine('one intended line');
-    await waitFor(
-      () => emittedLines.length === 1,
-      'the narration should emit after its journal entry is durable',
+    const journal = await orchestrator.replayMeetingJournal();
+    assert.ok(
+      journal.some((entry) => entry.type === 'event:message'
+        && entry.payload.event.message?.message?.content?.some((block) => block.text === 'one intended line')),
+      'the narration must be present in the durable journal',
     );
     assert.deepEqual(emittedLines, ['one intended line']);
     assert.deepEqual(hostInputs, []);
