@@ -470,6 +470,8 @@ const api = {
     ignoreDirectory: (key) => ipcRenderer.invoke('observe:ignoreDirectory', { key }),
     ignoreSession: (id) => ipcRenderer.invoke('observe:ignoreSession', { id }),
     restoreHidden: () => ipcRenderer.invoke('observe:restoreHidden'),
+    listSessionCopies: () => ipcRenderer.invoke('observe:listSessionCopies'),
+    discardSessionCopy: (preparationId, revision) => ipcRenderer.invoke('observe:discardSessionCopy', { preparationId, revision }),
     onReviewRequested: (cb) => {
       const listener = () => cb();
       ipcRenderer.on('observe:reviewRequested', listener);

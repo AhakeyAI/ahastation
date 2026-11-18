@@ -1,5 +1,49 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ObservedProjectGroup, ObservedSession, ObservedSnapshot } from '../lib/observed-store';
+import type { ObservedProjectGroup, ObservedSession, ObservedSnapshot, ObserveApi, SessionCopyInventory } from '../lib/observed-store';
+
+function SessionCopyControls({ api }: { api: ObserveApi }) {
+  const [inventory, setInventory] = useState<SessionCopyInventory>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
+  const run = async (remove?: { preparationId: string; revision: string }) => {
+    if (inFlight.current || !api.listSessionCopies) return;
+    inFlight.current = true; setBusy(true); setError('');
+    try {
+      if (remove) {
+        const result = await api.discardSessionCopy!(remove.preparationId, remove.revision);
+        if (!result.ok) setError(result.error ?? '备份删除未完成，请刷新后检查');
+      }
+      const result = await api.listSessionCopies();
+      if (result.ok && result.inventory) setInventory(result.inventory);
+      else { setInventory(undefined); setError(result.error ?? '备份列表暂不可用'); }
+    } catch { setInventory(undefined); setError('备份管理暂不可用，请重试'); }
+    finally { inFlight.current = false; setBusy(false); }
+  };
+  const size = (bytes: number) => bytes < 1024 ? `${bytes} B`
+    : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(2)} KiB` : `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
+  return <details aria-label="本机会话备份">
+    <summary>本机会话备份</summary>
+    <p>备份含会话历史，仅保存在本机，默认保留至手动删除。停用扫描不会删除备份。</p>
+    <button type="button" disabled={busy} onClick={() => void run()}>刷新备份列表</button>
+    {error && <p role="alert">{error}</p>}
+    {inventory && <>
+      <p>{inventory.entries.length} 份记录 · {inventory.blocked ? '已知占用' : '占用'} {size(inventory.storedBytes)} · 上限 {inventory.limits.count} 份 / {size(inventory.limits.bytes)}</p>
+      <p>达到上限时暂停新增备份，不会自动删除已有记录。</p>
+      {inventory.blocked && <p role="alert">部分文件无法核对，占用可能不完整；新增备份已暂停，请先检查本机存储。</p>}
+      {inventory.entries.length === 0 && <p>没有已保存的会话备份。</p>}
+      <ul>{inventory.entries.map(row => <li key={row.preparationId}>
+        <span>{row.clientKind === 'codex' ? 'Codex · ' : row.clientKind === 'claude-code' ? 'Claude · ' : ''}
+          {row.createdAt ? `${new Date(row.createdAt).toLocaleString()} · ` : ''}
+          {row.state === 'prepared' ? '准备记录' : row.state === 'incomplete' ? '不完整记录' : '待检查'} · {size(row.storedBytes)}</span>
+        <p>记录 {row.preparationId}</p>
+        {api.discardSessionCopy && row.revision && <button type="button" disabled={busy}
+          aria-label={`删除备份 ${row.preparationId}`}
+          onClick={() => void run({ preparationId: row.preparationId, revision: row.revision! })}>删除备份</button>}
+      </li>)}</ul>
+    </>}
+  </details>;
+}
 
 type IgnoreSession = (id: string) => void;
 function SessionRow({ session: s, showProjectName = false, ignore, busy }: {
@@ -76,6 +120,7 @@ export function ScanControls({ snapshot, reviewRequest = 0 }: { snapshot: Observ
     {error && <span role="alert">{error}</span>}
     {snapshot.diagnostics?.includes('ownership-unavailable') && <p role="status">会话归属登记暂不可读，相关会话保持待核对。</p>}
     {preferencesUnavailable && <p role="alert">忽略记录暂不可读，扫描已暂停。确认重置后再恢复显示。</p>}
+    {api.listSessionCopies && <SessionCopyControls api={api} />}
     {snapshot.access?.enabled && Boolean(snapshot.pendingDirectories?.length) && <section className="tasks-scan-pending" aria-label="待授权目录">
       <strong>待授权目录 · {snapshot.pendingDirectories!.length} 项</strong>
       <p>这里只读取了会话标识和目录元数据，尚未读取这些目录的会话标题与状态。确认授权只开启本机只读扫描。</p>

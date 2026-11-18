@@ -21,6 +21,11 @@ const enabledSnapshot = { sessions: [
   ], pendingDirectories: [{ key: 'a'.repeat(64), path: 'C:/Projects/pending-private', label: 'pending-private', sessionCount: 2 }],
   hidden: { sessions: 0, directories: 0 }, scannedAt: 1 };
 const state = window.__scanTest = { allowCalls: 0, reviewCalls: 0, completed: 0, result: 'ok' };
+state.backupCalls = 0;
+state.backups = [
+  { preparationId: '019a6cf7-1200-7000-8000-000000000001', state: 'prepared', clientKind: 'codex', createdAt: '2026-11-18T10:00:00.000Z', storedBytes: 2048, revision: 'a'.repeat(64) },
+  { preparationId: '019a6cf7-1200-7000-8000-000000000002', state: 'incomplete', storedBytes: 1024, revision: 'b'.repeat(64) },
+];
 const result = async () => {
   if (state.result === 'deferred') await new Promise((resolve) => { state.release = resolve; });
   if (state.result === 'cancel') return { ok: true, canceled: true };
@@ -28,6 +33,17 @@ const result = async () => {
   return { ok: true };
 };
 window.vibeMeet = { observe: {
+  listSessionCopies: async () => {
+    if (state.backupListError) throw new Error('unavailable');
+    return { ok: true, inventory: { entries: state.backups, storedBytes: state.backups.reduce((sum, row) => sum + row.storedBytes, 0),
+      blocked: false, limits: { count: 20, bytes: 512 * 1024 * 1024 } } };
+  },
+  discardSessionCopy: async (preparationId, revision) => {
+    state.backupCalls++; state.lastBackupRequest = { preparationId, revision };
+    const r = await result();
+    if (r.ok && !r.canceled) state.backups = state.backups.filter(row => row.preparationId !== preparationId);
+    return r;
+  },
   allowDirectory: async () => {
     state.allowCalls++; const r = await result();
     if (r.ok && !r.canceled) update(enabledSnapshot);

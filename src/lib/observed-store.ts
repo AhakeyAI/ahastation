@@ -75,6 +75,17 @@ export interface ObserveApi {
   ignoreDirectory?: (key: string) => Promise<{ ok: boolean; error?: string }>;
   ignoreSession?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   restoreHidden?: () => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+  listSessionCopies?: () => Promise<{ ok: boolean; error?: string; inventory?: SessionCopyInventory }>;
+  discardSessionCopy?: (preparationId: string, revision: string) => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
+}
+
+/** Metadata only; this API cannot read backup contents or start a session. */
+export interface SessionCopyInventory {
+  entries: Array<{ preparationId: string; state: 'prepared' | 'incomplete' | 'unavailable';
+    clientKind?: 'claude-code' | 'codex'; createdAt?: string; storedBytes: number; revision?: string }>;
+  storedBytes: number;
+  blocked: boolean;
+  limits: { count: number; bytes: number };
 }
 
 type Listener = () => void;

@@ -11,13 +11,14 @@ import { listClaudeTranscripts } from './statefiles/claude-projects.js';
 import { listCodexRollouts } from './statefiles/codex-sessions.js';
 import { sha1 } from './util.js';
 import type { ObservedSession, ObservedSnapshot } from './types.js';
+import { SessionCopyStorage, SessionCopyStorageError, withSessionCopyStorage } from './session-copy-storage.js';
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const ID = /^[a-f0-9]{40}$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 export type SessionCopyErrorCode = 'session-unavailable' | 'scan-access-changed' | 'ownership-changed'
-  | 'source-unavailable' | 'source-ambiguous' | 'source-changed' | 'source-too-large' | 'storage-unavailable' | 'busy';
+  | 'source-unavailable' | 'source-ambiguous' | 'source-changed' | 'source-too-large' | 'storage-unavailable' | 'storage-full' | 'busy';
 export class SessionCopyError extends Error {
   constructor(readonly code: SessionCopyErrorCode) { super(code); this.name = 'SessionCopyError'; }
 }
@@ -99,9 +100,10 @@ export class SessionCopyPreparer {
   async prepare(observedId: string): Promise<PreparedSessionCopy> {
     if (this.busy) fail('busy');
     this.busy = true;
-    try { return await this.prepareOnce(observedId); }
+    try { return await withSessionCopyStorage(this.options.userData, () => this.prepareOnce(observedId)); }
     catch (error) {
       if (error instanceof SessionCopyError) throw error;
+      if (error instanceof SessionCopyStorageError && ['busy', 'storage-full'].includes(error.code)) fail(error.code as 'busy' | 'storage-full');
       // Never return an OS error carrying history paths or content to a caller.
       fail('storage-unavailable');
     } finally { this.busy = false; }
@@ -173,6 +175,9 @@ export class SessionCopyPreparer {
       const stat = await fs.lstat(parent);
       if (!stat.isDirectory() || stat.isSymbolicLink() || await fs.realpath(parent) !== parent) fail('storage-unavailable');
     }
+    const capacityStat = await confinedFile(sourceRoot, source);
+    // Reserve both byte copies and the bounded audit before creating a folder.
+    await new SessionCopyStorage(this.options.userData).assertCapacity(capacityStat.size * 2 + 8192);
     const preparationId = randomUUID(), folder = join(parent, preparationId);
     await fs.mkdir(folder, { mode: 0o700 });
     const directories = new Map([[folder, await fs.lstat(folder)]]), files = new Map<string, Stats>();
@@ -191,6 +196,7 @@ export class SessionCopyPreparer {
       const { handle, stat } = await openSource(sourceRoot, source);
       let sha256: string;
       try {
+        if (!sameFile(capacityStat, stat)) fail('source-changed');
         await storage();
         const backup = await fs.open(backupPath, 'wx', 0o600); files.set(backupPath, await backup.stat());
         try { sha256 = await hashHandle(handle, stat.size, (chunk) => backup.writeFile(chunk), () => current()); await backup.sync(); }
